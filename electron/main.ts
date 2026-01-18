@@ -1,10 +1,5 @@
 import { app, BrowserWindow, protocol } from 'electron';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 if (require('electron-squirrel-startup')) {
@@ -141,7 +136,7 @@ if (isDev) {
       debug: true,
       watchRenderer: false, // Next.js handles renderer hot reload
     });
-  } catch (err) {
+  } catch {
     // electron-reloader not installed in dev mode
   }
 }
