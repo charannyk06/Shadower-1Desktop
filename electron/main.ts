@@ -74,12 +74,41 @@ function createWindow() {
 }
 
 // App lifecycle events
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Register file protocol for local file access
   protocol.registerFileProtocol('file', (request, callback) => {
     const pathname = decodeURI(request.url.replace('file:///', ''));
     callback(pathname);
   });
+
+  // Initialize database
+  try {
+    const { initializeDatabase, createDefaultUser } = require('./services/database');
+    console.log('[Main] Initializing database...');
+    initializeDatabase();
+    await createDefaultUser();
+    console.log('[Main] Database initialized successfully');
+  } catch (error) {
+    console.error('[Main] Failed to initialize database:', error);
+  }
+
+  // Register IPC handlers
+  try {
+    const { registerChatHandlers } = require('./ipc/chat');
+    const { registerAgentHandlers } = require('./ipc/agents');
+    const { registerWorkflowHandlers } = require('./ipc/workflows');
+    const { registerMcpHandlers } = require('./ipc/mcp');
+    const { registerUserHandlers } = require('./ipc/user');
+
+    registerChatHandlers();
+    registerAgentHandlers();
+    registerWorkflowHandlers();
+    registerMcpHandlers();
+    registerUserHandlers();
+    console.log('[Main] IPC handlers registered successfully');
+  } catch (error) {
+    console.error('[Main] Failed to register IPC handlers:', error);
+  }
 
   createWindow();
 
@@ -100,7 +129,14 @@ app.on('window-all-closed', () => {
 
 // macOS: Quit app when user quits via Cmd+Q
 app.on('before-quit', () => {
-  // Cleanup tasks if needed
+  // Close database connection
+  try {
+    const { closeDatabase } = require('./services/database');
+    closeDatabase();
+    console.log('[Main] Database closed successfully');
+  } catch (error) {
+    console.error('[Main] Error closing database:', error);
+  }
 });
 
 // Handle any uncaught exceptions
