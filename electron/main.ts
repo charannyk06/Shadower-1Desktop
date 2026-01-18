@@ -92,6 +92,23 @@ app.whenReady().then(async () => {
     console.error('[Main] Failed to initialize database:', error);
   }
 
+  // Initialize vector services
+  try {
+    const { VectorStore } = require('./services/vector-store');
+    const { LocalEmbeddingService } = require('./services/embedding');
+    console.log('[Main] Initializing vector services...');
+
+    const vectorStore = VectorStore.getInstance();
+    const embeddingService = LocalEmbeddingService.getInstance();
+
+    await vectorStore.initialize();
+    await embeddingService.initialize();
+
+    console.log('[Main] Vector services initialized successfully');
+  } catch (error) {
+    console.error('[Main] Failed to initialize vector services:', error);
+  }
+
   // Register IPC handlers
   try {
     const { registerChatHandlers } = require('./ipc/chat');
@@ -99,12 +116,14 @@ app.whenReady().then(async () => {
     const { registerWorkflowHandlers } = require('./ipc/workflows');
     const { registerMcpHandlers } = require('./ipc/mcp');
     const { registerUserHandlers } = require('./ipc/user');
+    const { registerVectorHandlers } = require('./ipc/vector');
 
     registerChatHandlers();
     registerAgentHandlers();
     registerWorkflowHandlers();
     registerMcpHandlers();
     registerUserHandlers();
+    registerVectorHandlers();
     console.log('[Main] IPC handlers registered successfully');
   } catch (error) {
     console.error('[Main] Failed to register IPC handlers:', error);
@@ -129,6 +148,16 @@ app.on('window-all-closed', () => {
 
 // macOS: Quit app when user quits via Cmd+Q
 app.on('before-quit', () => {
+  // Close vector services
+  try {
+    const { VectorStore } = require('./services/vector-store');
+    const vectorStore = VectorStore.getInstance();
+    vectorStore.close();
+    console.log('[Main] Vector services closed successfully');
+  } catch (error) {
+    console.error('[Main] Error closing vector services:', error);
+  }
+
   // Close database connection
   try {
     const { closeDatabase } = require('./services/database');
