@@ -8,8 +8,9 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
-    "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:build": "next build && electron-builder",
+    "electron:compile": "tsc -p tsconfig.electron.json",
+    "electron:dev": "pnpm electron:compile && concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:build": "pnpm electron:compile && cross-env ELECTRON_BUILD=true next build && electron-builder",
     "electron:start": "electron .",
     "dev:turbopack": "next dev --turbopack",
     "dev:https": "next dev --experimental-https",
@@ -187,7 +188,8 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wait-on": "^9.0.3"
   },
   "lint-staged": {
     "*.{js,json,mjs,ts,yaml,tsx,css}": [

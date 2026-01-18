@@ -1,14 +1,27 @@
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 
+// Determine build output type
 const BUILD_OUTPUT = process.env.NEXT_STANDALONE_OUTPUT
   ? "standalone"
-  : undefined;
+  : process.env.ELECTRON_BUILD === "true"
+    ? "export"
+    : undefined;
+
+// Check if building for Electron
+const isElectronBuild = process.env.ELECTRON_BUILD === "true";
 
 export default () => {
   const nextConfig: NextConfig = {
     output: BUILD_OUTPUT,
     cleanDistDir: true,
+    // For Electron static export, disable image optimization
+    ...(isElectronBuild && {
+      images: {
+        unoptimized: true,
+      },
+      trailingSlash: true,
+    }),
     devIndicators: {
       position: "bottom-right",
     },
@@ -26,10 +39,12 @@ export default () => {
       "pino",
       "pino-pretty",
       "thread-stream",
-      "@browserbasehq/stagehand",
       "drizzle-orm",
-      "pg",
-      "@neondatabase/serverless",
+      "better-sqlite3", // SQLite for local database
+      "duckdb", // DuckDB for vector search
+      "onnxruntime-node", // Local embeddings
+      "@xenova/transformers", // Local embeddings
+      "chrome-remote-interface", // Chrome DevTools protocol
     ],
     // Handle pino/thread-stream test file imports from stagehand
     webpack: (config, { isServer }) => {
@@ -63,11 +78,11 @@ export default () => {
                 "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com",
                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
                 "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
-                "img-src 'self' data: https: blob:",
-                // Allow connections to Browserbase, E2B, and other services
-                "connect-src 'self' https: wss:",
-                // Allow iframes for previews (office, blob storage, Collabora, E2B, etc.)
-                "frame-src 'self' blob: https://view.officeapps.live.com https://docs.google.com https://*.public.blob.vercel-storage.com https://*.browserbase.com https://*.e2b.dev https://*.e2b.app https://*.sslip.io",
+                "img-src 'self' data: https: blob: file:",
+                // Allow connections for API services
+                "connect-src 'self' https: wss: ws:",
+                // Allow iframes for previews (office, docs, etc.)
+                "frame-src 'self' blob: file: https://view.officeapps.live.com https://docs.google.com",
                 "frame-ancestors 'self'", // Prevent clickjacking
                 "object-src 'none'", // Block plugins (Flash, Java, etc.)
                 "base-uri 'self'", // Prevent base tag hijacking
