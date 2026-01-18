@@ -1,0 +1,105 @@
+import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
+
+const BUILD_OUTPUT = process.env.NEXT_STANDALONE_OUTPUT
+  ? "standalone"
+  : undefined;
+
+export default () => {
+  const nextConfig: NextConfig = {
+    output: BUILD_OUTPUT,
+    cleanDistDir: true,
+    devIndicators: {
+      position: "bottom-right",
+    },
+    env: {
+      NO_HTTPS: process.env.NO_HTTPS,
+    },
+    turbopack: {
+      root: process.cwd(),
+    },
+    experimental: {
+      taint: true,
+      authInterrupts: true,
+    },
+    serverExternalPackages: [
+      "pino",
+      "pino-pretty",
+      "thread-stream",
+      "@browserbasehq/stagehand",
+      "drizzle-orm",
+      "pg",
+      "@neondatabase/serverless",
+    ],
+    // Handle pino/thread-stream test file imports from stagehand
+    webpack: (config, { isServer }) => {
+      if (isServer) {
+        // Externalize packages that have issues with Next.js bundling
+        config.externals = config.externals || [];
+        config.externals.push({
+          "thread-stream": "commonjs thread-stream",
+          pino: "commonjs pino",
+          "pino-pretty": "commonjs pino-pretty",
+        });
+      }
+      return config;
+    },
+    async headers() {
+      return [
+        {
+          // Apply headers to all routes
+          source: "/:path*",
+          headers: [
+            {
+              key: "X-Frame-Options",
+              value: "SAMEORIGIN", // Allow iframes from same origin (needed for theater mode preview)
+            },
+            {
+              key: "Content-Security-Policy",
+              value: [
+                "default-src 'self'",
+                // NOTE: 'unsafe-inline' 'unsafe-eval' needed for CSS-in-JS (Tailwind) and dynamic scripts
+                // Allow CDNs for fragment previews (Tailwind CDN, Chart.js, etc.)
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com",
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net",
+                "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+                "img-src 'self' data: https: blob:",
+                // Allow connections to Browserbase, E2B, and other services
+                "connect-src 'self' https: wss:",
+                // Allow iframes for previews (office, blob storage, Collabora, E2B, etc.)
+                "frame-src 'self' blob: https://view.officeapps.live.com https://docs.google.com https://*.public.blob.vercel-storage.com https://*.browserbase.com https://*.e2b.dev https://*.e2b.app https://*.sslip.io",
+                "frame-ancestors 'self'", // Prevent clickjacking
+                "object-src 'none'", // Block plugins (Flash, Java, etc.)
+                "base-uri 'self'", // Prevent base tag hijacking
+                "form-action 'self'", // Restrict form submissions
+                "worker-src 'self' blob:", // Allow web workers
+                "upgrade-insecure-requests", // Force HTTPS
+              ].join("; "),
+            },
+            {
+              // Permissions policy for camera/microphone (if desktop preview needs them)
+              key: "Permissions-Policy",
+              value: "camera=(), microphone=(), geolocation=()",
+            },
+          ],
+        },
+        {
+          // Browser stream endpoint needs to allow SSE
+          source: "/api/browser/stream",
+          headers: [
+            {
+              key: "Cache-Control",
+              value: "no-cache, no-transform",
+            },
+            {
+              key: "X-Accel-Buffering",
+              value: "no", // Disable buffering for SSE
+            },
+          ],
+        },
+      ];
+    },
+  };
+  const withNextIntl = createNextIntlPlugin();
+  return withNextIntl(nextConfig);
+};

@@ -1,0 +1,824 @@
+import {
+  UIMessage,
+  convertToModelMessages,
+  generateObject,
+  generateText,
+} from "ai";
+import { getComposioClientForUser, isComposioEnabled } from "lib/ai/composio";
+import { mcpClientsManager } from "lib/ai/mcp/mcp-manager";
+import { customModelProvider } from "lib/ai/models";
+import { DefaultToolName } from "lib/ai/tools";
+import {
+  exaContentsToolForWorkflow,
+  exaSearchToolForWorkflow,
+} from "lib/ai/tools/web/web-search";
+import {
+  SERVICE_CREDIT_COSTS,
+  trackLLMUsage,
+  trackWebSearch,
+} from "lib/billing";
+import { getModelMultiplier } from "lib/billing/model-multipliers";
+import { subscriptionRepository } from "lib/db/repository";
+import { AppError } from "lib/errors";
+import { jsonSchemaToZod } from "lib/json-schema-to-zod";
+import { toAny } from "lib/utils";
+import { checkConditionBranch } from "../condition";
+import {
+  convertTiptapJsonToAiMessage,
+  convertTiptapJsonToText,
+} from "../shared.workflow";
+import {
+  ComposioTool,
+  ConditionNodeData,
+  DefaultTool,
+  HttpNodeData,
+  InputNodeData,
+  LLMNodeData,
+  MCPTool,
+  OutputNodeData,
+  OutputSchemaSourceKey,
+  TemplateNodeData,
+  ToolNodeData,
+  WorkflowNodeData,
+  WorkflowToolKey,
+} from "../workflow.interface";
+import { WorkflowRuntimeState } from "./graph-store";
+
+/**
+ * Interface for node executor functions.
+ * Each node type implements this interface to define its execution behavior.
+ *
+ * @param input - Contains the node data and current workflow state
+ * @returns Object with optional input and output data to be stored in workflow state
+ */
+export type NodeExecutor<T extends WorkflowNodeData = any> = (input: {
+  node: T;
+  state: WorkflowRuntimeState;
+}) =>
+  | Promise<{
+      input?: any; // Input data used by this node (for debugging/history)
+      output?: any; // Output data produced by this node (available to subsequent nodes)
+    }>
+  | {
+      input?: any;
+      output?: any;
+    };
+
+/**
+ * Input Node Executor
+ * Entry point of the workflow - passes the initial query data to subsequent nodes
+ */
+export const inputNodeExecutor: NodeExecutor<InputNodeData> = ({ state }) => {
+  return {
+    output: state.query, // Pass through the initial workflow input
+  };
+};
+
+/**
+ * Output Node Executor
+ * Exit point of the workflow - collects data from specified source nodes
+ * and combines them into the final workflow result
+ */
+export const outputNodeExecutor: NodeExecutor<OutputNodeData> = ({
+  node,
+  state,
+}) => {
+  return {
+    output: node.outputData.reduce(
+      (acc, cur) => {
+        // Collect data from each configured source node
+        // Handle missing source gracefully
+        if (cur.source && cur.source.nodeId) {
+          const value = state.getOutput(cur.source);
+          acc[cur.key] = value;
+        } else {
+          acc[cur.key] = undefined;
+        }
+        return acc;
+      },
+      {} as Record<string, any>,
+    ),
+  };
+};
+
+/**
+ * LLM Node Executor
+ * Executes Large Language Model interactions with support for:
+ * - Multiple messages (system, user, assistant)
+ * - References to previous node outputs via mentions
+ * - Configurable model selection
+ */
+export const llmNodeExecutor: NodeExecutor<LLMNodeData> = async ({
+  node,
+  state,
+}) => {
+  const model = customModelProvider.getModel(node.model);
+
+  // Convert TipTap JSON messages to AI SDK format, resolving mentions to actual data
+  const messages: Omit<UIMessage, "id">[] = node.messages.map((message) =>
+    convertTiptapJsonToAiMessage({
+      role: message.role,
+      getOutput: state.getOutput, // Provides access to previous node outputs
+      json: message.content,
+    }),
+  );
+
+  // Validate that we have meaningful messages with content
+  let hasContent = messages.some(
+    (msg) =>
+      msg.parts &&
+      msg.parts.length > 0 &&
+      msg.parts.some((p: any) => p.text && p.text.trim() !== ""),
+  );
+
+  // If no content, try to create a fallback message with available context
+  if (!hasContent) {
+    // Get all available outputs from previous nodes to build context
+    const availableData: Record<string, any> = {};
+    for (const storeNode of state.nodes) {
+      if (storeNode.id !== node.id) {
+        const output = state.outputs.get(storeNode.id);
+        if (output !== undefined) {
+          availableData[storeNode.name || storeNode.id] = output;
+        }
+      }
+    }
+
+    if (Object.keys(availableData).length > 0) {
+      // Create a fallback message with available context
+      const contextStr = JSON.stringify(availableData, null, 2);
+      const fallbackText = `Based on the workflow context, provide a helpful response.\n\nAvailable data:\n\`\`\`json\n${contextStr}\n\`\`\``;
+
+      messages.length = 0; // Clear existing messages
+      messages.push({
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: fallbackText }],
+      });
+
+      hasContent = true;
+    }
+  }
+
+  if (!hasContent) {
+    throw new Error(
+      `LLM node "${node.name}" has no input content. ` +
+        `Configure the messages with content referencing previous node outputs like {{previousNode.output.field}}.`,
+    );
+  }
+
+  // Safely check if this should be a text response
+  // Default to text response if outputSchema is not properly configured
+  const answerSchema = node.outputSchema?.properties?.answer;
+  const isTextResponse = !answerSchema || answerSchema.type === "string";
+
+  state.setInput(node.id, {
+    chatModel: node.model,
+    messages,
+    responseFormat: isTextResponse ? "text" : "object",
+  });
+
+  // Helper to track LLM usage for workflow nodes with multiplier
+  const trackWorkflowLLMUsage = (usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  }) => {
+    if (!state.userId) return;
+
+    const inputTokens = usage.inputTokens;
+    const outputTokens = usage.outputTokens;
+    const actualTokens = usage.totalTokens;
+
+    // Apply model multiplier
+    const multiplier = getModelMultiplier(
+      node.model.model,
+      node.model.provider,
+    );
+    const effectiveTokens = Math.ceil(actualTokens * multiplier);
+
+    trackLLMUsage({
+      userId: state.userId,
+      model: node.model.model,
+      provider: node.model.provider,
+      inputTokens: Math.ceil(inputTokens * multiplier),
+      outputTokens: Math.ceil(outputTokens * multiplier),
+      totalTokens: effectiveTokens,
+    }).catch(() => {}); // Silently fail for workflow nodes
+
+    subscriptionRepository
+      .recordUsageEvent({
+        userId: state.userId,
+        eventType: "llm_tokens",
+        amount: String(effectiveTokens),
+        metadata: {
+          model: node.model.model,
+          provider: node.model.provider,
+          actualTokens,
+          multiplier,
+          creditsConsumed: effectiveTokens,
+          inputTokens,
+          outputTokens,
+          source: "workflow_llm_node",
+          nodeId: node.id,
+          nodeName: node.name,
+        },
+      })
+      .catch(() => {}); // Silently fail for workflow nodes
+  };
+
+  if (isTextResponse) {
+    const response = await generateText({
+      model,
+      messages: await convertToModelMessages(messages),
+    });
+
+    // Track LLM usage for billing
+    if (response.usage) {
+      trackWorkflowLLMUsage({
+        inputTokens: response.usage.inputTokens || 0,
+        outputTokens: response.usage.outputTokens || 0,
+        totalTokens: response.usage.totalTokens || 0,
+      });
+    }
+
+    return {
+      output: {
+        totalTokens: response.usage?.totalTokens || 0,
+        answer: response.text,
+      },
+    };
+  }
+
+  const response = await generateObject({
+    model,
+    messages: await convertToModelMessages(messages),
+    schema: jsonSchemaToZod(answerSchema),
+    maxRetries: 3,
+  });
+
+  // Track LLM usage for billing
+  if (response.usage) {
+    trackWorkflowLLMUsage({
+      inputTokens: response.usage.inputTokens || 0,
+      outputTokens: response.usage.outputTokens || 0,
+      totalTokens: response.usage.totalTokens || 0,
+    });
+  }
+
+  return {
+    output: {
+      totalTokens: response.usage?.totalTokens || 0,
+      answer: response.object,
+    },
+  };
+};
+
+/**
+ * Condition Node Executor
+ * Evaluates conditional logic and determines which branch(es) to execute next.
+ * Supports if-elseIf-else structure with AND/OR logical operators.
+ */
+export const conditionNodeExecutor: NodeExecutor<ConditionNodeData> = async ({
+  node,
+  state,
+}) => {
+  // Evaluate conditions in order: if, then elseIf branches, finally else
+  const okBranch =
+    [node.branches.if, ...(node.branches.elseIf || [])].find((branch) => {
+      return checkConditionBranch(branch, state.getOutput);
+    }) || node.branches.else;
+
+  // Find the target nodes for the selected branch
+  const nextNodes = state.edges
+    .filter(
+      (edge) =>
+        edge.uiConfig.sourceHandle === okBranch.id && edge.source == node.id,
+    )
+    .map((edge) => state.nodes.find((node) => node.id === edge.target)!)
+    .filter(Boolean);
+
+  return {
+    output: {
+      type: okBranch.type, // Which branch was taken
+      branch: okBranch.id, // Branch identifier
+      nextNodes, // Nodes to execute next (used by dynamic edge resolution)
+    },
+  };
+};
+
+// Helper: Collect context from previous nodes
+function collectNodeContext(
+  nodeId: string,
+  state: WorkflowRuntimeState,
+): Record<string, any> {
+  const availableData: Record<string, any> = {};
+  for (const storeNode of state.nodes) {
+    if (storeNode.id !== nodeId) {
+      const output = state.outputs.get(storeNode.id);
+      if (output !== undefined) {
+        availableData[storeNode.name || storeNode.id] = output;
+      }
+    }
+  }
+  return availableData;
+}
+
+// Helper: Build prompt for tool parameter generation
+function buildToolPrompt(
+  node: ToolNodeData,
+  state: WorkflowRuntimeState,
+): string {
+  const prompt: string | undefined = node.message
+    ? toAny(
+        convertTiptapJsonToAiMessage({
+          role: "user",
+          getOutput: state.getOutput,
+          json: node.message,
+        }),
+      ).parts[0]?.text
+    : undefined;
+
+  if (prompt && prompt.trim() !== "") {
+    return prompt;
+  }
+
+  const availableData = collectNodeContext(node.id, state);
+  if (Object.keys(availableData).length > 0) {
+    const contextStr = JSON.stringify(availableData, null, 2);
+    return `Execute the ${node.tool?.id || "tool"} with appropriate parameters based on the following context:\n\n${contextStr}`;
+  }
+
+  throw new Error(
+    `Tool node "${node.name}" has no input message and no context available. ` +
+      `Configure the message field with instructions or data references like {{previousNode.output.field}}.`,
+  );
+}
+
+// Helper: Track tool LLM usage for billing
+function trackToolLLMUsage(
+  state: WorkflowRuntimeState,
+  node: ToolNodeData,
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number },
+): void {
+  if (!state.userId) return;
+
+  const inputTokens = usage.inputTokens || 0;
+  const outputTokens = usage.outputTokens || 0;
+  const actualTokens = usage.totalTokens || 0;
+
+  const multiplier = getModelMultiplier(node.model.model, node.model.provider);
+  const effectiveTokens = Math.ceil(actualTokens * multiplier);
+
+  trackLLMUsage({
+    userId: state.userId,
+    model: node.model.model,
+    provider: node.model.provider,
+    inputTokens: Math.ceil(inputTokens * multiplier),
+    outputTokens: Math.ceil(outputTokens * multiplier),
+    totalTokens: effectiveTokens,
+  }).catch(() => {});
+
+  subscriptionRepository
+    .recordUsageEvent({
+      userId: state.userId,
+      eventType: "llm_tokens",
+      amount: String(effectiveTokens),
+      metadata: {
+        model: node.model.model,
+        provider: node.model.provider,
+        actualTokens,
+        multiplier,
+        creditsConsumed: effectiveTokens,
+        inputTokens,
+        outputTokens,
+        source: "workflow_tool_node",
+        nodeId: node.id,
+        nodeName: node.name,
+        toolId: node.tool?.id,
+      },
+    })
+    .catch(() => {});
+}
+
+// Helper: Execute MCP tool
+async function executeMcpTool(
+  tool: WorkflowToolKey & MCPTool,
+  parameter: unknown,
+): Promise<{ tool_result: unknown }> {
+  const toolResult = (await mcpClientsManager.toolCall(
+    tool.serverId,
+    tool.id,
+    parameter,
+  )) as { isError?: boolean; error?: { message?: string; name?: string } };
+
+  if (toolResult.isError) {
+    throw new Error(
+      toolResult.error?.message ||
+        toolResult.error?.name ||
+        JSON.stringify(toolResult),
+    );
+  }
+  return { tool_result: toolResult };
+}
+
+// Helper: Execute Composio tool
+async function executeComposioTool(
+  tool: WorkflowToolKey & ComposioTool,
+  parameter: unknown,
+  userId: string | undefined,
+): Promise<{ tool_result: unknown }> {
+  if (!userId) {
+    throw new Error(
+      "User context required for Composio tools. Workflow execution must include userId.",
+    );
+  }
+
+  if (!isComposioEnabled()) {
+    throw new Error(
+      "Composio integrations are not enabled. Please configure COMPOSIO_API_KEY.",
+    );
+  }
+
+  const client = getComposioClientForUser(userId);
+  if (!client) {
+    throw new Error("Could not create Composio client for user.");
+  }
+
+  const toolResult = await client.executeAction(
+    tool.id,
+    (parameter as Record<string, unknown>) || {},
+  );
+
+  if (toAny(toolResult)?.isError) {
+    throw new Error(
+      toAny(toolResult)?.error?.message ||
+        toAny(toolResult)?.error?.name ||
+        JSON.stringify(toolResult),
+    );
+  }
+  return { tool_result: toolResult };
+}
+
+// Helper: Execute app tool (WebSearch, WebContent)
+async function executeAppTool(
+  tool: WorkflowToolKey & DefaultTool,
+  parameter: unknown,
+): Promise<{ tool_result: unknown }> {
+  const executor =
+    tool.id === DefaultToolName.WebContent
+      ? exaContentsToolForWorkflow.execute
+      : tool.id === DefaultToolName.WebSearch
+        ? exaSearchToolForWorkflow.execute
+        : null;
+
+  if (!executor) {
+    throw new Error(
+      `Unknown app tool: "${tool.id}". Only WebSearch and WebContent are supported as app-tools.`,
+    );
+  }
+
+  const toolResult = await executor(parameter, {
+    messages: [],
+    toolCallId: "",
+  });
+  return { tool_result: toolResult };
+}
+
+// Helper: Track web search usage for billing
+function trackWebSearchUsage(
+  state: WorkflowRuntimeState,
+  node: ToolNodeData,
+  parameter: any,
+): void {
+  if (!state.userId) return;
+  if (
+    node.tool?.id !== DefaultToolName.WebSearch &&
+    node.tool?.id !== DefaultToolName.WebContent
+  ) {
+    return;
+  }
+
+  const searchQuery = parameter?.query || parameter?.url || "";
+
+  trackWebSearch({
+    userId: state.userId,
+    query: searchQuery,
+    toolName: node.tool.id,
+  }).catch(() => {});
+
+  subscriptionRepository
+    .recordUsageEvent({
+      userId: state.userId,
+      eventType: "web_search",
+      amount: "1",
+      metadata: {
+        toolName: node.tool.id,
+        query: searchQuery,
+        creditsConsumed: SERVICE_CREDIT_COSTS.webSearchPerQuery,
+        source: "workflow_tool_node",
+        nodeId: node.id,
+        nodeName: node.name,
+      },
+    })
+    .catch(() => {});
+}
+
+/**
+ * Tool Node Executor
+ * Executes external tools (primarily MCP tools) with optional LLM-generated parameters.
+ *
+ * Workflow:
+ * 1. If tool has parameter schema, use LLM to generate parameters from message
+ * 2. Execute the tool with generated or empty parameters
+ * 3. Return the tool execution result
+ */
+export const toolNodeExecutor: NodeExecutor<ToolNodeData> = async ({
+  node,
+  state,
+}) => {
+  const result: { input: any; output: any } = {
+    input: undefined,
+    output: undefined,
+  };
+
+  if (!node.tool) throw new Error("Tool not found");
+
+  // Handle parameter generation
+  if (!node.tool?.parameterSchema) {
+    result.input = { parameter: undefined };
+  } else {
+    const validPrompt = buildToolPrompt(node, state);
+
+    const response = await generateText({
+      model: customModelProvider.getModel(node.model),
+      toolChoice: "required",
+      prompt: validPrompt,
+      tools: {
+        [node.tool.id]: {
+          description: node.tool.description,
+          inputSchema: jsonSchemaToZod(node.tool.parameterSchema),
+        },
+      },
+    });
+
+    if (response.usage) {
+      trackToolLLMUsage(state, node, {
+        inputTokens: response.usage.inputTokens || 0,
+        outputTokens: response.usage.outputTokens || 0,
+        totalTokens: response.usage.totalTokens || 0,
+      });
+    }
+
+    result.input = {
+      parameter: response.toolCalls.find((call) => call.input)?.input,
+      prompt: validPrompt,
+    };
+  }
+
+  // Execute the tool based on its type
+  const toolType = node.tool.type;
+  if (toolType === "mcp-tool") {
+    result.output = await executeMcpTool(node.tool, result.input.parameter);
+  } else if (toolType === "composio-tool") {
+    result.output = await executeComposioTool(
+      node.tool,
+      result.input.parameter,
+      state.userId,
+    );
+  } else if (toolType === "app-tool") {
+    result.output = await executeAppTool(node.tool, result.input.parameter);
+    trackWebSearchUsage(state, node, result.input.parameter);
+  } else {
+    result.output = {
+      tool_result: { error: `Not implemented "${toAny(node.tool)?.type}"` },
+    };
+  }
+
+  return result;
+};
+
+/**
+ * Resolves HttpValue to actual string value
+ * Handles string literals and references to other node outputs
+ */
+function resolveHttpValue(
+  value: string | OutputSchemaSourceKey | undefined,
+  getOutput: WorkflowRuntimeState["getOutput"],
+): string {
+  if (value === undefined) return "";
+
+  if (typeof value === "string") return value;
+
+  // It's an OutputSchemaSourceKey - resolve from node output
+  const output = getOutput(value);
+  if (output === undefined || output === null) return "";
+
+  if (typeof output === "string" || typeof output === "number") {
+    return output.toString();
+  }
+
+  // For objects/arrays, stringify them
+  return JSON.stringify(output);
+}
+
+/**
+ * HTTP Node Executor
+ * Performs HTTP requests to external services with configurable parameters.
+ *
+ * Features:
+ * - Support for all standard HTTP methods (GET, POST, PUT, DELETE, PATCH, HEAD)
+ * - Dynamic URL, headers, query parameters, and body with variable substitution
+ * - Configurable timeout
+ * - Comprehensive response data including status, headers, and body
+ */
+export const httpNodeExecutor: NodeExecutor<HttpNodeData> = async ({
+  node,
+  state,
+}) => {
+  // Default timeout of 30 seconds
+  const timeout = node.timeout || 30000;
+
+  // Resolve URL with variable substitution
+  const url = resolveHttpValue(node.url, state.getOutput);
+
+  if (!url) {
+    throw new Error("HTTP node requires a URL");
+  }
+
+  // Build query parameters
+  const searchParams = new URLSearchParams();
+  for (const queryParam of node.query || []) {
+    if (queryParam.key && queryParam.value !== undefined) {
+      const value = resolveHttpValue(queryParam.value, state.getOutput);
+      if (value) {
+        searchParams.append(queryParam.key, value);
+      }
+    }
+  }
+
+  // Construct final URL with query parameters
+  const finalUrl = searchParams.toString()
+    ? `${url}${url.includes("?") ? "&" : "?"}${searchParams.toString()}`
+    : url;
+
+  // Build headers
+  const headers: Record<string, string> = {};
+  for (const header of node.headers || []) {
+    if (header.key && header.value !== undefined) {
+      const value = resolveHttpValue(header.value, state.getOutput);
+      if (value) {
+        headers[header.key] = value;
+      }
+    }
+  }
+
+  // Build request body
+  let body: string | undefined;
+  if (node.body && ["POST", "PUT", "PATCH"].includes(node.method)) {
+    body = resolveHttpValue(node.body, state.getOutput);
+
+    // Set default content-type if not specified and body is present
+    if (body && !headers["Content-Type"] && !headers["content-type"]) {
+      // Try to detect JSON format
+      try {
+        JSON.parse(body);
+        headers["Content-Type"] = "application/json";
+      } catch {
+        headers["Content-Type"] = "text/plain";
+      }
+    }
+  }
+
+  const startTime = Date.now();
+
+  try {
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const response = await fetch(finalUrl, {
+      method: node.method,
+      headers,
+      body,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    // Parse response body as string
+    let responseBody: string;
+    try {
+      responseBody = await response.text();
+    } catch {
+      // If parsing fails, return empty string
+      responseBody = "";
+    }
+
+    // Convert response headers to object
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+
+    const duration = Date.now() - startTime;
+
+    const request = {
+      url: finalUrl,
+      method: node.method,
+      headers,
+      body,
+      timeout,
+    };
+    const responseData = {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      headers: responseHeaders,
+      body: responseBody,
+      duration,
+      size: response.headers.get("content-length")
+        ? Number.parseInt(response.headers.get("content-length")!, 10)
+        : undefined,
+    };
+    if (!response.ok) {
+      state.setInput(node.id, {
+        request,
+        response: responseData,
+      });
+      throw new AppError(response.status.toString(), response.statusText);
+    }
+
+    return {
+      input: {
+        request,
+      },
+      output: {
+        response: responseData,
+      },
+    };
+  } catch (error: any) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    const duration = Date.now() - startTime;
+
+    // Handle different types of errors
+    let errorMessage = error.message;
+    let errorType = "unknown";
+
+    if (error.name === "AbortError") {
+      errorMessage = `Request timeout after ${timeout}ms`;
+      errorType = "timeout";
+    } else if (error.code === "ENOTFOUND") {
+      errorMessage = `DNS resolution failed for ${finalUrl}`;
+      errorType = "dns";
+    } else if (error.code === "ECONNREFUSED") {
+      errorMessage = `Connection refused to ${finalUrl}`;
+      errorType = "connection";
+    }
+    state.setInput(node.id, {
+      request: { url: finalUrl, method: node.method, headers, body, timeout },
+      response: {
+        status: 0,
+        statusText: errorMessage,
+        ok: false,
+        headers: {},
+        body: "",
+        duration,
+        error: {
+          type: errorType,
+          message: errorMessage,
+        },
+      },
+    });
+    throw error;
+  }
+};
+
+/**
+ * Template Node Executor
+ * Processes text templates with variable substitution using TipTap content.
+ *
+ * Features:
+ * - Variable substitution from previous node outputs
+ * - Support for mentions in template content
+ * - Simple text output for easy consumption by other nodes
+ */
+export const templateNodeExecutor: NodeExecutor<TemplateNodeData> = ({
+  node,
+  state,
+}) => {
+  let text: string = "";
+  // Convert TipTap template content to text with variable substitution
+  if (node.template.type == "tiptap") {
+    text = convertTiptapJsonToText({
+      getOutput: state.getOutput, // Access to previous node outputs for variable substitution
+      json: node.template.tiptap,
+    });
+  }
+  return {
+    output: {
+      template: text,
+    },
+  };
+};

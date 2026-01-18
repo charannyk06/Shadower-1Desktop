@@ -1,0 +1,32 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "if [ -z \"$POSTGRES_URL\" ] && [ -z \"$DATABASE_URL\" ]; then pnpm build; else pnpm db:migrate && pnpm build; fi",
+  "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = \"main\" ] || [ \"$VERCEL_GIT_COMMIT_REF\" = \"new-feature\" ]; then exit 1; fi; exit 0",
+  "regions": ["iad1"],
+  "crons": [
+    {
+      "path": "/api/cron/cleanup",
+      "schedule": "*/5 * * * *"
+    }
+  ],
+  "functions": {
+    "app/**/*.ts": {
+      "memory": 1024,
+      "maxDuration": 120
+    },
+    "app/api/**/*.ts": {
+      "memory": 1536,
+      "maxDuration": 300
+    }
+  },
+  "git": {
+    "deploymentEnabled": {
+      "main": true,
+      "new-feature": true
+    }
+  },
+  "github": {
+    "enabled": true,
+    "silent": true
+  }
+}

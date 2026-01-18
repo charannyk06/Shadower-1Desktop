@@ -1,0 +1,203 @@
+"use client";
+import { DefaultToolName } from "lib/ai/tools";
+import { cn } from "lib/utils";
+import {
+  BookOpenIcon,
+  ChartColumnIcon,
+  ChartPieIcon,
+  CodeIcon,
+  ComputerIcon,
+  FileSpreadsheetIcon,
+  FileTextIcon,
+  GlobeIcon,
+  GripIcon,
+  HammerIcon,
+  HardDriveUploadIcon,
+  ImageIcon,
+  KeyboardIcon,
+  MousePointerClickIcon,
+  NavigationIcon,
+  PlayIcon,
+  PresentationIcon,
+  ScrollIcon,
+  SearchIcon,
+  ShieldIcon,
+  TableOfContents,
+  TimerIcon,
+  TrendingUpIcon,
+  UploadIcon,
+  XIcon,
+} from "lucide-react";
+import { useMemo } from "react";
+
+export function DefaultToolIcon({
+  name,
+  className,
+}: {
+  name: DefaultToolName;
+  className?: string;
+}) {
+  return useMemo(() => {
+    // Visualization tools
+    if (name === DefaultToolName.CreatePieChart) {
+      return (
+        <ChartPieIcon className={cn("size-3.5 text-blue-500", className)} />
+      );
+    }
+    if (name === DefaultToolName.CreateBarChart) {
+      return (
+        <ChartColumnIcon className={cn("size-3.5 text-blue-500", className)} />
+      );
+    }
+    if (name === DefaultToolName.CreateLineChart) {
+      return (
+        <TrendingUpIcon className={cn("size-3.5 text-blue-500", className)} />
+      );
+    }
+    if (name === DefaultToolName.CreateTable) {
+      return (
+        <TableOfContents className={cn("size-3.5 text-blue-500", className)} />
+      );
+    }
+
+    // Web tools
+    if (name === DefaultToolName.WebSearch) {
+      return <GlobeIcon className={cn("size-3.5 text-blue-400", className)} />;
+    }
+    if (name === DefaultToolName.WebContent) {
+      return <GlobeIcon className={cn("size-3.5 text-blue-400", className)} />;
+    }
+    if (name === DefaultToolName.Http) {
+      return (
+        <HardDriveUploadIcon
+          className={cn("size-3.5 text-blue-300", className)}
+        />
+      );
+    }
+
+    // Sandbox
+    if (name === DefaultToolName.Sandbox) {
+      return <CodeIcon className={cn("size-3.5 text-green-500", className)} />;
+    }
+
+    // Browser automation tools (Browserbase + Stagehand)
+    if (name === DefaultToolName.BrowserNavigate) {
+      return (
+        <NavigationIcon className={cn("size-3.5 text-orange-500", className)} />
+      );
+    }
+    if (name === DefaultToolName.BrowserAct) {
+      return <PlayIcon className={cn("size-3.5 text-orange-500", className)} />;
+    }
+    if (name === DefaultToolName.BrowserObserve) {
+      return (
+        <SearchIcon className={cn("size-3.5 text-orange-400", className)} />
+      );
+    }
+    if (name === DefaultToolName.BrowserExtract) {
+      return (
+        <FileTextIcon className={cn("size-3.5 text-orange-400", className)} />
+      );
+    }
+    if (name === DefaultToolName.BrowserScreenshot) {
+      return (
+        <ImageIcon className={cn("size-3.5 text-orange-500", className)} />
+      );
+    }
+    if (name === DefaultToolName.BrowserStealth) {
+      return (
+        <ShieldIcon className={cn("size-3.5 text-orange-600", className)} />
+      );
+    }
+    if (name === DefaultToolName.BrowserWait) {
+      return (
+        <TimerIcon className={cn("size-3.5 text-orange-400", className)} />
+      );
+    }
+    if (name === DefaultToolName.BrowserClose) {
+      return <XIcon className={cn("size-3.5 text-orange-500", className)} />;
+    }
+
+    // Desktop/Computer Use tools (E2B Desktop)
+    if (name === DefaultToolName.DesktopScreenshot) {
+      return (
+        <ComputerIcon className={cn("size-3.5 text-purple-500", className)} />
+      );
+    }
+    if (name === DefaultToolName.DesktopClick) {
+      return (
+        <MousePointerClickIcon
+          className={cn("size-3.5 text-purple-500", className)}
+        />
+      );
+    }
+    if (name === DefaultToolName.DesktopType) {
+      return (
+        <KeyboardIcon className={cn("size-3.5 text-purple-400", className)} />
+      );
+    }
+    if (name === DefaultToolName.DesktopPress) {
+      return (
+        <KeyboardIcon className={cn("size-3.5 text-purple-500", className)} />
+      );
+    }
+    if (name === DefaultToolName.DesktopScroll) {
+      return (
+        <ScrollIcon className={cn("size-3.5 text-purple-400", className)} />
+      );
+    }
+    if (name === DefaultToolName.DesktopDrag) {
+      return <GripIcon className={cn("size-3.5 text-purple-500", className)} />;
+    }
+    if (name === DefaultToolName.DesktopLaunchApp) {
+      return <PlayIcon className={cn("size-3.5 text-purple-600", className)} />;
+    }
+
+    // Data analysis tools
+    if (name === DefaultToolName.UploadDataset) {
+      return <UploadIcon className={cn("size-3.5 text-cyan-500", className)} />;
+    }
+    if (name === DefaultToolName.ProfileData) {
+      return <SearchIcon className={cn("size-3.5 text-cyan-400", className)} />;
+    }
+    if (name === DefaultToolName.AnalyzeData) {
+      return (
+        <ChartColumnIcon className={cn("size-3.5 text-cyan-500", className)} />
+      );
+    }
+    if (name === DefaultToolName.CreateVisualization) {
+      return (
+        <ChartPieIcon className={cn("size-3.5 text-cyan-500", className)} />
+      );
+    }
+
+    // Document generation tools
+    if (name === DefaultToolName.CreatePresentation) {
+      return (
+        <PresentationIcon
+          className={cn("size-3.5 text-amber-500", className)}
+        />
+      );
+    }
+    if (name === DefaultToolName.CreateDocument) {
+      return (
+        <FileTextIcon className={cn("size-3.5 text-amber-500", className)} />
+      );
+    }
+    if (name === DefaultToolName.CreateSpreadsheet) {
+      return (
+        <FileSpreadsheetIcon
+          className={cn("size-3.5 text-amber-500", className)}
+        />
+      );
+    }
+    // Research tools
+    if (name === DefaultToolName.DeepResearch) {
+      return (
+        <BookOpenIcon className={cn("size-3.5 text-indigo-500", className)} />
+      );
+    }
+
+    return <HammerIcon className={cn("size-3.5", className)} />;
+  }, [name, className]);
+}

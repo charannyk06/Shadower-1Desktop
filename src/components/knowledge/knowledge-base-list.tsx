@@ -1,0 +1,376 @@
+"use client";
+
+import { useState, useEffect, useCallback, useRef, useTransition } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { FileTextIcon, TrashIcon, Search, X } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "ui/card";
+import { Button } from "ui/button";
+import { Input } from "ui/input";
+import { Skeleton } from "ui/skeleton";
+import { TablePagination } from "ui/table-pagination";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "ui/alert-dialog";
+import { toast } from "sonner";
+import { useDebounce } from "@/hooks/use-debounce";
+import Form from "next/form";
+import { formatDistanceToNow } from "date-fns";
+
+interface KnowledgeBaseListProps {
+  userId: string;
+}
+
+interface KnowledgeBase {
+  id: string;
+  name: string;
+  description?: string;
+  files: Array<{
+    fileName: string;
+    chunks: number;
+    fileUrl?: string;
+    storageKey?: string;
+  }>;
+  totalChunks: number;
+  createdAt: string;
+}
+
+interface KnowledgeBasesResponse {
+  knowledgeBases: KnowledgeBase[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasMore: boolean;
+  };
+}
+
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 20;
+
+export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
+  const t = useTranslations("Knowledge");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [_, startTransition] = useTransition();
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Get URL params
+  const page = parseInt(searchParams.get("page") || String(DEFAULT_PAGE), 10);
+  const searchQuery = searchParams.get("search") || "";
+
+  // State
+  const [data, setData] = useState<KnowledgeBasesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingKnowledgeBaseId, setDeletingKnowledgeBaseId] = useState<
+    string | null
+  >(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Build URL helper
+  const buildUrl = useCallback(
+    (params: { page?: number; search?: string } = {}) => {
+      const newParams = new URLSearchParams();
+
+      const finalPage = params.page ?? page;
+      const finalSearch = params.search ?? searchQuery;
+
+      if (finalPage && finalPage !== DEFAULT_PAGE) {
+        newParams.set("page", finalPage.toString());
+      }
+      if (finalSearch) {
+        newParams.set("search", finalSearch);
+      }
+
+      const queryString = newParams.toString();
+      return queryString ? `${pathname}?${queryString}` : pathname;
+    },
+    [pathname, page, searchQuery],
+  );
+
+  // Debounced search submit
+  const submitForm = useCallback(() => {
+    formRef.current?.requestSubmit();
+  }, []);
+
+  const debouncedSetUrlQuery = useDebounce(submitForm, 300);
+
+  // Load knowledge bases
+  const loadKnowledgeBases = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: DEFAULT_LIMIT.toString(),
+        ...(searchQuery ? { search: searchQuery } : {}),
+      });
+
+      const response = await fetch(`/api/knowledge/bases?${params}`);
+      if (!response.ok) throw new Error("Failed to load knowledge bases");
+      const result = await response.json();
+
+      setData(result);
+    } catch (err: any) {
+      setError(err);
+      toast.error(t("failedToLoadMemories"), {
+        description: err.message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [page, searchQuery, t]);
+
+  useEffect(() => {
+    loadKnowledgeBases();
+  }, [loadKnowledgeBases]);
+
+  // Handle search input change
+  const handleSearchChange = () => {
+    debouncedSetUrlQuery();
+  };
+
+  // Handle delete
+  const handleDeleteClick = (knowledgeBaseId: string) => {
+    setDeletingKnowledgeBaseId(knowledgeBaseId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingKnowledgeBaseId) return;
+
+    setIsDeleting(true);
+    try {
+      const response = await fetch(
+        `/api/knowledge/bases/${deletingKnowledgeBaseId}`,
+        {
+          method: "DELETE",
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to delete knowledge base");
+      }
+
+      setDeleteDialogOpen(false);
+      setDeletingKnowledgeBaseId(null);
+      toast.success(t("knowledgeBaseDeleted"));
+
+      // Reload knowledge bases list
+      await loadKnowledgeBases();
+    } catch (error: any) {
+      toast.error(error.message || t("failedToDeleteKnowledgeBase"));
+      console.error("Failed to delete knowledge base:", error);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  if (loading && !data) {
+    return (
+      <div className="space-y-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-48 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (error || !data || data.knowledgeBases.length === 0) {
+    return (
+      <div className="space-y-4">
+        {/* Search Bar */}
+        <div className="relative flex-1 max-w-sm">
+          <Form action={pathname} ref={formRef}>
+            {page !== DEFAULT_PAGE && (
+              <input type="hidden" name="page" value={DEFAULT_PAGE} />
+            )}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                name="search"
+                placeholder={t("searchKnowledgeBases")}
+                defaultValue={searchQuery}
+                onChange={handleSearchChange}
+                className="pl-9 pr-9"
+              />
+              {searchQuery && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                  onClick={() => {
+                    startTransition(() => {
+                      router.push(buildUrl({ search: "", page: 1 }));
+                    });
+                  }}
+                >
+                  <X className="size-4" />
+                </Button>
+              )}
+            </div>
+          </Form>
+        </div>
+
+        <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+          <FileTextIcon className="size-12 mb-4" />
+          <p className="text-lg">
+            {searchQuery ? t("noKnowledgeBasesFound") : t("noKnowledgeBases")}
+          </p>
+          {!searchQuery && (
+            <p className="text-sm mt-2">
+              {t("createKnowledgeBaseToGetStarted")}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Search Bar */}
+      <div className="relative flex-1 max-w-sm">
+        <Form action={pathname} ref={formRef}>
+          {page !== DEFAULT_PAGE && (
+            <input type="hidden" name="page" value={DEFAULT_PAGE} />
+          )}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Input
+              name="search"
+              placeholder={t("searchKnowledgeBases")}
+              defaultValue={searchQuery}
+              onChange={handleSearchChange}
+              className="pl-9 pr-9"
+            />
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                onClick={() => {
+                  startTransition(() => {
+                    router.push(buildUrl({ search: "", page: 1 }));
+                  });
+                }}
+              >
+                <X className="size-4" />
+              </Button>
+            )}
+          </div>
+        </Form>
+      </div>
+
+      {/* Knowledge Bases List */}
+      <div className="flex flex-col gap-4">
+        {data.knowledgeBases.map((kb) => (
+          <Card key={kb.id}>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileTextIcon className="size-5" />
+                {kb.name}
+              </CardTitle>
+              {kb.description && (
+                <CardDescription>{kb.description}</CardDescription>
+              )}
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium">{kb.files.length}</span>{" "}
+                  {kb.files.length === 1 ? "file" : "files"} •{" "}
+                  <span className="font-medium">{kb.totalChunks}</span>{" "}
+                  {kb.totalChunks === 1 ? "chunk" : "chunks"}
+                </div>
+                <div className="flex flex-col gap-1">
+                  {kb.files.map((file, idx) => (
+                    <div
+                      key={idx}
+                      className="text-xs text-muted-foreground flex items-center gap-2"
+                    >
+                      <FileTextIcon className="size-3" />
+                      <span>{file.fileName}</span>
+                      <span className="text-[10px]">
+                        ({file.chunks} {file.chunks === 1 ? "chunk" : "chunks"})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-between items-center text-xs text-muted-foreground">
+              <span>
+                Created{" "}
+                {formatDistanceToNow(new Date(kb.createdAt), {
+                  addSuffix: true,
+                })}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleDeleteClick(kb.id)}
+                disabled={isDeleting && deletingKnowledgeBaseId === kb.id}
+              >
+                <TrashIcon className="size-4 mr-1" />
+                {isDeleting && deletingKnowledgeBaseId === kb.id
+                  ? t("deletingKnowledgeBase")
+                  : "Delete"}
+              </Button>
+            </CardFooter>
+          </Card>
+        ))}
+      </div>
+
+      {/* Pagination */}
+      {data.pagination.totalPages > 1 && (
+        <TablePagination
+          currentPage={data.pagination.page}
+          totalPages={data.pagination.totalPages}
+          buildUrl={({ page }) => buildUrl({ page })}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Knowledge Base?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("confirmDeleteKnowledgeBase")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? t("deletingKnowledgeBase") : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}

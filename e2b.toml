@@ -1,0 +1,18 @@
+# E2B Sandbox Template Configuration for Shadower
+# This defines a custom sandbox with pre-installed document generation packages
+
+# Template ID (generated after first build, or create a new one)
+template_id = "shadower-docs"
+
+# Template name (will be used to identify the template)
+template_name = "shadower-docs"
+
+# Dockerfile to use for building the template
+dockerfile = "e2b.Dockerfile"
+
+# Start command (uses the default code-interpreter start)
+start_cmd = "/root/.jupyter/start-up.sh"
+
+# CPU and memory configuration (optional - uses defaults if not specified)
+# cpu_count = 2
+# memory_mb = 512

@@ -1,0 +1,282 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    branches: [main, new-feature]
+
+concurrency:
+  group: e2e-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # Database
+      POSTGRES_URL: postgresql://testuser:testpass@localhost:5432/shadower_test
+
+      # Authentication
+      BETTER_AUTH_SECRET: test-secret-key-for-ci-only-not-for-production-use
+      BETTER_AUTH_URL: http://localhost:3000
+
+      # Application
+      NEXT_PUBLIC_BASE_URL: http://localhost:3000
+
+      # LLM Provider (OpenRouter with free models)
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      E2E_DEFAULT_MODEL: openRouter/gemini-2.0-flash-exp:free
+
+      # Sandbox Execution (E2B)
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+
+      # Browser Automation (Browserbase) - Optional: tests skip if not set
+      BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
+
+      # Collabora Integration - Optional: tests skip if not set
+      NEXT_PUBLIC_COLLABORA_URL: ${{ secrets.COLLABORA_URL }}
+      WOPI_SECRET: ${{ secrets.WOPI_SECRET }}
+
+      # Cerebras Provider - Optional: tests skip if not set
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+
+      # Vector Search (Qdrant) - Optional: tests skip if not set
+      QDRANT_URL: ${{ secrets.QDRANT_URL }}
+      QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      # Feature flags
+      DISABLE_SIGN_UP: 0
+      DISABLE_EMAIL_SIGN_IN: 0
+      FILE_BASED_MCP_CONFIG: false
+
+      # App Integrations (Composio)
+      COMPOSIO_API_KEY: ${{ secrets.COMPOSIO_API_KEY }}
+      COMPOSIO_ENABLED: 1
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: shadower_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10.2.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        name: Setup pnpm cache
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm playwright install chromium --with-deps
+
+      - name: Setup test environment
+        run: |
+          # Create minimal .env for Playwright (only non-runtime vars if needed)
+          touch .env
+
+      - name: Run database migrations
+        run: pnpm db:migrate
+
+      - name: Seed test users once before all tests
+        run: pnpm test:e2e:seed
+
+      - name: Build application
+        run: pnpm build:local
+
+      - name: Run E2E tests
+        run: pnpm test:e2e
+        # Tests include:
+        #
+        # === Model & Provider Tests ===
+        # - Dynamic models API route tests (tests/models/dynamic-models.spec.ts)
+        #   - Model selection and display name tests
+        #   - Provider icon visibility tests
+        #   - Model persistence and filtering tests
+        #   - Enhanced model capabilities (workflowGenerationSupport, isReasoningModel)
+        #   - Reasoning effort levels (o3, o4 models)
+        #   - Thinking levels (gemini-3, claude-opus models)
+        # - Model capabilities API tests (tests/providers/model-capabilities.spec.ts)
+        #   - workflowGenerationSupport field validation
+        #   - isReasoningModel flag for o1/o3/o4/deepseek models
+        #   - reasoningEffort levels (none, minimal, low, medium, high, xhigh)
+        #   - thinkingLevel levels (none, low, medium, high)
+        #   - nativeStructuredOutputs support detection
+        # - Cerebras provider tests (tests/providers/cerebras-provider.spec.ts)
+        #   - Cerebras model structure and display names
+        #   - gpt-oss tool restrictions (hasBuiltInTools)
+        #   Note: Skipped if CEREBRAS_API_KEY is not configured
+        #
+        # === Workflow Generation Tests ===
+        # - Workflow model validation (tests/workflow/workflow-model-validation.spec.ts)
+        #   - MODEL_UNSUPPORTED error for gpt-oss models
+        #   - MODEL_UNSUPPORTED error for computer-use models
+        #   - suggestedModels array in error responses
+        #   - modelCapabilities object in error responses
+        #   - Reasoning models (o3, o4, codex) allowed for workflows
+        #
+        # === Billing & Admin Tests ===
+        # - Billing dashboard tests (tests/billing/billing-page.spec.ts)
+        #   - User billing page access and navigation
+        #   - Billing tabs (Overview, Usage, Plans)
+        #   - Billing cycle toggle functionality
+        #   - Billing API routes
+        # - Referral page tests (tests/billing/referral-page.spec.ts)
+        #   - Referral code display and sharing
+        #   - Referral stats and how-it-works section
+        #   - Referral API routes
+        # - Admin billing tests (tests/admin/admin-billing.spec.ts)
+        #   - Admin billing dashboard access
+        #   - Promo codes management (create, toggle, list)
+        #   - Subscriptions management
+        #   - Admin billing navigation
+        #   - Non-admin access denial verification
+        #
+        # === Sandbox Execution Tests ===
+        # - Unified Sandbox Execution tests (tests/features/sandbox-execution.spec.ts)
+        #   - Python, JavaScript, TypeScript code execution
+        #   - Shell command execution (bash, npm, pip, etc.)
+        #   - File operations (read, write, list, delete)
+        #   - Thread context persistence across executions
+        #   - File upload API (POST /api/thread/[threadId]/files)
+        #   - File listing API (GET /api/thread/[threadId]/files)
+        #   - Error handling for invalid code/commands
+        #   - Integration tests for multi-step operations
+        #   - Timeout handling (60s CODE_EXECUTION_TIMEOUT_MS)
+        #   - File metadata with sandboxPath field
+        #   - Execution metadata tracking
+        #   Note: Sandbox tests are skipped if E2B_API_KEY is not configured
+        #
+        # === Document Agent Tests ===
+        # - Document Agent tests (tests/features/document-agent.spec.ts)
+        #   - PowerPoint presentation generation
+        #   - Word document generation
+        #   - Excel spreadsheet generation
+        #   - Custom color palettes for presentations
+        #   - Document editing capabilities
+        #   - Theater mode preview for documents
+        #   Note: Skipped if E2B_API_KEY is not configured
+        #
+        # === Browser Automation Tests ===
+        # - Browser Automation tests (tests/features/browser-automation.spec.ts)
+        #   - Website navigation using browser automation
+        #   - Browser screenshot capture
+        #   - Web page data extraction
+        #   - Web page interaction
+        #   - Browser tool invocation display
+        #   - Browser preview in theater mode
+        #   Note: Skipped if BROWSERBASE_API_KEY is not configured
+        #
+        # === Desktop Automation Tests ===
+        # - Desktop Automation tests (tests/features/desktop-automation.spec.ts)
+        #   - Desktop screenshot capture
+        #   - Desktop tool invocation display
+        #   - Desktop preview in theater mode
+        #   - Tool status badges
+        #   Note: Skipped if E2B_API_KEY is not configured
+        #
+        # === Collabora Integration Tests ===
+        # - Collabora Integration tests (tests/features/collabora-integration.spec.ts)
+        #   - Word document editing in Collabora editor
+        #   - Excel spreadsheet editing in Collabora editor
+        #   - PowerPoint presentation editing
+        #   - Collabora editor loading states
+        #   - WOPI protocol integration
+        #   Note: Skipped if COLLABORA_URL or WOPI_SECRET is not configured
+        #
+        # === Sub-Agent Views Tests ===
+        # - Sub-Agent Views tests (tests/features/sub-agent-views.spec.ts)
+        #   - Sub-agent tile display
+        #   - Sub-agent status and progress
+        #   - Sub-agent event timeline
+        #   - Tool call cards for sub-agents
+        #   - Tool call timeline visualization
+        #   - Tool status badges
+        #
+      # === Branding & Logo Tests ===
+      # - Branding Logo tests (tests/features/branding-logo.spec.ts)
+      #   - Logo display in sidebar header
+      #   - Logo display in animated logo component
+      #   - Logo instead of text in shareable card footer
+      #   - Logo in tool select dropdown for system items
+      #   - Logo in MCP card for system branding
+      #   - Verification of correct logo file (shadower-logo-final.png)
+      #
+      # === Knowledge Base & Vector Search Tests ===
+      # - Knowledge Base tests (tests/features/knowledge-base.spec.ts)
+      #   - Knowledge base creation with file upload
+      #   - Knowledge base listing and pagination
+      #   - Knowledge base search (semantic search)
+      #   - Knowledge base deletion
+      #   - Knowledge base file management
+      #   - Knowledge base API endpoints (GET, POST, DELETE)
+      #   Note: Skipped if QDRANT_URL is not configured
+      #
+      # - Memory Management tests (tests/features/memory-management.spec.ts)
+      #   - Memory listing with pagination
+      #   - Memory search (semantic search)
+      #   - Memory filtering by role (user/assistant)
+      #   - Memory creation, update, and deletion
+      #   - Bulk memory operations
+      #   - Memory API endpoints (GET, POST, PUT, DELETE)
+      #   Note: Skipped if QDRANT_URL is not configured
+      #
+      # - Semantic Search tests (tests/features/semantic-search.spec.ts)
+      #   - Semantic search API endpoint (POST /api/search/semantic)
+      #   - Batch semantic search (PUT /api/search/semantic)
+      #   - Search across collection types (documents, messages, knowledge)
+      #   - Search filters (userId, threadId, role, date range)
+      #   - Search performance metrics and caching
+      #   - Search result relevance scoring
+      #   - Hybrid search with keyword boosting
+      #   - Search service health and stats
+      #   Note: Skipped if QDRANT_URL is not configured
+      #
+      # - RAG Context Integration tests (tests/features/rag-context.spec.ts)
+      #   - RAG context building in chat responses
+      #   - Context retrieval from previous messages
+      #   - Context relevance scoring
+      #   - Context truncation and limits
+      #   - Context indicator display
+      #   - Context compaction
+      #   - Cross-thread context retrieval
+      #   - Message indexing for RAG
+      #   Note: Skipped if QDRANT_URL is not configured
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
