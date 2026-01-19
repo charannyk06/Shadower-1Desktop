@@ -1,13 +1,7 @@
-import { Tool, tool as createTool } from "ai";
+import { Tool } from "ai";
 import logger from "logger";
-import { z } from "zod";
 import { AppDefaultToolkit, DefaultToolName } from ".";
 import { httpFetchTool } from "./http/fetch";
-import {
-  SandboxExecutionContext,
-  createUnifiedSandboxTool,
-  unifiedSandboxTool,
-} from "./sandbox/unified-sandbox-tool";
 import { createBarChartTool } from "./visualization/create-bar-chart";
 import { createLineChartTool } from "./visualization/create-line-chart";
 import { createPieChartTool } from "./visualization/create-pie-chart";
@@ -38,13 +32,23 @@ import { rememberContextTool } from "./memory/remember-context";
 // Fragment tools (autonomous app generation)
 import { createFragmentTools } from "./fragment/fragment-tool";
 
-// Re-export for backwards compatibility
-export type { SandboxExecutionContext } from "./sandbox/unified-sandbox-tool";
-// Alias for backwards compatibility
-export type CodeExecutionContext = SandboxExecutionContext;
+import type { UIMessageStreamWriter } from "ai";
+import type { ChatModel } from "app-types/chat";
+
+/**
+ * Context for tool creation
+ * Used to pass thread and user context to tools that need it
+ */
+export interface ToolCreationContext {
+  threadId?: string;
+  userId: string;
+  dataStream?: UIMessageStreamWriter;
+  chatModel?: ChatModel;
+}
 
 /**
  * Static tool kit - used when thread context is not available
+ * All execution is local via Desktop tools and Browser tools
  */
 export const APP_DEFAULT_TOOL_KIT: Record<
   AppDefaultToolkit,
@@ -62,9 +66,6 @@ export const APP_DEFAULT_TOOL_KIT: Record<
   },
   [AppDefaultToolkit.Http]: {
     [DefaultToolName.Http]: httpFetchTool,
-  },
-  [AppDefaultToolkit.Sandbox]: {
-    [DefaultToolName.Sandbox]: unifiedSandboxTool,
   },
   // Browser automation tools (Local Chrome DevTools Protocol)
   [AppDefaultToolkit.Browser]: {
@@ -119,54 +120,21 @@ export const APP_DEFAULT_TOOL_KIT: Record<
 };
 
 /**
- * Creates a disabled sandbox tool that returns an error
- * Used when thread context is missing to prevent silent failures
- */
-function createDisabledSandboxTool(): Tool {
-  return createTool({
-    description:
-      "Code execution sandbox (UNAVAILABLE - session context missing). Cannot execute code without a valid thread context.",
-    inputSchema: z.object({
-      action: z.string().describe("The action to perform"),
-      code: z.string().optional().describe("Code to execute"),
-      language: z.string().optional().describe("Programming language"),
-      command: z.string().optional().describe("Shell command"),
-      path: z.string().optional().describe("File path"),
-      content: z.string().optional().describe("File content"),
-    }),
-    execute: async () => {
-      logger.error(
-        "[Sandbox] CRITICAL: Attempted to use sandbox without thread context",
-      );
-      return {
-        success: false,
-        STOP: true,
-        error:
-          "Sandbox unavailable: Thread context not initialized. This is a system error - the chat session may not be properly initialized. Please refresh the page and try again.",
-        instruction:
-          "Do NOT retry this tool call. Inform the user about the error and ask them to refresh the page.",
-      };
-    },
-  });
-}
-
-/**
- * Creates a tool kit with context-aware sandbox tools
- * When threadId and userId are provided, sandbox tools will persist
- * files across executions in the same thread
+ * Creates a tool kit with context-aware tools
+ * When threadId and userId are provided, tools will have proper context
  */
 export function createAppDefaultToolKit(
-  context?: SandboxExecutionContext,
+  context?: ToolCreationContext,
 ): Record<AppDefaultToolkit, Record<string, Tool>> {
   // Debug logging for context flow tracing
   logger.debug(
     `[Tool Kit] Creating toolkit with context: threadId=${context?.threadId}, userId=${context?.userId}`,
   );
 
-  // If no context, return tools with DISABLED sandbox that returns clear error
+  // If no context, return tools without context-specific features
   if (!context?.threadId || !context?.userId) {
-    logger.error(
-      "[Tool Kit] CRITICAL: Missing thread context - sandbox will be DISABLED to prevent loops!",
+    logger.warn(
+      "[Tool Kit] Missing thread context - some tools may have limited functionality",
     );
     return {
       [AppDefaultToolkit.Visualization]: {
@@ -181,9 +149,6 @@ export function createAppDefaultToolKit(
       },
       [AppDefaultToolkit.Http]: {
         [DefaultToolName.Http]: httpFetchTool,
-      },
-      [AppDefaultToolkit.Sandbox]: {
-        [DefaultToolName.Sandbox]: createDisabledSandboxTool(),
       },
       // Browser tools work without thread context
       [AppDefaultToolkit.Browser]: {
@@ -244,11 +209,9 @@ export function createAppDefaultToolKit(
   );
 
   // Create context-aware tools with dataStream support
-  // Note: dataStream would be passed through context if available
   const dataStream = context.dataStream;
 
   // Create context-aware browser tools with pre-injected userId and threadId
-  // This prevents the AI from inventing fake UUIDs like "user_1234" or "charannyan"
   const contextAwareBrowserTools = createBrowserToolsWithContext(
     context.userId,
     context.threadId || null,
@@ -268,13 +231,7 @@ export function createAppDefaultToolKit(
     [AppDefaultToolkit.Http]: {
       [DefaultToolName.Http]: httpFetchTool,
     },
-    [AppDefaultToolkit.Sandbox]: {
-      [DefaultToolName.Sandbox]: createUnifiedSandboxTool(context),
-      // DEPRECATED: Use createFragment for web apps, dashboards, games, and documents
-      // Sandbox tool will be removed in Phase 2 - kept for backward compatibility only
-    },
     // Browser automation tools (Local Chrome DevTools) - context-aware versions
-    // These tools have userId and threadId pre-injected so AI doesn't need to provide them
     [AppDefaultToolkit.Browser]: {
       [DefaultToolName.BrowserNavigate]:
         contextAwareBrowserTools.browser_navigate,

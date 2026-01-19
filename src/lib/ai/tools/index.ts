@@ -2,8 +2,7 @@ export enum AppDefaultToolkit {
   Visualization = "visualization",
   WebSearch = "webSearch",
   Http = "http",
-  Sandbox = "sandbox",
-  // Browser and Desktop automation toolkits
+  // Browser and Desktop automation toolkits (local execution)
   Browser = "browser",
   Desktop = "desktop",
   DataAnalysis = "dataAnalysis",
@@ -23,7 +22,6 @@ export enum DefaultToolName {
   WebSearch = "webSearch",
   WebContent = "webContent",
   Http = "http",
-  Sandbox = "sandbox",
   // Browser automation tools (Local Chrome DevTools Protocol)
   BrowserNavigate = "browserNavigate",
   BrowserAct = "browserAct",

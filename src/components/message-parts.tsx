@@ -723,17 +723,6 @@ const RememberContextToolInvocation = dynamic(
   },
 );
 
-const SandboxCodeExecutor = dynamic(
-  () =>
-    import("./tool-invocation/sandbox-code-executor").then(
-      (mod) => mod.SandboxCodeExecutor,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
-);
-
 const ImageGeneratorToolInvocation = dynamic(
   () =>
     import("./tool-invocation/image-generator").then(
@@ -973,18 +962,6 @@ export const ToolMessagePart = memo(
 
       if (toolName === ImageToolName) {
         return <ImageGeneratorToolInvocation part={part} />;
-      }
-
-      if (toolName === DefaultToolName.Sandbox) {
-        return (
-          <SandboxCodeExecutor
-            part={part}
-            key={part.toolCallId}
-            onResult={onToolCallDirect}
-            type="sandbox"
-            threadId={threadId}
-          />
-        );
       }
 
       // Agent planning tools

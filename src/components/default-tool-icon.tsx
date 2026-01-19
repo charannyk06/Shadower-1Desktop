@@ -5,7 +5,6 @@ import {
   BookOpenIcon,
   ChartColumnIcon,
   ChartPieIcon,
-  CodeIcon,
   ComputerIcon,
   FileSpreadsheetIcon,
   FileTextIcon,
@@ -73,11 +72,6 @@ export function DefaultToolIcon({
           className={cn("size-3.5 text-blue-300", className)}
         />
       );
-    }
-
-    // Sandbox
-    if (name === DefaultToolName.Sandbox) {
-      return <CodeIcon className={cn("size-3.5 text-green-500", className)} />;
     }
 
     // Browser automation tools (Local Chrome DevTools Protocol)

@@ -8,7 +8,6 @@ import {
   AtSign,
   ChartColumn,
   ChevronRight,
-  CodeIcon,
   GitBranch,
   GlobeIcon,
   HardDriveUploadIcon,
@@ -901,9 +900,6 @@ function AppDefaultToolKitSelector() {
           break;
         case AppDefaultToolkit.Http:
           icon = HardDriveUploadIcon;
-          break;
-        case AppDefaultToolkit.Sandbox:
-          icon = CodeIcon;
           break;
       }
       return {
