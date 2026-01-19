@@ -91,7 +91,6 @@ export type UserRepository = {
     voice_minutes: number;
     mcp_tool_call: number;
     workflow_execution: number;
-    composio_action: number;
   }>;
 };
 

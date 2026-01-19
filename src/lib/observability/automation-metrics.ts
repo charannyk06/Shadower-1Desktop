@@ -59,7 +59,11 @@ export interface MetricContext {
   userId?: string;
   sessionId?: string;
   threadId?: string;
-  provider?: "browserbase" | "e2b-desktop";
+  provider?:
+    | "chrome-devtools"
+    | "local-terminal"
+    | "browserbase"
+    | "e2b-desktop";
   operation?: string;
   [key: string]: unknown;
 }
@@ -100,8 +104,10 @@ const systemLogger = globalLogger.withDefaults({
  * Get the appropriate logger for a provider
  */
 function getLogger(provider?: string) {
-  if (provider === "browserbase") return browserLogger;
-  if (provider === "e2b-desktop") return desktopLogger;
+  if (provider === "browserbase" || provider === "chrome-devtools")
+    return browserLogger;
+  if (provider === "e2b-desktop" || provider === "local-terminal")
+    return desktopLogger;
   return systemLogger;
 }
 
@@ -242,7 +248,11 @@ export function logEvent(
  */
 export function logSessionCreated(
   sessionId: string,
-  provider: "browserbase" | "e2b-desktop",
+  provider:
+    | "chrome-devtools"
+    | "local-terminal"
+    | "browserbase"
+    | "e2b-desktop",
   context: {
     userId: string;
     threadId?: string;
@@ -273,7 +283,11 @@ export function logSessionCreated(
  */
 export function logSessionClosed(
   sessionId: string,
-  provider: "browserbase" | "e2b-desktop",
+  provider:
+    | "chrome-devtools"
+    | "local-terminal"
+    | "browserbase"
+    | "e2b-desktop",
   context: {
     userId?: string;
     reason?: string;
@@ -311,7 +325,11 @@ export function logSessionClosed(
  */
 export function logSessionError(
   sessionId: string,
-  provider: "browserbase" | "e2b-desktop",
+  provider:
+    | "chrome-devtools"
+    | "local-terminal"
+    | "browserbase"
+    | "e2b-desktop",
   error: Error | string,
   context?: MetricContext,
 ): void {
@@ -347,7 +365,7 @@ export function logBrowserNavigation(
     AutomationEvent.BROWSER_NAVIGATE,
     {
       sessionId,
-      provider: "browserbase",
+      provider: "chrome-devtools",
       userId: context.userId,
     },
     {
@@ -365,7 +383,7 @@ export function logBrowserNavigation(
 }
 
 /**
- * Log browser action (Stagehand act)
+ * Log browser action (Chrome DevTools act)
  */
 export function logBrowserAction(
   sessionId: string,
@@ -380,7 +398,7 @@ export function logBrowserAction(
     AutomationEvent.BROWSER_ACT,
     {
       sessionId,
-      provider: "browserbase",
+      provider: "chrome-devtools",
       userId: context.userId,
     },
     {
@@ -413,7 +431,7 @@ export function logBrowserScreenshot(
     AutomationEvent.BROWSER_SCREENSHOT,
     {
       sessionId,
-      provider: "browserbase",
+      provider: "chrome-devtools",
       userId: context.userId,
     },
     {
@@ -426,7 +444,7 @@ export function logBrowserScreenshot(
   incrementCounter("browser.screenshots");
 
   if (context.sizeBytes) {
-    recordHistogram("screenshots.size.browserbase", context.sizeBytes);
+    recordHistogram("screenshots.size.chrome-devtools", context.sizeBytes);
   }
 }
 
@@ -443,7 +461,7 @@ export function logBrowserError(
     AutomationEvent.PROVIDER_ERROR,
     {
       sessionId,
-      provider: "browserbase",
+      provider: "chrome-devtools",
       operation,
       ...context,
     },
@@ -458,7 +476,11 @@ export function logBrowserError(
  */
 export function logScreenshot(
   sessionId: string,
-  provider: "browserbase" | "e2b-desktop",
+  provider:
+    | "chrome-devtools"
+    | "local-terminal"
+    | "browserbase"
+    | "e2b-desktop",
   context: {
     userId?: string;
     sizeBytes?: number;

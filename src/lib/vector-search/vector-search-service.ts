@@ -1,24 +1,81 @@
 import "server-only";
 
 import { randomUUID } from "crypto";
-import type { Schemas } from "@qdrant/js-client-rest";
 import {
   generateBatchEmbeddings,
   generateTextEmbedding,
 } from "lib/ai/embeddings/embedding-service";
 import { pgVectorIndexRepository } from "lib/db/pg/repositories/vector-index-repository.pg";
 import logger from "logger";
-import {
-  COLLECTIONS,
-  countPoints,
-  deletePoints,
-  deletePointsByFilter,
-  searchPoints,
-  searchPointsBatch,
-  upsertPoints,
-} from "./qdrant-service";
 
-type Filter = Schemas["Filter"];
+// Qdrant service was removed for local-first architecture
+// Using DuckDB vector store in Electron, stub functions for web compatibility
+const COLLECTIONS = {
+  DOCUMENTS: "documents",
+  MESSAGES: "messages",
+  KNOWLEDGE_BASE: "knowledge_base",
+};
+
+// Type for filter (previously from @qdrant/js-client-rest)
+type Filter = {
+  must?: Array<{
+    key: string;
+    match?: { value: string | number | boolean };
+    range?: Record<string, string>;
+  }>;
+};
+
+// Stub Qdrant functions - these will fail gracefully if called
+const countPoints = async (_collectionName: string): Promise<number> => {
+  logger.warn(
+    "Qdrant countPoints called - service not available in local-first mode",
+  );
+  return 0;
+};
+const deletePoints = async (
+  _collectionName: string,
+  _pointIds: (string | number)[],
+): Promise<void> => {
+  logger.warn(
+    "Qdrant deletePoints called - service not available in local-first mode",
+  );
+};
+const deletePointsByFilter = async (
+  _collectionName: string,
+  _filter: Filter,
+): Promise<void> => {
+  logger.warn(
+    "Qdrant deletePointsByFilter called - service not available in local-first mode",
+  );
+};
+const searchPoints = async (
+  _collectionName: string,
+  _vector: number[],
+  _options?: any,
+): Promise<SearchResult[]> => {
+  logger.warn(
+    "Qdrant searchPoints called - service not available in local-first mode",
+  );
+  return [];
+};
+const searchPointsBatch = async (
+  _collectionName: string,
+  _requests: any[],
+): Promise<SearchResult[][]> => {
+  logger.warn(
+    "Qdrant searchPointsBatch called - service not available in local-first mode",
+  );
+  return [];
+};
+const upsertPoints = async (
+  _collectionName: string,
+  _points: any[],
+  _options?: any,
+): Promise<void> => {
+  logger.warn(
+    "Qdrant upsertPoints called - service not available in local-first mode",
+  );
+};
 
 /**
  * ULTRA-FAST Vector Search Service

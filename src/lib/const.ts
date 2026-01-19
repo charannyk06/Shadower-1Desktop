@@ -106,11 +106,3 @@ export const EMOJI_DATA = [
   "https://cdn.jsdelivr.net/npm/emoji-datasource-apple/img/apple/64/1f601.png",
   "https://cdn.jsdelivr.net/npm/emoji-datasource-apple/img/apple/64/1f600.png",
 ];
-
-// Runtime check - must be a getter to evaluate at runtime, not build time
-export const COMPOSIO_ENABLED =
-  typeof process !== "undefined" &&
-  process.env.COMPOSIO_ENABLED === "1" &&
-  !!process.env.COMPOSIO_API_KEY;
-
-export const COMPOSIO_API_KEY = process.env.COMPOSIO_API_KEY;

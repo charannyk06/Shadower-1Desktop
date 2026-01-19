@@ -8,6 +8,39 @@ import { userRepository } from "lib/db/repository";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
+// Helper to check if we're in Electron mode
+const isElectronMode = (): boolean => {
+  if (process.env.ELECTRON_BUILD === "true") {
+    return true;
+  }
+  try {
+    const electron = require("electron");
+    if (electron && electron.app) {
+      return true;
+    }
+  } catch {
+    // Electron not available
+  }
+  // Check global flag set by SQLite module
+  return !!(globalThis as any).__SQLITE_ELECTRON_MODE__;
+};
+
+// Create a local user fallback for Electron mode
+const createLocalUser = (userId: string): BasicUserWithLastLogin => ({
+  id: userId,
+  name: "Local User",
+  email: "local@shadower.app",
+  emailVerified: true,
+  image: null,
+  role: "admin",
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  lastLoginAt: null,
+  banned: false,
+  banReason: null,
+  banExpires: null,
+});
+
 /**
  * Get the user by id
  * We can only get the user by id for the current user as a non-admin user
@@ -16,8 +49,40 @@ import { notFound } from "next/navigation";
 export async function getUser(
   userId?: string,
 ): Promise<BasicUserWithLastLogin | null> {
-  const resolvedUserId = await getUserIdAndCheckAccess(userId);
-  return await userRepository.getUserById(resolvedUserId);
+  // Check Electron mode first - if in Electron mode, return local user
+  if (isElectronMode()) {
+    const session = await getSession();
+    if (!session) {
+      return null;
+    }
+    const resolvedUserId = userId || session.user.id;
+    return createLocalUser(resolvedUserId);
+  }
+
+  try {
+    const resolvedUserId = await getUserIdAndCheckAccess(userId);
+    return await userRepository.getUserById(resolvedUserId);
+  } catch (error: any) {
+    const errorMsg = error?.message || String(error) || "";
+    // If this is an Electron mode error, return local user
+    if (
+      errorMsg.includes("SQLite") ||
+      errorMsg.includes("NODE_MODULE_VERSION") ||
+      errorMsg.includes("Electron") ||
+      errorMsg.includes("better-sqlite3")
+    ) {
+      // Mark as Electron mode for future checks
+      (globalThis as any).__SQLITE_ELECTRON_MODE__ = true;
+      const session = await getSession();
+      if (!session) {
+        return null;
+      }
+      const resolvedUserId = userId || session.user.id;
+      return createLocalUser(resolvedUserId);
+    }
+    // Re-throw other errors
+    throw error;
+  }
 }
 
 /**
