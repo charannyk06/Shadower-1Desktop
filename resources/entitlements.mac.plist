@@ -38,8 +38,28 @@
     <key>com.apple.security.get-task-allow</key>
     <true/>
 
-    <!-- Allow automation (for browser control) -->
+    <!-- Allow automation (for browser control and AppleScript) -->
     <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- Allow screen capture (for screenshot functionality) -->
+    <key>com.apple.security.device.screen-capture</key>
+    <true/>
+
+    <!-- Allow accessibility features (for mouse/keyboard automation) -->
+    <key>com.apple.security.temporary-exception.accessibility</key>
+    <true/>
+
+    <!-- Allow microphone access (for voice features) -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- Allow camera access (for potential vision features) -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+
+    <!-- Hardened runtime support -->
+    <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
 </dict>
 </plist>
