@@ -92,7 +92,7 @@ export default function Workflow({
   }, [isProcessing, hasEditAccess, workflow?.isPublished]);
 
   const save = useCallback(async () => {
-    if (workflow?.isPublished) return;
+    if (workflow?.isPublished || !workflowId) return;
 
     const diff = extractWorkflowDiff(snapshot.current, { nodes, edges });
 
