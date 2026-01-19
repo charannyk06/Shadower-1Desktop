@@ -5,4 +5,5 @@ export { fetchGroqModels } from "./groq";
 export { fetchXAIModels } from "./xai";
 export { fetchOpenRouterModels } from "./openrouter";
 export { fetchOllamaModels } from "./ollama";
+export { fetchLMStudioModels } from "./lm-studio";
 export { fetchCerebrasModels } from "./cerebras";

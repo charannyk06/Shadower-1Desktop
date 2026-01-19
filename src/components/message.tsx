@@ -11,10 +11,6 @@ import { ChevronDown, ChevronUp, TriangleAlertIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button } from "ui/button";
 import {
-  LimitExceededCard,
-  parseLimitExceededError,
-} from "./billing/limit-exceeded-card";
-import {
   AssistMessagePart,
   FileMessagePart,
   ReasoningPart,
@@ -331,30 +327,6 @@ export const ErrorMessage = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const maxLength = 200;
   const t = useTranslations();
-
-  // Check if this is a limit exceeded error
-  const limitError = useMemo(
-    () => parseLimitExceededError(error.message),
-    [error.message],
-  );
-
-  // Show upgrade prompt for limit exceeded errors
-  if (
-    limitError.isLimitExceeded &&
-    limitError.usage !== undefined &&
-    limitError.limit !== undefined &&
-    limitError.tier
-  ) {
-    return (
-      <LimitExceededCard
-        usage={limitError.usage}
-        limit={limitError.limit}
-        tier={limitError.tier}
-        limitType={limitError.limitType}
-        periodType={limitError.periodType}
-      />
-    );
-  }
 
   // Default error message
   return (

@@ -196,3 +196,42 @@ export function formatCerebrasDisplayName(modelId: string): string {
 
   return name.trim();
 }
+
+export function formatLMStudioDisplayName(modelId: string): string {
+  let name = modelId;
+
+  // Remove org/user prefix if present
+  if (name.includes("/")) {
+    name = name.split("/").pop() || name;
+  }
+
+  // Remove common suffixes
+  name = name
+    .replace(/-GGUF$/i, "")
+    .replace(/-GPTQ$/i, "")
+    .replace(/-AWQ$/i, "")
+    .replace(/-fp16$/i, "")
+    .replace(/-Q\d+_\w+$/i, "") // Remove quantization suffix like -Q4_K_M
+    .replace(/-Instruct$/i, "")
+    .replace(/-Chat$/i, "");
+
+  // Format known model names
+  name = name
+    .replace(/^Meta-/i, "")
+    .replace(/^TheBloke-/i, "")
+    .replace(/^lmstudio-community-/i, "")
+    .replace(/Llama-?(\d)/gi, "Llama $1")
+    .replace(/Mistral-?(\d)/gi, "Mistral $1")
+    .replace(/Mixtral/gi, "Mixtral")
+    .replace(/Qwen-?(\d)/gi, "Qwen $1")
+    .replace(/Gemma-?(\d)/gi, "Gemma $1")
+    .replace(/Phi-?(\d)/gi, "Phi $1")
+    .replace(/DeepSeek/gi, "DeepSeek")
+    .replace(/CodeLlama/gi, "Code Llama")
+    // Match version numbers like "3.1", "2.5"
+    .replace(/-v?([\d.]+)/gi, " v$1")
+    // Match model sizes like "7B", "70B"
+    .replace(/-(\d{1,4})B/gi, " $1B");
+
+  return name.trim().replace(/\s+/g, " ");
+}

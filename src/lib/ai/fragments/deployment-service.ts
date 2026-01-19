@@ -3,7 +3,6 @@ import {
   fragmentRepository,
   fragmentSharesRepository,
 } from "lib/db/repository";
-import { localSandboxCostTracker } from "lib/billing/sandbox-cost-tracker";
 import logger from "logger";
 
 /**
@@ -95,15 +94,6 @@ export class DeploymentService {
     await fragmentRepository.update(fragmentId, {
       status: "deployed",
       deploymentUrl: `${this.baseUrl}/f/${shareId}`,
-    });
-
-    // Track usage locally (no cost for local execution)
-    await localSandboxCostTracker.trackSession({
-      userId,
-      sessionId: fragment.session_id || `deploy-${fragmentId}`,
-      template: fragment.template,
-      durationMs,
-      operationType: "execute" as const,
     });
 
     const url = `${this.baseUrl}/f/${shareId}`;

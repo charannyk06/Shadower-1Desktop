@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { UIMessageStreamWriter } from "ai";
 import { fragmentAgent } from "lib/ai/agents/fragment-agent";
 import { deploymentService } from "lib/ai/fragments/deployment-service";
-import { localSandboxCostTracker } from "lib/billing/sandbox-cost-tracker";
 import { fragmentRepository } from "lib/db/repository";
 import logger from "logger";
 
@@ -58,8 +57,6 @@ The system is FULLY AUTONOMOUS - just describe what you want!`,
         toolCallId,
       }: { toolCallId: string; abortSignal?: AbortSignal; messages?: any[] },
     ) => {
-      const startTime = Date.now();
-
       try {
         // Local execution is free - no quota enforcement needed
         logger.info(
@@ -87,16 +84,6 @@ The system is FULLY AUTONOMOUS - just describe what you want!`,
           dataStream: wrappedDataStream,
           chatModel: context.chatModel,
           toolCallId, // Pass toolCallId explicitly
-        });
-
-        // Track usage (local execution is free, just for analytics)
-        const durationMs = Date.now() - startTime;
-        await localSandboxCostTracker.trackSession({
-          userId: context.userId,
-          sessionId: result.sessionId,
-          template: result.template,
-          durationMs,
-          operationType: "execute",
         });
 
         return {
@@ -155,8 +142,6 @@ Provide the fragment ID and describe your edit.`,
         toolCallId,
       }: { toolCallId: string; abortSignal?: AbortSignal; messages?: any[] },
     ) => {
-      const startTime = Date.now();
-
       try {
         // Local execution is free - no quota enforcement needed
         logger.info(
@@ -188,16 +173,6 @@ Provide the fragment ID and describe your edit.`,
             toolCallId, // Pass toolCallId explicitly
           },
         );
-
-        // Track usage (local execution is free, just for analytics)
-        const durationMs = Date.now() - startTime;
-        await localSandboxCostTracker.trackSession({
-          userId: context.userId,
-          sessionId: result.sessionId,
-          template: result.template,
-          durationMs,
-          operationType: "execute",
-        });
 
         return {
           success: true,

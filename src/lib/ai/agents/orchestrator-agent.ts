@@ -13,7 +13,6 @@ import {
 import type { AgentState, AgentStateUpdate } from "app-types/agent-state";
 import { colorize } from "consola/utils";
 import { JSONSchema7 } from "json-schema";
-import { wrapToolsWithTracking } from "lib/billing/tool-tracking";
 import {
   agentRepository,
   agentStateRepository,
@@ -2025,19 +2024,10 @@ ${systemPrompt}`;
   const subAgentTools = createSubAgentTools(config, ctx, dataStream);
   const workflowTools = createWorkflowTool(config, ctx);
 
-  // Wrap user tools (availableTools + mcpTools) with billing tracking
-  // This ensures usage is tracked even in agent mode where tool results
-  // don't appear in responseMessage.parts
-  const trackedAvailableTools = wrapToolsWithTracking(
-    availableTools,
-    config.userId,
-  );
-  const trackedMcpTools = wrapToolsWithTracking(mcpTools, config.userId);
-
-  // Combine all tools first
+  // Combine all tools
   const combinedTools: Record<string, Tool> = {
-    ...trackedAvailableTools,
-    ...trackedMcpTools,
+    ...availableTools,
+    ...mcpTools,
     ...contextTools,
     ...subAgentTools,
     ...workflowTools,
@@ -2570,19 +2560,10 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
   const subAgentTools = createSubAgentTools(config, contextManager, dataStream);
   const workflowTools = createWorkflowTool(config, contextManager);
 
-  // Wrap user tools (availableTools + mcpTools) with billing tracking
-  // This ensures usage is tracked even in agent mode where tool results
-  // don't appear in responseMessage.parts
-  const trackedAvailableTools = wrapToolsWithTracking(
-    availableTools,
-    config.userId,
-  );
-  const trackedMcpTools = wrapToolsWithTracking(mcpTools, config.userId);
-
-  // Combine all tools first
+  // Combine all tools
   const combinedTools: Record<string, Tool> = {
-    ...trackedAvailableTools,
-    ...trackedMcpTools,
+    ...availableTools,
+    ...mcpTools,
     ...contextTools,
     ...subAgentTools,
     ...workflowTools,

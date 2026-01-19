@@ -4,14 +4,13 @@ import {
   UserPreferences,
   UserRepository,
 } from "app-types/user";
-import { and, count, eq, gte, lt, sql } from "drizzle-orm";
+import { and, count, eq, gte, sql } from "drizzle-orm";
 import { sqliteDb as db } from "../db.sqlite";
 import {
   AccountTable,
   ChatMessageTable,
   ChatThreadTable,
   SessionTable,
-  UsageEventTable,
   UserTable,
 } from "../schema.sqlite";
 
@@ -188,47 +187,15 @@ export const sqliteUserRepository: UserRepository = {
     };
   },
 
-  getUsageCounts: async (userId: string, from: Date, to: Date) => {
-    const defaultCounts = {
+  // No-op: Usage tracking removed for local-only desktop app
+  getUsageCounts: async (_userId: string, _from: Date, _to: Date) => {
+    // Return zeros - no usage tracking in local-only mode
+    return {
       image_generation: 0,
       local_execution: 0,
       voice_minutes: 0,
       mcp_tool_call: 0,
       workflow_execution: 0,
     };
-
-    try {
-      // Query usage events from the usage_event table
-      const usageResults = await db
-        .select({
-          eventType: UsageEventTable.eventType,
-          total: sql<number>`COALESCE(SUM(CAST(${UsageEventTable.amount} AS INTEGER)), 0)`,
-        })
-        .from(UsageEventTable)
-        .where(
-          and(
-            eq(UsageEventTable.userId, userId),
-            gte(UsageEventTable.createdAt, from),
-            lt(UsageEventTable.createdAt, to),
-          ),
-        )
-        .groupBy(UsageEventTable.eventType);
-
-      const eventCounts: Record<string, number> = {};
-      for (const row of usageResults) {
-        eventCounts[row.eventType] = Number(row.total) || 0;
-      }
-
-      return {
-        image_generation: eventCounts.image_generation || 0,
-        local_execution: eventCounts.local_execution || 0,
-        voice_minutes: eventCounts.voice_minutes || 0,
-        mcp_tool_call: eventCounts.mcp_tool_call || 0,
-        workflow_execution: eventCounts.workflow_execution || 0,
-      };
-    } catch (error) {
-      console.error("[SQLite] getUsageCounts error:", error);
-      return defaultCounts;
-    }
   },
 };

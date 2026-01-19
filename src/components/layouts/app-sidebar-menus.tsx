@@ -19,6 +19,7 @@ import {
   GitBranch,
   PlusIcon,
   BrainIcon,
+  Box,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
@@ -83,6 +84,18 @@ export function AppSidebarMenus() {
                 <SidebarMenuButton className="font-semibold">
                   <MCPIcon className="size-4 fill-accent-foreground" />
                   {t("Layout.mcpConfiguration")}
+                </SidebarMenuButton>
+              </Link>
+            </SidebarMenuItem>
+          </Tooltip>
+        </SidebarMenu>
+        <SidebarMenu>
+          <Tooltip>
+            <SidebarMenuItem>
+              <Link href="/models">
+                <SidebarMenuButton className="font-semibold">
+                  <Box className="size-4" />
+                  {t("Layout.models")}
                 </SidebarMenuButton>
               </Link>
             </SidebarMenuItem>

@@ -232,4 +232,6 @@ export const STATIC_FALLBACK_MODELS: Record<ProviderName, DynamicModelInfo[]> =
       createStaticModel("qwen-3-32b", "Qwen 3 32B", CEREBRAS_BASE_CONFIG),
       createStaticModel("llama3.1-8b", "Llama 3.1 8B", CEREBRAS_BASE_CONFIG),
     ],
+    // LM Studio is dynamically loaded, but we provide an empty fallback
+    lmstudio: [],
   };

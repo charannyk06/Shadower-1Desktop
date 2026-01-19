@@ -12,6 +12,7 @@ export type ProviderId =
   | "groq"
   | "openRouter"
   | "ollama"
+  | "lmstudio"
   | "cerebras";
 
 /**

@@ -1,7 +1,6 @@
 "use client";
 
 import { appStore } from "@/app/store";
-import { ModelMultiplierBadge } from "@/components/ui/model-multiplier-badge";
 import { useChatModels } from "@/hooks/queries/use-chat-models";
 import { ChatModel } from "app-types/chat";
 import { cn } from "lib/utils";
@@ -129,11 +128,6 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
                       <span className="pr-1">
                         {(item.displayName || item.name).replace(/:free$/i, "")}
                       </span>
-                      <ModelMultiplierBadge
-                        model={item.name}
-                        provider={provider.provider}
-                        size="sm"
-                      />
                       {item.isToolCallUnsupported && (
                         <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
                           No tools
