@@ -30,6 +30,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { z } from "zod";
 
 import { DBWorkflow, WorkflowIcon } from "app-types/workflow";
+import { workflowApi } from "lib/electron/workflow-api";
 import { BACKGROUND_COLORS } from "lib/const";
 import { cn, createDebounce } from "lib/utils";
 import { useTranslations } from "next-intl";
@@ -114,12 +115,13 @@ export function EditWorkflowPopup({
     toast.promise(
       safe(() => zodSchema.parse(config))
         .map(async (body) => {
-          const response = await fetch("/api/workflow", {
-            method: "POST",
-            body: JSON.stringify(body),
+          // Use unified workflowApi for both Electron and web
+          const workflow = await workflowApi.create({
+            name: body.name,
+            description: body.description,
+            icon: body.icon,
           });
-          const data = await response.json();
-          return data as DBWorkflow;
+          return workflow;
         })
         .ifOk((workflow) => {
           onOpenChange?.(false);

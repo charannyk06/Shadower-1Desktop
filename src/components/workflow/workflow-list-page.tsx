@@ -7,10 +7,15 @@ import { ArrowUpRight, MousePointer2 } from "lucide-react";
 import { ShareableCard } from "@/components/shareable-card";
 import { WorkflowGreeting } from "@/components/workflow/workflow-greeting";
 import { WorkflowSummary } from "app-types/workflow";
+import {
+  workflowApi,
+  workflowFetcher,
+  getCurrentUserId,
+  isElectronMode,
+} from "lib/electron/workflow-api";
 import { notify } from "lib/notify";
-import { fetcher } from "lib/utils";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import useSWR, { mutate } from "swr";
 import { BackgroundPaths } from "ui/background-paths";
@@ -22,18 +27,33 @@ import { Skeleton } from "ui/skeleton";
 export default function WorkflowListPage() {
   const t = useTranslations();
   const { data: session } = authClient.useSession();
-  const currentUserId = session?.user?.id;
+  // In Electron mode, we need the actual database user ID (UUID), not the hardcoded "local-user"
+  const [electronUserId, setElectronUserId] = useState<string | undefined>();
+  const [isUserIdLoading, setIsUserIdLoading] = useState(isElectronMode());
+
+  useEffect(() => {
+    // Fetch the actual user ID in Electron mode
+    if (isElectronMode()) {
+      getCurrentUserId()
+        .then(setElectronUserId)
+        .finally(() => setIsUserIdLoading(false));
+    }
+  }, []);
+
+  // Use Electron user ID if available, otherwise fall back to session
+  const currentUserId = electronUserId || session?.user?.id;
   const [isVisibilityChangeLoading, setIsVisibilityChangeLoading] =
     useState(false);
   const [isDeleteLoading, setIsDeleteLoading] = useState(false);
 
-  const { data: workflows, isLoading } = useSWR<WorkflowSummary[]>(
-    "/api/workflow",
-    fetcher,
-    {
-      fallbackData: [],
-    },
-  );
+  const { data: workflows, isLoading: isWorkflowsLoading } = useSWR<
+    WorkflowSummary[]
+  >("/api/workflow", workflowFetcher, {
+    fallbackData: [],
+  });
+
+  // Combined loading state - wait for both user ID and workflows
+  const isLoading = isWorkflowsLoading || isUserIdLoading;
 
   // Separate workflows into user's own and shared
   const myWorkflows =
@@ -47,13 +67,7 @@ export default function WorkflowListPage() {
   ) => {
     try {
       setIsVisibilityChangeLoading(true);
-      const response = await fetch(`/api/workflow/${workflowId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visibility }),
-      });
-
-      if (!response.ok) throw new Error("Failed to update visibility");
+      await workflowApi.update(workflowId, { visibility });
 
       // Refresh the workflows data
       mutate("/api/workflow");
@@ -73,11 +87,7 @@ export default function WorkflowListPage() {
 
     try {
       setIsDeleteLoading(true);
-      const response = await fetch(`/api/workflow/${workflowId}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) throw new Error("Failed to delete workflow");
+      await workflowApi.delete(workflowId);
 
       mutate("/api/workflow");
       toast.success(t("Workflow.deleted"));

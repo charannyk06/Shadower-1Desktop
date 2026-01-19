@@ -21,15 +21,18 @@ import {
   applyNodeChanges,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { DBWorkflow } from "app-types/workflow";
+import { DBWorkflow, DBNode, DBEdge } from "app-types/workflow";
 import { extractWorkflowDiff } from "lib/ai/workflow/extract-workflow-diff";
 import {
+  convertDBEdgeToUIEdge,
+  convertDBNodeToUINode,
   convertUIEdgeToDBEdge,
   convertUINodeToDBNode,
 } from "lib/ai/workflow/shared.workflow";
 import { NodeKind, UINode } from "lib/ai/workflow/workflow.interface";
 import { wouldCreateCycle } from "lib/ai/workflow/would-create-cycle";
-import { createDebounce, fetcher, generateUUID } from "lib/utils";
+import { workflowApi, workflowFetcher } from "lib/electron/workflow-api";
+import { createDebounce, generateUUID } from "lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { safe } from "ts-safe";
@@ -71,17 +74,26 @@ export default function Workflow({
     () => processIds.length > 0,
     [processIds.length],
   );
-  const { data: workflow } = useSWR<DBWorkflow>(
-    workflowId ? `/api/workflow/${workflowId}` : null,
-    fetcher,
-    {
-      onSuccess: (workflow) => {
-        if (workflow) {
-          init(workflow, hasEditAccess);
+  const { data: workflow } = useSWR<
+    DBWorkflow & { nodes?: DBNode[]; edges?: DBEdge[] }
+  >(workflowId ? `/api/workflow/${workflowId}` : null, workflowFetcher, {
+    onSuccess: (workflow) => {
+      if (workflow) {
+        init(workflow, hasEditAccess);
+        // Convert and set nodes/edges from workflow data
+        if (workflow.nodes && workflow.nodes.length > 0) {
+          const uiNodes = workflow.nodes.map(convertDBNodeToUINode);
+          setNodes(uiNodes);
+          snapshot.current.nodes = uiNodes;
         }
-      },
+        if (workflow.edges && workflow.edges.length > 0) {
+          const uiEdges = workflow.edges.map(convertDBEdgeToUIEdge);
+          setEdges(uiEdges);
+          snapshot.current.edges = uiEdges;
+        }
+      }
     },
-  );
+  });
   const [activeNodeIds, setActiveNodeIds] = useState<string[]>([]);
 
   const snapshot = useRef({ nodes: initialNodes, edges: initialEdges });
@@ -350,21 +362,15 @@ function saveWorkflow(
   workflowId: string,
   diff: ReturnType<typeof extractWorkflowDiff>,
 ) {
-  return fetch(`/api/workflow/${workflowId}/structure`, {
-    method: "POST",
-    body: JSON.stringify({
-      nodes: diff.updateNodes.map((node) =>
-        convertUINodeToDBNode(workflowId, node),
-      ),
-      edges: diff.updateEdges.map((edge) =>
-        convertUIEdgeToDBEdge(workflowId, edge),
-      ),
-      deleteNodes: diff.deleteNodes.map((node) => node.id),
-      deleteEdges: diff.deleteEdges.map((edge) => edge.id),
-    }),
-  }).then((res) => {
-    if (res.status >= 400) {
-      throw new Error(String(res.statusText || res.status || "Error"));
-    }
+  // Use unified workflowApi for both Electron and web
+  return workflowApi.saveStructure(workflowId, {
+    nodes: diff.updateNodes.map((node) =>
+      convertUINodeToDBNode(workflowId, node),
+    ),
+    edges: diff.updateEdges.map((edge) =>
+      convertUIEdgeToDBEdge(workflowId, edge),
+    ),
+    deleteNodes: diff.deleteNodes.map((node) => node.id),
+    deleteEdges: diff.deleteEdges.map((edge) => edge.id),
   });
 }
