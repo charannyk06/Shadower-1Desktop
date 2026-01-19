@@ -44,31 +44,53 @@ export async function POST(request: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // All authenticated users can create/edit workflows (roles/permissions removed)
-  if (id) {
-    // Editing existing workflow - check access
-    const hasAccess = await workflowRepository.checkAccess(
-      id,
-      session.user.id,
-      false,
-    );
-    if (!hasAccess) {
-      return new Response("Unauthorized", { status: 401 });
+  try {
+    // All authenticated users can create/edit workflows (roles/permissions removed)
+    if (id) {
+      // Editing existing workflow - check access
+      const hasAccess = await workflowRepository.checkAccess(
+        id,
+        session.user.id,
+        false,
+      );
+      if (!hasAccess) {
+        return new Response("Unauthorized", { status: 401 });
+      }
     }
+
+    const workflow = await workflowRepository.save(
+      {
+        name,
+        description,
+        id,
+        isPublished,
+        visibility,
+        icon,
+        userId: session.user.id,
+      },
+      noGenerateInputNode,
+    );
+
+    return Response.json(workflow);
+  } catch (error: any) {
+    // In Electron dev mode, database access fails
+    if (
+      error?.isElectronMode ||
+      error?.message?.includes("SQLite") ||
+      error?.message?.includes("Electron")
+    ) {
+      logger.warn(
+        "[Workflow API] Electron mode detected, workflow operations not available",
+      );
+      return Response.json(
+        {
+          error:
+            "Workflow operations are not available in Electron dev mode. Database access is handled via IPC.",
+        },
+        { status: 503 },
+      );
+    }
+    logger.error("Failed to save workflow:", error);
+    return Response.json({ error: "Internal Server Error" }, { status: 500 });
   }
-
-  const workflow = await workflowRepository.save(
-    {
-      name,
-      description,
-      id,
-      isPublished,
-      visibility,
-      icon,
-      userId: session.user.id,
-    },
-    noGenerateInputNode,
-  );
-
-  return Response.json(workflow);
 }
