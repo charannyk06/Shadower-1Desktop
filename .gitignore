@@ -69,3 +69,9 @@ public/uploads
 public/sandbox
 .env*.local
 .claude/
+
+# local development and tool files
+.ralphy/
+data/
+ralphy.sh
+index.js
