@@ -9,29 +9,22 @@ import { z } from "zod";
  */
 
 // Check if running in Electron renderer
-const isElectron =
-  typeof window !== "undefined" &&
-  window.electronAPI &&
-  window.electronAPI.terminal;
+const isElectron = (): boolean => {
+  return (
+    typeof window !== "undefined" &&
+    window.electronAPI &&
+    window.electronAPI.terminal !== undefined
+  );
+};
 
 /**
- * Helper to call terminal IPC methods
+ * Get the terminal API safely
  */
-async function callTerminalIPC<T>(
-  method: string,
-  ...args: unknown[]
-): Promise<T> {
-  if (!isElectron) {
+function getTerminalAPI() {
+  if (!isElectron()) {
     throw new Error("Terminal tools are only available in the desktop app");
   }
-  const terminalAPI = window.electronAPI.terminal as unknown as Record<
-    string,
-    (...args: unknown[]) => Promise<T>
-  >;
-  if (!terminalAPI[method]) {
-    throw new Error(`Terminal method ${method} not available`);
-  }
-  return terminalAPI[method](...args);
+  return window.electronAPI!.terminal;
 }
 
 /**
@@ -39,7 +32,7 @@ async function callTerminalIPC<T>(
  */
 export const desktopCommandTool = createTool({
   description:
-    "Execute a shell command on the local machine. Returns stdout, stderr, and exit code.",
+    "Execute a shell command on the local machine. Returns stdout, stderr, and exit code. Use this for running git commands, npm scripts, file operations, and other terminal commands.",
   inputSchema: z.object({
     command: z.string().describe("Shell command to execute"),
     cwd: z
@@ -53,14 +46,12 @@ export const desktopCommandTool = createTool({
   }),
   execute: async ({ command, cwd, timeout }) => {
     try {
-      const result = await callTerminalIPC<{
-        success: boolean;
-        stdout: string;
-        stderr: string;
-        exitCode: number;
-        error?: string;
-      }>("execute", { command, cwd, timeout });
-
+      const terminal = getTerminalAPI();
+      const result = await terminal.execute({
+        command,
+        cwd,
+        timeout,
+      });
       return result;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -89,8 +80,7 @@ export const desktopCreateTool = createTool({
   }),
   execute: async ({ workingDir }) => {
     try {
-      // For local execution, we just verify the terminal IPC is available
-      if (!isElectron) {
+      if (!isElectron()) {
         return {
           success: false,
           error: "Terminal tools are only available in the desktop app",
@@ -100,7 +90,7 @@ export const desktopCreateTool = createTool({
       return {
         success: true,
         message: "Local terminal session ready",
-        workingDir: workingDir || process.cwd?.() || "~",
+        workingDir: workingDir || "~",
         guide:
           "Use desktop_command to execute shell commands. Use desktop_screenshot to capture the screen.",
       };
@@ -119,7 +109,7 @@ export const desktopCreateTool = createTool({
  */
 export const desktopScreenshotTool = createTool({
   description:
-    "Take a screenshot of the current desktop. Uses system screenshot capabilities.",
+    "Take a screenshot of the current desktop. Returns a base64-encoded PNG image that can be analyzed for UI elements.",
   inputSchema: z.object({
     fullScreen: z
       .boolean()
@@ -128,13 +118,8 @@ export const desktopScreenshotTool = createTool({
   }),
   execute: async ({ fullScreen = true }) => {
     try {
-      const result = await callTerminalIPC<{
-        success: boolean;
-        screenshot?: string;
-        width?: number;
-        height?: number;
-        error?: string;
-      }>("screenshot", { fullScreen });
+      const terminal = getTerminalAPI();
+      const result = await terminal.screenshot({ fullScreen });
 
       if (result.success && result.screenshot) {
         return {
@@ -143,7 +128,7 @@ export const desktopScreenshotTool = createTool({
           width: result.width,
           height: result.height,
           guide:
-            "Analyze the screenshot to identify UI elements and their positions.",
+            "Analyze the screenshot to identify UI elements and their positions. Use desktop_click with coordinates to interact.",
         };
       }
 
@@ -162,11 +147,11 @@ export const desktopScreenshotTool = createTool({
 });
 
 /**
- * Click at coordinates (requires robotjs or similar)
+ * Click at coordinates
  */
 export const desktopClickTool = createTool({
   description:
-    "Click at specific coordinates on the desktop. Requires system automation permissions.",
+    "Click at specific coordinates on the desktop. First use desktop_screenshot to identify target coordinates.",
   inputSchema: z.object({
     x: z.number().describe("X coordinate to click"),
     y: z.number().describe("Y coordinate to click"),
@@ -177,12 +162,8 @@ export const desktopClickTool = createTool({
   }),
   execute: async ({ x, y, button = "left" }) => {
     try {
-      const result = await callTerminalIPC<{
-        success: boolean;
-        message?: string;
-        error?: string;
-      }>("click", { x, y, button });
-
+      const terminal = getTerminalAPI();
+      const result = await terminal.click(x, y, button);
       return result;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -199,18 +180,14 @@ export const desktopClickTool = createTool({
  */
 export const desktopTypeTool = createTool({
   description:
-    "Type text at the current cursor position. Click on an input field first.",
+    "Type text at the current cursor position. Click on an input field first using desktop_click.",
   inputSchema: z.object({
     text: z.string().describe("Text to type"),
   }),
   execute: async ({ text }) => {
     try {
-      const result = await callTerminalIPC<{
-        success: boolean;
-        message?: string;
-        error?: string;
-      }>("type", { text });
-
+      const terminal = getTerminalAPI();
+      const result = await terminal.type(text);
       return result;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -227,7 +204,7 @@ export const desktopTypeTool = createTool({
  */
 export const desktopPressTool = createTool({
   description:
-    'Press a keyboard key or key combination. Examples: "Enter", "Tab", "ctrl+c", "cmd+v".',
+    'Press a keyboard key or key combination. Examples: "Enter", "Tab", "ctrl+c", "cmd+v", "alt+tab".',
   inputSchema: z.object({
     key: z
       .string()
@@ -235,12 +212,8 @@ export const desktopPressTool = createTool({
   }),
   execute: async ({ key }) => {
     try {
-      const result = await callTerminalIPC<{
-        success: boolean;
-        message?: string;
-        error?: string;
-      }>("press", { key });
-
+      const terminal = getTerminalAPI();
+      const result = await terminal.keyPress(key);
       return result;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -256,19 +229,18 @@ export const desktopPressTool = createTool({
  * Scroll the screen
  */
 export const desktopScrollTool = createTool({
-  description: "Scroll the screen up or down.",
+  description: "Scroll the screen up or down at the current cursor position.",
   inputSchema: z.object({
     direction: z.enum(["up", "down"]).describe("Direction to scroll"),
-    amount: z.number().optional().describe("Amount to scroll (default: 3)"),
+    amount: z
+      .number()
+      .optional()
+      .describe("Number of scroll steps (default: 3)"),
   }),
   execute: async ({ direction, amount = 3 }) => {
     try {
-      const result = await callTerminalIPC<{
-        success: boolean;
-        message?: string;
-        error?: string;
-      }>("scroll", { direction, amount });
-
+      const terminal = getTerminalAPI();
+      const result = await terminal.scroll(direction, amount);
       return result;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -285,7 +257,7 @@ export const desktopScrollTool = createTool({
  */
 export const desktopDragTool = createTool({
   description:
-    "Drag from one point to another. Useful for moving windows or selecting text.",
+    "Drag from one point to another. Useful for moving windows, selecting text, or drag-and-drop operations.",
   inputSchema: z.object({
     startX: z.number().describe("Starting X coordinate"),
     startY: z.number().describe("Starting Y coordinate"),
@@ -294,12 +266,8 @@ export const desktopDragTool = createTool({
   }),
   execute: async ({ startX, startY, endX, endY }) => {
     try {
-      const result = await callTerminalIPC<{
-        success: boolean;
-        message?: string;
-        error?: string;
-      }>("drag", { startX, startY, endX, endY });
-
+      const terminal = getTerminalAPI();
+      const result = await terminal.drag(startX, startY, endX, endY);
       return result;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -315,7 +283,8 @@ export const desktopDragTool = createTool({
  * Launch an application
  */
 export const desktopLaunchTool = createTool({
-  description: "Launch an application on the local machine.",
+  description:
+    "Launch an application on the local machine. On macOS, use app names like 'Safari', 'Terminal'. On Windows/Linux, use executable paths.",
   inputSchema: z.object({
     app: z.string().describe("Application name or path to launch"),
     args: z
@@ -325,14 +294,58 @@ export const desktopLaunchTool = createTool({
   }),
   execute: async ({ app, args }) => {
     try {
-      const result = await callTerminalIPC<{
-        success: boolean;
-        message?: string;
-        pid?: number;
-        error?: string;
-      }>("launch", { app, args });
-
+      const terminal = getTerminalAPI();
+      const result = await terminal.launch(app, args);
       return result;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  },
+});
+
+/**
+ * Get display information
+ */
+export const desktopDisplayInfoTool = createTool({
+  description:
+    "Get information about connected displays including resolution, bounds, and scale factor.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const terminal = getTerminalAPI();
+      const result = await terminal.getDisplayInfo();
+      return {
+        success: true,
+        ...result,
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  },
+});
+
+/**
+ * Get cursor position
+ */
+export const desktopCursorPositionTool = createTool({
+  description: "Get the current cursor/mouse position on screen.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const terminal = getTerminalAPI();
+      const result = await terminal.getCursorPosition();
+      return {
+        success: true,
+        ...result,
+      };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
       return {
@@ -346,6 +359,7 @@ export const desktopLaunchTool = createTool({
 // Export all desktop tools as a collection
 export const desktopTools = {
   desktop_create: desktopCreateTool,
+  desktop_command: desktopCommandTool,
   desktop_screenshot: desktopScreenshotTool,
   desktop_click: desktopClickTool,
   desktop_type: desktopTypeTool,
@@ -353,5 +367,6 @@ export const desktopTools = {
   desktop_scroll: desktopScrollTool,
   desktop_drag: desktopDragTool,
   desktop_launch: desktopLaunchTool,
-  desktop_command: desktopCommandTool,
+  desktop_display_info: desktopDisplayInfoTool,
+  desktop_cursor_position: desktopCursorPositionTool,
 };
