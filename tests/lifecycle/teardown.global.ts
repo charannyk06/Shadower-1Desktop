@@ -1,17 +1,15 @@
 import { config } from "dotenv";
 import { eq, like, or } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { sqliteDb as db } from "../../src/lib/db/sqlite/db.sqlite";
 import {
   AgentTable,
   BookmarkTable,
   ChatThreadTable,
   SessionTable,
   UserTable,
-} from "../../src/lib/db/pg/schema.pg";
+} from "../../src/lib/db/sqlite/schema.sqlite";
 
 config();
-
-const db = drizzle(process.env.POSTGRES_URL!);
 
 async function cleanup() {
   console.log("Cleaning up test data...");

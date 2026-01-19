@@ -35,7 +35,7 @@ export const TIMEOUTS = {
  */
 export async function getChatInput(
   page: Page,
-  timeout: 10000 = TIMEOUTS.medium,
+  timeout: number = TIMEOUTS.medium,
 ): Promise<Locator> {
   const chatInput = page.locator(CHAT_SELECTORS.input).first();
   await chatInput.waitFor({ state: "visible", timeout });
@@ -48,7 +48,7 @@ export async function getChatInput(
 export async function sendChatMessage(
   page: Page,
   message: string,
-  timeout: 10000 = TIMEOUTS.medium,
+  timeout: number = TIMEOUTS.medium,
 ): Promise<void> {
   const chatInput = await getChatInput(page, timeout);
   await chatInput.fill(message);
@@ -60,32 +60,39 @@ export async function sendChatMessage(
  */
 export async function waitForAssistantMessage(
   page: Page,
-  timeout: 60000 = TIMEOUTS.veryLong,
+  timeout: number = TIMEOUTS.veryLong,
 ): Promise<Locator> {
   await page.waitForSelector(CHAT_SELECTORS.assistantMessage, { timeout });
   return page.locator(CHAT_SELECTORS.assistantMessage).last();
 }
 
 /**
- * Sends a chat message and waits for the assistant response
+ * Waits for an assistant response and returns the text content.
+ * Compatible with tests that expect options object format.
+ */
+export async function waitForAssistantResponse(
+  page: Page,
+  options?: { timeout?: number },
+): Promise<string> {
+  const timeout = options?.timeout ?? TIMEOUTS.veryLong;
+  const locator = await waitForAssistantMessage(page, timeout);
+  const textContent = await locator.textContent();
+  return textContent ?? "";
+}
+
+/**
+ * Sends a chat message and waits for the assistant response.
+ * Returns the text content of the response message.
  */
 export async function sendMessageAndWaitForResponse(
   page: Page,
   message: string,
-  options?: {
-    inputTimeout?: 10000;
-    responseTimeout?: 60000;
-  },
-): Promise<Locator> {
-  await sendChatMessage(
-    page,
-    message,
-    (options?.inputTimeout as 10000 | undefined) ?? TIMEOUTS.medium,
-  );
-  return waitForAssistantMessage(
-    page,
-    (options?.responseTimeout as 60000 | undefined) ?? TIMEOUTS.veryLong,
-  );
+  timeout: number = TIMEOUTS.veryLong,
+): Promise<string> {
+  await sendChatMessage(page, message, TIMEOUTS.medium);
+  const responseLocator = await waitForAssistantMessage(page, timeout);
+  const textContent = await responseLocator.textContent();
+  return textContent ?? "";
 }
 
 /**
@@ -102,7 +109,7 @@ export async function setupChatTest(page: Page): Promise<void> {
 export async function waitForToolInvocation(
   page: Page,
   toolSelector?: string,
-  timeout: 10000 | 30000 | 60000 = TIMEOUTS.veryLong,
+  timeout: number = TIMEOUTS.veryLong,
 ): Promise<Locator> {
   const selector = toolSelector || CHAT_SELECTORS.toolCall;
   await page.waitForSelector(selector, { timeout });
@@ -114,7 +121,7 @@ export async function waitForToolInvocation(
  */
 export async function waitForToolStatus(
   page: Page,
-  timeout: 10000 | 30000 | 60000 = TIMEOUTS.veryLong,
+  timeout: number = TIMEOUTS.veryLong,
 ): Promise<Locator> {
   await page.waitForSelector(CHAT_SELECTORS.toolStatus, { timeout });
   return page.locator(CHAT_SELECTORS.toolStatus).first();
@@ -125,9 +132,9 @@ export async function waitForToolStatus(
  */
 export async function isElementVisible(
   locator: Locator,
-  timeout: 10000 | 30000 | 60000 = TIMEOUTS.medium,
+  timeout: number = TIMEOUTS.medium,
 ): Promise<boolean> {
-  return locator.isVisible({ timeout: timeout as 10000 }).catch(() => false);
+  return locator.isVisible({ timeout }).catch(() => false);
 }
 
 /**
@@ -221,7 +228,7 @@ export async function waitForFileType(
  */
 export async function waitForLoadingIndicator(
   page: Page,
-  timeout: 10000 = TIMEOUTS.medium,
+  timeout: number = TIMEOUTS.medium,
 ): Promise<Locator | null> {
   const loadingSelector = page
     .locator(
@@ -304,7 +311,7 @@ export async function testToolInvocation(
   page: Page,
   message: string,
   toolSelector: string,
-  expectTimeout: 10000 | 60000 = TIMEOUTS.medium,
+  expectTimeout: number = TIMEOUTS.medium,
 ): Promise<void> {
   await sendChatMessage(page, message);
   const tool = await waitForToolInvocation(page, toolSelector, TIMEOUTS.long);
