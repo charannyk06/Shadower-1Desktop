@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { getDatabase, schema } from "../services/database";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, ne, or, and, sql } from "drizzle-orm";
 
 export function registerAgentHandlers() {
   const db = getDatabase();
@@ -20,6 +20,111 @@ export function registerAgentHandlers() {
       throw error;
     }
   });
+
+  // Select agents with filters (mine, shared, bookmarked, all) - matches selectAgents from repository
+  ipcMain.handle(
+    "db:agents:selectAgents",
+    async (
+      _event,
+      currentUserId: string,
+      filters: string[] = ["all"],
+      limit: number = 50,
+    ) => {
+      try {
+        let orConditions: any[] = [];
+
+        for (const filter of filters) {
+          if (filter === "mine") {
+            orConditions.push(eq(schema.AgentTable.userId, currentUserId));
+          } else if (filter === "shared") {
+            orConditions.push(
+              and(
+                ne(schema.AgentTable.userId, currentUserId),
+                or(
+                  eq(schema.AgentTable.visibility, "public"),
+                  eq(schema.AgentTable.visibility, "readonly"),
+                ),
+              ),
+            );
+          } else if (filter === "bookmarked") {
+            orConditions.push(
+              and(
+                ne(schema.AgentTable.userId, currentUserId),
+                or(
+                  eq(schema.AgentTable.visibility, "public"),
+                  eq(schema.AgentTable.visibility, "readonly"),
+                ),
+                sql`${schema.BookmarkTable.id} IS NOT NULL`,
+              ),
+            );
+          } else if (filter === "all") {
+            orConditions = [
+              or(
+                eq(schema.AgentTable.userId, currentUserId),
+                and(
+                  ne(schema.AgentTable.userId, currentUserId),
+                  or(
+                    eq(schema.AgentTable.visibility, "public"),
+                    eq(schema.AgentTable.visibility, "readonly"),
+                  ),
+                ),
+              ),
+            ];
+            break;
+          }
+        }
+
+        const results = await db
+          .select({
+            id: schema.AgentTable.id,
+            name: schema.AgentTable.name,
+            description: schema.AgentTable.description,
+            icon: schema.AgentTable.icon,
+            userId: schema.AgentTable.userId,
+            visibility: schema.AgentTable.visibility,
+            createdAt: schema.AgentTable.createdAt,
+            updatedAt: schema.AgentTable.updatedAt,
+            userName: schema.UserTable.name,
+            userAvatar: schema.UserTable.image,
+            isBookmarked: sql<boolean>`CASE WHEN ${schema.BookmarkTable.id} IS NOT NULL THEN 1 ELSE 0 END`,
+          })
+          .from(schema.AgentTable)
+          .innerJoin(
+            schema.UserTable,
+            eq(schema.AgentTable.userId, schema.UserTable.id),
+          )
+          .leftJoin(
+            schema.BookmarkTable,
+            and(
+              eq(schema.BookmarkTable.itemId, schema.AgentTable.id),
+              eq(schema.BookmarkTable.itemType, "agent"),
+              eq(schema.BookmarkTable.userId, currentUserId),
+            ),
+          )
+          .where(
+            orConditions.length > 1 ? or(...orConditions) : orConditions[0],
+          )
+          .orderBy(
+            sql`CASE WHEN ${schema.AgentTable.userId} = ${currentUserId} THEN 0 ELSE 1 END`,
+            desc(schema.AgentTable.createdAt),
+          )
+          .limit(limit);
+
+        return results.map((result) => ({
+          ...result,
+          description: result.description ?? undefined,
+          icon: result.icon ?? undefined,
+          userName: result.userName ?? undefined,
+          userAvatar: result.userAvatar ?? undefined,
+          createdAt: result.createdAt ?? new Date(),
+          updatedAt: result.updatedAt ?? new Date(),
+        }));
+      } catch (error) {
+        console.error("[IPC] Error selecting agents:", error);
+        throw error;
+      }
+    },
+  );
 
   // Get agent by ID
   ipcMain.handle("db:agents:getById", async (_event, id: string) => {

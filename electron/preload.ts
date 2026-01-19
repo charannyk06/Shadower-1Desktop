@@ -186,6 +186,11 @@ const electronAPI: ElectronAPI = {
       getAll: (userId: string) =>
         ipcRenderer.invoke("db:agents:getAll", userId),
       getById: (id: string) => ipcRenderer.invoke("db:agents:getById", id),
+      selectAgents: (
+        userId: string,
+        filters: string[] = ["all"],
+        limit: number = 50,
+      ) => ipcRenderer.invoke("db:agents:selectAgents", userId, filters, limit),
       create: (data: any) => ipcRenderer.invoke("db:agents:create", data),
       update: (id: string, data: any) =>
         ipcRenderer.invoke("db:agents:update", id, data),
