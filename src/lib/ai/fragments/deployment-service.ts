@@ -3,7 +3,7 @@ import {
   fragmentRepository,
   fragmentSharesRepository,
 } from "lib/db/repository";
-import { sandboxCostTracker } from "lib/billing/sandbox-cost-tracker";
+import { localSandboxCostTracker } from "lib/billing/sandbox-cost-tracker";
 import logger from "logger";
 
 /**
@@ -31,7 +31,7 @@ function parseDuration(duration: DeploymentDuration): number {
 
 /**
  * Deployment Service - One-click deployment for fragments
- * Handles sandbox timeout extension and shareable link creation
+ * Handles local session management and shareable link creation
  */
 export class DeploymentService {
   private readonly baseUrl: string;
@@ -73,19 +73,12 @@ export class DeploymentService {
     const durationMs = parseDuration(duration);
     const expiresAt = new Date(Date.now() + durationMs);
 
-    // Extend sandbox timeout if sandbox is still active
-    if (fragment.sandbox_id) {
-      try {
-        await this.extendSandboxTimeout(fragment.sandbox_id, durationMs);
-        logger.info(
-          `[DEPLOY] Extended sandbox ${fragment.sandbox_id} timeout to ${duration}`,
-        );
-      } catch (error) {
-        logger.warn(
-          `[DEPLOY] Failed to extend sandbox timeout (may be expired): ${error}`,
-        );
-        // Continue with deployment even if sandbox extension fails
-      }
+    // For local execution, no timeout extension needed
+    // Local processes run on user's machine without cloud timeouts
+    if (fragment.session_id) {
+      logger.debug(
+        `[DEPLOY] Local session ${fragment.session_id} - no timeout extension needed`,
+      );
     }
 
     // Create shareable link
@@ -104,10 +97,10 @@ export class DeploymentService {
       deploymentUrl: `${this.baseUrl}/f/${shareId}`,
     });
 
-    // Track usage locally
-    await sandboxCostTracker.trackSession({
+    // Track usage locally (no cost for local execution)
+    await localSandboxCostTracker.trackSession({
       userId,
-      sessionId: fragment.sandbox_id || `deploy-${fragmentId}`,
+      sessionId: fragment.session_id || `deploy-${fragmentId}`,
       template: fragment.template,
       durationMs,
       operationType: "execute" as const,
@@ -125,20 +118,8 @@ export class DeploymentService {
     };
   }
 
-  /**
-   * Extend sandbox timeout (no-op for local execution)
-   * Local processes don't have cloud-based timeout limits
-   */
-  private async extendSandboxTimeout(
-    sandboxId: string,
-    timeoutMs: number,
-  ): Promise<void> {
-    // For local-first desktop app, sandbox processes run locally
-    // and don't have cloud-based timeout limits to extend
-    logger.debug(
-      `[DEPLOY] Local sandbox ${sandboxId} - no timeout extension needed (${timeoutMs}ms)`,
-    );
-  }
+  // Note: Local execution doesn't need timeout extension
+  // Local processes run on user's machine without cloud-based limits
 
   /**
    * Get deployment status for a fragment

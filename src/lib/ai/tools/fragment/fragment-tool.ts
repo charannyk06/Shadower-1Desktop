@@ -3,10 +3,7 @@ import { z } from "zod";
 import type { UIMessageStreamWriter } from "ai";
 import { fragmentAgent } from "lib/ai/agents/fragment-agent";
 import { deploymentService } from "lib/ai/fragments/deployment-service";
-import {
-  sandboxCostTracker,
-  QuotaExceededError,
-} from "lib/billing/sandbox-cost-tracker";
+import { localSandboxCostTracker } from "lib/billing/sandbox-cost-tracker";
 import { fragmentRepository } from "lib/db/repository";
 import logger from "logger";
 
@@ -64,9 +61,7 @@ The system is FULLY AUTONOMOUS - just describe what you want!`,
       const startTime = Date.now();
 
       try {
-        // Check quota before starting
-        await sandboxCostTracker.enforceQuota(context.userId);
-
+        // Local execution is free - no quota enforcement needed
         logger.info(
           `[FRAGMENT_TOOL] Creating fragment for user ${context.userId} (toolCallId: ${toolCallId}): ${request.slice(0, 50)}...`,
         );
@@ -94,14 +89,14 @@ The system is FULLY AUTONOMOUS - just describe what you want!`,
           toolCallId, // Pass toolCallId explicitly
         });
 
-        // Track usage
+        // Track usage (local execution is free, just for analytics)
         const durationMs = Date.now() - startTime;
-        await sandboxCostTracker.trackSession({
+        await localSandboxCostTracker.trackSession({
           userId: context.userId,
-          sessionId: result.sandboxId,
+          sessionId: result.sessionId,
           template: result.template,
           durationMs,
-          operationType: "create",
+          operationType: "execute",
         });
 
         return {
@@ -120,14 +115,6 @@ The system is FULLY AUTONOMOUS - just describe what you want!`,
             "Fragment creation is complete. Provide your final response to the user NOW. Do NOT create new plans or tasks.",
         };
       } catch (error: any) {
-        if (error instanceof QuotaExceededError) {
-          return {
-            success: false,
-            error: error.message,
-            hint: "Consider upgrading your plan for more sandbox time.",
-          };
-        }
-
         logger.error("[FRAGMENT_TOOL] Creation failed:", error);
         return {
           success: false,
@@ -171,9 +158,7 @@ Provide the fragment ID and describe your edit.`,
       const startTime = Date.now();
 
       try {
-        // Check quota
-        await sandboxCostTracker.enforceQuota(context.userId);
-
+        // Local execution is free - no quota enforcement needed
         logger.info(
           `[FRAGMENT_TOOL] Editing fragment ${fragmentId}: ${editRequest.slice(0, 50)}...`,
         );
@@ -204,14 +189,14 @@ Provide the fragment ID and describe your edit.`,
           },
         );
 
-        // Track usage
+        // Track usage (local execution is free, just for analytics)
         const durationMs = Date.now() - startTime;
-        await sandboxCostTracker.trackSession({
+        await localSandboxCostTracker.trackSession({
           userId: context.userId,
-          sessionId: result.sandboxId,
+          sessionId: result.sessionId,
           template: result.template,
           durationMs,
-          operationType: "edit",
+          operationType: "execute",
         });
 
         return {
@@ -223,13 +208,6 @@ Provide the fragment ID and describe your edit.`,
           message: "Edit applied successfully",
         };
       } catch (error: any) {
-        if (error instanceof QuotaExceededError) {
-          return {
-            success: false,
-            error: error.message,
-          };
-        }
-
         logger.error("[FRAGMENT_TOOL] Edit failed:", error);
         return {
           success: false,
