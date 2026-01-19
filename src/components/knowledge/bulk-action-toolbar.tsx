@@ -19,7 +19,7 @@ import { cn } from "lib/utils";
 
 interface BulkActionToolbarProps {
   selectedIds: Set<string>;
-  selectedMemories: Array<{ id: string; role: "user" | "assistant" }>;
+  selectedMemories: Array<{ id: string; role?: "user" | "assistant" }>;
   onDelete: (ids: string[]) => Promise<void>;
   onDeleteByRole: (role: "user" | "assistant", ids: string[]) => Promise<void>;
   onClearSelection: () => void;

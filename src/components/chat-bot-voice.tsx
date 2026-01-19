@@ -76,8 +76,6 @@ export function ChatBotVoice() {
     model,
     allowedMcpServers,
     mcpList,
-    composioToolList,
-    composioEnabled,
     currentThreadId,
   ] = appStore(
     useShallow((state) => [
@@ -87,8 +85,6 @@ export function ChatBotVoice() {
       state.chatModel,
       state.allowedMcpServers,
       state.mcpList,
-      state.composioToolList,
-      state.composioEnabled,
       state.currentThreadId,
     ]),
   );
@@ -129,41 +125,14 @@ export function ChatBotVoice() {
         mentions.push(...mcpMentions);
       }
 
-      // Add Composio tools (grouped by app)
-      if (composioEnabled && composioToolList.length > 0) {
-        const appGroups = groupBy(composioToolList, (t) => t.appName);
-        Object.entries(appGroups).forEach(([appName, tools]) => {
-          const mention: ChatMention = {
-            type: "composioApp",
-            name: appName,
-            appId: tools[0]?.appId ?? "",
-            description: `${tools.length} tools from ${appName}`,
-            toolCount: tools.length,
-          };
-          mentions.push(mention);
-        });
-      }
-
       return mentions;
     }
 
-    // For agents, include both MCP and Composio mentions
+    // For agents, include MCP mentions
     const agentMentions =
-      agent?.instructions.mentions?.filter(
-        (v) =>
-          v.type === "mcpTool" ||
-          v.type === "composioApp" ||
-          v.type === "composioTool",
-      ) ?? [];
+      agent?.instructions.mentions?.filter((v) => v.type === "mcpTool") ?? [];
     return agentMentions;
-  }, [
-    agentId,
-    agent,
-    mcpList,
-    allowedMcpServers,
-    composioToolList,
-    composioEnabled,
-  ]);
+  }, [agentId, agent, mcpList, allowedMcpServers]);
 
   const {
     isListening,
@@ -268,24 +237,9 @@ export function ChatBotVoice() {
     });
   }, [toolMentions]);
 
-  const composioTools = useMemo<EnabledTools[]>(() => {
-    if (!composioEnabled || composioToolList.length === 0) return [];
-
-    const appGroups = groupBy(composioToolList, (t) => t.appName);
-    return Object.entries(appGroups).map(([appName, tools]) => {
-      return {
-        groupName: appName,
-        tools: tools.map((v) => ({
-          name: v.name,
-          description: v.description ?? "",
-        })),
-      };
-    });
-  }, [composioToolList, composioEnabled]);
-
   const tools = useMemo<EnabledTools[]>(() => {
-    return [...prependTools, ...mcpTools, ...composioTools];
-  }, [mcpTools, composioTools]);
+    return [...prependTools, ...mcpTools];
+  }, [mcpTools]);
 
   useEffect(() => {
     return () => {

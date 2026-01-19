@@ -66,20 +66,10 @@ const VISIBILITY_CONFIG = {
       description: "MCP.featuredDescription",
     },
   },
-  composio: {
-    private: {
-      label: "AppIntegration.private",
-      description: "AppIntegration.privateDescription",
-    },
-    public: {
-      label: "AppIntegration.public",
-      description: "AppIntegration.publicDescription",
-    },
-  },
 } as const;
 
 interface ShareableActionsProps {
-  type: "agent" | "workflow" | "mcp" | "composio";
+  type: "agent" | "workflow" | "mcp";
   visibility?: Visibility;
   isOwner: boolean;
   canChangeVisibility?: boolean;

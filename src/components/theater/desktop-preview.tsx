@@ -176,9 +176,7 @@ export function DesktopPreview({
         {/* Title Bar */}
         <div className="flex-1 flex items-center gap-2 bg-black/40 rounded-md px-3 py-1 border border-white/5">
           <Monitor className="w-3.5 h-3.5 text-white/40" />
-          <span className="text-xs text-white/70 truncate">
-            E2B Desktop Sandbox
-          </span>
+          <span className="text-xs text-white/70 truncate">Local Desktop</span>
           <span className="text-[10px] text-white/30 ml-auto font-mono">
             {sandboxId.substring(0, 8)}...
           </span>
@@ -274,7 +272,7 @@ export function DesktopPreview({
           <span className="text-white/20">|</span>
           <span className="uppercase tracking-wider flex items-center gap-1">
             <Terminal className="w-3 h-3" />
-            E2B Desktop
+            Local Terminal
           </span>
           {showStream && streamUrl && (
             <>

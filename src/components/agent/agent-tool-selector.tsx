@@ -87,13 +87,6 @@ export function AgentToolSelector({
             />
           ) : m.type === "mcpServer" ? (
             <MCPIcon className="size-3" />
-          ) : m.type === "composioApp" ? (
-            <Avatar className="size-3 ring-[1px] ring-input rounded-full">
-              {m.logo && <AvatarImage src={m.logo} />}
-              <AvatarFallback>
-                <HammerIcon className="size-2" />
-              </AvatarFallback>
-            </Avatar>
           ) : m.type === "workflow" ? (
             <Avatar
               style={m.icon?.style}
@@ -108,12 +101,6 @@ export function AgentToolSelector({
         </div>
 
         {m.name}
-        {/** Show tool count for composioApp if available */}
-        {m.type === "composioApp" && m.toolCount && (
-          <span className="text-muted-foreground ml-1">
-            {m.toolCount} tools
-          </span>
-        )}
 
         {hasEditAccess && (
           <span className="ml-2">

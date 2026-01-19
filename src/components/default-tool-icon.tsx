@@ -80,7 +80,7 @@ export function DefaultToolIcon({
       return <CodeIcon className={cn("size-3.5 text-green-500", className)} />;
     }
 
-    // Browser automation tools (Browserbase + Stagehand)
+    // Browser automation tools (Local Chrome DevTools Protocol)
     if (name === DefaultToolName.BrowserNavigate) {
       return (
         <NavigationIcon className={cn("size-3.5 text-orange-500", className)} />
@@ -118,7 +118,7 @@ export function DefaultToolIcon({
       return <XIcon className={cn("size-3.5 text-orange-500", className)} />;
     }
 
-    // Desktop/Computer Use tools (E2B Desktop)
+    // Desktop/Computer Use tools (Local Terminal)
     if (name === DefaultToolName.DesktopScreenshot) {
       return (
         <ComputerIcon className={cn("size-3.5 text-purple-500", className)} />

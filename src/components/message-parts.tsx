@@ -723,10 +723,10 @@ const RememberContextToolInvocation = dynamic(
   },
 );
 
-const E2BCodeExecutor = dynamic(
+const SandboxCodeExecutor = dynamic(
   () =>
-    import("./tool-invocation/e2b-code-executor").then(
-      (mod) => mod.E2BCodeExecutor,
+    import("./tool-invocation/sandbox-code-executor").then(
+      (mod) => mod.SandboxCodeExecutor,
     ),
   {
     ssr: false,
@@ -977,7 +977,7 @@ export const ToolMessagePart = memo(
 
       if (toolName === DefaultToolName.Sandbox) {
         return (
-          <E2BCodeExecutor
+          <SandboxCodeExecutor
             part={part}
             key={part.toolCallId}
             onResult={onToolCallDirect}
@@ -1006,15 +1006,15 @@ export const ToolMessagePart = memo(
 
       // Fragment tools - createFragment and editFragment
       if (toolName === "createFragment" || toolName === "editFragment") {
-        return <FragmentInvocation part={part} threadId={threadId} />;
+        return <FragmentInvocation part={part} />;
       }
 
-      // Browser tools (Browserbase/Stagehand) - camelCase names like browserNavigate, browserAct
+      // Browser tools (Local Chrome DevTools) - camelCase names like browserNavigate, browserAct
       if (toolName.startsWith("browser") && toolName !== "browser") {
         return <BrowserToolInvocation part={part} threadId={threadId} />;
       }
 
-      // Desktop tools (E2B Desktop) - camelCase names like desktopScreenshot, desktopClick
+      // Desktop tools (Local Terminal) - camelCase names like desktopScreenshot, desktopClick
       if (toolName.startsWith("desktop") && toolName !== "desktop") {
         return <DesktopToolInvocation part={part} threadId={threadId} />;
       }

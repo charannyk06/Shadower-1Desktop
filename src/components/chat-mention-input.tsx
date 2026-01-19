@@ -9,8 +9,7 @@ import React, {
 } from "react";
 
 import { getSystemAgentCustomIcon } from "@/hooks/use-system-agent-icon";
-import { useComposioGroupedApps } from "@/hooks/queries/use-composio";
-import { CheckIcon, HammerIcon, PlugIcon, SearchIcon } from "lucide-react";
+import { CheckIcon, HammerIcon, SearchIcon } from "lucide-react";
 import { MCPIcon } from "ui/mcp-icon";
 
 import { ChatMention } from "app-types/chat";
@@ -161,8 +160,6 @@ export function ChatMentionInputSuggestion({
   disabledType?: ("mcp" | "workflow" | "defaultTool" | "agent")[];
 }) {
   const t = useTranslations("Common");
-  const { items: composioGroupedApps, enabled: composioEnabled } =
-    useComposioGroupedApps();
 
   const [mcpList, workflowList, agentList] = appStore(
     useShallow((state) => [
@@ -540,59 +537,6 @@ export function ChatMentionInputSuggestion({
       });
   }, [selectedIds, disabledType, searchValue]);
 
-  const composioMentions = useMemo(() => {
-    if (!composioEnabled || !composioGroupedApps?.length) return [];
-
-    // Filter by search using the pre-grouped data
-    const filteredApps = composioGroupedApps.filter((app) => {
-      if (!searchValue) return true;
-      const search = searchValue.toLowerCase();
-      return (
-        app.appName.toLowerCase().includes(search) ||
-        app.displayName.toLowerCase().includes(search) ||
-        app.tools.some((t) => t.name.toLowerCase().includes(search))
-      );
-    });
-
-    // Return app-level mentions
-    return filteredApps.map((app) => {
-      const id = JSON.stringify({
-        type: "composioApp",
-        name: app.displayName,
-        appId: app.appId,
-        toolCount: app.toolCount,
-        description: app.description,
-        logo: app.logo,
-      });
-
-      return {
-        id: `composio-app-${app.appName}`,
-        type: "composioTool", // Keep type as composioTool for grouping key in groupedMentions to work without changing types there
-        label: app.displayName,
-        onSelect: () =>
-          onSelectMention({
-            label: app.displayName,
-            id,
-          }),
-        icon: (
-          <Avatar className="size-3.5 ring-[1px] ring-input rounded-full">
-            {app.logo && <AvatarImage src={app.logo} />}
-            <AvatarFallback>
-              <PlugIcon className="size-3.5 text-purple-500" />
-            </AvatarFallback>
-          </Avatar>
-        ),
-        suffix: selectedIds?.includes(id) ? (
-          <CheckIcon className="size-3 ml-auto" />
-        ) : (
-          <span className="ml-auto text-xs text-muted-foreground">
-            {app.toolCount} tools
-          </span>
-        ),
-      };
-    });
-  }, [composioEnabled, composioGroupedApps, selectedIds, searchValue]);
-
   const trigger = useMemo(() => {
     if (children) return children;
     return (
@@ -613,15 +557,8 @@ export function ChatMentionInputSuggestion({
       ...workflowMentions,
       ...defaultToolMentions,
       ...mcpMentions,
-      ...composioMentions,
     ];
-  }, [
-    agentMentions,
-    workflowMentions,
-    defaultToolMentions,
-    mcpMentions,
-    composioMentions,
-  ]);
+  }, [agentMentions, workflowMentions, defaultToolMentions, mcpMentions]);
 
   // Reset selected index when mentions change
   useEffect(() => {
@@ -647,14 +584,11 @@ export function ChatMentionInputSuggestion({
       defaultTool: { title: "App Tools", items: [] as MentionItemType[] },
       mcp: { title: "MCP Tools", items: [] as MentionItemType[] },
       mcpTool: { title: "MCP Tools", items: [] as MentionItemType[] },
-      composioTool: { title: "App Tools", items: [] as MentionItemType[] },
     };
 
     allMentions.forEach((mention) => {
       if (mention.type === "mcpTool") {
         groups.mcp.items.push(mention);
-      } else if (mention.type === "composioTool") {
-        groups.composioTool.items.push(mention);
       } else if (groups[mention.type as keyof typeof groups]) {
         groups[mention.type as keyof typeof groups].items.push(mention);
       }
@@ -861,27 +795,6 @@ export function ChatMentionInputSuggestion({
                     </div>
                   </div>
                 )}
-                {groupedMentions.composioTool.items.length > 0 && (
-                  <div className="p-2 border-t">
-                    <div className="text-xs font-medium text-muted-foreground px-2 py-1.5">
-                      {groupedMentions.composioTool.title}
-                    </div>
-                    <div className="space-y-1">
-                      {groupedMentions.composioTool.items.map((item) => (
-                        <MentionItem
-                          key={item.id}
-                          item={item}
-                          isSelected={
-                            allMentions[selectedIndex]?.id === item.id
-                          }
-                          ref={(el) => {
-                            itemRefs.current[item.id] = el;
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             ) : (
               // Desktop horizontal layout
@@ -967,28 +880,6 @@ export function ChatMentionInputSuggestion({
                       )}
                     </div>
                   </div>
-                  {/* Composio Tools in same column */}
-                  {groupedMentions.composioTool.items.length > 0 && (
-                    <div className="p-2 border-t">
-                      <div className="text-xs font-medium text-muted-foreground px-2 py-1.5">
-                        {groupedMentions.composioTool.title}
-                      </div>
-                      <div className="space-y-1">
-                        {groupedMentions.composioTool.items.map((item) => (
-                          <MentionItem
-                            key={item.id}
-                            item={item}
-                            isSelected={
-                              allMentions[selectedIndex]?.id === item.id
-                            }
-                            ref={(el) => {
-                              itemRefs.current[item.id] = el;
-                            }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Default Tools Column */}

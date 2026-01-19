@@ -17,7 +17,7 @@ import { Label } from "ui/label";
 interface Memory {
   id: string;
   content: string;
-  role: "user" | "assistant";
+  role?: "user" | "assistant";
 }
 
 interface EditMemoryDialogProps {

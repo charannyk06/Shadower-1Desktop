@@ -1,7 +1,6 @@
 import { AgentSummary } from "app-types/agent";
 import { ArchiveWithItemCount } from "app-types/archive";
 import { ChatMention, ChatModel, ChatThread } from "app-types/chat";
-import { ComposioToolInfo } from "app-types/composio";
 import { AllowedMCPServer, MCPServerInfo } from "app-types/mcp";
 import { WorkflowSummary } from "app-types/workflow";
 import { OPENAI_VOICE } from "lib/ai/speech/open-ai/use-voice-chat.openai";
@@ -114,8 +113,6 @@ export interface AppState {
   mcpList: (MCPServerInfo & { id: string })[];
   agentList: AgentSummary[];
   workflowToolList: WorkflowSummary[];
-  composioToolList: ComposioToolInfo[];
-  composioEnabled: boolean;
   currentThreadId: ChatThread["id"] | null;
   toolChoice: "auto" | "none" | "manual";
   allowedMcpServers?: Record<string, AllowedMCPServer>;
@@ -156,12 +153,6 @@ export interface AppState {
   openBilling: boolean;
   openKnowledge: boolean;
   mcpCustomizationPopup?: MCPServerInfo & { id: string };
-  composioCustomizationPopup?: {
-    appName: string;
-    displayName: string;
-    tools: ComposioToolInfo[];
-    logo?: string;
-  };
   temporaryChat: {
     isOpen: boolean;
     instructions: string;
@@ -204,11 +195,15 @@ export interface AppState {
     // Browser session state
     browserSession?: {
       sessionId: string;
-      provider: "browserbase" | "e2b-desktop";
+      provider:
+        | "chrome-devtools"
+        | "local-terminal"
+        | "browserbase"
+        | "e2b-desktop";
       currentUrl?: string;
       replayUrl?: string;
     };
-    // Desktop session state (E2B Desktop)
+    // Desktop session state (local terminal)
     desktopSession?: {
       sandboxId: string;
       streamUrl?: string;
@@ -240,8 +235,6 @@ const initialState: AppState = {
   mcpList: [],
   agentList: [],
   workflowToolList: [],
-  composioToolList: [],
-  composioEnabled: false,
   currentThreadId: null,
   toolChoice: "auto",
   allowedMcpServers: undefined,

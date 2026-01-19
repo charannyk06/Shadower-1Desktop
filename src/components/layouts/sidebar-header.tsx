@@ -64,7 +64,7 @@ export function SidebarHeaderShared({
   };
 
   return (
-    <SidebarHeader>
+    <SidebarHeader className="pt-8">
       <SidebarMenu>
         <SidebarMenuItem className="flex items-center gap-0.5 mb-1">
           <SidebarMenuButton asChild className="hover:bg-transparent">

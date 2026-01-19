@@ -12,7 +12,6 @@ import {
   AlertCircle,
   Loader2,
   Code,
-  Eye,
   ExternalLink,
   Copy,
   Check,

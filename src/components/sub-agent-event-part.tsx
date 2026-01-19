@@ -24,10 +24,10 @@ const WebSearchToolInvocation = dynamic(
   },
 );
 
-const E2BCodeExecutor = dynamic(
+const SandboxCodeExecutor = dynamic(
   () =>
-    import("./tool-invocation/e2b-code-executor").then(
-      (mod) => mod.E2BCodeExecutor,
+    import("./tool-invocation/sandbox-code-executor").then(
+      (mod) => mod.SandboxCodeExecutor,
     ),
   {
     ssr: false,
@@ -283,7 +283,7 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
 
         return (
           <div className="w-full my-2">
-            <E2BCodeExecutor
+            <SandboxCodeExecutor
               part={mockPart}
               key={mockPart.toolCallId}
               onResult={() => {}}
