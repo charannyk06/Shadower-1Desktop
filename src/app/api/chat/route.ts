@@ -106,6 +106,17 @@ export async function POST(request: Request) {
       `[Request] id: ${id}, toolChoice: ${toolChoice}, chatModel: ${chatModel?.provider}/${chatModel?.model}, mentions: ${mentions.length}, imageTool: ${imageTool?.model ?? "none"}`,
     );
 
+    // Validate chatModel is provided
+    if (!chatModel || !chatModel.provider || !chatModel.model) {
+      return Response.json(
+        {
+          error:
+            "No model selected. Please select a model and ensure you have added an API key in Settings > Models.",
+        },
+        { status: 400 },
+      );
+    }
+
     const model = customModelProvider.getModel(chatModel);
 
     let thread = await chatRepository.selectThreadDetails(id);

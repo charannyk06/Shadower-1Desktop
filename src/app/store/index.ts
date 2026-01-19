@@ -249,10 +249,7 @@ const initialState: AppState = {
     AppDefaultToolkit.Memory,
   ],
   toolPresets: [],
-  chatModel: {
-    provider: "google",
-    model: "gemini-3-flash-preview",
-  },
+  chatModel: null as { provider: string; model: string } | null,
   openShortcutsPopup: false,
   openChatPreferences: false,
   mcpCustomizationPopup: undefined,
@@ -305,10 +302,16 @@ export const appStore = create<AppState & AppDispatch>()(
           );
           allowedAppDefaultToolkit = [...validStored, ...newToolkits];
         }
+
+        // Clear invalid chatModel - let useChatModels hook set a valid one
+        // This prevents showing gemini-3-flash-preview when no API key is configured
+        const chatModel = null; // Always start with null, let useChatModels set a valid one
+
         return {
           ...currentState,
           ...persisted,
           allowedAppDefaultToolkit,
+          chatModel, // Override persisted chatModel with null
           // Preserve threadPlans from persisted state to maintain plan progress across refreshes
           threadPlans: persisted.threadPlans || currentState.threadPlans || {},
           // Preserve threadContextUsage from persisted state to maintain context indicator across refreshes
