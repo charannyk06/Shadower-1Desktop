@@ -1155,7 +1155,7 @@ function PreviewContent({
     );
   }
 
-  // Desktop preview - uses desktopSession state from E2B Desktop sandbox
+  // Desktop preview - uses desktopSession state from local terminal
   if (type === "desktop" && desktopSession?.sandboxId) {
     return (
       <DesktopPreview
