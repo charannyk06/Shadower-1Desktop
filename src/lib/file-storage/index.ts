@@ -20,8 +20,9 @@ const resolveDriver = (): FileStorageDriver => {
     return normalized as FileStorageDriver;
   }
 
-  // Default to Local in dev, Vercel Blob in prod
-  return IS_DEV ? "local" : "vercel-blob";
+  // Default to local storage for local-first architecture
+  // Cloud storage (vercel-blob, s3) requires explicit configuration
+  return "local";
 };
 
 declare global {

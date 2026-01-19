@@ -15,9 +15,16 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// Local provider types
+type BrowserProvider =
+  | "chrome-devtools"
+  | "local-terminal"
+  | "browserbase"
+  | "e2b-desktop";
+
 interface BrowserPreviewProps {
   sessionId: string;
-  provider?: "browserbase" | "e2b-desktop";
+  provider?: BrowserProvider;
   initialUrl?: string;
   replayUrl?: string;
   onClose?: () => void;
@@ -36,7 +43,7 @@ interface StreamEvent {
 
 export function BrowserPreview({
   sessionId,
-  provider = "browserbase",
+  provider = "chrome-devtools",
   initialUrl,
   replayUrl,
   onClose,

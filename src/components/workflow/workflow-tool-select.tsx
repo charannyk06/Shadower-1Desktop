@@ -45,18 +45,6 @@ export function WorkflowToolSelect({
     );
   }, [tools]);
 
-  const composioToolsByApp = useMemo(() => {
-    const composioTools = tools.filter((tool) => tool.type == "composio-tool");
-    return Object.entries(groupBy(composioTools, "appName")).map(
-      ([appName, tools]) => {
-        return {
-          appName,
-          tools,
-        };
-      },
-    );
-  }, [tools]);
-
   const defaultTools = useMemo(() => {
     return tools.filter((tool) => tool.type == "app-tool");
   }, [tools]);
@@ -76,17 +64,6 @@ export function WorkflowToolSelect({
         <>
           <MCPIcon className="size-3.5" />
           <span className="font-bold">{tool.serverName}</span>
-          <div className="bg-primary text-primary-foreground px-2 rounded-md truncate">
-            {tool.id}
-          </div>
-        </>
-      );
-    }
-    if (tool.type == "composio-tool" && "appName" in tool && tool.appName) {
-      return (
-        <>
-          <WrenchIcon className="size-3.5" />
-          <span className="font-bold">{tool.appName}</span>
           <div className="bg-primary text-primary-foreground px-2 rounded-md truncate">
             {tool.id}
           </div>
@@ -127,32 +104,6 @@ export function WorkflowToolSelect({
                   heading={mcpTools.serverName}
                 >
                   {mcpTools.tools.map((tool) => {
-                    return (
-                      <CommandItem
-                        key={tool.id}
-                        onSelect={() => {
-                          onChange(tool);
-                          setOpen(false);
-                        }}
-                        className="cursor-pointer"
-                      >
-                        <WrenchIcon className="size-3.5" />
-                        <span className="font-semibold truncate">
-                          {tool.id}
-                        </span>
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              );
-            })}
-            {composioToolsByApp.map((composioGroup) => {
-              return (
-                <CommandGroup
-                  key={composioGroup.appName}
-                  heading={composioGroup.appName || "Composio"}
-                >
-                  {composioGroup.tools.map((tool) => {
                     return (
                       <CommandItem
                         key={tool.id}

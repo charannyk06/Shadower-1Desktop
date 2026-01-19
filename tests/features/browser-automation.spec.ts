@@ -75,8 +75,8 @@ test.describe("Browser Automation - Web Interaction", () => {
       "Navigate to https://example.com and extract the main heading text",
     );
 
-    const responseText = await response.textContent();
-    expect(responseText).toBeTruthy();
+    // sendMessageAndWaitForResponse returns the text content directly
+    expect(response).toBeTruthy();
   });
 
   test("should interact with web page elements", async ({ page }) => {

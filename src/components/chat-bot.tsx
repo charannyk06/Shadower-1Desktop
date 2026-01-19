@@ -929,9 +929,21 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         handleContextEvent(dataPart, threadId, setMessages);
       } else if (isFragmentProgressEvent(dataPart)) {
         handleFragmentProgressEvent(dataPart, setMessages);
-      } else if (isCollaboraOpenEvent(dataPart)) {
+      } else if (
+        isCollaboraOpenEvent(dataPart as { type: string; data?: unknown })
+      ) {
         // Open Collabora editor in theater panel
-        const { editorUrl, fileUrl, fileName, documentType } = dataPart.data;
+        const collaboraData = (
+          dataPart as {
+            data: {
+              editorUrl: string;
+              fileUrl: string;
+              fileName: string;
+              documentType: string;
+            };
+          }
+        ).data;
+        const { editorUrl, fileUrl, fileName, documentType } = collaboraData;
         const mimeType =
           documentType === "presentation"
             ? "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -960,7 +972,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   });
 
   // Set currentThreadId synchronously on mount/thread change
-  // Using useLayoutEffect ensures child components (like E2BCodeExecutor) have access
+  // Using useLayoutEffect ensures child components (like sandbox executors) have access
   // to the threadId before their effects run - critical for sandbox file persistence
   useLayoutEffect(() => {
     clientLogger.debug("[ChatBot] Setting currentThreadId", { threadId });
@@ -1175,7 +1187,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         if (Array.isArray(result)) {
           items = result;
         }
-        // Case 2: Result is wrapped in 'results' property (E2B pattern)
+        // Case 2: Result is wrapped in 'results' property (sandbox execution pattern)
         else if (result.results && Array.isArray(result.results)) {
           items = result.results;
         }

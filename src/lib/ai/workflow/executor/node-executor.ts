@@ -4,7 +4,6 @@ import {
   generateObject,
   generateText,
 } from "ai";
-import { getComposioClientForUser, isComposioEnabled } from "lib/ai/composio";
 import { mcpClientsManager } from "lib/ai/mcp/mcp-manager";
 import { customModelProvider } from "lib/ai/models";
 import { DefaultToolName } from "lib/ai/tools";
@@ -12,13 +11,6 @@ import {
   exaContentsToolForWorkflow,
   exaSearchToolForWorkflow,
 } from "lib/ai/tools/web/web-search";
-import {
-  SERVICE_CREDIT_COSTS,
-  trackLLMUsage,
-  trackWebSearch,
-} from "lib/billing";
-import { getModelMultiplier } from "lib/billing/model-multipliers";
-import { subscriptionRepository } from "lib/db/repository";
 import { AppError } from "lib/errors";
 import { jsonSchemaToZod } from "lib/json-schema-to-zod";
 import { toAny } from "lib/utils";
@@ -28,7 +20,6 @@ import {
   convertTiptapJsonToText,
 } from "../shared.workflow";
 import {
-  ComposioTool,
   ConditionNodeData,
   DefaultTool,
   HttpNodeData,
@@ -177,69 +168,11 @@ export const llmNodeExecutor: NodeExecutor<LLMNodeData> = async ({
     responseFormat: isTextResponse ? "text" : "object",
   });
 
-  // Helper to track LLM usage for workflow nodes with multiplier
-  const trackWorkflowLLMUsage = (usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  }) => {
-    if (!state.userId) return;
-
-    const inputTokens = usage.inputTokens;
-    const outputTokens = usage.outputTokens;
-    const actualTokens = usage.totalTokens;
-
-    // Apply model multiplier
-    const multiplier = getModelMultiplier(
-      node.model.model,
-      node.model.provider,
-    );
-    const effectiveTokens = Math.ceil(actualTokens * multiplier);
-
-    trackLLMUsage({
-      userId: state.userId,
-      model: node.model.model,
-      provider: node.model.provider,
-      inputTokens: Math.ceil(inputTokens * multiplier),
-      outputTokens: Math.ceil(outputTokens * multiplier),
-      totalTokens: effectiveTokens,
-    }).catch(() => {}); // Silently fail for workflow nodes
-
-    subscriptionRepository
-      .recordUsageEvent({
-        userId: state.userId,
-        eventType: "llm_tokens",
-        amount: String(effectiveTokens),
-        metadata: {
-          model: node.model.model,
-          provider: node.model.provider,
-          actualTokens,
-          multiplier,
-          creditsConsumed: effectiveTokens,
-          inputTokens,
-          outputTokens,
-          source: "workflow_llm_node",
-          nodeId: node.id,
-          nodeName: node.name,
-        },
-      })
-      .catch(() => {}); // Silently fail for workflow nodes
-  };
-
   if (isTextResponse) {
     const response = await generateText({
       model,
       messages: await convertToModelMessages(messages),
     });
-
-    // Track LLM usage for billing
-    if (response.usage) {
-      trackWorkflowLLMUsage({
-        inputTokens: response.usage.inputTokens || 0,
-        outputTokens: response.usage.outputTokens || 0,
-        totalTokens: response.usage.totalTokens || 0,
-      });
-    }
 
     return {
       output: {
@@ -255,15 +188,6 @@ export const llmNodeExecutor: NodeExecutor<LLMNodeData> = async ({
     schema: jsonSchemaToZod(answerSchema),
     maxRetries: 3,
   });
-
-  // Track LLM usage for billing
-  if (response.usage) {
-    trackWorkflowLLMUsage({
-      inputTokens: response.usage.inputTokens || 0,
-      outputTokens: response.usage.outputTokens || 0,
-      totalTokens: response.usage.totalTokens || 0,
-    });
-  }
 
   return {
     output: {
@@ -354,52 +278,6 @@ function buildToolPrompt(
   );
 }
 
-// Helper: Track tool LLM usage for billing
-function trackToolLLMUsage(
-  state: WorkflowRuntimeState,
-  node: ToolNodeData,
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number },
-): void {
-  if (!state.userId) return;
-
-  const inputTokens = usage.inputTokens || 0;
-  const outputTokens = usage.outputTokens || 0;
-  const actualTokens = usage.totalTokens || 0;
-
-  const multiplier = getModelMultiplier(node.model.model, node.model.provider);
-  const effectiveTokens = Math.ceil(actualTokens * multiplier);
-
-  trackLLMUsage({
-    userId: state.userId,
-    model: node.model.model,
-    provider: node.model.provider,
-    inputTokens: Math.ceil(inputTokens * multiplier),
-    outputTokens: Math.ceil(outputTokens * multiplier),
-    totalTokens: effectiveTokens,
-  }).catch(() => {});
-
-  subscriptionRepository
-    .recordUsageEvent({
-      userId: state.userId,
-      eventType: "llm_tokens",
-      amount: String(effectiveTokens),
-      metadata: {
-        model: node.model.model,
-        provider: node.model.provider,
-        actualTokens,
-        multiplier,
-        creditsConsumed: effectiveTokens,
-        inputTokens,
-        outputTokens,
-        source: "workflow_tool_node",
-        nodeId: node.id,
-        nodeName: node.name,
-        toolId: node.tool?.id,
-      },
-    })
-    .catch(() => {});
-}
-
 // Helper: Execute MCP tool
 async function executeMcpTool(
   tool: WorkflowToolKey & MCPTool,
@@ -415,44 +293,6 @@ async function executeMcpTool(
     throw new Error(
       toolResult.error?.message ||
         toolResult.error?.name ||
-        JSON.stringify(toolResult),
-    );
-  }
-  return { tool_result: toolResult };
-}
-
-// Helper: Execute Composio tool
-async function executeComposioTool(
-  tool: WorkflowToolKey & ComposioTool,
-  parameter: unknown,
-  userId: string | undefined,
-): Promise<{ tool_result: unknown }> {
-  if (!userId) {
-    throw new Error(
-      "User context required for Composio tools. Workflow execution must include userId.",
-    );
-  }
-
-  if (!isComposioEnabled()) {
-    throw new Error(
-      "Composio integrations are not enabled. Please configure COMPOSIO_API_KEY.",
-    );
-  }
-
-  const client = getComposioClientForUser(userId);
-  if (!client) {
-    throw new Error("Could not create Composio client for user.");
-  }
-
-  const toolResult = await client.executeAction(
-    tool.id,
-    (parameter as Record<string, unknown>) || {},
-  );
-
-  if (toAny(toolResult)?.isError) {
-    throw new Error(
-      toAny(toolResult)?.error?.message ||
-        toAny(toolResult)?.error?.name ||
         JSON.stringify(toolResult),
     );
   }
@@ -482,45 +322,6 @@ async function executeAppTool(
     toolCallId: "",
   });
   return { tool_result: toolResult };
-}
-
-// Helper: Track web search usage for billing
-function trackWebSearchUsage(
-  state: WorkflowRuntimeState,
-  node: ToolNodeData,
-  parameter: any,
-): void {
-  if (!state.userId) return;
-  if (
-    node.tool?.id !== DefaultToolName.WebSearch &&
-    node.tool?.id !== DefaultToolName.WebContent
-  ) {
-    return;
-  }
-
-  const searchQuery = parameter?.query || parameter?.url || "";
-
-  trackWebSearch({
-    userId: state.userId,
-    query: searchQuery,
-    toolName: node.tool.id,
-  }).catch(() => {});
-
-  subscriptionRepository
-    .recordUsageEvent({
-      userId: state.userId,
-      eventType: "web_search",
-      amount: "1",
-      metadata: {
-        toolName: node.tool.id,
-        query: searchQuery,
-        creditsConsumed: SERVICE_CREDIT_COSTS.webSearchPerQuery,
-        source: "workflow_tool_node",
-        nodeId: node.id,
-        nodeName: node.name,
-      },
-    })
-    .catch(() => {});
 }
 
 /**
@@ -561,14 +362,6 @@ export const toolNodeExecutor: NodeExecutor<ToolNodeData> = async ({
       },
     });
 
-    if (response.usage) {
-      trackToolLLMUsage(state, node, {
-        inputTokens: response.usage.inputTokens || 0,
-        outputTokens: response.usage.outputTokens || 0,
-        totalTokens: response.usage.totalTokens || 0,
-      });
-    }
-
     result.input = {
       parameter: response.toolCalls.find((call) => call.input)?.input,
       prompt: validPrompt,
@@ -579,15 +372,8 @@ export const toolNodeExecutor: NodeExecutor<ToolNodeData> = async ({
   const toolType = node.tool.type;
   if (toolType === "mcp-tool") {
     result.output = await executeMcpTool(node.tool, result.input.parameter);
-  } else if (toolType === "composio-tool") {
-    result.output = await executeComposioTool(
-      node.tool,
-      result.input.parameter,
-      state.userId,
-    );
   } else if (toolType === "app-tool") {
     result.output = await executeAppTool(node.tool, result.input.parameter);
-    trackWebSearchUsage(state, node, result.input.parameter);
   } else {
     result.output = {
       tool_result: { error: `Not implemented "${toAny(node.tool)?.type}"` },

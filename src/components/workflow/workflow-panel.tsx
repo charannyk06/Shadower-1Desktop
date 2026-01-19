@@ -25,6 +25,7 @@ import { DBWorkflow } from "app-types/workflow";
 import { Edge, useReactFlow } from "@xyflow/react";
 import { arrangeNodes } from "lib/ai/workflow/arrange-nodes";
 import { allNodeValidate } from "lib/ai/workflow/node-validate";
+import { workflowApi } from "lib/electron/workflow-api";
 import { generateUUID } from "lib/utils";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
@@ -308,17 +309,7 @@ export const WorkflowPanel = memo(
       (visibility: DBWorkflow["visibility"]) => {
         setIsSaving(true);
         const close = addProcess();
-        safe(() =>
-          fetch(`/api/workflow/${workflow.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              visibility,
-            }),
-          }).then((res) => {
-            if (res.status != 200) throw new Error(res.statusText);
-          }),
-        )
+        safe(() => workflowApi.update(workflow.id, { visibility }))
           .ifOk(() => mutate(`/api/workflow/${workflow.id}`))
           .ifFail((e) => handleErrorWithToast(e))
           .watch(() => {
@@ -357,17 +348,7 @@ export const WorkflowPanel = memo(
 
         const close = addProcess();
         safe(() => onSave())
-          .ifOk(() =>
-            fetch(`/api/workflow/${workflow.id}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                isPublished,
-              }),
-            }).then((res) => {
-              if (res.status != 200) throw new Error(res.statusText);
-            }),
-          )
+          .ifOk(() => workflowApi.update(workflow.id, { isPublished }))
           .ifOk(() => mutate(`/api/workflow/${workflow.id}`))
           .ifFail((e) => handleErrorWithToast(e))
           .watch(close);

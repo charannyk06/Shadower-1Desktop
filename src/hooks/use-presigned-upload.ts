@@ -1,7 +1,13 @@
 "use client";
 
+/**
+ * File Upload Hook - Local-First Implementation
+ *
+ * Vercel Blob client upload has been removed for local-first architecture.
+ * This hook now uses server-side upload via /api/storage/upload.
+ */
+
 import { getStorageInfoAction } from "@/app/api/storage/actions";
-import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
@@ -37,7 +43,7 @@ function useStorageInfo() {
   );
 
   return {
-    storageType: data?.type,
+    storageType: data?.type || "local",
     supportsDirectUpload: data?.supportsDirectUpload ?? false,
     isLoading,
   };
@@ -46,10 +52,8 @@ function useStorageInfo() {
 /**
  * Hook for uploading files to storage.
  *
- * Automatically uses the optimal upload method based on storage backend:
- * - Vercel Blob: Direct upload from browser (fast)
- * - S3: Presigned URL (future)
- * - Local FS: Server upload (fallback)
+ * Uses server-side upload for local-first architecture.
+ * Cloud storage (Vercel Blob, S3) direct uploads have been removed.
  *
  * @example
  * ```tsx
@@ -76,89 +80,23 @@ export function useFileUpload() {
   const upload = useCallback(
     async (
       file: File,
-      uploadOptions: UploadOptions = {},
+      _uploadOptions: UploadOptions = {},
     ): Promise<UploadResult | undefined> => {
       if (!(file instanceof File)) {
         toast.error("Upload expects a File instance");
         return;
       }
 
-      const filename = uploadOptions.filename ?? file.name;
-      const contentType =
-        uploadOptions.contentType || file.type || "application/octet-stream";
-
       // Wait for storage info to load
-      if (isLoadingStorageInfo || !storageType) {
+      if (isLoadingStorageInfo) {
         toast.error("Storage is still loading. Please try again.");
         return;
       }
 
       setIsUploading(true);
       try {
-        // Vercel Blob direct upload
-        if (storageType === "vercel-blob") {
-          const blob = await uploadToVercelBlob(filename, file, {
-            access: "public",
-            handleUploadUrl: "/api/storage/upload-url",
-            contentType,
-          });
-
-          return {
-            pathname: blob.pathname,
-            url: blob.url,
-            contentType: blob.contentType,
-            size: file.size,
-          };
-        }
-
-        // S3 or other direct upload (future)
-        if (supportsDirectUpload && storageType === "s3") {
-          // Request presigned URL
-          const uploadUrlResponse = await fetch("/api/storage/upload-url", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ filename, contentType }),
-          });
-
-          if (!uploadUrlResponse.ok) {
-            const errorBody = await uploadUrlResponse.json().catch(() => ({}));
-
-            // Display detailed error with solution if available
-            if (errorBody.solution) {
-              toast.error(errorBody.error || "Failed to get upload URL", {
-                description: errorBody.solution,
-                duration: 10000, // Show for 10 seconds
-              });
-            } else {
-              toast.error(errorBody.error || "Failed to get upload URL");
-            }
-            return;
-          }
-
-          const uploadUrlData = await uploadUrlResponse.json();
-
-          // Upload to presigned URL
-          const uploadResponse = await fetch(uploadUrlData.url, {
-            method: uploadUrlData.method || "PUT",
-            headers: uploadUrlData.headers || { "Content-Type": contentType },
-            body: file,
-          });
-
-          if (!uploadResponse.ok) {
-            toast.error(`Upload failed: ${uploadResponse.status}`);
-            return;
-          }
-
-          return {
-            pathname: uploadUrlData.key,
-            // Use server-provided public source URL (not the presigned PUT URL)
-            url: uploadUrlData.sourceUrl ?? uploadUrlData.url,
-            contentType,
-            size: file.size,
-          };
-        }
-
-        // Fallback: Server upload (Local FS)
+        // For local-first architecture, always use server upload
+        // This works with local file storage
         const formData = new FormData();
         formData.append("file", file);
 

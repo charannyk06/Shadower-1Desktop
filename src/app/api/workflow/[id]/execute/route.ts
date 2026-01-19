@@ -2,12 +2,7 @@ import { colorize } from "consola/utils";
 import { createWorkflowExecutor } from "lib/ai/workflow/executor/workflow-executor";
 import { encodeWorkflowEvent } from "lib/ai/workflow/shared.workflow";
 import { validateSession } from "lib/api/auth-helpers";
-import {
-  createLimitExceededResponse,
-  validateWorkflowLimit,
-} from "lib/api/limit-helpers";
-import { SERVICE_CREDIT_COSTS, trackWorkflowExecution } from "lib/billing";
-import { subscriptionRepository, workflowRepository } from "lib/db/repository";
+import { workflowRepository } from "lib/db/repository";
 import { safeJSONParse, toAny } from "lib/utils";
 import logger from "logger";
 
@@ -26,15 +21,6 @@ export async function POST(
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // Check billing limits before processing
-  const limitError = await validateWorkflowLimit(auth.userId);
-  if (limitError) {
-    logger.warn(
-      `[Billing] Workflow limit exceeded for user ${auth.userId}: ${limitError.usage}/${limitError.limit}`,
-    );
-    return createLimitExceededResponse(limitError);
-  }
-
   const workflow = await workflowRepository.selectStructureById(id);
   if (!workflow) {
     return new Response("Workflow not found", { status: 404 });
@@ -47,7 +33,7 @@ export async function POST(
     edges: workflow.edges,
     nodes: workflow.nodes,
     logger: wfLogger,
-    userId: auth.userId, // Pass userId for Composio tool execution
+    userId: auth.userId,
   });
 
   const encoder = new TextEncoder();
@@ -105,32 +91,6 @@ export async function POST(
           if (!result.isOk) {
             logger.error("Workflow execution error:", result.error);
           }
-
-          // Track workflow execution for billing
-          logger.info(
-            `[Billing] Recording workflow execution for user ${auth.userId}`,
-          );
-
-          trackWorkflowExecution({
-            userId: auth.userId,
-            workflowId: id,
-          }).catch(console.error);
-
-          subscriptionRepository
-            .recordUsageEvent({
-              userId: auth.userId,
-              eventType: "workflow_execution",
-              amount: "1",
-              metadata: {
-                workflowId: id,
-                workflowName: workflow.name,
-                creditsConsumed: SERVICE_CREDIT_COSTS.workflowPerRun,
-              },
-            })
-            .then(() => logger.info("[Billing] Workflow execution recorded"))
-            .catch((err) =>
-              logger.error("[Billing] Failed to record workflow:", err),
-            );
         });
     },
   });

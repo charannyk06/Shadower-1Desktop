@@ -12,8 +12,6 @@ import {
   ChevronRight,
   ChevronsUpDown,
   Command,
-  CreditCard,
-  Gift,
   Languages,
   LogOutIcon,
   MoonStar,
@@ -161,20 +159,6 @@ export function AppSidebarUserInner(
             >
               <Settings className="size-4 text-foreground" />
               <span>{t("userSettings")}</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => appStoreMutate({ openBilling: true })}
-              className="cursor-pointer"
-            >
-              <CreditCard className="size-4 text-foreground" />
-              <span>{t("billing")}</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => appStoreMutate({ openReferral: true })}
-              className="cursor-pointer"
-            >
-              <Gift className="size-4 text-foreground" />
-              <span>{t("referral")}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout} className="cursor-pointer">

@@ -1,7 +1,6 @@
 import { AgentsList } from "@/components/agent/agents-list";
 import { getSystemAgentSummaries } from "@/lib/ai/agents/system-agents";
 import { getSession } from "auth/server";
-import { agentRepository } from "lib/db/repository";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -13,22 +12,13 @@ export default async function AgentsPage() {
     notFound();
   }
 
-  // Fetch agents data on the server
-  const allAgents = await agentRepository.selectAgents(
-    session.user.id,
-    ["mine", "shared"],
-    50,
-  );
+  // In Electron mode, database access is handled via IPC in the client component
+  // Don't fetch agents on the server - let the client component handle it via API route
+  // This avoids the SQLite database access error in Electron dev mode
+  const myAgents: any[] = [];
+  const sharedAgents: any[] = [];
 
-  // Separate into my agents and shared agents
-  const myAgents = allAgents.filter(
-    (agent) => agent.userId === session.user.id,
-  );
-  const sharedAgents = allAgents.filter(
-    (agent) => agent.userId !== session.user.id,
-  );
-
-  // Get system agents
+  // Get system agents (these don't require database access)
   const systemAgents = getSystemAgentSummaries();
 
   return (
@@ -37,7 +27,6 @@ export default async function AgentsPage() {
       initialSharedAgents={sharedAgents}
       systemAgents={systemAgents}
       userId={session.user.id}
-      userRole={session.user.role}
     />
   );
 }

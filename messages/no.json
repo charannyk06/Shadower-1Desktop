@@ -332,12 +332,12 @@
   },
   "Layout": {
     "workflow": "Arbeidsflyt",
-    "billing": "Fakturering",
     "admin": "Admin",
     "users": "Brukere",
     "toggleSidebar": "Åpne sidefelt",
     "newChat": "Ny chat",
     "mcpConfiguration": "MCP konfigurasjon",
+    "models": "Modeller",
     "agents": "Agenter",
     "newAgent": "Opprett agent",
     "createAgent": "Opprett en agent",
@@ -386,9 +386,7 @@
     "showLessChats": "Vis færre",
     "reportAnIssue": "Rapporter et problem",
     "joinCommunity": "Bli med i fellesskapet",
-    "userSettings": "Brukerinnstillinger",
-
-    "referral": "Henvisningsprogram"
+    "userSettings": "Brukerinnstillinger"
   },
   "Archive": {
     "title": "Arkiv",

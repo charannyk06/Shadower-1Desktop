@@ -45,7 +45,7 @@ import { mcpClientsManager } from "lib/ai/mcp/mcp-manager";
 import { AppDefaultToolkit } from "lib/ai/tools";
 import {
   APP_DEFAULT_TOOL_KIT,
-  CodeExecutionContext,
+  ToolCreationContext,
   createAppDefaultToolKit,
 } from "lib/ai/tools/tool-kit";
 import { createWorkflowExecutor } from "lib/ai/workflow/executor/workflow-executor";
@@ -313,7 +313,7 @@ export const workflowToVercelAITool = ({
           const executor = createWorkflowExecutor({
             nodes: workflow.nodes,
             edges: workflow.edges,
-            userId, // Pass userId for Composio tool execution within workflows
+            userId, // Pass userId for workflow execution context
           });
           toolResult.workflowIcon = workflow.icon;
 
@@ -541,17 +541,17 @@ export const loadWorkFlowTools = (opt: {
 export const loadAppDefaultTools = (opt?: {
   mentions?: ChatMention[];
   allowedAppDefaultToolkit?: string[];
-  /** Thread context for file persistence in code execution tools */
-  codeExecutionContext?: CodeExecutionContext;
+  /** Thread context for tool creation */
+  toolContext?: ToolCreationContext;
 }) => {
-  // Log context for debugging sandbox persistence issues
+  // Log context for debugging
   logger.info(
-    `[Tools] Loading app default tools with context: threadId=${opt?.codeExecutionContext?.threadId}, userId=${opt?.codeExecutionContext?.userId}`,
+    `[Tools] Loading app default tools with context: threadId=${opt?.toolContext?.threadId}, userId=${opt?.toolContext?.userId}`,
   );
 
-  // Create tool kit with context-aware code tools if context is provided
-  const toolKit = opt?.codeExecutionContext
-    ? createAppDefaultToolKit(opt.codeExecutionContext)
+  // Create tool kit with context-aware tools if context is provided
+  const toolKit = opt?.toolContext
+    ? createAppDefaultToolKit(opt.toolContext)
     : APP_DEFAULT_TOOL_KIT;
 
   return safe(toolKit)
@@ -568,19 +568,20 @@ export const loadAppDefaultTools = (opt?: {
             const requirements = getSystemAgentRequirements(mention.agentId);
             const agentDef = getSystemAgent(mention.agentId);
             logger.info(
-              `[Tools] System agent ${mention.agentId} (category: ${agentDef?.category}) requirements: browserbase=${requirements.browserbase}, e2bDesktop=${requirements.e2bDesktop}, e2bCodeInterpreter=${requirements.e2bCodeInterpreter}`,
+              `[Tools] System agent ${mention.agentId} (category: ${agentDef?.category}) requirements: browser=${requirements.browser}, desktop=${requirements.desktop}, codeExecution=${requirements.codeExecution}`,
             );
 
             // Add required toolkits based on agent requirements
-            if (requirements.browserbase) {
+            if (requirements.browser) {
               systemAgentToolkits.push(AppDefaultToolkit.Browser);
               systemAgentToolkits.push(AppDefaultToolkit.WebSearch);
             }
-            if (requirements.e2bDesktop) {
+            if (requirements.desktop) {
               systemAgentToolkits.push(AppDefaultToolkit.Desktop);
             }
-            if (requirements.e2bCodeInterpreter) {
-              systemAgentToolkits.push(AppDefaultToolkit.Sandbox);
+            if (requirements.codeExecution) {
+              // Local code execution uses Fragments for app generation and visualization tools
+              systemAgentToolkits.push(AppDefaultToolkit.Fragments);
               systemAgentToolkits.push(AppDefaultToolkit.Visualization);
               systemAgentToolkits.push(AppDefaultToolkit.DataAnalysis);
             }
@@ -651,54 +652,6 @@ export const loadAppDefaultTools = (opt?: {
       throw e;
     })
     .orElse({} as Record<string, Tool>);
-};
-
-export const loadComposioTools = async (opt?: {
-  mentions?: ChatMention[];
-  userId?: string;
-  allowedApps?: string[];
-}) => {
-  const { isComposioEnabled, getComposioClientForUser } = await import(
-    "lib/ai/composio"
-  );
-
-  if (!isComposioEnabled()) {
-    return {};
-  }
-
-  if (!opt?.userId) {
-    return {};
-  }
-
-  return safe(async () => {
-    const client = getComposioClientForUser(opt.userId!);
-    if (!client) return {};
-
-    const composioMentions = opt?.mentions?.filter(
-      (m) => m.type === "composioTool" || m.type === "composioApp",
-    ) as Extract<ChatMention, { type: "composioTool" | "composioApp" }>[];
-
-    if (composioMentions?.length) {
-      const appNames = [
-        ...new Set(
-          composioMentions.map((m) =>
-            m.type === "composioApp" ? m.name : m.appName,
-          ),
-        ),
-      ];
-      return client.getVercelAITools(appNames);
-    }
-
-    if (opt?.allowedApps?.length) {
-      return client.getVercelAITools(opt.allowedApps);
-    }
-
-    // Don't load ALL Composio tools by default - only when explicitly mentioned or allowed
-    // Loading all tools causes the agent orchestrator to activate even for simple workflow executions
-    return {};
-  })
-    .map((v) => v)
-    .orElse({});
 };
 
 export const convertToSavePart = <T extends UIMessagePart<any, any>>(

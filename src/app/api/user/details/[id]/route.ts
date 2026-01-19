@@ -1,5 +1,4 @@
 import { getSession } from "auth/server";
-import { canManageUser } from "lib/auth/permissions";
 import { getUser } from "lib/user/server";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -14,10 +13,7 @@ export async function GET(
     }
     const { id } = await params;
 
-    // Use our new permission system: user can get own details OR admin can get any user's details
-    if (!(await canManageUser(id))) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // All authenticated users can view user details (roles/permissions removed)
     const user = await getUser(id);
     return NextResponse.json(user ?? {});
   } catch (error: any) {

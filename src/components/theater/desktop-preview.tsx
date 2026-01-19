@@ -18,7 +18,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface DesktopPreviewProps {
-  sandboxId: string;
+  sessionId: string;
   streamUrl?: string;
   authKey?: string;
   onClose?: () => void;
@@ -27,7 +27,7 @@ interface DesktopPreviewProps {
 }
 
 export function DesktopPreview({
-  sandboxId,
+  sessionId,
   streamUrl,
   authKey,
   onClose,
@@ -54,12 +54,12 @@ export function DesktopPreview({
     setIsStreaming(false);
   }, []);
 
-  // Fetch screenshot from desktop sandbox
+  // Fetch screenshot from desktop session
   const fetchScreenshot = useCallback(async () => {
     try {
-      // Use GET request with sandboxId as query param for polling efficiency
+      // Use GET request with sessionId as query param for polling efficiency
       const response = await fetch(
-        `/api/desktop/screenshot?sandboxId=${encodeURIComponent(sandboxId)}`,
+        `/api/desktop/screenshot?sessionId=${encodeURIComponent(sessionId)}`,
       );
 
       if (!response.ok) {
@@ -94,7 +94,7 @@ export function DesktopPreview({
         setIsConnected(false);
       }
     }
-  }, [sandboxId, screenshot, stopPolling]);
+  }, [sessionId, screenshot, stopPolling]);
 
   // Start polling for screenshots
   const startPolling = useCallback(() => {
@@ -176,11 +176,9 @@ export function DesktopPreview({
         {/* Title Bar */}
         <div className="flex-1 flex items-center gap-2 bg-black/40 rounded-md px-3 py-1 border border-white/5">
           <Monitor className="w-3.5 h-3.5 text-white/40" />
-          <span className="text-xs text-white/70 truncate">
-            E2B Desktop Sandbox
-          </span>
+          <span className="text-xs text-white/70 truncate">Local Desktop</span>
           <span className="text-[10px] text-white/30 ml-auto font-mono">
-            {sandboxId.substring(0, 8)}...
+            {sessionId.substring(0, 8)}...
           </span>
           {isConnected && (
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
@@ -274,7 +272,7 @@ export function DesktopPreview({
           <span className="text-white/20">|</span>
           <span className="uppercase tracking-wider flex items-center gap-1">
             <Terminal className="w-3 h-3" />
-            E2B Desktop
+            Local Terminal
           </span>
           {showStream && streamUrl && (
             <>

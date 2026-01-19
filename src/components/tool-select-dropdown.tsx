@@ -8,7 +8,6 @@ import {
   AtSign,
   ChartColumn,
   ChevronRight,
-  CodeIcon,
   GitBranch,
   GlobeIcon,
   HardDriveUploadIcon,
@@ -18,7 +17,6 @@ import {
   MessageCircle,
   MousePointer2,
   Package,
-  PlugIcon,
   Plus,
   ShieldAlertIcon,
   Wrench,
@@ -57,7 +55,6 @@ import { MCPIcon } from "ui/mcp-icon";
 
 import { useTranslations } from "next-intl";
 
-import { useComposioToolsForMentions } from "@/hooks/queries/use-composio";
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
 import { useWorkflowToolList } from "@/hooks/queries/use-workflow-tool-list";
 import { ChatMention } from "app-types/chat";
@@ -71,6 +68,7 @@ import { WorkflowGreeting } from "./workflow/workflow-greeting";
 
 import { AgentSummary } from "app-types/agent";
 import { authClient } from "auth/client";
+import { getCurrentUserId, isElectronMode } from "lib/electron/workflow-api";
 import { Separator } from "ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
@@ -127,7 +125,6 @@ export function ToolSelectDropdown({
 
   const t = useTranslations("Chat.Tool");
   const { isLoading } = useMcpList();
-  useComposioToolsForMentions();
   const { data: providers } = useChatModels();
   const [globalModel] = appStore(useShallow((state) => [state.chatModel]));
 
@@ -282,10 +279,6 @@ export function ToolSelectDropdown({
             <DropdownMenuSeparator />
           </div>
           <McpServerSelector />
-          <div className="py-1">
-            <DropdownMenuSeparator />
-          </div>
-          <ComposioToolSelector />
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -468,7 +461,18 @@ function WorkflowToolSelector({
   const t = useTranslations();
   const workflowToolList = appStore((state) => state.workflowToolList);
   const { data: session } = authClient.useSession();
-  const currentUserId = session?.user?.id;
+  // In Electron mode, we need the actual database user ID (UUID), not the hardcoded "local-user"
+  const [electronUserId, setElectronUserId] = useState<string | undefined>();
+
+  useEffect(() => {
+    // Fetch the actual user ID in Electron mode
+    if (isElectronMode()) {
+      getCurrentUserId().then(setElectronUserId);
+    }
+  }, []);
+
+  // Use Electron user ID if available, otherwise fall back to session
+  const currentUserId = electronUserId || session?.user?.id;
 
   // Ensure we only work with actual workflows
   const workflowsOnly = workflowToolList.filter((w) => w.type === "workflow");
@@ -909,9 +913,6 @@ function AppDefaultToolKitSelector() {
         case AppDefaultToolkit.Http:
           icon = HardDriveUploadIcon;
           break;
-        case AppDefaultToolkit.Sandbox:
-          icon = CodeIcon;
-          break;
       }
       return {
         label,
@@ -1115,131 +1116,6 @@ function ImageGeneratorSelector({
               <OpenAIIcon className="mr-2 size-4" />
               OpenAI
             </DropdownMenuItem>
-          </DropdownMenuSubContent>
-        </DropdownMenuPortal>
-      </DropdownMenuSub>
-    </DropdownMenuGroup>
-  );
-}
-
-function ComposioToolSelector() {
-  const [composioToolList, composioEnabled] = appStore(
-    useShallow((state) => [state.composioToolList, state.composioEnabled]),
-  );
-  const [search, setSearch] = useState("");
-  const t = useTranslations("Common");
-
-  const filteredTools = useMemo(() => {
-    if (!composioToolList) return [];
-    return composioToolList.filter(
-      (tool) =>
-        tool.name.toLowerCase().includes(search.toLowerCase()) ||
-        tool.displayName?.toLowerCase().includes(search.toLowerCase()) ||
-        tool.appName.toLowerCase().includes(search.toLowerCase()),
-    );
-  }, [composioToolList, search]);
-
-  const groupedByApp = useMemo(() => {
-    const groups: Record<string, typeof filteredTools> = {};
-    filteredTools.forEach((tool) => {
-      const app = tool.appName || "other";
-      if (!groups[app]) groups[app] = [];
-      groups[app].push(tool);
-    });
-    return groups;
-  }, [filteredTools]);
-
-  if (!composioEnabled || !composioToolList?.length) {
-    return (
-      <DropdownMenuGroup>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="text-xs flex items-center gap-2 font-semibold cursor-pointer">
-            <PlugIcon className="size-3.5" />
-            App Integrations
-          </DropdownMenuSubTrigger>
-          <DropdownMenuPortal>
-            <DropdownMenuSubContent className="md:w-64">
-              <div className="text-sm text-muted-foreground w-full h-full flex flex-col items-center justify-center gap-2 py-6 px-4">
-                <p>No app tools available.</p>
-                <Link
-                  href="/integrations"
-                  className="text-primary underline text-xs"
-                >
-                  Connect apps →
-                </Link>
-              </div>
-            </DropdownMenuSubContent>
-          </DropdownMenuPortal>
-        </DropdownMenuSub>
-      </DropdownMenuGroup>
-    );
-  }
-
-  return (
-    <DropdownMenuGroup>
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger className="text-xs flex items-center gap-2 font-semibold cursor-pointer">
-          <PlugIcon className="size-3.5" />
-          App Integrations
-          <Badge variant="secondary" className="ml-auto text-xs">
-            {composioToolList.length}
-          </Badge>
-        </DropdownMenuSubTrigger>
-        <DropdownMenuPortal>
-          <DropdownMenuSubContent className="md:w-80 md:max-h-96 overflow-y-auto">
-            <DropdownMenuLabel className="text-muted-foreground flex items-center gap-2">
-              <input
-                autoFocus
-                placeholder={t("search")}
-                value={search}
-                onKeyDown={(e) => e.stopPropagation()}
-                onChange={(e) => setSearch(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                className="placeholder:text-muted-foreground flex w-full text-xs outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
-              />
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <div className="max-h-80 overflow-y-auto">
-              {Object.keys(groupedByApp).length === 0 ? (
-                <div className="text-sm text-muted-foreground w-full h-full flex items-center justify-center py-6">
-                  {t("noResults")}
-                </div>
-              ) : (
-                Object.entries(groupedByApp).map(([appName, tools]) => (
-                  <div key={appName}>
-                    <DropdownMenuLabel className="text-xs text-muted-foreground uppercase">
-                      {appName} ({tools.length})
-                    </DropdownMenuLabel>
-                    {tools.slice(0, 10).map((tool) => (
-                      <DropdownMenuItem
-                        key={tool.name}
-                        className="flex items-center gap-2 cursor-pointer mb-1"
-                        onClick={() => {
-                          toast.info(
-                            `Use @${tool.name} in chat to invoke this tool`,
-                          );
-                        }}
-                      >
-                        <div className="mx-1 flex-1 min-w-0">
-                          <p className="font-medium text-xs mb-1 truncate">
-                            {tool.displayName || tool.name}
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {tool.description}
-                          </p>
-                        </div>
-                        <ChevronRight className="size-3.5 text-muted-foreground" />
-                      </DropdownMenuItem>
-                    ))}
-                    {tools.length > 10 && (
-                      <DropdownMenuItem className="text-xs text-muted-foreground">
-                        +{tools.length - 10} more tools
-                      </DropdownMenuItem>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
           </DropdownMenuSubContent>
         </DropdownMenuPortal>
       </DropdownMenuSub>

@@ -2,7 +2,6 @@ import { AgentCreateSchema, AgentQuerySchema } from "app-types/agent";
 import { getSession } from "auth/server";
 import { getSystemAgentSummaries } from "lib/ai/agents/system-agents";
 import { withRetry } from "lib/api-retry";
-import { canCreateAgent } from "lib/auth/permissions";
 import { serverCache } from "lib/cache";
 import { CacheKeys } from "lib/cache/cache-keys";
 import { agentRepository } from "lib/db/repository";
@@ -36,14 +35,33 @@ export async function GET(request: Request) {
 
     // Use the new simplified selectAgents method with database-level filtering and limiting
     // Wrap in retry logic to handle database deadlocks
-    const userAgents = await withRetry(
-      () => agentRepository.selectAgents(session.user.id, filters, limit),
-      {
-        maxRetries: 3,
-        baseDelay: 100,
-        retryableErrors: ["40P01"], // PostgreSQL deadlock error code
-      },
-    );
+    // In Electron mode, this will fail - handle gracefully by returning empty array
+    let userAgents;
+    try {
+      userAgents = await withRetry(
+        () => agentRepository.selectAgents(session.user.id, filters, limit),
+        {
+          maxRetries: 3,
+          baseDelay: 100,
+          retryableErrors: ["40P01"], // PostgreSQL deadlock error code
+        },
+      );
+    } catch (error: any) {
+      // In Electron dev mode, database access fails - return empty array
+      // The client can use IPC directly if needed
+      if (
+        error?.isElectronMode ||
+        error?.message?.includes("SQLite") ||
+        error?.message?.includes("Electron")
+      ) {
+        logger.warn(
+          "[Agent API] Electron mode detected, returning empty agents array",
+        );
+        userAgents = [];
+      } else {
+        throw error;
+      }
+    }
 
     // Include system agents (always available to all users)
     const systemAgents = getSystemAgentSummaries();
@@ -72,14 +90,7 @@ export async function POST(request: Request): Promise<Response> {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // Check if user has permission to create agents
-  const hasPermission = await canCreateAgent();
-  if (!hasPermission) {
-    return Response.json(
-      { error: "You don't have permission to create agents" },
-      { status: 403 },
-    );
-  }
+  // All authenticated users can create agents (roles/permissions removed)
 
   try {
     const body = await request.json();

@@ -12,15 +12,14 @@ import { SidebarGroupContent } from "ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
 import { useArchives } from "@/hooks/queries/use-archives";
-import { BasicUser } from "app-types/user";
 import { Shortcuts, getShortcutKeyList } from "lib/keyboard-shortcuts";
-import { getIsUserAdmin } from "lib/user/utils";
 import {
   FolderOpenIcon,
   FolderSearchIcon,
   GitBranch,
   PlusIcon,
   BrainIcon,
+  Box,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
@@ -33,7 +32,7 @@ import { WriteIcon } from "ui/write-icon";
 import { ArchiveDialog } from "../archive-dialog";
 import { AppSidebarAdmin } from "./app-sidebar-menu-admin";
 
-export function AppSidebarMenus({ user }: { user?: BasicUser }) {
+export function AppSidebarMenus() {
   const router = useRouter();
   const t = useTranslations("");
   const { setOpenMobile } = useSidebar();
@@ -93,6 +92,18 @@ export function AppSidebarMenus({ user }: { user?: BasicUser }) {
         <SidebarMenu>
           <Tooltip>
             <SidebarMenuItem>
+              <Link href="/models">
+                <SidebarMenuButton className="font-semibold">
+                  <Box className="size-4" />
+                  {t("Layout.models")}
+                </SidebarMenuButton>
+              </Link>
+            </SidebarMenuItem>
+          </Tooltip>
+        </SidebarMenu>
+        <SidebarMenu>
+          <Tooltip>
+            <SidebarMenuItem>
               <Link href="/workflow">
                 <SidebarMenuButton className="font-semibold">
                   <GitBranch className="size-4" />
@@ -114,7 +125,7 @@ export function AppSidebarMenus({ user }: { user?: BasicUser }) {
             </SidebarMenuItem>
           </Tooltip>
         </SidebarMenu>
-        {getIsUserAdmin(user) && <AppSidebarAdmin />}
+        <AppSidebarAdmin />
         <SidebarMenu className="group/archive">
           <Tooltip>
             <SidebarMenuItem>

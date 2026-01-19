@@ -4,9 +4,8 @@ import {
   UserStatsCardLoaderSkeleton,
 } from "@/components/user/user-detail/user-stats-card-loader";
 import { getUser, getUserAccounts } from "lib/user/server";
-import { notFound, redirect, unauthorized } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
-import { requireAdminPermission } from "auth/permissions";
 import { getSession } from "auth/server";
 import { Suspense } from "react";
 
@@ -18,11 +17,7 @@ interface PageProps {
 
 export default async function UserDetailPage({ params }: PageProps) {
   const { id } = await params;
-  try {
-    await requireAdminPermission();
-  } catch (_error) {
-    unauthorized();
-  }
+  // All authenticated users have access (roles/permissions removed)
   const session = await getSession();
   if (!session) {
     redirect("/login");

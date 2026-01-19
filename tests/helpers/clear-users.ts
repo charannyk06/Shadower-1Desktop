@@ -1,4 +1,4 @@
-import { pgDb } from "../../src/lib/db/pg/db.pg";
+import { sqliteDb as db } from "../../src/lib/db/sqlite/db.sqlite";
 import {
   AccountTable,
   AgentTable,
@@ -11,7 +11,7 @@ import {
   UserTable,
   VerificationTable,
   WorkflowTable,
-} from "../../src/lib/db/pg/schema.pg";
+} from "../../src/lib/db/sqlite/schema.sqlite";
 
 /**
  * Clear all users from the database for first-user testing
@@ -26,37 +26,37 @@ export async function clearAllUsers() {
 
   // Clear in order of dependencies (most dependent first)
   // 1. Clear archive items first (depends on archives)
-  await pgDb.delete(ArchiveItemTable);
+  await db.delete(ArchiveItemTable);
 
   // 2. Clear archives (depends on users)
-  await pgDb.delete(ArchiveTable);
+  await db.delete(ArchiveTable);
 
   // 3. Clear chat messages (depends on threads)
-  await pgDb.delete(ChatMessageTable);
+  await db.delete(ChatMessageTable);
 
   // 4. Clear chat threads (depends on users)
-  await pgDb.delete(ChatThreadTable);
+  await db.delete(ChatThreadTable);
 
   // 5. Clear workflows (depends on users)
-  await pgDb.delete(WorkflowTable);
+  await db.delete(WorkflowTable);
 
   // 6. Clear agents (depends on users)
-  await pgDb.delete(AgentTable);
+  await db.delete(AgentTable);
 
   // 7. Clear MCP servers (depends on users)
-  await pgDb.delete(McpServerTable);
+  await db.delete(McpServerTable);
 
   // 8. Clear sessions (depends on users)
-  await pgDb.delete(SessionTable);
+  await db.delete(SessionTable);
 
   // 9. Clear accounts (depends on users)
-  await pgDb.delete(AccountTable);
+  await db.delete(AccountTable);
 
   // 10. Clear verifications (depends on users)
-  await pgDb.delete(VerificationTable);
+  await db.delete(VerificationTable);
 
   // 11. Finally clear users
-  await pgDb.delete(UserTable);
+  await db.delete(UserTable);
 
   console.log("✅ All users and related data cleared");
 }
@@ -65,6 +65,6 @@ export async function clearAllUsers() {
  * Check if any users exist in the database
  */
 export async function getUserCount(): Promise<number> {
-  const users = await pgDb.select().from(UserTable);
+  const users = await db.select().from(UserTable);
   return users.length;
 }

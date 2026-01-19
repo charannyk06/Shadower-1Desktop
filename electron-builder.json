@@ -1,0 +1,109 @@
+{
+  "appId": "com.shadower.desktop",
+  "productName": "Shadower",
+  "copyright": "Copyright © 2025 Shadower",
+  "directories": {
+    "output": "dist",
+    "buildResources": "resources"
+  },
+  "files": [
+    "dist-electron/**/*",
+    "out/**/*",
+    "package.json",
+    "!**/*.ts",
+    "!**/*.map"
+  ],
+  "extraResources": [
+    {
+      "from": "resources",
+      "to": "resources",
+      "filter": ["**/*"]
+    }
+  ],
+  "mac": {
+    "category": "public.app-category.productivity",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "icon": "resources/icon.icns",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "resources/entitlements.mac.plist",
+    "entitlementsInherit": "resources/entitlements.mac.plist",
+    "type": "distribution"
+  },
+  "dmg": {
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ],
+    "title": "Shadower ${version}",
+    "window": {
+      "width": 540,
+      "height": 380
+    }
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64", "ia32"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "ia32"]
+      }
+    ],
+    "icon": "resources/icon.ico",
+    "publisherName": "Shadower",
+    "verifyUpdateCodeSignature": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Shadower"
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "deb",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "icon": "resources/icon.png",
+    "category": "Utility",
+    "synopsis": "AI Agent Orchestration Platform",
+    "description": "Local-first AI agent orchestration platform with multi-LLM support, MCP protocol integration, and visual workflows."
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "charannyk06",
+    "repo": "Shadower-1Desktop"
+  },
+  "buildDependenciesFromSource": true,
+  "npmRebuild": true,
+  "nodeGypRebuild": false
+}

@@ -22,12 +22,12 @@ export interface SystemAgentDefinition {
   systemPrompt: string;
   /** Category for organization */
   category: "research" | "analysis" | "coding" | "automation" | "documents";
-  /** Whether this agent requires Browserbase */
-  requiresBrowserbase?: boolean;
-  /** Whether this agent requires E2B Desktop */
-  requiresE2BDesktop?: boolean;
-  /** Whether this agent requires E2B Code Interpreter */
-  requiresE2BCodeInterpreter?: boolean;
+  /** Whether this agent requires browser automation (local Chrome DevTools) */
+  requiresBrowser?: boolean;
+  /** Whether this agent requires desktop automation (local terminal) */
+  requiresDesktop?: boolean;
+  /** Whether this agent requires local code execution */
+  requiresCodeExecution?: boolean;
 }
 
 /**
@@ -45,7 +45,7 @@ export const DEEP_RESEARCH_AGENT: SystemAgentDefinition = {
     style: { backgroundColor: "#8B5CF6" },
   },
   category: "research",
-  requiresBrowserbase: true,
+  requiresBrowser: true,
   defaultTools: [
     "browser_navigate",
     "browser_act",
@@ -106,8 +106,13 @@ export const DATA_ANALYSIS_AGENT: SystemAgentDefinition = {
     style: { backgroundColor: "#3B82F6" },
   },
   category: "analysis",
-  requiresE2BCodeInterpreter: true,
-  defaultTools: ["sandbox", "createVisualization", "setContext", "getContext"],
+  requiresCodeExecution: true,
+  defaultTools: [
+    "createFragment",
+    "createVisualization",
+    "setContext",
+    "getContext",
+  ],
   role: "Senior Data Scientist",
   systemPrompt: `You are a senior data scientist specializing in data analysis and visualization.
 
@@ -133,14 +138,14 @@ export const DATA_ANALYSIS_AGENT: SystemAgentDefinition = {
 - Box plots for distributions
 
 ## CODE EXECUTION
-Use the sandbox tool to execute Python code for analysis.
-Always use pandas, numpy, and plotly for data work.
+Use the createFragment tool to generate data analysis applications locally.
+Create React apps with charts using Recharts, Chart.js, or Plotly.
 
 ## OUTPUT FORMAT
 Provide analysis results with:
 - Data Summary (shape, types, quality)
 - Key Statistics
-- Visualizations (embedded Plotly charts)
+- Visualizations (embedded charts)
 - Insights and Recommendations
 
 ## IMPORTANT
@@ -164,8 +169,8 @@ export const CODING_AGENT: SystemAgentDefinition = {
     style: { backgroundColor: "#10B981" },
   },
   category: "coding",
-  requiresE2BCodeInterpreter: true,
-  defaultTools: ["sandbox", "setContext", "getContext"],
+  requiresCodeExecution: true,
+  defaultTools: ["createFragment", "editFragment", "setContext", "getContext"],
   role: "Senior Full-Stack Developer",
   systemPrompt: `You are a senior full-stack developer who can build complete applications from descriptions.
 
@@ -174,7 +179,7 @@ export const CODING_AGENT: SystemAgentDefinition = {
 - Build APIs and backend services
 - Set up databases and data models
 - Write and run tests
-- Deploy and preview applications
+- Deploy and preview applications locally
 
 ## DEVELOPMENT WORKFLOW
 1. **Requirements Analysis**: Understand what the user wants to build
@@ -203,7 +208,7 @@ Provide:
 - Suggested improvements
 
 ## IMPORTANT
-- Use the sandbox to create and run code
+- Use createFragment to generate and run applications locally
 - Test the application before declaring it complete
 - Provide a preview URL when possible
 - Keep dependencies minimal and modern`,
@@ -211,7 +216,7 @@ Provide:
 
 /**
  * Computer Use Agent
- * GUI automation via E2B Desktop
+ * GUI automation via local terminal
  */
 export const COMPUTER_USE_AGENT: SystemAgentDefinition = {
   id: "system-computer-use",
@@ -223,7 +228,7 @@ export const COMPUTER_USE_AGENT: SystemAgentDefinition = {
     style: { backgroundColor: "#F59E0B" },
   },
   category: "automation",
-  requiresE2BDesktop: true,
+  requiresDesktop: true,
   defaultTools: [
     "desktop_create",
     "desktop_screenshot",
@@ -283,7 +288,7 @@ Provide:
 
 /**
  * Web Automation Agent
- * Sophisticated web automation using Browserbase + Stagehand
+ * Sophisticated web automation using local Chrome DevTools Protocol
  */
 export const WEB_AUTOMATION_AGENT: SystemAgentDefinition = {
   id: "system-web-automation",
@@ -295,7 +300,7 @@ export const WEB_AUTOMATION_AGENT: SystemAgentDefinition = {
     style: { backgroundColor: "#EC4899" },
   },
   category: "automation",
-  requiresBrowserbase: true,
+  requiresBrowser: true,
   defaultTools: [
     "browser_navigate",
     "browser_act",
@@ -370,7 +375,7 @@ export const DOCUMENT_AGENT: SystemAgentDefinition = {
     style: { backgroundColor: "#6366F1" },
   },
   category: "documents",
-  requiresE2BCodeInterpreter: true,
+  requiresCodeExecution: true,
   defaultTools: [
     // Create tools
     "createPresentation",
@@ -618,14 +623,14 @@ export function getSystemAgentTools(id: string): string[] {
  * Check if a system agent requires specific infrastructure
  */
 export function getSystemAgentRequirements(id: string): {
-  browserbase: boolean;
-  e2bDesktop: boolean;
-  e2bCodeInterpreter: boolean;
+  browser: boolean;
+  desktop: boolean;
+  codeExecution: boolean;
 } {
   const agent = getSystemAgent(id);
   return {
-    browserbase: agent?.requiresBrowserbase ?? false,
-    e2bDesktop: agent?.requiresE2BDesktop ?? false,
-    e2bCodeInterpreter: agent?.requiresE2BCodeInterpreter ?? false,
+    browser: agent?.requiresBrowser ?? false,
+    desktop: agent?.requiresDesktop ?? false,
+    codeExecution: agent?.requiresCodeExecution ?? false,
   };
 }

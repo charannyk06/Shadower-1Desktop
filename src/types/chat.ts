@@ -89,21 +89,6 @@ export const ChatMentionSchema = z.discriminatedUnion("type", [
       })
       .nullish(),
   }),
-  z.object({
-    type: z.literal("composioTool"),
-    name: z.string(),
-    description: z.string().optional(),
-    appName: z.string(),
-    appId: z.string().optional(),
-  }),
-  z.object({
-    type: z.literal("composioApp"),
-    name: z.string(),
-    description: z.string().optional(),
-    appId: z.string(),
-    toolCount: z.number().optional(),
-    logo: z.string().optional(),
-  }),
 ]);
 
 export type ChatMention = z.infer<typeof ChatMentionSchema>;

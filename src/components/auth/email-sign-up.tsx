@@ -165,7 +165,7 @@ export default function EmailSignUp({
               <Input
                 id="name"
                 type="text"
-                placeholder="Cgoing"
+                placeholder="Enter here"
                 disabled={isLoading}
                 autoFocus
                 value={formData.name}

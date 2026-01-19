@@ -2,14 +2,14 @@
 import { mcpClientsManager } from "lib/ai/mcp/mcp-manager";
 import { z } from "zod";
 
-import {
-  canCreateMCP,
-  canManageMCPServer,
-  canShareMCPServer,
-  getCurrentUser,
-} from "lib/auth/permissions";
-import { McpServerTable } from "lib/db/pg/schema.pg";
+import { getSession } from "auth/server";
+import { McpServerTable } from "lib/db/sqlite/schema.sqlite";
 import { mcpOAuthRepository, mcpRepository } from "lib/db/repository";
+
+async function getCurrentUser() {
+  const session = await getSession();
+  return session?.user || null;
+}
 
 export async function selectMcpClientsAction() {
   // Get current user to filter MCP servers
@@ -36,9 +36,8 @@ export async function selectMcpClientsAction() {
         userId: server?.userId,
         visibility: server?.visibility,
         isOwner: server?.userId === currentUser.id,
-        canManage: server
-          ? server.userId === currentUser.id || currentUser.role === "admin"
-          : false,
+        // All authenticated users can manage (roles/permissions removed)
+        canManage: true,
       };
     });
 }
@@ -67,11 +66,6 @@ export async function saveMcpClientAction(
     throw new Error("You must be logged in to create MCP connections");
   }
 
-  // Check if user has permission to create/edit MCP connections
-  const hasPermission = await canCreateMCP();
-  if (!hasPermission) {
-    throw new Error("You don't have permission to create MCP connections");
-  }
   // Validate name to ensure it only contains alphanumeric characters and hyphens
   const nameSchema = z.string().regex(/^[a-zA-Z0-9\-]+$/, {
     message:
@@ -87,12 +81,6 @@ export async function saveMcpClientAction(
 
   // Check for duplicate names if creating a featured server
   if (server.visibility === "public") {
-    // Only admins can create featured MCP servers
-    const canShare = await canShareMCPServer();
-    if (!canShare) {
-      throw new Error("Only administrators can feature MCP servers");
-    }
-
     // Check if a featured server with this name already exists
     const existing = await mcpRepository.existsByServerName(server.name);
     if (existing && !server.id) {
@@ -121,15 +109,13 @@ export async function removeMcpClientAction(id: string) {
     throw new Error("MCP server not found");
   }
 
-  // Check if user has permission to delete this specific MCP server
-  const canManage = await canManageMCPServer(
-    mcpServer.userId,
-    mcpServer.visibility,
-  );
-  if (!canManage) {
-    throw new Error("You don't have permission to delete this MCP connection");
+  // Get current user
+  const currentUser = await getCurrentUser();
+  if (!currentUser) {
+    throw new Error("You must be logged in to delete MCP connections");
   }
 
+  // All authenticated users can manage (roles/permissions removed)
   await mcpClientsManager.removeClient(id);
 }
 
@@ -175,10 +161,10 @@ export async function shareMcpServerAction(
   id: string,
   visibility: "public" | "private",
 ) {
-  // Only admins can feature MCP servers
-  const canShare = await canShareMCPServer();
-  if (!canShare) {
-    throw new Error("Only administrators can feature MCP servers");
+  // All authenticated users can feature MCP servers (roles/permissions removed)
+  const currentUser = await getCurrentUser();
+  if (!currentUser) {
+    throw new Error("You must be logged in to change MCP server visibility");
   }
 
   // Update the visibility of the MCP server

@@ -1,6 +1,7 @@
 "use server";
 
 import { auth } from "auth/server";
+import { eq } from "drizzle-orm";
 import { logger } from "better-auth";
 import {
   validatedActionWithAdminPermission,
@@ -12,6 +13,12 @@ import {
   generateImageWithOpenAI,
   generateImageWithXAI,
 } from "lib/ai/image/generate-image";
+import { sqliteDb as db } from "lib/db/sqlite/db.sqlite";
+import {
+  UserTable,
+  SessionTable,
+  AccountTable,
+} from "lib/db/sqlite/schema.sqlite";
 import { getUser, getUserAccounts, updateUserDetails } from "lib/user/server";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
@@ -147,10 +154,12 @@ export const deleteUserAction = validatedActionWithAdminPermission(
     const t = await getTranslations("Admin.UserDelete");
     const { userId } = data;
     try {
-      await auth.api.removeUser({
-        body: { userId },
-        headers: await headers(),
-      });
+      // Delete user sessions first
+      await db.delete(SessionTable).where(eq(SessionTable.userId, userId));
+      // Delete user accounts
+      await db.delete(AccountTable).where(eq(AccountTable.userId, userId));
+      // Delete the user
+      await db.delete(UserTable).where(eq(UserTable.id, userId));
     } catch (error) {
       console.error("Failed to delete user:", error);
       return {
@@ -206,14 +215,13 @@ export const updateUserPasswordAction = validatedActionWithUserManagePermission(
           headers: await headers(),
         });
       } else {
-        await auth.api.setUserPassword({
-          body: { userId, newPassword },
+        // For admin updating another user's password, use setPassword
+        await auth.api.setPassword({
+          body: { newPassword },
           headers: await headers(),
         });
-        await auth.api.revokeUserSessions({
-          body: { userId },
-          headers: await headers(),
-        });
+        // Revoke all sessions for the user
+        await db.delete(SessionTable).where(eq(SessionTable.userId, userId));
       }
       return {
         success: true,

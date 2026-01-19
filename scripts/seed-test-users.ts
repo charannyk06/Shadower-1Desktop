@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * Script to seed test users using Better Auth's APIs
- * Creates 21 users with proper password hashing via Better Auth
+ * Creates test users with proper password hashing via Better Auth
  *
  * Usage:
  *   pnpm test:e2e:seed
@@ -18,23 +18,14 @@ if (process.env.CI) {
   config();
 }
 
-import { USER_ROLES } from "app-types/roles";
 import { auth } from "auth/auth-instance";
-import { sql } from "drizzle-orm";
 import { eq, like } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { sqliteDb as db } from "lib/db/sqlite/db.sqlite";
 import {
   ChatMessageTable,
   ChatThreadTable,
   UserTable,
-} from "lib/db/pg/schema.pg";
-import { Pool } from "pg";
-
-// Create database connection with Pool
-const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL!,
-});
-const db = drizzle(pool);
+} from "lib/db/sqlite/schema.sqlite";
 
 // Helper function to get user by email
 async function getUserByEmail(email: string) {
@@ -84,7 +75,7 @@ async function clearExistingTestUsers() {
       const users = await db
         .select({ id: UserTable.id })
         .from(UserTable)
-        .where(sql`email = ${email}`);
+        .where(eq(UserTable.email, email));
       testUsers.push(...users);
     }
 
@@ -96,15 +87,17 @@ async function clearExistingTestUsers() {
       console.log("Deleting chat messages...");
       // Messages reference threads, not users directly
       if (userIds.length > 0) {
-        const threads = await db
-          .select({ id: ChatThreadTable.id })
-          .from(ChatThreadTable)
-          .where(sql`${ChatThreadTable.userId} = ANY(${userIds})`);
-        const threadIds = threads.map((t) => t.id);
-        if (threadIds.length > 0) {
-          await db
-            .delete(ChatMessageTable)
-            .where(sql`${ChatMessageTable.threadId} = ANY(${threadIds})`);
+        for (const userId of userIds) {
+          const threads = await db
+            .select({ id: ChatThreadTable.id })
+            .from(ChatThreadTable)
+            .where(eq(ChatThreadTable.userId, userId));
+          const threadIds = threads.map((t) => t.id);
+          for (const threadId of threadIds) {
+            await db
+              .delete(ChatMessageTable)
+              .where(eq(ChatMessageTable.threadId, threadId));
+          }
         }
       }
 
@@ -112,7 +105,7 @@ async function clearExistingTestUsers() {
       for (const userId of userIds) {
         await db
           .delete(ChatThreadTable)
-          .where(sql`${ChatThreadTable.userId} = ${userId}`);
+          .where(eq(ChatThreadTable.userId, userId));
       }
 
       // Now delete the users
@@ -121,7 +114,7 @@ async function clearExistingTestUsers() {
         await db.delete(UserTable).where(like(UserTable.email, pattern));
       }
       for (const email of legacyTestEmails) {
-        await db.delete(UserTable).where(sql`email = ${email}`);
+        await db.delete(UserTable).where(eq(UserTable.email, email));
       }
     }
   } catch (error) {
@@ -136,7 +129,6 @@ async function createUserWithBetterAuth(userData: {
   email: string;
   password: string;
   name: string;
-  role?: string;
   banned?: boolean;
   banReason?: string;
 }) {
@@ -171,38 +163,6 @@ async function createUserWithBetterAuth(userData: {
       console.log(`  Created new user ${userData.email} (ID: ${user.id})`);
     }
 
-    // Update user role if needed
-    // IMPORTANT: Check current role first to avoid overwriting first-user admin
-    const [currentUser] = await db
-      .select()
-      .from(UserTable)
-      .where(sql`id = ${user.id}`);
-
-    if (userData.role && currentUser) {
-      // If this is the first user and they already have admin role from Better Auth hook,
-      // and we're trying to set admin role, that's fine - they match
-      // const _isFirstUserAdmin = currentUser.role === USER_ROLES.ADMIN && userData.role === USER_ROLES.ADMIN;
-
-      // Only update if the role is different and it's not the first-user-admin case
-      if (currentUser.role !== userData.role) {
-        try {
-          console.log(
-            `  Updating role from ${currentUser.role} to ${userData.role} for ${userData.email}`,
-          );
-          await db
-            .update(UserTable)
-            .set({ role: userData.role })
-            .where(sql`id = ${user.id}`);
-        } catch (error) {
-          console.warn(`Could not set role for ${userData.email}:`, error);
-        }
-      } else {
-        console.log(
-          `  Role already correct (${currentUser.role}) for ${userData.email}`,
-        );
-      }
-    }
-
     // Ban user if needed - do this via direct database update since we don't have admin auth
     if (userData.banned && userData.banReason) {
       try {
@@ -213,7 +173,7 @@ async function createUserWithBetterAuth(userData: {
             banReason: userData.banReason,
             banExpires: null, // Permanent ban for testing
           })
-          .where(sql`id = ${user.id}`);
+          .where(eq(UserTable.id, user.id));
       } catch (error) {
         console.warn(`Could not ban user ${userData.email}:`, error);
       }
@@ -253,30 +213,27 @@ async function seedTestUsers() {
 
     console.log("👤 Creating main test users...");
 
-    // 1. Admin User
+    // 1. Admin User (now just a regular user - roles removed)
     const adminUser = await createUserWithBetterAuth({
       email: TEST_USERS.admin.email,
       password: TEST_USERS.admin.password,
       name: TEST_USERS.admin.name,
-      role: USER_ROLES.ADMIN,
     });
     console.log("✅ Created admin user:", adminUser?.id);
 
-    // 2. Editor User
+    // 2. Editor User (now just a regular user - roles removed)
     const editorUser = await createUserWithBetterAuth({
       email: TEST_USERS.editor.email,
       password: TEST_USERS.editor.password,
       name: TEST_USERS.editor.name,
-      role: USER_ROLES.EDITOR,
     });
     console.log("✅ Created editor user:", editorUser?.id);
 
-    // 3. Editor2 User
+    // 3. Editor2 User (now just a regular user - roles removed)
     const editor2User = await createUserWithBetterAuth({
       email: TEST_USERS.editor2.email,
       password: TEST_USERS.editor2.password,
       name: TEST_USERS.editor2.name,
-      role: USER_ROLES.EDITOR,
     });
     console.log("✅ Created editor2 user:", editor2User?.id);
 
@@ -285,7 +242,6 @@ async function seedTestUsers() {
       email: TEST_USERS.regular.email,
       password: TEST_USERS.regular.password,
       name: TEST_USERS.regular.name,
-      role: USER_ROLES.USER,
     });
     console.log("✅ Created regular user:", regularUser?.id);
 
@@ -295,7 +251,6 @@ async function seedTestUsers() {
 
     for (let i = 4; i <= 21; i++) {
       try {
-        const isEditor = i <= 9;
         const isBanned = i === 21;
         const email = `testuser${i}@test-seed.local`;
 
@@ -303,7 +258,6 @@ async function seedTestUsers() {
           email,
           password: `TestPass${i}!`,
           name: `Test User ${i}`,
-          role: isEditor ? USER_ROLES.EDITOR : USER_ROLES.USER,
           banned: isBanned,
           banReason: isBanned ? "Test ban for E2E testing" : undefined,
         });
@@ -441,12 +395,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   seedTestUsers()
     .then(async () => {
       console.log("🎉 Seeding completed!");
-      await pool.end();
       process.exit(0);
     })
     .catch(async (error) => {
       console.error("💥 Seeding failed:", error);
-      await pool.end();
       process.exit(1);
     });
 }

@@ -85,7 +85,7 @@ export const BrowserToolInvocation = memo(function BrowserToolInvocation({
           ...state.theaterMode,
           browserSession: {
             sessionId: result.sessionId!,
-            provider: "browserbase",
+            provider: "chrome-devtools",
             currentUrl: result.currentUrl || result.url,
             replayUrl: result.replayUrl,
           },
@@ -112,7 +112,7 @@ export const BrowserToolInvocation = memo(function BrowserToolInvocation({
         title: `Browser Session`,
         browserSession: {
           sessionId: result.sessionId!,
-          provider: "browserbase",
+          provider: "chrome-devtools",
           currentUrl: result.currentUrl || result.url,
           replayUrl: result.replayUrl,
         },

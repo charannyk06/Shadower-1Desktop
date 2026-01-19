@@ -5,7 +5,7 @@ import type {
 
 /**
  * Fragment Templates Registry
- * Defines all available E2B sandbox templates for autonomous generation
+ * Defines all available templates for local code execution and generation.
  */
 
 export interface FragmentTemplate {

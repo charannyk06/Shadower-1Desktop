@@ -4,7 +4,6 @@ import type { UIMessageStreamWriter } from "ai";
 import { colorize } from "consola/utils";
 import globalLogger from "logger";
 import { z } from "zod";
-import { E2BDesktopService } from "../sandbox/e2b-desktop-service";
 
 const logger = globalLogger.withDefaults({
   message: colorize("yellow", "[Computer Use Agent] "),
@@ -37,11 +36,13 @@ export interface DesktopAction {
     | "press"
     | "scroll"
     | "drag"
-    | "launch";
+    | "launch"
+    | "command";
   target?: { x: number; y: number };
   text?: string;
   keys?: string[];
   app?: string;
+  command?: string;
   direction?: "up" | "down";
   amount?: number;
   from?: { x: number; y: number };
@@ -55,6 +56,7 @@ export interface ActionResult {
   success: boolean;
   action: DesktopAction;
   screenshot?: string;
+  output?: string;
   error?: string;
 }
 
@@ -69,19 +71,40 @@ export interface TaskResult {
   summary: string;
 }
 
+// Check if running in Electron
+const isElectron =
+  typeof window !== "undefined" &&
+  window.electronAPI &&
+  window.electronAPI.terminal;
+
+/**
+ * Helper to call terminal IPC
+ */
+async function callTerminalIPC<T>(method: string, data: unknown): Promise<T> {
+  if (!isElectron) {
+    throw new Error("Computer use is only available in the desktop app");
+  }
+  const terminalAPI = window.electronAPI.terminal as unknown as Record<
+    string,
+    (data: unknown) => Promise<T>
+  >;
+  if (!terminalAPI[method]) {
+    throw new Error(`Terminal method ${method} not available`);
+  }
+  return terminalAPI[method](data);
+}
+
 /**
  * Computer Use Agent
  *
  * Automates desktop tasks using visual understanding
- * and E2B Desktop sandbox.
+ * and local terminal execution.
  */
 export class ComputerUseAgent {
-  private desktopService: E2BDesktopService;
   private dataStream?: UIMessageStreamWriter;
-  private activeSandboxId?: string;
+  private sessionId?: string;
 
   constructor(dataStream?: UIMessageStreamWriter) {
-    this.desktopService = E2BDesktopService.getInstance();
     this.dataStream = dataStream;
   }
 
@@ -101,7 +124,7 @@ export class ComputerUseAgent {
           stage,
           message,
           timestamp: new Date().toISOString(),
-          sandboxId: this.activeSandboxId,
+          sessionId: this.sessionId,
           ...data,
         },
       });
@@ -109,33 +132,43 @@ export class ComputerUseAgent {
   }
 
   /**
-   * Create a new desktop sandbox
+   * Initialize a local desktop session
    */
   async createDesktop(): Promise<string> {
-    this.emitProgress("setup", "Creating desktop sandbox...");
-    const desktop = await this.desktopService.createDesktop();
-    this.activeSandboxId = desktop.sandboxId;
+    this.emitProgress("setup", "Initializing local desktop session...");
 
-    this.emitProgress("setup", "Desktop sandbox ready", {
-      sandboxId: desktop.sandboxId,
+    // Generate a session ID for tracking
+    this.sessionId = `local-${Date.now()}`;
+
+    this.emitProgress("setup", "Local desktop session ready", {
+      sessionId: this.sessionId,
     });
 
-    return desktop.sandboxId;
+    return this.sessionId;
   }
 
   /**
    * Take a screenshot and return base64
    */
-  async captureScreen(sandboxId: string): Promise<string> {
-    const result = await this.desktopService.screenshot(sandboxId);
-    return result.base64;
+  async captureScreen(_sessionId: string): Promise<string> {
+    const result = await callTerminalIPC<{
+      success: boolean;
+      screenshot?: string;
+      error?: string;
+    }>("screenshot", { fullScreen: true });
+
+    if (!result.success || !result.screenshot) {
+      throw new Error(result.error || "Failed to capture screenshot");
+    }
+
+    return result.screenshot;
   }
 
   /**
    * Execute a single action on the desktop
    */
   async executeAction(
-    sandboxId: string,
+    sessionId: string,
     action: DesktopAction,
   ): Promise<ActionResult> {
     this.emitProgress("executing", `Performing ${action.type} action...`, {
@@ -143,78 +176,83 @@ export class ComputerUseAgent {
     });
 
     try {
+      let output: string | undefined;
+
       switch (action.type) {
         case "click":
           if (action.target) {
-            await this.desktopService.leftClick(
-              sandboxId,
-              action.target.x,
-              action.target.y,
-            );
-          } else {
-            await this.desktopService.leftClick(sandboxId);
+            await callTerminalIPC("click", {
+              x: action.target.x,
+              y: action.target.y,
+              button: "left",
+            });
           }
           break;
 
         case "doubleClick":
           if (action.target) {
-            await this.desktopService.doubleClick(
-              sandboxId,
-              action.target.x,
-              action.target.y,
-            );
-          } else {
-            await this.desktopService.doubleClick(sandboxId);
+            await callTerminalIPC("click", {
+              x: action.target.x,
+              y: action.target.y,
+              button: "double",
+            });
           }
           break;
 
         case "rightClick":
           if (action.target) {
-            await this.desktopService.rightClick(
-              sandboxId,
-              action.target.x,
-              action.target.y,
-            );
-          } else {
-            await this.desktopService.rightClick(sandboxId);
+            await callTerminalIPC("click", {
+              x: action.target.x,
+              y: action.target.y,
+              button: "right",
+            });
           }
           break;
 
         case "type":
           if (action.text) {
-            await this.desktopService.type(sandboxId, action.text);
+            await callTerminalIPC("type", { text: action.text });
           }
           break;
 
         case "press":
           if (action.keys && action.keys.length > 0) {
-            await this.desktopService.press(sandboxId, action.keys);
+            await callTerminalIPC("press", { key: action.keys.join("+") });
           }
           break;
 
         case "scroll":
-          await this.desktopService.scroll(
-            sandboxId,
-            action.direction || "down",
-            action.amount,
-          );
+          await callTerminalIPC("scroll", {
+            direction: action.direction || "down",
+            amount: action.amount || 3,
+          });
           break;
 
         case "drag":
           if (action.from && action.to) {
-            await this.desktopService.drag(
-              sandboxId,
-              action.from.x,
-              action.from.y,
-              action.to.x,
-              action.to.y,
-            );
+            await callTerminalIPC("drag", {
+              startX: action.from.x,
+              startY: action.from.y,
+              endX: action.to.x,
+              endY: action.to.y,
+            });
           }
           break;
 
         case "launch":
           if (action.app) {
-            await this.desktopService.launchApp(sandboxId, action.app);
+            await callTerminalIPC("launch", { app: action.app });
+          }
+          break;
+
+        case "command":
+          if (action.command) {
+            const result = await callTerminalIPC<{
+              success: boolean;
+              stdout: string;
+              stderr: string;
+            }>("execute", { command: action.command });
+            output = result.stdout || result.stderr;
           }
           break;
       }
@@ -222,13 +260,19 @@ export class ComputerUseAgent {
       // Wait a bit for the UI to update
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      // Take a screenshot after the action
-      const screenshot = await this.captureScreen(sandboxId);
+      // Try to take a screenshot after the action
+      let screenshot: string | undefined;
+      try {
+        screenshot = await this.captureScreen(sessionId);
+      } catch {
+        // Screenshot might fail, that's okay
+      }
 
       return {
         success: true,
         action,
         screenshot,
+        output,
       };
     } catch (err) {
       logger.error(`Action ${action.type} failed:`, err);
@@ -244,7 +288,7 @@ export class ComputerUseAgent {
    * Execute a sequence of actions
    */
   async executeTask(
-    sandboxId: string,
+    sessionId: string,
     task: string,
     actions: DesktopAction[],
   ): Promise<TaskResult> {
@@ -262,7 +306,7 @@ export class ComputerUseAgent {
         progress: ((i + 1) / actions.length) * 100,
       });
 
-      const result = await this.executeAction(sandboxId, action);
+      const result = await this.executeAction(sessionId, action);
       results.push(result);
 
       // Stop if action failed
@@ -273,7 +317,12 @@ export class ComputerUseAgent {
     }
 
     // Take final screenshot
-    const finalScreenshot = await this.captureScreen(sandboxId);
+    let finalScreenshot: string | undefined;
+    try {
+      finalScreenshot = await this.captureScreen(sessionId);
+    } catch {
+      // Screenshot might fail
+    }
 
     const successCount = results.filter((r) => r.success).length;
     const duration = (Date.now() - startTime) / 1000;
@@ -296,12 +345,11 @@ export class ComputerUseAgent {
   }
 
   /**
-   * Clean up the desktop sandbox
+   * Clean up the desktop session
    */
-  async cleanup(sandboxId: string): Promise<void> {
-    this.emitProgress("cleanup", "Closing desktop sandbox...");
-    await this.desktopService.closeDesktop(sandboxId);
-    this.activeSandboxId = undefined;
+  async cleanup(_sessionId: string): Promise<void> {
+    this.emitProgress("cleanup", "Closing desktop session...");
+    this.sessionId = undefined;
   }
 }
 
@@ -314,7 +362,7 @@ export function createComputerUseTaskTool(
   return createTool({
     description: "Execute a sequence of desktop actions to complete a task",
     inputSchema: z.object({
-      sandboxId: z.string().describe("The desktop sandbox ID"),
+      sessionId: z.string().describe("The desktop session ID"),
       task: z.string().describe("Description of the task to complete"),
       actions: z
         .array(
@@ -328,6 +376,7 @@ export function createComputerUseTaskTool(
               "scroll",
               "drag",
               "launch",
+              "command",
             ]),
             target: z
               .object({
@@ -338,6 +387,7 @@ export function createComputerUseTaskTool(
             text: z.string().optional(),
             keys: z.array(z.string()).optional(),
             app: z.string().optional(),
+            command: z.string().optional(),
             direction: z.enum(["up", "down"]).optional(),
             amount: z.number().optional(),
             from: z.object({ x: z.number(), y: z.number() }).optional(),
@@ -346,11 +396,11 @@ export function createComputerUseTaskTool(
         )
         .describe("Sequence of actions to perform"),
     }),
-    execute: async ({ sandboxId, task, actions }) => {
+    execute: async ({ sessionId, task, actions }) => {
       const agent = new ComputerUseAgent(dataStream);
 
       try {
-        const result = await agent.executeTask(sandboxId, task, actions);
+        const result = await agent.executeTask(sessionId, task, actions);
 
         return {
           success: result.success,
@@ -381,20 +431,17 @@ export function createAnalyzeScreenTool(
   return createTool({
     description: "Take a screenshot and analyze the current screen state",
     inputSchema: z.object({
-      sandboxId: z.string().describe("The desktop sandbox ID"),
+      sessionId: z.string().describe("The desktop session ID"),
     }),
-    execute: async ({ sandboxId }) => {
+    execute: async ({ sessionId }) => {
       const agent = new ComputerUseAgent(dataStream);
 
       try {
-        const screenshot = await agent.captureScreen(sandboxId);
-        const desktopService = E2BDesktopService.getInstance();
-        const screenSize = await desktopService.getScreenSize(sandboxId);
+        const screenshot = await agent.captureScreen(sessionId);
 
         return {
           success: true,
           screenshot,
-          screenSize,
           instruction:
             "Analyze this screenshot to identify UI elements and their coordinates for interaction",
         };

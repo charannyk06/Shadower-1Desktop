@@ -68,7 +68,7 @@ export const createWorkflowExecutor = (workflow: {
   nodes: DBNode[];
   edges: DBEdge[];
   logger?: ConsolaInstance;
-  userId?: string; // User ID for accessing user-specific resources like Composio
+  userId?: string;
 }) => {
   // Create runtime state store for the workflow
   const store = createGraphStore({

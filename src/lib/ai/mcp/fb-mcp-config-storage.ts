@@ -5,7 +5,7 @@ import type { FSWatcher } from "chokidar";
 import { colorize } from "consola/utils";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { MCP_CONFIG_PATH } from "lib/ai/mcp/config-path";
-import { McpServerTable } from "lib/db/pg/schema.pg";
+import { McpServerTable } from "lib/db/sqlite/schema.sqlite";
 import equal from "lib/equal";
 import { createDebounce } from "lib/utils";
 import defaultLogger from "logger";

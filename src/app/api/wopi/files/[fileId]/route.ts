@@ -76,7 +76,7 @@ export async function GET(
       {
         id: file.storageKey || file.name,
         name: file.name,
-        size: file.size,
+        size: file.size || 0,
         ownerId: payload.odisId,
         updatedAt: new Date(file.uploadedAt || Date.now()),
       },

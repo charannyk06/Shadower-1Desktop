@@ -11,6 +11,7 @@ import {
   NodeRuntimeHistory,
 } from "lib/ai/workflow/workflow.interface";
 import { UINode } from "lib/ai/workflow/workflow.interface";
+import { workflowApi } from "lib/electron/workflow-api";
 import { notify } from "lib/notify";
 import { cn, createDebounce, errorToString } from "lib/utils";
 import {
@@ -217,18 +218,11 @@ ${workflow!.description ? `tool-description: ${workflow!.description}` : ""}`,
         });
       });
       try {
-        const response = await fetch(`/api/workflow/${workflow!.id}/execute`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ query }),
-          signal: abortController.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        const response = await workflowApi.executeWithStream(
+          workflow!.id,
+          query,
+          abortController.signal,
+        );
 
         const reader = response.body?.getReader();
         if (!reader) {

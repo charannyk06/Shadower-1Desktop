@@ -3,7 +3,7 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { createCerebras } from "@ai-sdk/cerebras";
 import { google } from "@ai-sdk/google";
 import { createGroq } from "@ai-sdk/groq";
-import { openai } from "@ai-sdk/openai";
+import { createOpenAI, openai } from "@ai-sdk/openai";
 import { xai } from "@ai-sdk/xai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
@@ -31,6 +31,14 @@ const openrouter = createOpenRouter({
  */
 const ollama = createOllama({
   baseURL: process.env.OLLAMA_BASE_URL || "http://localhost:11434/api",
+});
+
+/**
+ * LM Studio instance (OpenAI-compatible)
+ */
+const lmstudio = createOpenAI({
+  baseURL: process.env.LM_STUDIO_BASE_URL || "http://localhost:1234/v1",
+  apiKey: "lm-studio", // LM Studio doesn't require a real API key
 });
 
 /**
@@ -131,6 +139,16 @@ const registry: Record<ProviderId, ProviderConfig> = {
     defaultModel: "llama3.3",
     getModel: (modelId: string): LanguageModel =>
       ollama(modelId) as unknown as LanguageModel,
+    getModelCapabilities,
+  },
+
+  lmstudio: {
+    id: "lmstudio",
+    name: "LM Studio",
+    description: "Local model hosting with GUI",
+    supportsToolUsageControl: false, // Local models have limited tool support
+    defaultModel: "local-model",
+    getModel: (modelId: string): LanguageModel => lmstudio(modelId),
     getModelCapabilities,
   },
 
@@ -284,4 +302,4 @@ export { google } from "@ai-sdk/google";
 export { xai } from "@ai-sdk/xai";
 
 // Re-export locally created provider instances
-export { groq, openrouter, ollama, cerebras };
+export { groq, openrouter, ollama, lmstudio, cerebras };

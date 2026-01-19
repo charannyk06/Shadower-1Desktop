@@ -1,12 +1,9 @@
-import { USER_ROLES, UserRoleNames } from "app-types/roles";
 import { ActionState } from "lib/action-utils";
 import { z } from "zod";
 
 export const CreateInvitationSchema = z.object({
   email: z.string().email("Invalid email address"),
-  role: z.enum(
-    Object.values(USER_ROLES) as [UserRoleNames, ...UserRoleNames[]],
-  ),
+  // Role removed - all users have the same permissions now
 });
 
 export const RevokeInvitationSchema = z.object({

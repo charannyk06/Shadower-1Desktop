@@ -1,23 +1,15 @@
 import { streamObject } from "ai";
 
-import { ChatModel } from "app-types/chat";
-import { customModelProvider } from "lib/ai/models";
-import { buildAgentGenerationPrompt } from "lib/ai/prompts";
-import { checkTokenLimit } from "lib/billing";
-import {
-  createLimitExceededResponse,
-  createUsageTrackingCallback,
-  getDefaultModelConfig,
-} from "lib/billing/usage-tracking";
-import { workflowRepository } from "lib/db/repository";
-import globalLogger from "logger";
-
 import { AgentGenerateSchema } from "app-types/agent";
+import { ChatModel } from "app-types/chat";
 import { getSession } from "auth/server";
 import { colorize } from "consola/utils";
-import { getComposioClientForUser, isComposioEnabled } from "lib/ai/composio";
 import { mcpClientsManager } from "lib/ai/mcp/mcp-manager";
+import { customModelProvider } from "lib/ai/models";
+import { buildAgentGenerationPrompt } from "lib/ai/prompts";
+import { workflowRepository } from "lib/db/repository";
 import { objectFlow } from "lib/utils";
+import globalLogger from "logger";
 import { safe } from "ts-safe";
 import { z } from "zod";
 import { loadAppDefaultTools } from "../../chat/shared.chat";
@@ -40,21 +32,6 @@ export async function POST(request: Request) {
     const session = await getSession();
     if (!session) {
       return new Response("Unauthorized", { status: 401 });
-    }
-
-    const modelConfig = getDefaultModelConfig(chatModel);
-
-    // Check token limit with model multiplier
-    // Use reasonable minimum estimate to prevent edge cases at exact limit
-    const estimatedMinTokens = 500; // Agent generation is typically smaller
-    const tokenLimitCheck = await checkTokenLimit(
-      session.user.id,
-      estimatedMinTokens,
-      modelConfig.model,
-      modelConfig.provider,
-    );
-    if (!tokenLimitCheck.allowed) {
-      return createLimitExceededResponse(tokenLimitCheck);
     }
 
     const toolNames = new Set<string>();
@@ -83,39 +60,6 @@ export async function POST(request: Request) {
       })
       .unwrap();
 
-    // Inject Composio tools
-    if (isComposioEnabled()) {
-      try {
-        const client = getComposioClientForUser(session.user.id);
-        if (client) {
-          const connections = await client.getConnections();
-          const connectedApps = connections
-            .filter((c) => c.status === "active")
-            .map((c) => c.appName);
-
-          await Promise.all(
-            connectedApps.map(async (appName) => {
-              const tools = await client.getToolsForApp(appName);
-              tools.forEach((tool) => {
-                // Format: appName_toolName (same as Vercel AI SDK format in composio-client.ts)
-                // Use the same ID generation logic as in ComposioClient.getVercelAITools
-                let toolId = `app_${tool.appName}_${tool.name}`;
-                if (toolId.length > 64) {
-                  toolId = toolId.substring(0, 64);
-                }
-                toolNames.add(toolId);
-              });
-            }),
-          );
-        }
-      } catch (error) {
-        logger.error(
-          "Failed to load Composio tools for agent generation",
-          error,
-        );
-      }
-    }
-
     const dynamicAgentTable = AgentGenerateSchema.extend({
       tools: z
         .array(
@@ -140,17 +84,6 @@ export async function POST(request: Request) {
       system,
       prompt: message,
       schema: dynamicAgentTable,
-      onFinish: createUsageTrackingCallback(
-        {
-          userId: session.user.id,
-          model: modelConfig.model,
-          provider: modelConfig.provider,
-          tier: tokenLimitCheck.tier,
-          source: "agent_generation",
-          logger,
-        },
-        () => message || "",
-      ),
     });
 
     return result.toTextStreamResponse();

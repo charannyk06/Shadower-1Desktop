@@ -1,7 +1,7 @@
 import "server-only";
 
 import { validateCronAuth } from "lib/cron/auth";
-import { pgChatRepository } from "lib/db/pg/repositories/chat-repository.pg";
+import { chatRepository } from "lib/db/repository";
 import { getQdrantClient } from "lib/vector-search/qdrant-client";
 import { initializeCollections } from "lib/vector-search/qdrant-service";
 import { indexContent } from "lib/vector-search/vector-search-service";
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     if (threadId) {
       try {
         // Fetch thread to get userId for security filtering
-        const thread = await pgChatRepository.selectThread(threadId);
+        const thread = await chatRepository.selectThread(threadId);
         const userId = thread?.userId;
 
         if (!userId) {
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
           );
         } else {
           const messages =
-            await pgChatRepository.selectMessagesByThreadId(threadId);
+            await chatRepository.selectMessagesByThreadId(threadId);
 
           if (messages.length > 0) {
             const itemsToIndex = messages

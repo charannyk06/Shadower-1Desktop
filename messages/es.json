@@ -202,6 +202,7 @@
     "toggleSidebar": "Alternar Barra Lateral",
     "newChat": "Nuevo Chat",
     "mcpConfiguration": "Configuración MCP",
+    "models": "Modelos",
     "agents": "Agentes",
     "newAgent": "Nuevo Agente",
     "createAgent": "Crear un agente",
@@ -247,9 +248,7 @@
     "reportAnIssue": "Reportar un problema",
     "joinCommunity": "Unirse a la Comunidad",
     "workflow": "Flujo de Trabajo",
-    "billing": "Facturación",
-    "userSettings": "Configuración de Usuario",
-    "referral": "Programa de Referidos"
+    "userSettings": "Configuración de Usuario"
   },
   "Archive": {
     "title": "Archivo",

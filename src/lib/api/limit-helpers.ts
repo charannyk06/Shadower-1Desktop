@@ -1,85 +1,62 @@
-import {
-  checkImageLimit,
-  checkSandboxLimit,
-  checkTokenLimit,
-  checkWorkflowLimit,
-} from "lib/billing";
-import type {
-  CreditLimitCheckResult,
-  TokenLimitCheckResult,
-} from "lib/billing/limit-check";
+// No-op limit helpers for local-only desktop app
+// All limits are disabled - users use their own API keys (BYOK)
 
-// Union type for all limit check results
-export type LimitCheckResult = TokenLimitCheckResult | CreditLimitCheckResult;
+// Stub type for backwards compatibility
+export type LimitCheckResult = {
+  allowed: false;
+  reason: string;
+  usage: number;
+  limit: number;
+  tier: string;
+};
 
 /**
  * Creates a standardized limit exceeded response
+ * Note: This should never be called in local-only mode
  */
 export function createLimitExceededResponse(
-  limitCheck: LimitCheckResult,
+  _limitCheck: LimitCheckResult,
 ): Response {
-  // Access multiplier safely - only TokenLimitCheckResult has it
-  const multiplier =
-    "multiplier" in limitCheck ? limitCheck.multiplier : undefined;
-
   return Response.json(
-    {
-      error: "limit_exceeded",
-      message: limitCheck.reason,
-      usage: limitCheck.usage,
-      limit: limitCheck.limit,
-      tier: limitCheck.tier,
-      ...(multiplier && { multiplier }),
-    },
-    { status: 429 },
+    { error: "Unexpected billing check in local-only mode" },
+    { status: 500 },
   );
 }
 
 /**
- * Validates token limit and returns error response if exceeded
+ * Validates token limit - always returns null (allowed) in local-only mode
  */
 export async function validateTokenLimit(
-  userId: string,
-  estimatedTokens: number,
-  model?: string,
-  provider?: string,
-): Promise<LimitCheckResult | null> {
-  const limitCheck = await checkTokenLimit(
-    userId,
-    estimatedTokens,
-    model,
-    provider,
-  );
-  return limitCheck.allowed ? null : limitCheck;
+  _userId: string,
+  _estimatedTokens: number,
+  _model?: string,
+  _provider?: string,
+): Promise<null> {
+  return null; // Always allowed
 }
 
 /**
- * Validates sandbox limit and returns error response if exceeded
+ * Validates local execution limit - always returns null (allowed) in local-only mode
  */
-export async function validateSandboxLimit(
-  userId: string,
-): Promise<LimitCheckResult | null> {
-  const limitCheck = await checkSandboxLimit(userId);
-  return limitCheck.allowed ? null : limitCheck;
+export async function validateLocalExecutionLimit(
+  _userId: string,
+): Promise<null> {
+  return null; // Always allowed
 }
 
 /**
- * Validates workflow limit and returns error response if exceeded
+ * Validates workflow limit - always returns null (allowed) in local-only mode
  */
-export async function validateWorkflowLimit(
-  userId: string,
-): Promise<LimitCheckResult | null> {
-  const limitCheck = await checkWorkflowLimit(userId);
-  return limitCheck.allowed ? null : limitCheck;
+export async function validateWorkflowLimit(_userId: string): Promise<null> {
+  return null; // Always allowed
 }
 
 /**
- * Validates image limit and returns error response if exceeded
+ * Validates image limit - always returns null (allowed) in local-only mode
  */
 export async function validateImageLimit(
-  userId: string,
-  model?: string,
+  _userId: string,
+  _model?: string,
 ): Promise<LimitCheckResult | null> {
-  const limitCheck = await checkImageLimit(userId, model);
-  return limitCheck.allowed ? null : limitCheck;
+  return null; // Always allowed in desktop app
 }

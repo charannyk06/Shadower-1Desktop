@@ -1,154 +1,81 @@
-import path from "node:path";
-import { del, head, put } from "@vercel/blob";
+/**
+ * Vercel Blob Storage Stub - Cloud services removed for local-first architecture
+ *
+ * This file provides stub exports for compatibility with existing code.
+ * File storage is handled locally in Electron.
+ */
+
+import logger from "logger";
 import { FileNotFoundError } from "lib/errors";
-import { generateUUID } from "lib/utils";
 import type {
-  FileMetadata,
   FileStorage,
   UploadOptions,
+  UploadResult,
 } from "./file-storage.interface";
-import {
-  resolveStoragePrefix,
-  sanitizeFilename,
-  toBuffer,
-} from "./storage-utils";
 
-const STORAGE_PREFIX = resolveStoragePrefix();
+/**
+ * Creates a stub Vercel Blob storage that throws errors
+ * Vercel Blob is a cloud service not available in local-first mode
+ */
+export function createVercelBlobStorage(): FileStorage {
+  const notAvailableError = () => {
+    throw new Error(
+      "Vercel Blob storage is not available in local-first mode. " +
+        "Please use 'local' storage driver instead by setting FILE_STORAGE_TYPE=local",
+    );
+  };
 
-const buildPathname = (filename: string) => {
-  const safeName = sanitizeFilename(filename);
-  const id = generateUUID();
-  const prefix = STORAGE_PREFIX ? `${STORAGE_PREFIX}/` : "";
-  return path.posix.join(prefix, `${id}-${safeName}`);
-};
-
-const mapMetadata = (
-  key: string,
-  info: { contentType: string; size: number; uploadedAt?: Date },
-) =>
-  ({
-    key,
-    filename: path.posix.basename(key),
-    contentType: info.contentType,
-    size: info.size,
-    uploadedAt: info.uploadedAt,
-  }) satisfies FileMetadata;
-
-const getHeadForKey = async (key: string) => {
-  try {
-    return await head(key);
-  } catch (error: unknown) {
-    if (error instanceof Error && error.name === "BlobNotFoundError") {
-      throw new FileNotFoundError(key, error);
-    }
-    throw error;
-  }
-};
-
-const fetchSourceBuffer = async (url: string) => {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new FileNotFoundError(url);
-    }
-    throw new Error(`Failed to download blob. Status: ${response.status}`);
-  }
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
-};
-
-export const createVercelBlobStorage = (): FileStorage => {
   return {
-    async upload(content, options: UploadOptions = {}) {
-      const buffer = await toBuffer(content);
-      const filename = options.filename ?? "file";
-      const pathname = buildPathname(filename);
-
-      const result = await put(pathname, buffer, {
-        access: "public",
-        contentType: options.contentType,
-      });
-
-      const metadata: FileMetadata = {
-        key: result.pathname,
-        filename: path.posix.basename(result.pathname),
-        contentType: result.contentType,
-        size: buffer.byteLength,
-        uploadedAt: new Date(),
-      };
-
-      return {
-        key: result.pathname,
-        sourceUrl: result.url,
-        metadata,
-      };
+    async upload(
+      _buffer: Buffer,
+      _options: UploadOptions,
+    ): Promise<UploadResult> {
+      logger.error(
+        "[Vercel Blob] Upload called but service not available in local-first mode",
+      );
+      notAvailableError();
+      // TypeScript needs this even though notAvailableError throws
+      throw new Error("Vercel Blob not available");
     },
 
-    // Vercel Blob uses handleUpload flow instead of createUploadUrl
-    // Client should use @vercel/blob/client with handleUploadUrl: "/api/storage/upload-url"
-    async createUploadUrl() {
-      return null;
+    async download(_storageKey: string): Promise<Buffer> {
+      logger.error(
+        "[Vercel Blob] Download called but service not available in local-first mode",
+      );
+      notAvailableError();
+      throw new FileNotFoundError("Vercel Blob not available");
     },
 
-    async download(key) {
-      const info = await getHeadForKey(key);
-      return fetchSourceBuffer(info.url);
+    async delete(_storageKey: string): Promise<void> {
+      logger.error(
+        "[Vercel Blob] Delete called but service not available in local-first mode",
+      );
+      notAvailableError();
     },
 
-    async delete(key) {
-      await del(key);
+    async exists(_storageKey: string): Promise<boolean> {
+      logger.warn(
+        "[Vercel Blob] Exists called but service not available in local-first mode",
+      );
+      return false;
     },
 
-    async exists(key) {
-      try {
-        await getHeadForKey(key);
-        return true;
-      } catch (error: unknown) {
-        if (error instanceof FileNotFoundError) {
-          return false;
-        }
-        throw error;
-      }
+    async getMetadata(storageKey: string) {
+      logger.error(
+        "[Vercel Blob] GetMetadata called but service not available in local-first mode",
+      );
+      notAvailableError();
+      throw new FileNotFoundError(
+        `Vercel Blob not available for key: ${storageKey}`,
+      );
     },
 
-    async getMetadata(key) {
-      try {
-        const info = await getHeadForKey(key);
-        return mapMetadata(key, {
-          contentType: info.contentType,
-          size: info.size,
-          uploadedAt: info.uploadedAt,
-        });
-      } catch (error: unknown) {
-        if (error instanceof FileNotFoundError) {
-          return null;
-        }
-        throw error;
-      }
+    async getSourceUrl(_key: string): Promise<string | null> {
+      logger.error(
+        "[Vercel Blob] GetSourceUrl called but service not available in local-first mode",
+      );
+      notAvailableError();
+      throw new Error("Vercel Blob not available");
     },
-
-    async getSourceUrl(key) {
-      try {
-        const info = await getHeadForKey(key);
-        return info.url;
-      } catch (error: unknown) {
-        if (error instanceof FileNotFoundError) {
-          return null;
-        }
-        throw error;
-      }
-    },
-
-    async getDownloadUrl(key) {
-      try {
-        const info = await getHeadForKey(key);
-        return info.downloadUrl ?? info.url;
-      } catch (error: unknown) {
-        if (error instanceof FileNotFoundError) {
-          return null;
-        }
-        throw error;
-      }
-    },
-  } satisfies FileStorage;
-};
+  };
+}

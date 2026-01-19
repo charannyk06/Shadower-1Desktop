@@ -5,7 +5,7 @@ import {
   scrollPoints,
 } from "lib/vector-search/qdrant-service";
 import { COLLECTIONS } from "lib/vector-search/qdrant-client";
-import { pgVectorIndexRepository } from "lib/db/pg/repositories/vector-index-repository.pg";
+import { vectorIndexRepository } from "lib/db/repository";
 import logger from "logger";
 
 export const dynamic = "force-dynamic";
@@ -78,10 +78,7 @@ export async function DELETE(
 
     // Delete PostgreSQL vector_index entries
     try {
-      await pgVectorIndexRepository.deleteByEntity(
-        "knowledge",
-        knowledgeBaseId,
-      );
+      await vectorIndexRepository.deleteByEntity("knowledge", knowledgeBaseId);
       logger.info(
         `[Knowledge API] Deleted PostgreSQL entries for knowledge base ${knowledgeBaseId}`,
       );

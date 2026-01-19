@@ -1,7 +1,7 @@
 import "server-only";
 
 import { InvitationListItem } from "app-types/invitation";
-import { requireAdminPermission } from "lib/auth/permissions";
+import { getSession } from "lib/auth/server";
 import { invitationRepository } from "lib/db/repository";
 
 export interface GetInvitationsResult {
@@ -10,13 +10,17 @@ export interface GetInvitationsResult {
 }
 
 /**
- * Get all invitations (admin only)
+ * Get all invitations (requires authentication)
  */
 export async function getAdminInvitations(options?: {
   limit?: number;
   offset?: number;
 }): Promise<GetInvitationsResult> {
-  await requireAdminPermission("list invitations");
+  // All authenticated users have access (roles/permissions removed)
+  const session = await getSession();
+  if (!session?.user?.id) {
+    throw new Error("Unauthorized: Authentication required");
+  }
 
   const result = await invitationRepository.getPendingInvitations(options);
 

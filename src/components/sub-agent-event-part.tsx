@@ -24,16 +24,6 @@ const WebSearchToolInvocation = dynamic(
   },
 );
 
-const E2BCodeExecutor = dynamic(
-  () =>
-    import("./tool-invocation/e2b-code-executor").then(
-      (mod) => mod.E2BCodeExecutor,
-    ),
-  {
-    ssr: false,
-  },
-);
-
 interface SubAgentEventPartProps {
   event: SubAgentEvent;
   isLast?: boolean;
@@ -165,12 +155,6 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
         toolName === "web_content" ||
         toolName === DefaultToolName.WebContent.toLowerCase();
 
-      // Check for sandbox tools
-      const isSandboxTool =
-        toolName === "sandbox" ||
-        toolName === DefaultToolName.Sandbox.toLowerCase() ||
-        toolName.includes("sandbox");
-
       // Check for browser tools
       const isBrowserTool =
         (toolName.startsWith("browser") && toolName !== "browser") ||
@@ -264,36 +248,6 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
         );
       }
 
-      // Render sandbox tools with rich UI
-      if (isSandboxTool && threadId) {
-        // Ensure sandbox result has correct structure
-        let sandboxResult = actualResult || parsedResult;
-
-        // Handle different sandbox result formats
-        if (sandboxResult?.success !== undefined || sandboxResult?.results) {
-          // Already in correct format
-        } else if (sandboxResult?.data) {
-          sandboxResult = sandboxResult.data;
-        }
-
-        const mockPart = createMockPart(
-          sandboxResult,
-          sandboxResult?.success === false ? "error" : "output-available",
-        );
-
-        return (
-          <div className="w-full my-2">
-            <E2BCodeExecutor
-              part={mockPart}
-              key={mockPart.toolCallId}
-              onResult={() => {}}
-              type="sandbox"
-              threadId={threadId}
-            />
-          </div>
-        );
-      }
-
       // Render browser/desktop tools with rich UI
       if ((isBrowserTool || isDesktopTool) && threadId) {
         const mockPart = createMockPart(
@@ -365,7 +319,7 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
                                 title: `Browser Session`,
                                 browserSession: {
                                   sessionId: parsedResult.sessionId,
-                                  provider: "browserbase",
+                                  provider: "chrome-devtools",
                                   currentUrl:
                                     parsedResult.currentUrl || parsedResult.url,
                                   replayUrl: parsedResult.replayUrl,
@@ -393,7 +347,7 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
                                 title: `Browser Session`,
                                 browserSession: {
                                   sessionId: parsedResult.sessionId,
-                                  provider: "browserbase",
+                                  provider: "chrome-devtools",
                                   currentUrl:
                                     parsedResult.currentUrl || parsedResult.url,
                                   replayUrl: parsedResult.replayUrl,
@@ -405,11 +359,11 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
                       )}
                     </div>
                   )}
-                  {parsedResult.sandboxId && isDesktopTool && (
+                  {parsedResult.sessionId && isDesktopTool && (
                     <div className="mt-2 space-y-2">
                       <div className="flex items-center gap-2 text-xs">
                         <span className="text-muted-foreground">
-                          Sandbox: {parsedResult.sandboxId}
+                          Session: {parsedResult.sessionId}
                         </span>
                         <Button
                           variant="ghost"
@@ -422,7 +376,7 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
                                 type: "desktop",
                                 title: `Desktop Session`,
                                 desktopSession: {
-                                  sandboxId: parsedResult.sandboxId,
+                                  sessionId: parsedResult.sessionId,
                                   streamUrl: parsedResult.streamUrl,
                                   authKey: parsedResult.authKey,
                                 },
@@ -444,7 +398,7 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
                       )}
                     </div>
                   )}
-                  {!parsedResult.sessionId && !parsedResult.sandboxId && (
+                  {!parsedResult.sessionId && (
                     <pre className="mt-1 p-2 bg-muted rounded text-xs overflow-x-auto max-h-32 overflow-y-auto">
                       {typeof parsedResult === "string"
                         ? parsedResult

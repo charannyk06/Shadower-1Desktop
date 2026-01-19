@@ -1,10 +1,7 @@
-import { UserRoleNames } from "./roles";
-
 export interface Invitation {
   id: string;
   email: string;
   token: string;
-  role: UserRoleNames;
   invitedBy: string;
   expiresAt: Date;
   acceptedAt: Date | null;
@@ -20,7 +17,6 @@ export interface InvitationWithInviter extends Invitation {
 export interface InvitationListItem {
   id: string;
   email: string;
-  role: string;
   inviterName: string | null;
   expiresAt: Date;
   acceptedAt: Date | null;

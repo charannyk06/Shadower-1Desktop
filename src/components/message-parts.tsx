@@ -723,17 +723,6 @@ const RememberContextToolInvocation = dynamic(
   },
 );
 
-const E2BCodeExecutor = dynamic(
-  () =>
-    import("./tool-invocation/e2b-code-executor").then(
-      (mod) => mod.E2BCodeExecutor,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
-);
-
 const ImageGeneratorToolInvocation = dynamic(
   () =>
     import("./tool-invocation/image-generator").then(
@@ -975,18 +964,6 @@ export const ToolMessagePart = memo(
         return <ImageGeneratorToolInvocation part={part} />;
       }
 
-      if (toolName === DefaultToolName.Sandbox) {
-        return (
-          <E2BCodeExecutor
-            part={part}
-            key={part.toolCallId}
-            onResult={onToolCallDirect}
-            type="sandbox"
-            threadId={threadId}
-          />
-        );
-      }
-
       // Agent planning tools
       if (toolName === "createPlan") {
         return <PlanViewInvocation part={part} />;
@@ -1006,15 +983,15 @@ export const ToolMessagePart = memo(
 
       // Fragment tools - createFragment and editFragment
       if (toolName === "createFragment" || toolName === "editFragment") {
-        return <FragmentInvocation part={part} threadId={threadId} />;
+        return <FragmentInvocation part={part} />;
       }
 
-      // Browser tools (Browserbase/Stagehand) - camelCase names like browserNavigate, browserAct
+      // Browser tools (Local Chrome DevTools) - camelCase names like browserNavigate, browserAct
       if (toolName.startsWith("browser") && toolName !== "browser") {
         return <BrowserToolInvocation part={part} threadId={threadId} />;
       }
 
-      // Desktop tools (E2B Desktop) - camelCase names like desktopScreenshot, desktopClick
+      // Desktop tools (Local Terminal) - camelCase names like desktopScreenshot, desktopClick
       if (toolName.startsWith("desktop") && toolName !== "desktop") {
         return <DesktopToolInvocation part={part} threadId={threadId} />;
       }

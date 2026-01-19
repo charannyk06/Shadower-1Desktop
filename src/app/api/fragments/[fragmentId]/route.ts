@@ -41,7 +41,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
         code: fragment.code,
         filePath: fragment.file_path,
         port: fragment.port,
-        sandboxId: fragment.sandbox_id,
+        sessionId: fragment.session_id,
         previewUrl: fragment.preview_url,
         deploymentUrl: fragment.deployment_url,
         status: fragment.status,

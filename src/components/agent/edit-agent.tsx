@@ -3,7 +3,6 @@
 import { ShareableActions, Visibility } from "@/components/shareable-actions";
 import { useMutateAgents } from "@/hooks/queries/use-agents";
 import { useBookmark } from "@/hooks/queries/use-bookmark";
-import { useComposioGroupedApps } from "@/hooks/queries/use-composio";
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
 import { useWorkflowToolList } from "@/hooks/queries/use-workflow-tool-list";
 import { useObjectState } from "@/hooks/use-object-state";
@@ -137,8 +136,6 @@ export default function EditAgent({
   const { data: mcpList, isLoading: isMcpLoading } = useMcpList();
   const { data: workflowToolList, isLoading: isWorkflowLoading } =
     useWorkflowToolList();
-  const { items: composioGroupedApps, isLoading: isComposioLoading } =
-    useComposioGroupedApps();
 
   const assignToolsByNames = useCallback(
     (toolNames: string[]) => {
@@ -177,31 +174,6 @@ export default function EditAgent({
         }
       });
 
-      composioGroupedApps?.forEach((group) => {
-        // Check if ANY tool in this group matches the toolNames requested by AI
-        const hasMatchingTool = group.tools.some((tool) => {
-          let toolId = `app_${tool.appName}_${tool.name}`;
-          if (toolId.length > 64) {
-            toolId = toolId.substring(0, 64);
-          }
-          // Check for exact match first, then case-insensitive
-          return toolNames.some(
-            (t) => t === toolId || t.toLowerCase() === toolId.toLowerCase(),
-          );
-        });
-
-        if (hasMatchingTool) {
-          allMentions.push({
-            type: "composioApp",
-            name: group.displayName,
-            description: group.description,
-            appId: group.appId,
-            toolCount: group.toolCount,
-            logo: group.logo,
-          });
-        }
-      });
-
       if (allMentions.length > 0) {
         setAgent((prev) => ({
           instructions: {
@@ -211,7 +183,7 @@ export default function EditAgent({
         }));
       }
     },
-    [mcpList, workflowToolList, composioGroupedApps, setAgent],
+    [mcpList, workflowToolList, setAgent],
   );
 
   const saveAgent = useCallback(() => {
@@ -351,8 +323,8 @@ export default function EditAgent({
   }, []);
 
   const isLoadingTool = useMemo(() => {
-    return isMcpLoading || isWorkflowLoading || isComposioLoading;
-  }, [isMcpLoading, isWorkflowLoading, isComposioLoading]);
+    return isMcpLoading || isWorkflowLoading;
+  }, [isMcpLoading, isWorkflowLoading]);
 
   // Map snake_case tool names to camelCase DefaultToolName enum values
   const toolNameMap: Record<string, DefaultToolName> = {

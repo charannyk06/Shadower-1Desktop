@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Allow the app to be run on macOS -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+
+    <!-- Allow network connections (for API calls) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Allow network server (for local development server) -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- Allow file read access (for user documents) -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- Allow read/write to app data directory -->
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
+
+    <!-- Allow spawning child processes (for local sandbox/terminal) -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Allow JIT compilation (for V8/Node.js) -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Allow dylib loading (for native modules) -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+
+    <!-- Allow debugging (for development) -->
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
+
+    <!-- Allow automation (for browser control and AppleScript) -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- Allow screen capture (for screenshot functionality) -->
+    <key>com.apple.security.device.screen-capture</key>
+    <true/>
+
+    <!-- Allow accessibility features (for mouse/keyboard automation) -->
+    <key>com.apple.security.temporary-exception.accessibility</key>
+    <true/>
+
+    <!-- Allow microphone access (for voice features) -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- Allow camera access (for potential vision features) -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+
+    <!-- Hardened runtime support -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

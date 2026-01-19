@@ -1,23 +1,14 @@
 import "server-only";
 
 import { AdminUsersPaginated, AdminUsersQuery } from "app-types/admin";
-import {
-  requireAdminPermission,
-  requireUserListPermission,
-} from "lib/auth/permissions";
 import { getSession } from "lib/auth/server";
-import pgAdminRepository from "lib/db/pg/repositories/admin-respository.pg";
 
 export const ADMIN_USER_LIST_LIMIT = 10;
 export const DEFAULT_SORT_BY = "createdAt";
 export const DEFAULT_SORT_DIRECTION = "desc";
 
 /**
- * Require an admin session
- * This is a wrapper around the getSession function
- * that throws an error if the user is not an admin
- *
- * @deprecated Use requireAdminPermission() from lib/auth/permissions instead
+ * Require an authenticated session
  */
 export async function requireAdminSession(): Promise<
   NonNullable<Awaited<ReturnType<typeof getSession>>>
@@ -28,36 +19,45 @@ export async function requireAdminSession(): Promise<
     throw new Error("Unauthorized: No session found");
   }
 
-  // Use our new permission system internally
-  await requireAdminPermission("access admin functions");
-
   return session;
 }
 
 /**
- * Get paginated users using our custom repository with improved search capabilities
- * Only admins can list and search users
+ * Get paginated users - stub for desktop single-user mode
  */
 export async function getAdminUsers(
-  query?: AdminUsersQuery,
+  _query?: AdminUsersQuery,
 ): Promise<AdminUsersPaginated> {
-  // Use our new permission system
-  await requireUserListPermission("list users in admin panel");
-  await getSession();
+  const session = await getSession();
 
-  try {
-    // Use our custom repository with improved search
-    const result = await pgAdminRepository.getUsers({
-      ...query,
-      limit: query?.limit ?? ADMIN_USER_LIST_LIMIT,
-      offset: query?.offset ?? 0,
-      sortBy: query?.sortBy ?? DEFAULT_SORT_BY,
-      sortDirection: query?.sortDirection ?? DEFAULT_SORT_DIRECTION,
-    });
-
-    return result;
-  } catch (error) {
-    console.error("Error getting admin users", error);
-    throw error;
+  // In desktop mode, return only the current user
+  if (session?.user) {
+    return {
+      users: [
+        {
+          id: session.user.id,
+          name: session.user.name || "User",
+          email: session.user.email || "",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          emailVerified: true,
+          banned: false,
+          banReason: null,
+          banExpires: null,
+          image: session.user.image || null,
+          lastLogin: new Date(),
+        },
+      ],
+      total: 1,
+      limit: ADMIN_USER_LIST_LIMIT,
+      offset: 0,
+    };
   }
+
+  return {
+    users: [],
+    total: 0,
+    limit: ADMIN_USER_LIST_LIMIT,
+    offset: 0,
+  };
 }

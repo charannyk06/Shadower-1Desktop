@@ -152,10 +152,6 @@ jobs:
         #   - Billing tabs (Overview, Usage, Plans)
         #   - Billing cycle toggle functionality
         #   - Billing API routes
-        # - Referral page tests (tests/billing/referral-page.spec.ts)
-        #   - Referral code display and sharing
-        #   - Referral stats and how-it-works section
-        #   - Referral API routes
         # - Admin billing tests (tests/admin/admin-billing.spec.ts)
         #   - Admin billing dashboard access
         #   - Promo codes management (create, toggle, list)

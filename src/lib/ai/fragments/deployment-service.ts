@@ -1,9 +1,7 @@
-import { Sandbox } from "@e2b/code-interpreter";
 import { nanoid } from "nanoid";
 import {
   fragmentRepository,
   fragmentSharesRepository,
-  e2bUsageRepository,
 } from "lib/db/repository";
 import logger from "logger";
 
@@ -32,7 +30,7 @@ function parseDuration(duration: DeploymentDuration): number {
 
 /**
  * Deployment Service - One-click deployment for fragments
- * Handles sandbox timeout extension and shareable link creation
+ * Handles local session management and shareable link creation
  */
 export class DeploymentService {
   private readonly baseUrl: string;
@@ -74,19 +72,12 @@ export class DeploymentService {
     const durationMs = parseDuration(duration);
     const expiresAt = new Date(Date.now() + durationMs);
 
-    // Extend sandbox timeout if sandbox is still active
-    if (fragment.sandbox_id) {
-      try {
-        await this.extendSandboxTimeout(fragment.sandbox_id, durationMs);
-        logger.info(
-          `[DEPLOY] Extended sandbox ${fragment.sandbox_id} timeout to ${duration}`,
-        );
-      } catch (error) {
-        logger.warn(
-          `[DEPLOY] Failed to extend sandbox timeout (may be expired): ${error}`,
-        );
-        // Continue with deployment even if sandbox extension fails
-      }
+    // For local execution, no timeout extension needed
+    // Local processes run on user's machine without cloud timeouts
+    if (fragment.session_id) {
+      logger.debug(
+        `[DEPLOY] Local session ${fragment.session_id} - no timeout extension needed`,
+      );
     }
 
     // Create shareable link
@@ -105,15 +96,6 @@ export class DeploymentService {
       deploymentUrl: `${this.baseUrl}/f/${shareId}`,
     });
 
-    // Track usage
-    await e2bUsageRepository.recordUsage({
-      userId,
-      sessionId: fragment.sandbox_id || `deploy-${fragmentId}`,
-      template: fragment.template,
-      durationMs,
-      operationType: "deploy",
-    });
-
     const url = `${this.baseUrl}/f/${shareId}`;
 
     logger.info(`[DEPLOY] ✅ Fragment deployed: ${url}`);
@@ -126,31 +108,8 @@ export class DeploymentService {
     };
   }
 
-  /**
-   * Extend sandbox timeout
-   */
-  private async extendSandboxTimeout(
-    sandboxId: string,
-    timeoutMs: number,
-  ): Promise<void> {
-    const apiKey = process.env.E2B_API_KEY;
-    if (!apiKey) {
-      throw new Error("E2B_API_KEY not configured");
-    }
-
-    // E2B API to extend sandbox timeout
-    // Note: This requires E2B SDK support for setTimeout
-    try {
-      const sandbox = await Sandbox.connect(sandboxId, { apiKey });
-      await sandbox.setTimeout(timeoutMs);
-      logger.debug(
-        `[DEPLOY] Extended sandbox ${sandboxId} timeout by ${timeoutMs}ms`,
-      );
-    } catch (error) {
-      logger.warn(`[DEPLOY] Failed to extend sandbox timeout: ${error}`);
-      throw error;
-    }
-  }
+  // Note: Local execution doesn't need timeout extension
+  // Local processes run on user's machine without cloud-based limits
 
   /**
    * Get deployment status for a fragment
@@ -237,6 +196,14 @@ export class DeploymentService {
       return null;
     }
 
+    // Validate required fields exist
+    if (!fragment.template || !fragment.code) {
+      logger.warn(
+        `[DEPLOY] Fragment ${share.fragmentId} missing required fields for public view`,
+      );
+      return null;
+    }
+
     // Increment view count
     await fragmentSharesRepository.incrementViewCount(shareId);
 
@@ -244,13 +211,13 @@ export class DeploymentService {
       fragment: {
         id: fragment.id,
         title: fragment.title,
-        description: fragment.description,
+        description: fragment.description ?? "",
         template: fragment.template,
         code: fragment.code,
         previewUrl: fragment.preview_url,
       },
       share: {
-        expiresAt: share.expiresAt,
+        expiresAt: share.expiresAt ?? null,
         viewCount: share.viewCount + 1, // Include current view
       },
     };

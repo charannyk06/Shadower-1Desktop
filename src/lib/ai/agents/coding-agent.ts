@@ -43,7 +43,7 @@ export interface BuildResult {
  * Coding Agent (Vibe Coding)
  *
  * Builds full applications from natural language descriptions
- * using E2B Code Interpreter.
+ * using local sandbox code execution.
  */
 export class CodingAgent {
   private dataStream?: UIMessageStreamWriter;

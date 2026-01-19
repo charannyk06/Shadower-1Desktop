@@ -1,11 +1,12 @@
 import { MCPServerInfo } from "app-types/mcp";
+import { getSession } from "auth/server";
 import { mcpClientsManager } from "lib/ai/mcp/mcp-manager";
-import { getCurrentUser } from "lib/auth/permissions";
 import { mcpRepository } from "lib/db/repository";
 
 export async function GET() {
   try {
-    const currentUser = await getCurrentUser();
+    const session = await getSession();
+    const currentUser = session?.user;
 
     if (!currentUser || !currentUser.id) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });

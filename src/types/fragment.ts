@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * Fragment Types - For micro-app and document generation
- * Cherry-picked from E2B Fragments repository
+ * Implements local execution for code generation and preview.
  */
 
 // Fragment template types
@@ -56,7 +56,7 @@ export interface FragmentResult {
   fragmentId: string;
   previewUrl?: string; // For web apps
   output?: string; // For code interpreter
-  sandboxId: string;
+  sessionId: string; // Local execution session ID
   template: string;
   title: string;
   code: string;
@@ -74,7 +74,7 @@ export interface Fragment {
   code: string;
   file_path: string;
 
-  sandbox_id?: string;
+  session_id?: string; // Local execution session ID
   port?: number;
   preview_url?: string;
   deployment_url?: string;
@@ -105,7 +105,7 @@ export type FragmentOperationType =
   | "file-read" // Reading a file
   | "install" // Installing dependencies
   | "ai-call" // AI model invocation
-  | "sandbox" // Sandbox operation
+  | "local-exec" // Local execution operation
   | "tool-call" // External tool invocation (MCP, system tools)
   | "info"; // General info
 

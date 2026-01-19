@@ -4,7 +4,6 @@ import type { UIMessageStreamWriter } from "ai";
 import { colorize } from "consola/utils";
 import globalLogger from "logger";
 import { z } from "zod";
-import { BrowserbaseService } from "../browser/browserbase-service";
 
 const logger = globalLogger.withDefaults({
   message: colorize("magenta", "[Web Automation Agent] "),
@@ -21,12 +20,13 @@ export interface WebAction {
     | "extract"
     | "screenshot"
     | "wait"
-    | "scroll";
+    | "scroll"
+    | "evaluate";
   instruction?: string;
   url?: string;
   selector?: string;
   text?: string;
-  schema?: z.ZodSchema;
+  script?: string;
   waitFor?: number | string;
   direction?: "up" | "down";
 }
@@ -51,22 +51,44 @@ export interface AutomationResult {
   actions: WebActionResult[];
   extractedData?: unknown;
   finalScreenshot?: string;
-  sessionReplayUrl?: string;
+}
+
+// Check if running in Electron
+const isElectron =
+  typeof window !== "undefined" &&
+  window.electronAPI &&
+  window.electronAPI.chrome;
+
+/**
+ * Helper to call Chrome IPC
+ */
+async function callChromeIPC<T>(method: string, data?: unknown): Promise<T> {
+  if (!isElectron) {
+    throw new Error("Web automation is only available in the desktop app");
+  }
+  const chromeAPI = window.electronAPI.chrome as unknown as Record<
+    string,
+    (data?: unknown) => Promise<T>
+  >;
+  if (!chromeAPI[method]) {
+    throw new Error(`Chrome method ${method} not available`);
+  }
+  return chromeAPI[method](data);
 }
 
 /**
  * Web Automation Agent
  *
- * Sophisticated web automation using Browserbase + Stagehand
- * with AI-powered natural language browser control.
+ * Sophisticated web automation using Chrome DevTools Protocol
+ * to control the user's local Chrome browser.
  */
 export class WebAutomationAgent {
-  private browserService: BrowserbaseService;
   private dataStream?: UIMessageStreamWriter;
   private activeSessionId?: string;
+  // @ts-expect-error - Reserved for future implementation
+  private isConnected: boolean = false;
 
   constructor(dataStream?: UIMessageStreamWriter) {
-    this.browserService = BrowserbaseService.getInstance();
     this.dataStream = dataStream;
   }
 
@@ -94,44 +116,44 @@ export class WebAutomationAgent {
   }
 
   /**
-   * Create a browser session for automation
+   * Connect to Chrome browser
    */
   async createSession(
-    userId: string,
-    threadId?: string,
-    useStealth: boolean = false,
+    _userId: string,
+    _threadId?: string,
+    port: number = 9222,
   ): Promise<string> {
-    this.emitProgress(
-      "setup",
-      `Creating ${useStealth ? "stealth " : ""}browser session...`,
-    );
+    this.emitProgress("setup", "Connecting to Chrome browser...");
 
-    const sessionResult = useStealth
-      ? await this.browserService.createStealthSession(userId, threadId)
-      : await this.browserService.createSession({ userId, threadId });
+    const result = await callChromeIPC<{
+      success: boolean;
+      tabs?: Array<{ id: string; title: string; url: string }>;
+      error?: string;
+    }>("connect", { port });
 
-    if (!sessionResult.ok) {
+    if (!result.success) {
       throw new Error(
-        `Failed to create browser session: ${sessionResult.error.message}`,
+        result.error ||
+          "Failed to connect to Chrome. Make sure Chrome is running with --remote-debugging-port=9222",
       );
     }
 
-    const session = sessionResult.value;
-    this.activeSessionId = session.sessionId;
+    this.isConnected = true;
+    this.activeSessionId = `chrome-${port}-${Date.now()}`;
 
-    this.emitProgress("setup", "Browser session ready", {
-      sessionId: session.sessionId,
-      stealth: useStealth,
+    this.emitProgress("setup", "Connected to Chrome", {
+      sessionId: this.activeSessionId,
+      tabs: result.tabs?.length || 0,
     });
 
-    return session.sessionId;
+    return this.activeSessionId;
   }
 
   /**
    * Execute a single web action
    */
   async executeAction(
-    sessionId: string,
+    _sessionId: string,
     action: WebAction,
   ): Promise<WebActionResult> {
     this.emitProgress("executing", `Performing ${action.type} action...`, {
@@ -145,50 +167,83 @@ export class WebAutomationAgent {
       switch (action.type) {
         case "navigate":
           if (action.url) {
-            await this.browserService.navigate(sessionId, action.url);
-            result = { navigatedTo: action.url };
+            const navResult = await callChromeIPC<{
+              success: boolean;
+              title?: string;
+              url?: string;
+              error?: string;
+            }>("navigate", { url: action.url });
+            if (!navResult.success) {
+              throw new Error(navResult.error || "Navigation failed");
+            }
+            result = { navigatedTo: action.url, title: navResult.title };
           }
           break;
 
         case "click":
-          if (action.instruction) {
-            // Use Stagehand natural language action
-            const actResult = await this.browserService.act(
-              sessionId,
-              action.instruction,
-            );
-            result = actResult;
+          if (action.selector) {
+            const clickResult = await callChromeIPC<{
+              success: boolean;
+              error?: string;
+            }>("click", { selector: action.selector });
+            if (!clickResult.success) {
+              throw new Error(clickResult.error || "Click failed");
+            }
+            result = { clicked: action.selector };
           }
           break;
 
         case "type":
-          if (action.instruction && action.text) {
-            // First focus the element, then type
-            await this.browserService.act(sessionId, action.instruction);
-            // Then type the text
-            await this.browserService.act(sessionId, `type "${action.text}"`);
-            result = { typed: action.text };
+          if (action.selector && action.text) {
+            const typeResult = await callChromeIPC<{
+              success: boolean;
+              error?: string;
+            }>("type", {
+              selector: action.selector,
+              text: action.text,
+              clear: true,
+            });
+            if (!typeResult.success) {
+              throw new Error(typeResult.error || "Type failed");
+            }
+            result = { typed: action.text, into: action.selector };
           }
           break;
 
         case "extract":
-          if (action.instruction && action.schema) {
-            result = await this.browserService.extract(
-              sessionId,
-              action.instruction,
-              action.schema,
-            );
+          if (action.selector) {
+            const extractResult = await callChromeIPC<{
+              success: boolean;
+              data?: string | string[];
+              error?: string;
+            }>("extract", {
+              selector: action.selector,
+              attribute: action.instruction,
+              all: true,
+            });
+            if (!extractResult.success) {
+              throw new Error(extractResult.error || "Extract failed");
+            }
+            result = extractResult.data;
           }
           break;
 
         case "screenshot":
-          const screenshotResult =
-            await this.browserService.screenshot(sessionId);
-          if (screenshotResult.ok) {
-            screenshot = screenshotResult.value.base64;
+          const screenshotResult = await callChromeIPC<{
+            success: boolean;
+            screenshot?: string;
+            error?: string;
+          }>("screenshot", {
+            fullPage: action.instruction === "full",
+          });
+          if (screenshotResult.success && screenshotResult.screenshot) {
+            screenshot = screenshotResult.screenshot;
             result = { captured: true };
           } else {
-            result = { captured: false, error: screenshotResult.error.message };
+            result = {
+              captured: false,
+              error: screenshotResult.error,
+            };
           }
           break;
 
@@ -199,31 +254,59 @@ export class WebAutomationAgent {
             );
             result = { waited: action.waitFor };
           } else if (typeof action.waitFor === "string") {
-            // Wait for element/condition using observe
-            const observed = await this.browserService.observe(
-              sessionId,
-              `Wait until: ${action.waitFor}`,
-            );
-            result = observed;
+            // Wait for selector
+            const waitResult = await callChromeIPC<{
+              success: boolean;
+              error?: string;
+            }>("wait", {
+              selector: action.waitFor,
+              timeout: 30000,
+            });
+            if (!waitResult.success) {
+              throw new Error(waitResult.error || "Wait failed");
+            }
+            result = { waitedFor: action.waitFor };
           }
           break;
 
         case "scroll":
-          await this.browserService.act(
-            sessionId,
-            `scroll ${action.direction || "down"}`,
-          );
+          const scrollResult = await callChromeIPC<{
+            success: boolean;
+            error?: string;
+          }>("scroll", {
+            direction: action.direction || "down",
+            amount: 500,
+          });
+          if (!scrollResult.success) {
+            throw new Error(scrollResult.error || "Scroll failed");
+          }
           result = { scrolled: action.direction || "down" };
+          break;
+
+        case "evaluate":
+          if (action.script) {
+            const evalResult = await callChromeIPC<{
+              success: boolean;
+              result?: unknown;
+              error?: string;
+            }>("evaluate", { script: action.script });
+            if (!evalResult.success) {
+              throw new Error(evalResult.error || "Evaluate failed");
+            }
+            result = evalResult.result;
+          }
           break;
       }
 
       // Take screenshot after action if not already taken
       if (!screenshot && action.type !== "screenshot") {
         try {
-          const afterScreenshot =
-            await this.browserService.screenshot(sessionId);
-          if (afterScreenshot.ok) {
-            screenshot = afterScreenshot.value.base64;
+          const afterScreenshot = await callChromeIPC<{
+            success: boolean;
+            screenshot?: string;
+          }>("screenshot", {});
+          if (afterScreenshot.success && afterScreenshot.screenshot) {
+            screenshot = afterScreenshot.screenshot;
           }
         } catch {
           // Screenshot optional, don't fail action
@@ -290,19 +373,15 @@ export class WebAutomationAgent {
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
-    // Get final screenshot and replay URL
+    // Get final screenshot
     let finalScreenshot: string | undefined;
-    let sessionReplayUrl: string | undefined;
-
     try {
-      const finalScreenshotResult =
-        await this.browserService.screenshot(sessionId);
-      if (finalScreenshotResult.ok) {
-        finalScreenshot = finalScreenshotResult.value.base64;
-      }
-      const replayUrlResult = await this.browserService.getReplayUrl(sessionId);
-      if (replayUrlResult.ok && replayUrlResult.value) {
-        sessionReplayUrl = replayUrlResult.value;
+      const finalScreenshotResult = await callChromeIPC<{
+        success: boolean;
+        screenshot?: string;
+      }>("screenshot", {});
+      if (finalScreenshotResult.success && finalScreenshotResult.screenshot) {
+        finalScreenshot = finalScreenshotResult.screenshot;
       }
     } catch {
       // Optional, don't fail
@@ -327,7 +406,6 @@ export class WebAutomationAgent {
       actions: results,
       extractedData,
       finalScreenshot,
-      sessionReplayUrl,
     };
   }
 
@@ -350,10 +428,14 @@ export class WebAutomationAgent {
     const taskLower = task.toLowerCase();
 
     if (taskLower.includes("click")) {
-      actions.push({
-        type: "click",
-        instruction: task,
-      });
+      // Extract selector from task if present
+      const selectorMatch = task.match(/["']([^"']+)["']/);
+      if (selectorMatch) {
+        actions.push({
+          type: "click",
+          selector: selectorMatch[1],
+        });
+      }
     }
 
     if (
@@ -361,13 +443,13 @@ export class WebAutomationAgent {
       taskLower.includes("enter") ||
       taskLower.includes("fill")
     ) {
-      // Extract text to type from the task
-      const match = task.match(/["']([^"']+)["']/);
-      if (match) {
+      // Extract text and selector from the task
+      const matches = task.match(/["']([^"']+)["']/g);
+      if (matches && matches.length >= 2) {
         actions.push({
           type: "type",
-          instruction: task.replace(match[0], "").trim(),
-          text: match[1],
+          selector: matches[0].replace(/["']/g, ""),
+          text: matches[1].replace(/["']/g, ""),
         });
       }
     }
@@ -377,13 +459,13 @@ export class WebAutomationAgent {
       taskLower.includes("get") ||
       taskLower.includes("scrape")
     ) {
-      actions.push({
-        type: "extract",
-        instruction: task,
-        schema: z.object({
-          data: z.unknown(),
-        }),
-      });
+      const selectorMatch = task.match(/["']([^"']+)["']/);
+      if (selectorMatch) {
+        actions.push({
+          type: "extract",
+          selector: selectorMatch[1],
+        });
+      }
     }
 
     if (taskLower.includes("scroll")) {
@@ -402,9 +484,10 @@ export class WebAutomationAgent {
   /**
    * Clean up the browser session
    */
-  async cleanup(sessionId: string): Promise<void> {
+  async cleanup(_sessionId: string): Promise<void> {
     this.emitProgress("cleanup", "Closing browser session...");
-    await this.browserService.closeSession(sessionId);
+    // Note: We don't actually close Chrome, just disconnect
+    this.isConnected = false;
     this.activeSessionId = undefined;
   }
 }
@@ -417,7 +500,7 @@ export function createWebAutomationFlowTool(
 ): Tool {
   return createTool({
     description:
-      "Execute a sequence of web automation actions using Stagehand AI",
+      "Execute a sequence of web automation actions using Chrome DevTools Protocol",
     inputSchema: z.object({
       sessionId: z.string().describe("The browser session ID"),
       task: z.string().describe("Description of the automation task"),
@@ -432,17 +515,23 @@ export function createWebAutomationFlowTool(
               "screenshot",
               "wait",
               "scroll",
+              "evaluate",
             ]),
             instruction: z
               .string()
               .optional()
-              .describe("Natural language instruction for the action"),
+              .describe("Additional instruction for the action"),
             url: z.string().optional().describe("URL to navigate to"),
+            selector: z
+              .string()
+              .optional()
+              .describe("CSS selector for element"),
             text: z.string().optional().describe("Text to type"),
+            script: z.string().optional().describe("JavaScript to evaluate"),
             waitFor: z
               .union([z.number(), z.string()])
               .optional()
-              .describe("Time in ms or condition to wait for"),
+              .describe("Time in ms or selector to wait for"),
             direction: z.enum(["up", "down"]).optional(),
           }),
         )
@@ -461,7 +550,6 @@ export function createWebAutomationFlowTool(
           totalActions: result.actions.length,
           extractedData: result.extractedData,
           finalScreenshot: result.finalScreenshot,
-          replayUrl: result.sessionReplayUrl,
         };
       } catch (err) {
         logger.error("Web automation failed:", err);
@@ -498,7 +586,6 @@ export function createWebTaskTool(dataStream?: UIMessageStreamWriter): Tool {
           actionsCompleted: result.actions.filter((a) => a.success).length,
           extractedData: result.extractedData,
           finalScreenshot: result.finalScreenshot,
-          replayUrl: result.sessionReplayUrl,
         };
       } catch (err) {
         logger.error("Web task failed:", err);

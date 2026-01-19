@@ -3,10 +3,6 @@ import { z } from "zod";
 import type { UIMessageStreamWriter } from "ai";
 import { fragmentAgent } from "lib/ai/agents/fragment-agent";
 import { deploymentService } from "lib/ai/fragments/deployment-service";
-import {
-  e2bCostTracker,
-  QuotaExceededError,
-} from "lib/billing/e2b-cost-tracker";
 import { fragmentRepository } from "lib/db/repository";
 import logger from "logger";
 
@@ -61,12 +57,8 @@ The system is FULLY AUTONOMOUS - just describe what you want!`,
         toolCallId,
       }: { toolCallId: string; abortSignal?: AbortSignal; messages?: any[] },
     ) => {
-      const startTime = Date.now();
-
       try {
-        // Check quota before starting
-        await e2bCostTracker.enforceQuota(context.userId);
-
+        // Local execution is free - no quota enforcement needed
         logger.info(
           `[FRAGMENT_TOOL] Creating fragment for user ${context.userId} (toolCallId: ${toolCallId}): ${request.slice(0, 50)}...`,
         );
@@ -94,16 +86,6 @@ The system is FULLY AUTONOMOUS - just describe what you want!`,
           toolCallId, // Pass toolCallId explicitly
         });
 
-        // Track usage
-        const durationMs = Date.now() - startTime;
-        await e2bCostTracker.trackSession({
-          userId: context.userId,
-          sessionId: result.sandboxId,
-          template: result.template,
-          durationMs,
-          operationType: "create",
-        });
-
         return {
           success: true,
           COMPLETED: true, // Signal that fragment creation is complete - agent should stop
@@ -120,14 +102,6 @@ The system is FULLY AUTONOMOUS - just describe what you want!`,
             "Fragment creation is complete. Provide your final response to the user NOW. Do NOT create new plans or tasks.",
         };
       } catch (error: any) {
-        if (error instanceof QuotaExceededError) {
-          return {
-            success: false,
-            error: error.message,
-            hint: "Consider upgrading your plan for more sandbox time.",
-          };
-        }
-
         logger.error("[FRAGMENT_TOOL] Creation failed:", error);
         return {
           success: false,
@@ -168,12 +142,8 @@ Provide the fragment ID and describe your edit.`,
         toolCallId,
       }: { toolCallId: string; abortSignal?: AbortSignal; messages?: any[] },
     ) => {
-      const startTime = Date.now();
-
       try {
-        // Check quota
-        await e2bCostTracker.enforceQuota(context.userId);
-
+        // Local execution is free - no quota enforcement needed
         logger.info(
           `[FRAGMENT_TOOL] Editing fragment ${fragmentId}: ${editRequest.slice(0, 50)}...`,
         );
@@ -204,16 +174,6 @@ Provide the fragment ID and describe your edit.`,
           },
         );
 
-        // Track usage
-        const durationMs = Date.now() - startTime;
-        await e2bCostTracker.trackSession({
-          userId: context.userId,
-          sessionId: result.sandboxId,
-          template: result.template,
-          durationMs,
-          operationType: "edit",
-        });
-
         return {
           success: true,
           fragmentId: result.fragmentId,
@@ -223,13 +183,6 @@ Provide the fragment ID and describe your edit.`,
           message: "Edit applied successfully",
         };
       } catch (error: any) {
-        if (error instanceof QuotaExceededError) {
-          return {
-            success: false,
-            error: error.message,
-          };
-        }
-
         logger.error("[FRAGMENT_TOOL] Edit failed:", error);
         return {
           success: false,

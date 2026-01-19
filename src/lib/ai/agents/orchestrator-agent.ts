@@ -13,7 +13,6 @@ import {
 import type { AgentState, AgentStateUpdate } from "app-types/agent-state";
 import { colorize } from "consola/utils";
 import { JSONSchema7 } from "json-schema";
-import { wrapToolsWithTracking } from "lib/billing/tool-tracking";
 import {
   agentRepository,
   agentStateRepository,
@@ -24,7 +23,7 @@ import { jsonSchemaToZod } from "lib/json-schema-to-zod";
 import globalLogger from "logger";
 import { customModelProvider } from "../models";
 import { mcpClientsManager } from "../mcp/mcp-manager";
-import { createBrowserToolsWithContext } from "../tools/browser/browserbase-tools";
+import { createBrowserToolsWithContext } from "../tools/browser/local-browser-tools";
 import { createWorkflowExecutor } from "../workflow/executor/workflow-executor";
 import type { WorkflowToolKey } from "../workflow/workflow.interface";
 import {
@@ -376,11 +375,11 @@ export const AGENT_ORCHESTRATOR_INSTRUCTIONS = `You are an autonomous AI orchest
 
 ## SYSTEM AGENTS (Always Available)
 Use \`spawnSystemAgent\` with agentType to delegate to specialized system agents:
-- **deep-research**: Multi-step web research with source citations. Uses Browserbase for stealth browsing.
-- **data-analysis**: Analyze datasets and create interactive Plotly visualizations. Uses E2B Code Interpreter.
-- **coding**: Build full applications from descriptions. Uses E2B sandbox.
-- **computer-use**: Desktop automation using visual understanding. Uses E2B Desktop.
-- **web-automation**: Browser automation with Stagehand AI. Uses Browserbase with CAPTCHA solving.
+- **deep-research**: Multi-step web research with source citations. Uses local Chrome DevTools for browsing.
+- **data-analysis**: Analyze datasets and create interactive Plotly visualizations. Uses local code execution.
+- **coding**: Build full applications from descriptions. Uses local sandbox.
+- **computer-use**: Desktop automation using visual understanding. Uses local terminal.
+- **web-automation**: Browser automation with AI. Uses local Chrome DevTools Protocol.
 - **documents**: Create presentations, documents, and spreadsheets with professional styling.
 
 ## USER-DEFINED AGENTS
@@ -558,7 +557,7 @@ User asks: "Find information about React hooks"
 ## BROWSER AUTOMATION - YOU CAN NAVIGATE TO WEBSITES
 **CRITICAL**: You HAVE browser automation tools available. When users ask to:
 - Navigate to a website → Use **browser_navigate** with the URL
-- Visit a page → Use **browser_navigate** 
+- Visit a page → Use **browser_navigate**
 - Browse the web → Use **browser_navigate** then **browser_observe** and **browser_act**
 - Extract data from a website → Use **browser_navigate** → **browser_extract**
 
@@ -1218,7 +1217,7 @@ function createSubAgentTools(
         const systemAgentTools: Record<string, Tool> = { ...mcpTools };
 
         if (availableTools) {
-          if (requirements.browserbase) {
+          if (requirements.browser) {
             // Use context-aware browser tools that pre-inject userId and threadId
             // This prevents the AI from inventing fake UUIDs like "user_1234"
             const contextAwareBrowserTools = createBrowserToolsWithContext(
@@ -1234,20 +1233,20 @@ function createSubAgentTools(
               }
             }
           }
-          if (requirements.e2bDesktop) {
-            // Desktop tools: desktopScreenshot, desktopClick, desktopType, etc.
+          if (requirements.desktop) {
+            // Desktop tools (local terminal): desktopScreenshot, desktopClick, desktopType, etc.
             for (const [name, tool] of Object.entries(availableTools)) {
               if (name.startsWith("desktop")) {
                 systemAgentTools[name] = tool;
               }
             }
           }
-          if (requirements.e2bCodeInterpreter) {
-            // Sandbox, visualization, and data analysis tools
+          if (requirements.codeExecution) {
+            // Local code execution: fragments, visualization, and data analysis tools
             for (const [name, tool] of Object.entries(availableTools)) {
               if (
-                name === "sandbox" ||
-                name.startsWith("create") || // createVisualization, createPieChart, etc.
+                name.startsWith("create") || // createFragment, createVisualization, createPieChart, etc.
+                name.startsWith("edit") || // editFragment
                 name.startsWith("profile") || // profileData
                 name.startsWith("analyze") // analyzeData
               ) {
@@ -1456,10 +1455,10 @@ function createSubAgentTools(
 
       // Add tools from availableTools based on agent requirements
       if (availableTools) {
-        // Browser tools for browserbase requirement (deep-research, web-automation)
+        // Browser tools (local Chrome DevTools) for deep-research, web-automation
         // Use context-aware browser tools that pre-inject userId and threadId
         // This prevents the AI from inventing fake UUIDs like "user_1234"
-        if (requirements.browserbase) {
+        if (requirements.browser) {
           const contextAwareBrowserTools = createBrowserToolsWithContext(
             userId,
             threadId || null,
@@ -1473,30 +1472,30 @@ function createSubAgentTools(
             }
           }
           logger.info(
-            `[System Agent ${systemAgentId}] Added context-aware browser tools for browserbase requirement`,
+            `[System Agent ${systemAgentId}] Added context-aware browser tools for Chrome DevTools requirement`,
           );
         }
 
-        // Desktop tools for e2bDesktop requirement (computer-use)
+        // Desktop tools for local terminal requirement (computer-use)
         // Tool names: desktopScreenshot, desktopClick, desktopType, desktopPress, etc.
-        if (requirements.e2bDesktop) {
+        if (requirements.desktop) {
           for (const [name, tool] of Object.entries(availableTools)) {
             if (name.startsWith("desktop")) {
               systemAgentTools[name] = tool;
             }
           }
           logger.info(
-            `[System Agent ${systemAgentId}] Added desktop tools for e2bDesktop requirement`,
+            `[System Agent ${systemAgentId}] Added desktop tools for local terminal requirement`,
           );
         }
 
-        // Sandbox and visualization tools for e2bCodeInterpreter requirement (data-analysis, coding, documents)
-        // Tool names: sandbox, createVisualization, createPieChart, profileData, analyzeData, etc.
-        if (requirements.e2bCodeInterpreter) {
+        // Fragment and visualization tools for local code execution requirement (data-analysis, coding, documents)
+        // Tool names: createFragment, editFragment, createVisualization, createPieChart, profileData, analyzeData, etc.
+        if (requirements.codeExecution) {
           for (const [name, tool] of Object.entries(availableTools)) {
             if (
-              name === "sandbox" ||
-              name.startsWith("create") ||
+              name.startsWith("create") || // createFragment, createVisualization, etc.
+              name.startsWith("edit") || // editFragment
               name.startsWith("profile") ||
               name.startsWith("analyze")
             ) {
@@ -1504,7 +1503,7 @@ function createSubAgentTools(
             }
           }
           logger.info(
-            `[System Agent ${systemAgentId}] Added sandbox/visualization tools for e2bCodeInterpreter requirement`,
+            `[System Agent ${systemAgentId}] Added fragment/visualization tools for local code execution requirement`,
           );
         }
       }
@@ -1684,8 +1683,8 @@ function createWorkflowTool(
         );
 
         // Step 2: Get available tools for workflow generation
-        // Fetch MCP tools, Composio tools, and app tools (same as /api/workflow/tools)
-        const [mcpTools, composioTools, appTools] = await Promise.all([
+        // Fetch MCP tools and app tools (same as /api/workflow/tools)
+        const [mcpTools, appTools] = await Promise.all([
           // Fetch MCP Tools
           (async () => {
             try {
@@ -1714,42 +1713,6 @@ function createWorkflowTool(
               return tools;
             } catch (e) {
               logger.error("[CreateWorkflow] Failed to fetch MCP tools", e);
-              return [];
-            }
-          })(),
-          // Fetch Composio Tools
-          (async () => {
-            try {
-              const { getComposioRouteContext } = await import(
-                "../../../app/api/composio/utils"
-              );
-              const ctx = await getComposioRouteContext();
-              if (!ctx.success) return [];
-
-              const connections = await ctx.client.getConnections();
-              const connectedApps = connections
-                .filter((c) => c.status === "active")
-                .map((c) => c.appName);
-
-              const allTools = await Promise.all(
-                connectedApps.map((app) => ctx.client.getToolsForApp(app)),
-              );
-
-              return allTools.flat().map(
-                (tool): WorkflowToolKey => ({
-                  id: tool.name,
-                  description: tool.description || "",
-                  parameterSchema:
-                    tool.parameters as WorkflowToolKey["parameterSchema"],
-                  type: "composio-tool",
-                  appName: tool.appName,
-                }),
-              );
-            } catch (e) {
-              logger.error(
-                "[CreateWorkflow] Failed to fetch Composio tools",
-                e,
-              );
               return [];
             }
           })(),
@@ -1796,10 +1759,10 @@ function createWorkflowTool(
         ]);
 
         // Combine all tools
-        const toolList = [...mcpTools, ...composioTools, ...appTools];
+        const toolList = [...mcpTools, ...appTools];
 
         logger.info(
-          `[CreateWorkflow] Fetched ${toolList.length} tools: ${mcpTools.length} MCP, ${composioTools.length} Composio, ${appTools.length} app tools`,
+          `[CreateWorkflow] Fetched ${toolList.length} tools: ${mcpTools.length} MCP, ${appTools.length} app tools`,
         );
 
         // Step 3: Prepare messages for workflow generation
@@ -2061,19 +2024,10 @@ ${systemPrompt}`;
   const subAgentTools = createSubAgentTools(config, ctx, dataStream);
   const workflowTools = createWorkflowTool(config, ctx);
 
-  // Wrap user tools (availableTools + mcpTools) with billing tracking
-  // This ensures usage is tracked even in agent mode where tool results
-  // don't appear in responseMessage.parts
-  const trackedAvailableTools = wrapToolsWithTracking(
-    availableTools,
-    config.userId,
-  );
-  const trackedMcpTools = wrapToolsWithTracking(mcpTools, config.userId);
-
-  // Combine all tools first
+  // Combine all tools
   const combinedTools: Record<string, Tool> = {
-    ...trackedAvailableTools,
-    ...trackedMcpTools,
+    ...availableTools,
+    ...mcpTools,
     ...contextTools,
     ...subAgentTools,
     ...workflowTools,
@@ -2160,9 +2114,9 @@ ${systemPrompt}`;
               // If createFragment was called, check if it succeeded
               const fragmentResult = step.toolResults.find(
                 (r: any) => r.toolCallId === createFragmentCall.toolCallId,
-              );
+              ) as any;
               if (fragmentResult?.result) {
-                const result = fragmentResult.result;
+                const result = fragmentResult.result as any;
                 if (
                   result.success === true &&
                   (result.fragmentId || result.previewUrl || result.COMPLETED)
@@ -2606,19 +2560,10 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
   const subAgentTools = createSubAgentTools(config, contextManager, dataStream);
   const workflowTools = createWorkflowTool(config, contextManager);
 
-  // Wrap user tools (availableTools + mcpTools) with billing tracking
-  // This ensures usage is tracked even in agent mode where tool results
-  // don't appear in responseMessage.parts
-  const trackedAvailableTools = wrapToolsWithTracking(
-    availableTools,
-    config.userId,
-  );
-  const trackedMcpTools = wrapToolsWithTracking(mcpTools, config.userId);
-
-  // Combine all tools first
+  // Combine all tools
   const combinedTools: Record<string, Tool> = {
-    ...trackedAvailableTools,
-    ...trackedMcpTools,
+    ...availableTools,
+    ...mcpTools,
     ...contextTools,
     ...subAgentTools,
     ...workflowTools,

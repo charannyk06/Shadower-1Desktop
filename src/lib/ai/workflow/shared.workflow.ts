@@ -121,9 +121,13 @@ export function convertUINodeToDBNode(
 }
 
 export function convertDBNodeToUINode(node: DBNode): UINode {
+  // Ensure position exists with default values if not present (required by ReactFlow)
+  const position = node.uiConfig?.position || { x: 100, y: 200 };
+
   const uiNode: UINode = {
     id: node.id,
     ...(node.uiConfig as any),
+    position, // Ensure position is always present for ReactFlow
     data: {
       ...(node.nodeConfig as any),
       id: node.id,
@@ -131,7 +135,7 @@ export function convertDBNodeToUINode(node: DBNode): UINode {
       description: node.description || "",
       kind: node.kind as any,
     },
-    type: node.uiConfig.type || "default",
+    type: node.uiConfig?.type || "default",
   };
   return uiNode;
 }

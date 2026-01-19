@@ -215,10 +215,10 @@
   },
   "Layout": {
     "workflow": "워크플로우",
-    "billing": "결제",
     "toggleSidebar": "사이드바 토글",
     "newChat": "새 채팅",
     "mcpConfiguration": "MCP 설정",
+    "models": "모델",
     "agents": "에이전트",
     "newAgent": "새 에이전트",
     "createAgent": "에이전트 생성",
@@ -262,9 +262,7 @@
     "showLessChats": "간략히 보기",
     "reportAnIssue": "도움 받기",
     "joinCommunity": "커뮤니티 가입",
-    "userSettings": "사용자 설정",
-
-    "referral": "추천 프로그램"
+    "userSettings": "사용자 설정"
   },
   "Archive": {
     "title": "아카이브",

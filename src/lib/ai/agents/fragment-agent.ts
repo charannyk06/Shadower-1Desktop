@@ -5,13 +5,11 @@ import type { ChatModel } from "app-types/chat";
 import { customModelProvider } from "lib/ai/models";
 import {
   fragmentRepository,
-  threadSandboxContextRepository,
+  threadFileContextRepository,
 } from "lib/db/repository";
 import { serverFileStorage } from "lib/file-storage";
-import type { ThreadFileMetadata } from "lib/db/pg/schema.pg";
-import { sandboxPool } from "../sandbox/sandbox-pool";
+import type { ThreadFileMetadata } from "lib/db/sqlite/schema.sqlite";
 import { morphService } from "../editing/morph-service";
-import { persistenceManager } from "../sandbox/persistence-manager";
 import {
   FRAGMENT_TEMPLATES,
   getTemplate,
@@ -20,9 +18,266 @@ import type {
   FragmentResult,
   FragmentTemplateId,
   FragmentProgressEvent,
-  FragmentOperation,
 } from "@/types/fragment";
 import logger from "logger";
+
+import { spawn, type ChildProcess } from "child_process";
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
+import * as net from "net";
+
+/**
+ * Local sandbox implementation for fragment execution
+ * Replaces E2B cloud sandboxes with local process execution
+ */
+class LocalSandbox {
+  private workDir: string;
+  private process: ChildProcess | null = null;
+  public readonly id: string;
+
+  // Compatibility interface for E2B-style API
+  public readonly files: {
+    write: (filePath: string, content: string) => Promise<void>;
+    read: (filePath: string) => Promise<string>;
+  };
+
+  constructor(workDir: string) {
+    this.workDir = workDir;
+    this.id = `local-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+
+    // Initialize files interface for E2B compatibility
+    this.files = {
+      write: (filePath: string, content: string) =>
+        this.writeFile(filePath, content),
+      read: (filePath: string) => this.readFile(filePath),
+    };
+  }
+
+  /**
+   * Alias for id for E2B compatibility
+   */
+  get sessionId(): string {
+    return this.id;
+  }
+
+  /**
+   * Write a file to the sandbox working directory
+   */
+  async writeFile(filePath: string, content: string): Promise<void> {
+    const fullPath = path.join(this.workDir, filePath);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, content, "utf-8");
+  }
+
+  /**
+   * Read a file from the sandbox working directory
+   */
+  async readFile(filePath: string): Promise<string> {
+    const fullPath = path.join(this.workDir, filePath);
+    return await fs.readFile(fullPath, "utf-8");
+  }
+
+  /**
+   * Run a command in the sandbox
+   */
+  async runCommand(
+    command: string,
+    options?: {
+      onStdout?: (data: { line: string }) => void;
+      onStderr?: (data: { line: string }) => void;
+    },
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, {
+        cwd: this.workDir,
+        shell: true,
+        env: { ...process.env, NODE_ENV: "development" },
+      });
+
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+
+      child.stdout?.on("data", (data) => {
+        const lines = data.toString().split("\n").filter(Boolean);
+        for (const line of lines) {
+          stdout.push(line);
+          options?.onStdout?.({ line });
+        }
+      });
+
+      child.stderr?.on("data", (data) => {
+        const lines = data.toString().split("\n").filter(Boolean);
+        for (const line of lines) {
+          stderr.push(line);
+          options?.onStderr?.({ line });
+        }
+      });
+
+      child.on("close", (code) => {
+        resolve({
+          stdout: stdout.join("\n"),
+          stderr: stderr.join("\n"),
+          exitCode: code ?? 0,
+        });
+      });
+
+      child.on("error", reject);
+    });
+  }
+
+  /**
+   * Run Python code
+   */
+  async runCode(
+    code: string,
+    options?: {
+      language?: string;
+      onStdout?: (data: { line: string }) => void;
+      onStderr?: (data: { line: string }) => void;
+    },
+  ): Promise<{ logs: { stdout: string[]; stderr: string[] } }> {
+    const language = options?.language || "python";
+    const ext = language === "python" ? "py" : "js";
+    const scriptPath = path.join(this.workDir, `_script.${ext}`);
+    await fs.writeFile(scriptPath, code, "utf-8");
+
+    const command =
+      language === "python"
+        ? `python3 "${scriptPath}"`
+        : `node "${scriptPath}"`;
+    const result = await this.runCommand(command, options);
+
+    return {
+      logs: {
+        stdout: result.stdout.split("\n").filter(Boolean),
+        stderr: result.stderr.split("\n").filter(Boolean),
+      },
+    };
+  }
+
+  /**
+   * Start a dev server process
+   */
+  async startProcess(
+    command: string,
+    options?: {
+      onStdout?: (data: { line: string }) => void;
+      onStderr?: (data: { line: string }) => void;
+    },
+  ): Promise<void> {
+    this.process = spawn(command, {
+      cwd: this.workDir,
+      shell: true,
+      env: { ...process.env, NODE_ENV: "development" },
+    });
+
+    this.process.stdout?.on("data", (data) => {
+      const lines = data.toString().split("\n").filter(Boolean);
+      for (const line of lines) {
+        options?.onStdout?.({ line });
+      }
+    });
+
+    this.process.stderr?.on("data", (data) => {
+      const lines = data.toString().split("\n").filter(Boolean);
+      for (const line of lines) {
+        options?.onStderr?.({ line });
+      }
+    });
+  }
+
+  /**
+   * Get the host URL for the dev server
+   */
+  getHost(port: number): string {
+    return `localhost:${port}`;
+  }
+
+  /**
+   * Kill any running processes
+   */
+  async kill(): Promise<void> {
+    if (this.process) {
+      this.process.kill("SIGTERM");
+      this.process = null;
+    }
+  }
+
+  /**
+   * Clean up the sandbox
+   */
+  async cleanup(): Promise<void> {
+    await this.kill();
+    try {
+      await fs.rm(this.workDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+// Active local sandboxes
+const activeSandboxes = new Map<string, LocalSandbox>();
+
+/**
+ * Find an available port
+ */
+async function findAvailablePort(startPort: number = 3000): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on("error", () => {
+      // Port in use, try next
+      findAvailablePort(startPort + 1)
+        .then(resolve)
+        .catch(reject);
+    });
+    server.listen(startPort, () => {
+      const addr = server.address();
+      const port = typeof addr === "object" ? addr?.port : startPort;
+      server.close(() => resolve(port || startPort));
+    });
+  });
+}
+
+/**
+ * Local sandbox pool for fragment execution
+ */
+const sandboxPool = {
+  async acquire(templateId: string): Promise<LocalSandbox> {
+    // Create a temporary directory for the sandbox
+    const tempDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), `fragment-${templateId}-`),
+    );
+    const sandbox = new LocalSandbox(tempDir);
+    activeSandboxes.set(sandbox.id, sandbox);
+
+    logger.info(
+      `[FRAGMENT] Created local sandbox ${sandbox.id} for template ${templateId}`,
+    );
+    return sandbox;
+  },
+
+  async release(sandbox: LocalSandbox): Promise<void> {
+    activeSandboxes.delete(sandbox.id);
+    await sandbox.cleanup();
+    logger.info(`[FRAGMENT] Released local sandbox ${sandbox.id}`);
+  },
+};
+
+const persistenceManager = {
+  async reconnect(sessionId: string): Promise<LocalSandbox | null> {
+    // Check if session is still active
+    const sandbox = activeSandboxes.get(sessionId);
+    if (sandbox) {
+      logger.info(`[FRAGMENT] Reconnected to local session ${sessionId}`);
+      return sandbox;
+    }
+    // Local sessions are not persistent across restarts
+    return null;
+  },
+};
 
 /**
  * FragmentAgent - FULLY AUTONOMOUS code generation and editing
@@ -134,7 +389,7 @@ export class FragmentAgent {
       this.emitProgress(
         context.dataStream,
         {
-          stage: "code-generated",
+          stage: "generating",
           message: `Generated ${code.length} characters of code`,
           operation: {
             type: "file-write",
@@ -147,42 +402,38 @@ export class FragmentAgent {
         context.toolCallId,
       );
 
-      // STEP 3: Get sandbox from pool (FAST AS FUCK)
+      // STEP 3: Initialize local sandbox
       this.emitProgress(
         context.dataStream,
         {
           stage: "generating",
-          message: "Acquiring sandbox...",
+          message: "Initializing local sandbox...",
           operation: {
-            type: "sandbox",
+            type: "local-exec",
             status: "running",
-            message: "Acquiring sandbox from pool...",
+            output: "Initializing local sandbox...",
+            timestamp: Date.now(),
           },
         },
         context.toolCallId,
       );
 
-      const sandbox = await sandboxPool.acquire(template.id);
+      // Acquire local sandbox from pool
+      const sandbox = await sandboxPool.acquire(
+        template.id as FragmentTemplateId,
+      );
 
-      // Extend sandbox timeout to 10 minutes to prevent premature timeout
-      try {
-        await sandbox.setTimeout(600000); // 10 minutes
-        logger.info(`[FRAGMENT] Extended sandbox timeout to 10 minutes`);
-      } catch (e) {
-        logger.warn(`[FRAGMENT] Could not extend sandbox timeout: ${e}`);
-      }
-
-      logger.info(`[FRAGMENT] Acquired sandbox ${sandbox.sandboxId}`);
+      logger.info(`[FRAGMENT] Using local session: ${sandbox.id}`);
 
       this.emitProgress(
         context.dataStream,
         {
           stage: "generating",
-          message: "Sandbox ready",
+          message: "Local session ready",
           operation: {
-            type: "sandbox",
+            type: "local-exec",
             status: "success",
-            output: `Sandbox ${sandbox.sandboxId} acquired`,
+            output: `Local session ${sandbox.sessionId} acquired`,
             timestamp: Date.now(),
           },
         },
@@ -333,7 +584,7 @@ export class FragmentAgent {
         code,
         filePath: template.file_path,
         port: template.port || undefined,
-        sandboxId: sandbox.sandboxId,
+        sessionId: sandbox.sessionId,
         previewUrl: result.previewUrl,
       });
 
@@ -395,7 +646,7 @@ export class FragmentAgent {
         fragmentId: fragment.id,
         previewUrl: result.previewUrl,
         output: result.output,
-        sandboxId: sandbox.sandboxId,
+        sessionId: sandbox.sessionId,
         template: template.id,
         title,
         code,
@@ -446,6 +697,11 @@ export class FragmentAgent {
       if (!fragment) {
         throw new Error(`Fragment ${fragmentId} not found`);
       }
+      if (!fragment.code || !fragment.file_path || !fragment.template) {
+        throw new Error(
+          `Fragment ${fragmentId} is missing code, file_path, or template`,
+        );
+      }
 
       this.emitProgress(
         context.dataStream,
@@ -484,9 +740,9 @@ export class FragmentAgent {
           stage: "executing",
           message: "Re-executing with changes...",
           operation: {
-            type: "sandbox",
+            type: "local-exec",
             status: "running",
-            output: "Reconnecting to sandbox...",
+            output: "Reconnecting to local session...",
             timestamp: Date.now(),
           },
         },
@@ -496,13 +752,8 @@ export class FragmentAgent {
       // Reconnect to sandbox or create new
       const sandbox = await this.reconnectOrCreate(fragment);
 
-      // Extend sandbox timeout to 10 minutes
-      try {
-        await sandbox.setTimeout(600000); // 10 minutes
-        logger.info(`[FRAGMENT] Extended sandbox timeout to 10 minutes`);
-      } catch (e) {
-        logger.warn(`[FRAGMENT] Could not extend sandbox timeout: ${e}`);
-      }
+      // Local sandbox doesn't need timeout extension - processes are managed locally
+      logger.info(`[FRAGMENT] Using local sandbox ${sandbox.id}`);
 
       // Write updated code with streaming
       const writeStartTime = Date.now();
@@ -557,7 +808,7 @@ export class FragmentAgent {
         context.toolCallId,
       );
 
-      const template = getTemplate(fragment.template);
+      const template = getTemplate(fragment.template as FragmentTemplateId);
       const result = await this.execute(
         sandbox,
         template,
@@ -569,7 +820,7 @@ export class FragmentAgent {
       // Update preview URL
       await fragmentRepository.update(fragmentId, {
         previewUrl: result.previewUrl,
-        sandboxId: sandbox.sandboxId,
+        sessionId: sandbox.sessionId,
       });
 
       logger.info(`[FRAGMENT] ✅ Edit complete: ${fragmentId}`);
@@ -591,21 +842,23 @@ export class FragmentAgent {
       ];
 
       // Update workspace files for Theater Panel display
-      try {
-        await this.persistWorkspaceFiles(
-          fragment.thread_id,
-          context.userId,
-          finalEditWorkspaceFiles,
-          fragment.title,
-        );
-        logger.info(
-          `[FRAGMENT] Updated workspace files for fragment ${fragmentId}`,
-        );
-      } catch (persistError) {
-        logger.warn(
-          "[FRAGMENT] Failed to persist workspace files:",
-          persistError,
-        );
+      if (fragment.thread_id) {
+        try {
+          await this.persistWorkspaceFiles(
+            fragment.thread_id,
+            context.userId,
+            finalEditWorkspaceFiles,
+            fragment.title,
+          );
+          logger.info(
+            `[FRAGMENT] Updated workspace files for fragment ${fragmentId}`,
+          );
+        } catch (persistError) {
+          logger.warn(
+            "[FRAGMENT] Failed to persist workspace files:",
+            persistError,
+          );
+        }
       }
 
       this.emitProgress(
@@ -624,7 +877,7 @@ export class FragmentAgent {
         fragmentId,
         previewUrl: result.previewUrl,
         output: result.output,
-        sandboxId: sandbox.sandboxId,
+        sessionId: sandbox.sessionId,
         template: fragment.template,
         title: fragment.title,
         code: patchedCode,
@@ -1098,7 +1351,7 @@ IMPORTANT: Return ONLY the code. No markdown, no explanations, no \`\`\` blocks.
    * For code interpreter: runs code and returns output
    */
   private async execute(
-    sandbox: any,
+    sandbox: LocalSandbox,
     template: any,
     code: string,
     dataStream?: UIMessageStreamWriter,
@@ -1184,32 +1437,29 @@ IMPORTANT: Return ONLY the code. No markdown, no explanations, no \`\`\` blocks.
   /**
    * Start web app dev server and wait for it to be ready
    *
-   * NOTE: Our custom Shadower templates (shadower-nextjs, shadower-streamlit, etc.)
-   * have auto-start commands configured. The dev server starts automatically when
-   * the sandbox is created. We just need to wait for it to be ready.
+   * For local-first mode, we start the dev server process locally
+   * and wait for it to respond on localhost.
    */
   private async startWebApp(
-    sandbox: any,
+    sandbox: LocalSandbox,
     template: any,
     dataStream?: UIMessageStreamWriter,
     toolCallId?: string,
   ): Promise<{ previewUrl?: string }> {
-    if (!template.port) {
-      throw new Error(
-        `Template ${template.id} does not have a port configured`,
-      );
-    }
-
-    const previewUrl = `https://${sandbox.getHost(template.port)}`;
+    // Find an available port for local dev server
+    const port = template.port
+      ? await findAvailablePort(template.port)
+      : await findAvailablePort(3000);
+    const previewUrl = `http://${sandbox.getHost(port)}`;
 
     this.emitProgress(
       dataStream,
       {
         stage: "executing",
-        message: `Starting ${template.name} preview server...`,
+        message: `Starting ${template.name} local preview server on port ${port}...`,
         operation: {
           type: "bash",
-          command: "Starting dev server (auto-started by template)",
+          command: template.startCommand || "npm run dev",
           status: "running",
           timestamp: Date.now(),
         },
@@ -1218,41 +1468,71 @@ IMPORTANT: Return ONLY the code. No markdown, no explanations, no \`\`\` blocks.
     );
 
     const startTime = Date.now();
-    let serverReady = false;
 
-    logger.info(
-      `[FRAGMENT] Waiting for dev server on port ${template.port}...`,
-    );
+    // Start the dev server process
+    const startCommand =
+      template.startCommand ||
+      (template.id?.includes("streamlit")
+        ? `streamlit run app.py --server.port ${port}`
+        : template.id?.includes("next")
+          ? `npx next dev -p ${port}`
+          : template.id?.includes("vue")
+            ? `npm run dev -- --port ${port}`
+            : `npm run dev -- --port ${port}`);
+
+    logger.info(`[FRAGMENT] Starting local dev server: ${startCommand}`);
+
+    // Install dependencies first if package.json exists
+    try {
+      const pkgPath = path.join((sandbox as any).workDir || "", "package.json");
+      await fs.access(pkgPath);
+      logger.info(`[FRAGMENT] Installing npm dependencies...`);
+      this.emitProgress(
+        dataStream,
+        {
+          stage: "executing",
+          message: "Installing dependencies...",
+        },
+        toolCallId,
+      );
+      await sandbox.runCommand("npm install", {
+        onStdout: (data) => logger.debug(`[npm] ${data.line}`),
+        onStderr: (data) => logger.debug(`[npm] ${data.line}`),
+      });
+    } catch {
+      // No package.json, skip npm install
+    }
+
+    // Start the dev server in background
+    await sandbox.startProcess(startCommand, {
+      onStdout: (data) => {
+        logger.debug(`[dev-server] ${data.line}`);
+      },
+      onStderr: (data) => {
+        logger.debug(`[dev-server] ${data.line}`);
+      },
+    });
 
     // Wait for server to be ready (poll for up to 60 seconds)
-    const maxWaitTime = 60000; // 60 seconds
-    const pollInterval = 2000; // 2 seconds
+    let serverReady = false;
+    const maxWaitTime = 60000;
+    const pollInterval = 2000;
     const startWait = Date.now();
+
+    logger.info(`[FRAGMENT] Waiting for dev server on port ${port}...`);
 
     while (!serverReady && Date.now() - startWait < maxWaitTime) {
       try {
-        // Check if the port is responding using curl
-        const checkResult = await sandbox.commands.run(
-          `curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 http://localhost:${template.port} 2>/dev/null || echo "000"`,
-          { timeoutMs: 10000 },
-        );
-        const statusCode = checkResult.stdout.trim();
+        // Check if the port is responding
+        const response = await fetch(`http://localhost:${port}`, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(2000),
+        }).catch(() => null);
 
-        // Only emit message update for polling, NO operation (reduces noise)
-        this.emitProgress(
-          dataStream,
-          {
-            stage: "executing",
-            message: `Waiting for server... (${statusCode || "connecting"})`,
-            // NO operation here - just status update
-          },
-          toolCallId,
-        );
-
-        if (statusCode && statusCode !== "000" && statusCode !== "") {
+        if (response) {
           serverReady = true;
           logger.info(
-            `[FRAGMENT] Server responding with status: ${statusCode}`,
+            `[FRAGMENT] Server responding with status: ${response.status}`,
           );
         }
       } catch {
@@ -1260,14 +1540,21 @@ IMPORTANT: Return ONLY the code. No markdown, no explanations, no \`\`\` blocks.
       }
 
       if (!serverReady) {
+        this.emitProgress(
+          dataStream,
+          {
+            stage: "executing",
+            message: `Waiting for server on port ${port}...`,
+          },
+          toolCallId,
+        );
         await new Promise((resolve) => setTimeout(resolve, pollInterval));
       }
     }
 
     if (serverReady) {
       logger.info(`[FRAGMENT] Dev server ready!`);
-      // Give a bit more time for full initialization
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 500));
     } else {
       logger.warn(
         `[FRAGMENT] Server may still be starting. Preview URL: ${previewUrl}`,
@@ -1285,7 +1572,7 @@ IMPORTANT: Return ONLY the code. No markdown, no explanations, no \`\`\` blocks.
           : `Preview starting... ${previewUrl}`,
         operation: {
           type: "bash",
-          command: "Dev server",
+          command: startCommand,
           output: serverReady ? "Server is ready!" : "Server is starting...",
           status: serverReady ? "success" : "running",
           timestamp: Date.now(),
@@ -1302,7 +1589,7 @@ IMPORTANT: Return ONLY the code. No markdown, no explanations, no \`\`\` blocks.
    * Run command with real-time streaming of stdout/stderr
    */
   private async runCommandWithStreaming(
-    sandbox: any,
+    sandbox: LocalSandbox,
     command: string,
     onOutput: (line: string, isError: boolean) => void,
   ): Promise<{
@@ -1311,90 +1598,43 @@ IMPORTANT: Return ONLY the code. No markdown, no explanations, no \`\`\` blocks.
     stderr: string;
     exitCode: number;
   }> {
-    return new Promise((resolve, reject) => {
-      const stdoutLines: string[] = [];
-      const stderrLines: string[] = [];
-
-      sandbox
-        .runCode(
-          String.raw`
-import subprocess
-import sys
-
-result = subprocess.run(
-    ${JSON.stringify(command)},
-    shell=True,
-    capture_output=True,
-    text=True,
-    cwd="/home/user"
-)
-
-# Print stdout line by line
-if result.stdout:
-    for line in result.stdout.splitlines():
-        print(line, flush=True)
-
-# Print stderr line by line
-if result.stderr:
-    for line in result.stderr.splitlines():
-        print(line, file=sys.stderr, flush=True)
-
-# Print exit code marker
-print(f"__EXIT_CODE__:{result.returncode}", flush=True)
-`,
-          {
-            language: "python",
-            onStdout: (data: any) => {
-              const line = data.line;
-              if (line.includes("__EXIT_CODE__:")) {
-                const exitCode = Number.parseInt(
-                  line.replace("__EXIT_CODE__:", "").trim(),
-                  10,
-                );
-                resolve({
-                  success: exitCode === 0,
-                  stdout: stdoutLines.join("\n"),
-                  stderr: stderrLines.join("\n"),
-                  exitCode,
-                });
-              } else {
-                stdoutLines.push(line);
-                onOutput(line, false);
-              }
-            },
-            onStderr: (data: any) => {
-              const line = data.line;
-              stderrLines.push(line);
-              onOutput(line, true);
-            },
-          },
-        )
-        .catch((err: any) => {
-          reject(err);
-        });
+    const result = await sandbox.runCommand(command, {
+      onStdout: (data) => onOutput(data.line, false),
+      onStderr: (data) => onOutput(data.line, true),
     });
+
+    return {
+      success: result.exitCode === 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+    };
   }
 
   /**
-   * Reconnect to existing sandbox or create new one
+   * Reconnect to existing session or create new one
    */
-  private async reconnectOrCreate(fragment: any): Promise<any> {
-    // Try to reconnect to existing sandbox
-    if (fragment.sandbox_id) {
-      const existing = await persistenceManager.reconnect(fragment.sandbox_id);
+  private async reconnectOrCreate(fragment: any): Promise<LocalSandbox> {
+    // Try to reconnect to existing session
+    if (fragment.session_id) {
+      const existing = await persistenceManager.reconnect(fragment.session_id);
       if (existing) {
-        logger.info(`[FRAGMENT] Reconnected to sandbox ${fragment.sandbox_id}`);
+        logger.info(
+          `[FRAGMENT] Reconnected to local session ${fragment.session_id}`,
+        );
         return existing;
       }
     }
 
-    // Create new sandbox from pool
-    logger.info(`[FRAGMENT] Creating new sandbox for ${fragment.template}`);
+    // Create new local sandbox
+    logger.info(
+      `[FRAGMENT] Creating new local session for ${fragment.template}`,
+    );
     return await sandboxPool.acquire(fragment.template as FragmentTemplateId);
   }
 
   /**
-   * Persist workspace files to ThreadSandboxContext for Theater Panel display
+   * Persist workspace files to ThreadFileContext for Theater Panel display
    */
   private async persistWorkspaceFiles(
     threadId: string,
@@ -1402,8 +1642,8 @@ print(f"__EXIT_CODE__:{result.returncode}", flush=True)
     workspaceFiles: { path: string; content: string; language?: string }[],
     fragmentTitle: string,
   ): Promise<void> {
-    // Get or create thread sandbox context
-    await threadSandboxContextRepository.getOrCreate(threadId, userId);
+    // Get or create thread file context
+    await threadFileContextRepository.getOrCreate(threadId, userId);
 
     for (const file of workspaceFiles) {
       // Create a unique storage key for this fragment file
@@ -1432,7 +1672,7 @@ print(f"__EXIT_CODE__:{result.returncode}", flush=True)
       };
 
       // Add to thread context
-      await threadSandboxContextRepository.addFile(threadId, fileMetadata);
+      await threadFileContextRepository.addFile(threadId, fileMetadata);
     }
   }
 

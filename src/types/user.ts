@@ -2,7 +2,7 @@ import { passwordSchema } from "lib/validations/password";
 import { z } from "zod";
 
 import { getSession } from "auth/server";
-import { UserEntity } from "lib/db/pg/schema.pg";
+import { UserEntity } from "lib/db/sqlite/schema.sqlite";
 
 export type UserPreferences = {
   displayName?: string;
@@ -19,27 +19,12 @@ export interface User extends Omit<UserEntity, "password"> {
 
 export type BasicUser = Omit<
   User,
-  | "password"
-  | "preferences"
-  | "image"
-  | "role"
-  | "banned"
-  | "banReason"
-  | "banExpires"
-  | "referralCode"
-  | "referredById"
-  | "totalReferrals"
-  | "totalReferralBonus"
+  "password" | "preferences" | "image" | "banned" | "banReason" | "banExpires"
 > & {
   image?: string | null;
-  role?: string | null;
   banned?: boolean | null;
   banReason?: string | null;
   banExpires?: Date | null;
-  referralCode?: string | null;
-  referredById?: string | null;
-  totalReferrals?: number;
-  totalReferralBonus?: string;
 };
 
 export interface BasicUserWithLastLogin extends BasicUser {
@@ -87,11 +72,10 @@ export type UserRepository = {
     to: Date,
   ) => Promise<{
     image_generation: number;
-    sandbox_execution: number;
+    local_execution: number;
     voice_minutes: number;
     mcp_tool_call: number;
     workflow_execution: number;
-    composio_action: number;
   }>;
 };
 

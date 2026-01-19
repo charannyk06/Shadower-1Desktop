@@ -74,4 +74,5 @@ export type ProviderName =
   | "groq"
   | "openRouter"
   | "ollama"
+  | "lmstudio"
   | "cerebras";

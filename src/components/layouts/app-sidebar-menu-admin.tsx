@@ -1,4 +1,4 @@
-import { CreditCard, PlugIcon, Shield, Users } from "lucide-react";
+import { Shield, Users } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -28,20 +28,6 @@ const AppSidebarAdmin = () => {
         url: "/admin",
         icon: Users,
         isActive: pathname.startsWith("/admin/users"),
-      },
-      {
-        id: "integrations",
-        title: "Integrations",
-        url: "/admin/integrations",
-        icon: PlugIcon,
-        isActive: pathname.startsWith("/admin/integrations"),
-      },
-      {
-        id: "billing",
-        title: "Billing",
-        url: "/admin/billing",
-        icon: CreditCard,
-        isActive: pathname.startsWith("/admin/billing"),
       },
     ],
     [t, pathname],

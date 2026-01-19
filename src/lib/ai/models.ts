@@ -24,6 +24,7 @@ import {
   cerebras,
   getProviderForModel as getProviderForModelFromRegistry,
   groq,
+  lmstudio,
   ollama,
   openrouter,
 } from "./providers/registry";
@@ -211,6 +212,9 @@ export function getModel(chatModel?: ChatModel): LanguageModel {
     case "cerebras":
       return cerebras(model);
 
+    case "lmstudio":
+      return lmstudio(model);
+
     default:
       // Check if it's an OpenAI-compatible provider
       if (allModels[provider]) {
@@ -221,7 +225,7 @@ export function getModel(chatModel?: ChatModel): LanguageModel {
 
       throw new Error(
         `Unknown provider "${provider}" for model "${model}". ` +
-          `Available providers: openai, google, anthropic, xai, groq, openRouter, ollama`,
+          `Available providers: openai, google, anthropic, xai, groq, openRouter, ollama, lmstudio, cerebras`,
       );
   }
 }

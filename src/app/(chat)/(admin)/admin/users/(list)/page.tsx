@@ -1,5 +1,4 @@
 import { AdminUsersTabs } from "@/components/admin/admin-users-tabs";
-import { requireAdminPermission } from "auth/permissions";
 import { getAdminInvitations } from "lib/admin/invitation-server";
 import {
   ADMIN_USER_LIST_LIMIT,
@@ -10,7 +9,7 @@ import { getAdminUsers } from "lib/admin/server";
 import { getSession } from "lib/auth/server";
 
 export const dynamic = "force-dynamic";
-import { redirect, unauthorized } from "next/navigation";
+import { redirect } from "next/navigation";
 
 interface PageProps {
   searchParams: Promise<{
@@ -23,13 +22,7 @@ interface PageProps {
 }
 
 export default async function UserListPage({ searchParams }: PageProps) {
-  // Redirect before rendering the page if the user is not an admin
-
-  try {
-    await requireAdminPermission();
-  } catch (_error) {
-    unauthorized();
-  }
+  // All authenticated users have access (roles/permissions removed)
   const session = await getSession();
   if (!session) {
     redirect("/login");

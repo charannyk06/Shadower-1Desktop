@@ -1,27 +1,47 @@
 /**
- * Session Quota Middleware
+ * Local Session Quota Middleware
  *
- * Enforces per-user limits on concurrent browser and desktop sessions.
- * Prevents resource exhaustion and controls costs.
+ * Manages local browser and terminal sessions for the desktop app.
+ * Uses in-memory tracking instead of database for simplicity.
  */
 
 import crypto from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
 import { BrowserConfig } from "../config/browser-config";
 import { DesktopConfig } from "../config/desktop-config";
-import { BrowserSessionTable } from "../db/pg/schema.pg";
 import { AutomationErrorCode, Result, err, ok } from "../utils/result";
 
-// Lazy database import to avoid initialization during tests
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _db: any = null;
-async function getDb() {
-  if (!_db) {
-    const { pgDb } = await import("../db/pg/db.pg");
-    _db = pgDb;
-  }
-  return _db;
+// Local provider types
+export type LocalProvider = "chrome-devtools" | "local-terminal";
+
+// Legacy provider type mapping for backwards compatibility
+type LegacyProvider = "browserbase" | "e2b-desktop";
+function normalizeProvider(
+  provider: LocalProvider | LegacyProvider,
+): LocalProvider {
+  if (provider === "browserbase") return "chrome-devtools";
+  if (provider === "e2b-desktop") return "local-terminal";
+  return provider;
 }
+
+/**
+ * Local session record
+ */
+interface LocalSession {
+  id: string;
+  sessionId: string;
+  threadId: string | null;
+  userId: string;
+  provider: LocalProvider;
+  status: "active" | "closed" | "error" | "expired";
+  replayUrl?: string | null;
+  screenshots: string[];
+  createdAt: Date;
+  lastActivityAt: Date;
+  closedAt?: Date;
+}
+
+// In-memory session store
+const sessions = new Map<string, LocalSession>();
 
 /**
  * Session creation parameters
@@ -29,32 +49,36 @@ async function getDb() {
 export interface CreateSessionParams {
   threadId: string | null;
   userId: string;
-  provider: "browserbase" | "e2b-desktop";
+  provider: LocalProvider | LegacyProvider;
   sessionId: string;
   replayUrl?: string;
 }
 
 /**
- * Create a new browser/desktop session record in the database
+ * Create a new local session record
  */
 export async function createBrowserSession(
   params: CreateSessionParams,
 ): Promise<Result<{ id: string; sessionId: string }>> {
-  const { threadId, userId, provider, sessionId, replayUrl } = params;
+  const { threadId, userId, sessionId, replayUrl } = params;
+  const provider = normalizeProvider(params.provider);
 
   try {
     const id = crypto.randomUUID();
-    await (await getDb()).insert(BrowserSessionTable).values({
+    const session: LocalSession = {
       id,
-      threadId,
+      sessionId,
+      threadId: threadId || null,
       userId,
       provider,
-      sessionId,
       status: "active",
       replayUrl: replayUrl || null,
       screenshots: [],
       createdAt: new Date(),
-    });
+      lastActivityAt: new Date(),
+    };
+
+    sessions.set(id, session);
 
     console.log(
       `[Session] Created ${provider} session: ${sessionId} for user ${userId}`,
@@ -62,7 +86,7 @@ export async function createBrowserSession(
 
     return ok({ id, sessionId });
   } catch (error) {
-    console.error("Error creating browser session:", error);
+    console.error("Error creating session:", error);
     return err(
       AutomationErrorCode.DATABASE_ERROR,
       "Failed to create session record",
@@ -72,151 +96,104 @@ export async function createBrowserSession(
 }
 
 /**
- * Create a session with quota check in a single transaction
- * This prevents race conditions where multiple requests pass quota check simultaneously
+ * Create a session with quota check
  */
 export async function createSessionWithQuotaCheck(
   params: CreateSessionParams,
 ): Promise<Result<{ id: string; sessionId: string }>> {
-  const { threadId, userId, provider, sessionId, replayUrl } = params;
-
-  // Validate userId is a valid UUID format
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(userId)) {
-    return err(
-      AutomationErrorCode.INVALID_INPUT,
-      `Invalid userId format: "${userId}". Expected UUID format.`,
-      { details: { userId, provider, sessionId } },
-    );
-  }
-
-  // Ensure threadId is null if empty string (for foreign key constraint)
-  const normalizedThreadId =
-    threadId && threadId.trim() !== "" ? threadId : null;
+  const { threadId, userId, sessionId, replayUrl } = params;
+  const provider = normalizeProvider(params.provider);
 
   const maxAllowed =
-    provider === "browserbase"
+    provider === "chrome-devtools"
       ? BrowserConfig.session.maxConcurrentPerUser
       : DesktopConfig.session.maxConcurrentPerUser;
 
   try {
-    // Use a transaction with row-level locking to prevent race conditions
-    const result = await (await getDb()).transaction(async (tx) => {
-      // Count active sessions with FOR UPDATE (implicit via transaction)
-      const countResult = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(BrowserSessionTable)
-        .where(
-          and(
-            eq(BrowserSessionTable.userId, userId),
-            eq(BrowserSessionTable.provider, provider),
-            eq(BrowserSessionTable.status, "active"),
-          ),
-        );
-
-      const currentCount = countResult[0]?.count ?? 0;
-
-      // Check quota within transaction
-      if (currentCount >= maxAllowed) {
-        throw new QuotaExceededError(
-          `Maximum concurrent ${provider} sessions reached (${maxAllowed})`,
-          currentCount,
-          maxAllowed,
-        );
-      }
-
-      // Create session within same transaction
-      const id = crypto.randomUUID();
-      await tx.insert(BrowserSessionTable).values({
-        id,
-        threadId: normalizedThreadId,
-        userId,
-        provider,
-        sessionId,
-        status: "active",
-        replayUrl: replayUrl || null,
-        screenshots: [],
-        lastActivityAt: new Date(), // Explicitly set to ensure column exists
-        createdAt: new Date(),
-      });
-
-      return { id, sessionId };
-    });
-
-    console.log(
-      `[Session] Created ${provider} session: ${sessionId} for user ${userId} (transactional)`,
+    // Count active sessions for this user and provider
+    const activeSessions = Array.from(sessions.values()).filter(
+      (s) =>
+        s.userId === userId && s.provider === provider && s.status === "active",
     );
 
-    return ok(result);
-  } catch (error) {
-    if (error instanceof QuotaExceededError) {
-      return err(AutomationErrorCode.SESSION_LIMIT_EXCEEDED, error.message, {
-        details: {
-          currentCount: error.currentCount,
-          maxAllowed: error.maxAllowed,
+    const currentCount = activeSessions.length;
+
+    // Check quota
+    if (currentCount >= maxAllowed) {
+      return err(
+        AutomationErrorCode.SESSION_LIMIT_EXCEEDED,
+        `Maximum concurrent ${provider} sessions reached (${maxAllowed})`,
+        {
+          details: {
+            currentCount,
+            maxAllowed,
+          },
         },
-      });
+      );
     }
 
-    console.error("Error creating browser session (transactional):", error);
+    // Create session
+    const id = crypto.randomUUID();
+    const session: LocalSession = {
+      id,
+      sessionId,
+      threadId: threadId && threadId.trim() !== "" ? threadId : null,
+      userId,
+      provider,
+      status: "active",
+      replayUrl: replayUrl || null,
+      screenshots: [],
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+    };
+
+    sessions.set(id, session);
+
+    console.log(
+      `[Session] Created ${provider} session: ${sessionId} for user ${userId}`,
+    );
+
+    return ok({ id, sessionId });
+  } catch (error) {
+    console.error("Error creating session:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorDetails =
-      error instanceof Error ? { stack: error.stack, name: error.name } : {};
 
     return err(
       AutomationErrorCode.DATABASE_ERROR,
       `Failed to create session record: ${errorMessage}`,
-      {
-        details: {
-          provider,
-          sessionId,
-          threadId: normalizedThreadId,
-          userId,
-          ...errorDetails,
-        },
-      },
+      { details: { provider, sessionId } },
     );
   }
 }
 
 /**
- * Custom error for quota exceeded within transaction
- */
-class QuotaExceededError extends Error {
-  constructor(
-    message: string,
-    public currentCount: number,
-    public maxAllowed: number,
-  ) {
-    super(message);
-    this.name = "QuotaExceededError";
-  }
-}
-
-/**
- * Update session status in the database
+ * Update session status
  */
 export async function updateSessionStatus(
   sessionId: string,
   status: "active" | "closed" | "error" | "expired",
 ): Promise<Result<boolean>> {
   try {
-    const updateData: Record<string, unknown> = { status };
+    // Find session by sessionId
+    for (const session of sessions.values()) {
+      if (session.sessionId === sessionId) {
+        session.status = status;
+        session.lastActivityAt = new Date();
 
-    // Set closedAt if closing
-    if (status === "closed" || status === "error" || status === "expired") {
-      updateData.closedAt = new Date();
+        if (status === "closed" || status === "error" || status === "expired") {
+          session.closedAt = new Date();
+        }
+
+        console.log(
+          `[Session] Updated session ${sessionId} status to ${status}`,
+        );
+        return ok(true);
+      }
     }
 
-    await (await getDb())
-      .update(BrowserSessionTable)
-      .set(updateData)
-      .where(eq(BrowserSessionTable.sessionId, sessionId));
-
-    console.log(`[Session] Updated session ${sessionId} status to ${status}`);
-
-    return ok(true);
+    return err(AutomationErrorCode.SESSION_NOT_FOUND, "Session not found", {
+      details: { sessionId },
+    });
   } catch (error) {
     console.error("Error updating session status:", error);
     return err(
@@ -254,28 +231,19 @@ export async function getActiveBrowserSessions(userId: string): Promise<
   }>
 > {
   try {
-    const sessions = await (await getDb())
-      .select({
-        id: BrowserSessionTable.id,
-        sessionId: BrowserSessionTable.sessionId,
-        provider: BrowserSessionTable.provider,
-        createdAt: BrowserSessionTable.createdAt,
-      })
-      .from(BrowserSessionTable)
-      .where(
-        and(
-          eq(BrowserSessionTable.userId, userId),
-          eq(BrowserSessionTable.provider, "browserbase"),
-          eq(BrowserSessionTable.status, "active"),
-        ),
-      );
-
-    return sessions.map((s) => ({
-      id: s.id,
-      sessionId: s.sessionId,
-      provider: s.provider,
-      createdAt: s.createdAt,
-    }));
+    return Array.from(sessions.values())
+      .filter(
+        (s) =>
+          s.userId === userId &&
+          s.provider === "chrome-devtools" &&
+          s.status === "active",
+      )
+      .map((s) => ({
+        id: s.id,
+        sessionId: s.sessionId,
+        provider: s.provider,
+        createdAt: s.createdAt,
+      }));
   } catch (error) {
     console.error("Error fetching active browser sessions:", error);
     return [];
@@ -294,28 +262,19 @@ export async function getActiveDesktopSessions(userId: string): Promise<
   }>
 > {
   try {
-    const sessions = await (await getDb())
-      .select({
-        id: BrowserSessionTable.id,
-        sessionId: BrowserSessionTable.sessionId,
-        provider: BrowserSessionTable.provider,
-        createdAt: BrowserSessionTable.createdAt,
-      })
-      .from(BrowserSessionTable)
-      .where(
-        and(
-          eq(BrowserSessionTable.userId, userId),
-          eq(BrowserSessionTable.provider, "e2b-desktop"),
-          eq(BrowserSessionTable.status, "active"),
-        ),
-      );
-
-    return sessions.map((s) => ({
-      id: s.id,
-      sessionId: s.sessionId,
-      provider: s.provider,
-      createdAt: s.createdAt,
-    }));
+    return Array.from(sessions.values())
+      .filter(
+        (s) =>
+          s.userId === userId &&
+          s.provider === "local-terminal" &&
+          s.status === "active",
+      )
+      .map((s) => ({
+        id: s.id,
+        sessionId: s.sessionId,
+        provider: s.provider,
+        createdAt: s.createdAt,
+      }));
   } catch (error) {
     console.error("Error fetching active desktop sessions:", error);
     return [];
@@ -395,28 +354,29 @@ export async function checkDesktopSessionQuota(
 }
 
 /**
- * Get the oldest active session for a user (for auto-close suggestion)
+ * Get the oldest active session for a user
  */
 export async function getOldestActiveSession(
   userId: string,
-  provider: "browserbase" | "e2b-desktop",
+  provider: LocalProvider | LegacyProvider,
 ): Promise<{
   id: string;
   sessionId: string;
   createdAt: Date;
 } | null> {
-  const sessions =
-    provider === "browserbase"
+  const normalizedProvider = normalizeProvider(provider);
+  const sessionList =
+    normalizedProvider === "chrome-devtools"
       ? await getActiveBrowserSessions(userId)
       : await getActiveDesktopSessions(userId);
 
-  if (sessions.length === 0) {
+  if (sessionList.length === 0) {
     return null;
   }
 
   // Sort by creation time and return oldest
-  sessions.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-  return sessions[0];
+  sessionList.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return sessionList[0];
 }
 
 /**
@@ -427,27 +387,22 @@ export async function checkSessionOwnership(
   userId: string,
 ): Promise<Result<boolean>> {
   try {
-    const session = await (await getDb())
-      .select({ userId: BrowserSessionTable.userId })
-      .from(BrowserSessionTable)
-      .where(eq(BrowserSessionTable.sessionId, sessionId))
-      .limit(1);
-
-    if (session.length === 0) {
-      return err(AutomationErrorCode.SESSION_NOT_FOUND, "Session not found", {
-        details: { sessionId },
-      });
+    for (const session of sessions.values()) {
+      if (session.sessionId === sessionId) {
+        if (session.userId !== userId) {
+          return err(
+            AutomationErrorCode.FORBIDDEN,
+            "You do not have access to this session",
+            { details: { sessionId } },
+          );
+        }
+        return ok(true);
+      }
     }
 
-    if (session[0].userId !== userId) {
-      return err(
-        AutomationErrorCode.FORBIDDEN,
-        "You do not have access to this session",
-        { details: { sessionId } },
-      );
-    }
-
-    return ok(true);
+    return err(AutomationErrorCode.SESSION_NOT_FOUND, "Session not found", {
+      details: { sessionId },
+    });
   } catch (error) {
     console.error("Error checking session ownership:", error);
     return err(
@@ -458,11 +413,11 @@ export async function checkSessionOwnership(
 }
 
 /**
- * Check if a thread has an active session
+ * Get session for a thread
  */
 export async function getSessionForThread(
   threadId: string,
-  provider?: "browserbase" | "e2b-desktop",
+  provider?: LocalProvider | LegacyProvider,
 ): Promise<{
   id: string;
   sessionId: string;
@@ -470,34 +425,23 @@ export async function getSessionForThread(
   status: string;
 } | null> {
   try {
-    const query = (await getDb())
-      .select({
-        id: BrowserSessionTable.id,
-        sessionId: BrowserSessionTable.sessionId,
-        provider: BrowserSessionTable.provider,
-        status: BrowserSessionTable.status,
-      })
-      .from(BrowserSessionTable)
-      .where(
-        and(
-          eq(BrowserSessionTable.threadId, threadId),
-          eq(BrowserSessionTable.status, "active"),
-        ),
-      )
-      .limit(1);
+    const normalizedProvider = provider ? normalizeProvider(provider) : null;
 
-    const sessions = await query;
-
-    if (sessions.length === 0) {
-      return null;
+    for (const session of sessions.values()) {
+      if (session.threadId === threadId && session.status === "active") {
+        if (normalizedProvider && session.provider !== normalizedProvider) {
+          continue;
+        }
+        return {
+          id: session.id,
+          sessionId: session.sessionId,
+          provider: session.provider,
+          status: session.status,
+        };
+      }
     }
 
-    // Filter by provider if specified
-    if (provider && sessions[0].provider !== provider) {
-      return null;
-    }
-
-    return sessions[0];
+    return null;
   } catch (error) {
     console.error("Error fetching session for thread:", error);
     return null;
@@ -517,19 +461,16 @@ export async function getAllSessionsForThread(threadId: string): Promise<
   }>
 > {
   try {
-    const sessions = await (await getDb())
-      .select({
-        id: BrowserSessionTable.id,
-        sessionId: BrowserSessionTable.sessionId,
-        provider: BrowserSessionTable.provider,
-        status: BrowserSessionTable.status,
-        createdAt: BrowserSessionTable.createdAt,
-      })
-      .from(BrowserSessionTable)
-      .where(eq(BrowserSessionTable.threadId, threadId))
-      .orderBy(BrowserSessionTable.createdAt);
-
-    return sessions;
+    return Array.from(sessions.values())
+      .filter((s) => s.threadId === threadId)
+      .map((s) => ({
+        id: s.id,
+        sessionId: s.sessionId,
+        provider: s.provider,
+        status: s.status,
+        createdAt: s.createdAt,
+      }))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   } catch (error) {
     console.error("Error fetching sessions for thread:", error);
     return [];
@@ -552,28 +493,24 @@ export async function getSessionStats(userId: string): Promise<{
   };
 }> {
   try {
-    const allSessions = await (await getDb())
-      .select({
-        provider: BrowserSessionTable.provider,
-        status: BrowserSessionTable.status,
-      })
-      .from(BrowserSessionTable)
-      .where(eq(BrowserSessionTable.userId, userId));
+    const userSessions = Array.from(sessions.values()).filter(
+      (s) => s.userId === userId,
+    );
 
-    const browserActive = allSessions.filter(
-      (s) => s.provider === "browserbase" && s.status === "active",
+    const browserActive = userSessions.filter(
+      (s) => s.provider === "chrome-devtools" && s.status === "active",
     ).length;
 
-    const browserTotal = allSessions.filter(
-      (s) => s.provider === "browserbase",
+    const browserTotal = userSessions.filter(
+      (s) => s.provider === "chrome-devtools",
     ).length;
 
-    const desktopActive = allSessions.filter(
-      (s) => s.provider === "e2b-desktop" && s.status === "active",
+    const desktopActive = userSessions.filter(
+      (s) => s.provider === "local-terminal" && s.status === "active",
     ).length;
 
-    const desktopTotal = allSessions.filter(
-      (s) => s.provider === "e2b-desktop",
+    const desktopTotal = userSessions.filter(
+      (s) => s.provider === "local-terminal",
     ).length;
 
     return {
@@ -603,4 +540,19 @@ export async function getSessionStats(userId: string): Promise<{
       },
     };
   }
+}
+
+/**
+ * Clear all sessions (for testing or app restart)
+ */
+export function clearAllSessions(): void {
+  sessions.clear();
+  console.log("[Session] Cleared all sessions");
+}
+
+/**
+ * Get all sessions (for debugging)
+ */
+export function getAllSessions(): LocalSession[] {
+  return Array.from(sessions.values());
 }

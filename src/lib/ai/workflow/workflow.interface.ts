@@ -65,15 +65,6 @@ export type MCPTool = {
 };
 
 /**
- * Composio tool definition.
- * Used for third-party integrations like Gmail, GitHub, Slack, etc.
- */
-export type ComposioTool = {
-  type: "composio-tool";
-  appName: string; // e.g., "gmail", "github", "slack"
-};
-
-/**
  * Built-in app tool (WebSearch, WebContent).
  */
 export type DefaultTool = {
@@ -88,7 +79,7 @@ export type WorkflowToolKey = {
   description: string;
   parameterSchema?: JSONSchema7; // Input schema for the tool
   returnSchema?: JSONSchema7; // Output schema for the tool
-} & (MCPTool | ComposioTool | DefaultTool);
+} & (MCPTool | DefaultTool);
 
 // Node Data Types - Each node kind has its specific data structure
 

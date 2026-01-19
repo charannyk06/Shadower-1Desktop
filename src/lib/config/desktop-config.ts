@@ -1,14 +1,16 @@
 /**
- * Desktop Automation Configuration (E2B Desktop)
+ * Desktop Automation Configuration (Local Terminal)
+ *
+ * Configuration for local desktop automation using terminal commands.
+ * This replaces cloud-based E2B Desktop with local execution.
  *
  * All configuration values can be overridden via environment variables.
- * This centralizes all magic numbers and makes the system configurable.
  */
 
 export const DesktopConfig = {
   // Session Limits
   session: {
-    /** Maximum duration for a desktop sandbox in milliseconds (default: 30 minutes) */
+    /** Maximum duration for a desktop session in milliseconds (default: 30 minutes) */
     maxDuration: parseInt(
       process.env.DESKTOP_SESSION_MAX_DURATION_MS || "1800000",
       10,
@@ -20,27 +22,15 @@ export const DesktopConfig = {
       10,
     ),
 
-    /** Maximum concurrent sandboxes per user (default: 2) */
+    /** Maximum concurrent sessions per user (default: 5 for local) */
     maxConcurrentPerUser: parseInt(
-      process.env.DESKTOP_MAX_CONCURRENT_SESSIONS || "2",
-      10,
-    ),
-
-    /** Maximum sandboxes created per user per hour (default: 5) */
-    maxCreationsPerHour: parseInt(
-      process.env.DESKTOP_MAX_CREATIONS_PER_HOUR || "5",
+      process.env.DESKTOP_MAX_CONCURRENT_SESSIONS || "5",
       10,
     ),
 
     /** Session cleanup interval in milliseconds (default: 1 hour) */
     cleanupInterval: parseInt(
       process.env.DESKTOP_CLEANUP_INTERVAL_MS || "3600000",
-      10,
-    ),
-
-    /** Age threshold for stale session cleanup in milliseconds (default: 2 hours) */
-    staleThreshold: parseInt(
-      process.env.DESKTOP_STALE_THRESHOLD_MS || "7200000",
       10,
     ),
   },
@@ -74,7 +64,7 @@ export const DesktopConfig = {
 
   // Streaming Settings
   streaming: {
-    /** VNC frame rate (default: 10 fps) */
+    /** Frame rate for live preview (default: 10 fps) */
     frameRate: parseInt(process.env.DESKTOP_STREAMING_FPS || "10", 10),
 
     /** Maximum concurrent streaming connections (default: 20) */
@@ -107,9 +97,9 @@ export const DesktopConfig = {
     /** Rate limit window in milliseconds (default: 1 minute) */
     windowMs: parseInt(process.env.DESKTOP_RATE_LIMIT_WINDOW_MS || "60000", 10),
 
-    /** Maximum requests per window for session creation (default: 3) */
+    /** Maximum requests per window for session creation (default: 10 for local) */
     maxSessionCreations: parseInt(
-      process.env.DESKTOP_RATE_LIMIT_SESSION_CREATIONS || "3",
+      process.env.DESKTOP_RATE_LIMIT_SESSION_CREATIONS || "10",
       10,
     ),
 
@@ -123,46 +113,46 @@ export const DesktopConfig = {
     maxActions: parseInt(process.env.DESKTOP_RATE_LIMIT_ACTIONS || "120", 10),
   },
 
-  // E2B Provider Settings
+  // Local Terminal Settings
   provider: {
-    /** E2B API key */
-    apiKey: process.env.E2B_API_KEY || "",
+    /** Default shell (auto-detected if not set) */
+    shell: process.env.DESKTOP_SHELL || "",
 
-    /** Default desktop template */
-    template: process.env.E2B_DESKTOP_TEMPLATE || "desktop",
+    /** Default working directory */
+    workingDirectory: process.env.DESKTOP_WORKING_DIR || "",
 
-    /** Default screen width */
-    screenWidth: parseInt(process.env.E2B_SCREEN_WIDTH || "1024", 10),
-
-    /** Default screen height */
-    screenHeight: parseInt(process.env.E2B_SCREEN_HEIGHT || "768", 10),
+    /** Command execution timeout in milliseconds (default: 60 seconds) */
+    commandTimeout: parseInt(
+      process.env.DESKTOP_COMMAND_TIMEOUT_MS || "60000",
+      10,
+    ),
 
     /** Action timeout in milliseconds */
-    actionTimeout: parseInt(process.env.E2B_ACTION_TIMEOUT_MS || "30000", 10),
-
-    /** Sandbox keep-alive timeout in milliseconds */
-    keepAliveTimeout: parseInt(
-      process.env.E2B_KEEP_ALIVE_TIMEOUT_MS || "300000",
+    actionTimeout: parseInt(
+      process.env.DESKTOP_ACTION_TIMEOUT_MS || "30000",
       10,
     ),
   },
 
-  // Sandbox Settings
+  // Sandbox Settings (for code execution)
   sandbox: {
-    /** Memory limit in MB (default: 2048) */
-    memoryMb: parseInt(process.env.E2B_SANDBOX_MEMORY_MB || "2048", 10),
+    /** Sandbox directory (relative to app data) */
+    directory: process.env.DESKTOP_SANDBOX_DIR || "sandbox",
 
-    /** CPU cores (default: 2) */
-    cpuCores: parseInt(process.env.E2B_SANDBOX_CPU_CORES || "2", 10),
+    /** Enable file persistence between sessions (default: true for local) */
+    enablePersistence: process.env.DESKTOP_SANDBOX_PERSISTENCE !== "false",
 
-    /** Disk size in GB (default: 10) */
-    diskGb: parseInt(process.env.E2B_SANDBOX_DISK_GB || "10", 10),
+    /** Maximum file size in bytes (default: 100MB) */
+    maxFileSize: parseInt(
+      process.env.DESKTOP_SANDBOX_MAX_FILE_SIZE || "104857600",
+      10,
+    ),
 
-    /** Enable internet access (default: true) */
-    enableInternet: process.env.E2B_SANDBOX_ENABLE_INTERNET !== "false",
-
-    /** Enable file persistence (default: false) */
-    enablePersistence: process.env.E2B_SANDBOX_ENABLE_PERSISTENCE === "true",
+    /** Allowed languages for code execution */
+    allowedLanguages: (
+      process.env.DESKTOP_SANDBOX_LANGUAGES ||
+      "python,javascript,typescript,bash"
+    ).split(","),
   },
 
   // Mouse/Keyboard Settings
@@ -197,33 +187,16 @@ export const DesktopConfig = {
     /** Log performance metrics */
     logPerformance: process.env.DESKTOP_LOG_PERFORMANCE === "true",
 
-    /** Log sandbox lifecycle events */
+    /** Log session lifecycle events */
     logLifecycle: process.env.DESKTOP_LOG_LIFECYCLE !== "false",
-  },
-
-  // Cost Management
-  cost: {
-    /** Estimated cost per minute in credits */
-    creditsPerMinute: parseFloat(process.env.E2B_CREDITS_PER_MINUTE || "0.1"),
-
-    /** User daily credit limit (default: 100) */
-    dailyCreditLimit: parseFloat(process.env.E2B_DAILY_CREDIT_LIMIT || "100"),
-
-    /** Warning threshold (percentage of limit, default: 80) */
-    warningThreshold: parseFloat(process.env.E2B_WARNING_THRESHOLD || "0.8"),
   },
 } as const;
 
 /**
  * Validate desktop configuration
- * Throws if required values are missing or invalid
  */
 export function validateDesktopConfig(): void {
   const errors: string[] = [];
-
-  if (!DesktopConfig.provider.apiKey) {
-    errors.push("E2B_API_KEY is required for desktop automation");
-  }
 
   if (DesktopConfig.session.maxDuration < 60000) {
     errors.push(
@@ -238,28 +211,23 @@ export function validateDesktopConfig(): void {
     errors.push("DESKTOP_STREAMING_FPS must be between 1 and 30");
   }
 
-  if (DesktopConfig.sandbox.memoryMb < 512) {
-    errors.push("E2B_SANDBOX_MEMORY_MB must be at least 512");
-  }
-
   if (errors.length > 0) {
     throw new Error(`Desktop configuration errors:\n${errors.join("\n")}`);
   }
 }
 
 /**
- * Check if desktop automation is properly configured
+ * Check if desktop automation is available
+ * For local terminal, this checks if we're in Electron environment
  */
 export function isDesktopConfigured(): boolean {
-  return Boolean(DesktopConfig.provider.apiKey);
-}
-
-/**
- * Estimate cost for a desktop session
- */
-export function estimateSessionCost(durationMs: number): number {
-  const minutes = durationMs / 60000;
-  return minutes * DesktopConfig.cost.creditsPerMinute;
+  // In Electron environment, desktop automation is always available
+  // via local terminal execution
+  return (
+    typeof window !== "undefined" &&
+    window.electronAPI !== undefined &&
+    window.electronAPI.terminal !== undefined
+  );
 }
 
 export type DesktopConfigType = typeof DesktopConfig;

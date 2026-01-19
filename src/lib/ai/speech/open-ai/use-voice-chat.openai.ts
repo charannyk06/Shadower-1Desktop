@@ -14,7 +14,6 @@ import {
   OpenAIRealtimeSession,
 } from "./openai-realtime-event";
 
-import { executeComposioByIntentAction } from "@/app/api/composio/actions";
 import { callMcpToolByServerNameAction } from "@/app/api/mcp/actions";
 import { appStore } from "@/app/store";
 import { extractMCPToolId } from "lib/ai/mcp/mcp-tool-id";
@@ -211,13 +210,6 @@ export function useOpenAIVoiceChat(props?: VoiceChatOptions): VoiceChatSession {
                 isOpen: false,
               },
             }));
-            break;
-          case "executeAppAction":
-            // Meta-tool: discovers and executes any app action by intent
-            toolResult = await executeComposioByIntentAction(
-              toolArgs?.intent,
-              toolArgs?.params,
-            );
             break;
         }
       } else {

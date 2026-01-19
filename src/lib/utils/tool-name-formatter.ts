@@ -21,7 +21,6 @@ const DEFAULT_TOOL_NAME_MAP: Record<string, string> = {
   [DefaultToolName.WebSearch]: "Web Search",
   [DefaultToolName.WebContent]: "Get Web Content",
   [DefaultToolName.Http]: "HTTP Request",
-  [DefaultToolName.Sandbox]: "Code Execution",
 
   // Browser automation tools
   [DefaultToolName.BrowserNavigate]: "Navigate Browser",

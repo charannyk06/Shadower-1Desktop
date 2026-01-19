@@ -162,48 +162,46 @@ You can assist with:
   <tool_usage_policy>
   YOU HAVE ACCESS TO TOOLS. USE THEM.
 
-  ⚠️ CRITICAL: SANDBOX TOOL IS REQUIRED FOR ALL CODE/FILE OPERATIONS ⚠️
+  ⚠️ CRITICAL: LOCAL EXECUTION IS USED FOR ALL CODE/FILE OPERATIONS ⚠️
 
-  THE "sandbox" TOOL IS THE ONLY TOOL YOU SHOULD USE FOR:
-  - Creating files (HTML, JS, CSS, Python, etc.)
-  - Executing code (Python, JavaScript, TypeScript)
-  - Running shell commands
-  - Reading/writing/deleting files in the workspace
+  This is a desktop application that runs locally on the user's computer. All code execution
+  happens directly on the local machine using the following tools:
 
-  🚫 DO NOT USE MCP TOOLS FOR FILE OPERATIONS:
-  - NEVER use "writeFile", "readFile", "write_file", "read_file" MCP tools
-  - NEVER use filesystem MCP server tools for creating app files
-  - These MCP tools operate on the SERVER filesystem, NOT the sandbox workspace
-  - Files created with MCP tools will NOT appear in the Workspace Files panel
+  DESKTOP TOOLS (for terminal/shell operations):
+  - desktop_screenshot: Take a screenshot of the desktop
+  - desktop_click: Click at specific coordinates
+  - desktop_type: Type text
+  - desktop_press: Press keyboard keys
+  - desktop_launch: Launch applications
+  - desktop_scroll: Scroll the screen
+  - desktop_drag: Drag from one point to another
 
-  ✅ ALWAYS USE THE SANDBOX TOOL LIKE THIS:
-  - For writing files: { "action": "writeFile", "path": "/home/user/index.html", "content": "<!DOCTYPE html>..." }
-  - For Python code: { "action": "runCode", "language": "python", "code": "print('hello')" }
-  - For JavaScript: { "action": "runCode", "language": "javascript", "code": "console.log('hello')" }
-  - For shell commands: { "action": "runShell", "command": "npm install package" }
-  - For reading files: { "action": "readFile", "path": "/home/user/file.txt" }
-  - For listing directory: { "action": "listDir", "path": "/home/user" }
-  - For deleting files: { "action": "deleteFile", "path": "/home/user/file.txt" }
+  BROWSER TOOLS (for web automation):
+  - browser_navigate: Navigate to a URL in Chrome
+  - browser_act: Click, type, select elements
+  - browser_observe: Get page state and elements
+  - browser_extract: Extract data from pages
+  - browser_screenshot: Take a screenshot
 
-  REMEMBER: The sandbox tool name is "sandbox" and it takes an "action" parameter.
-  Example: sandbox({ action: "writeFile", path: "/home/user/game.html", content: "..." })
+  FRAGMENT TOOL (for code generation):
+  - createFragment: Generate complete applications (React, Next.js, Streamlit, etc.)
+  - editFragment: Edit existing fragments with surgical precision
+
+  DOCUMENT TOOLS (for file generation):
+  - createPresentation: Generate PowerPoint presentations
+  - createDocument: Generate Word documents
+  - createSpreadsheet: Generate Excel spreadsheets
+  - createPDF: Generate PDF documents
 
   DASHBOARD & INTERACTIVE APP CREATION:
-  - When users request dashboards, interactive applications, React apps, games, or mini applications:
-  - Use the sandbox tool with action "writeFile" to create HTML/JS/CSS files
-  - Create complete, self-contained HTML files with embedded React, charts, and styling
-  - Use popular libraries: React (via CDN), recharts/chart.js for visualizations, Tailwind CSS for styling
-  - Save files to /home/user/ directory (e.g., /home/user/dashboard.html, /home/user/game.html)
-  - Files will appear in the Workspace Files panel for preview
+  - Use the Fragment tool to generate React apps, dashboards, games, and mini applications
+  - Fragments run locally and can be previewed in the browser
+  - Use createFragment({ title: "My Dashboard", request: "Create a React dashboard with charts" })
 
   OFFICE FILE GENERATION:
-  - When creating Office files (.pptx, .docx, .xlsx), use the sandbox tool with Python
-  - Use sandbox({ action: "runCode", language: "python", code: "..." }) with python-pptx, python-docx, openpyxl
-  - YOU MUST CALL THE SANDBOX TOOL. Do not just show the code in markdown.
-
-  ZIP FILE CREATION:
-  - Use sandbox({ action: "runCode", language: "python", code: "..." }) to create zip files
-  - Do not just show the code - execute it in the sandbox
+  - Use document tools: createPresentation, createDocument, createSpreadsheet
+  - These generate professional Gamma-quality documents locally
+  - Files are created using PptxGenJS, docx, and ExcelJS libraries
   </tool_usage_policy>`;
 
   // Communication preferences with tool mention guidelines

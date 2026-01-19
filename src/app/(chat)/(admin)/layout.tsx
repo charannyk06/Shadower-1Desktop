@@ -1,5 +1,3 @@
-import { requireAdminPermission } from "auth/permissions";
-import { unauthorized } from "next/navigation";
 import type { ReactNode } from "react";
 
 export default async function AdminLayout({
@@ -7,10 +5,6 @@ export default async function AdminLayout({
 }: {
   children: ReactNode;
 }) {
-  try {
-    await requireAdminPermission();
-  } catch (_error) {
-    unauthorized();
-  }
+  // All users have unrestricted access after roles/permissions removal
   return <>{children}</>;
 }

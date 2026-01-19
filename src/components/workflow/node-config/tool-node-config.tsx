@@ -39,19 +39,17 @@ export const ToolNodeDataConfig = memo(function ({
     );
   });
 
-  // Use the same hook as workflow builder chat to get ALL tools (MCP, Composio, app tools)
+  // Use the same hook as workflow builder chat to get ALL tools (MCP, app tools)
   const { data: allTools } = useWorkflowToolList();
 
   // Filter to only include tools (exclude workflows which are also returned)
   const toolList = useMemo<WorkflowToolKey[]>(() => {
     if (!allTools) return [];
 
-    // Filter out workflows - only include actual tools (mcp-tool, composio-tool, app-tool)
+    // Filter out workflows - only include actual tools (mcp-tool, app-tool)
     return allTools.filter(
       (tool): tool is WorkflowToolKey =>
-        tool.type === "mcp-tool" ||
-        tool.type === "composio-tool" ||
-        tool.type === "app-tool",
+        tool.type === "mcp-tool" || tool.type === "app-tool",
     );
   }, [allTools]);
 

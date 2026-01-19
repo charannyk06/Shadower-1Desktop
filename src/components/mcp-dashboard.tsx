@@ -1,6 +1,5 @@
 "use client";
 import { MCPCard } from "@/components/mcp-card";
-import { canCreateMCP } from "lib/auth/client-permissions";
 
 import { MCPOverview, RECOMMENDED_MCPS } from "@/components/mcp-overview";
 import { SmitheryIntegration } from "@/components/smithery-integration";
@@ -9,34 +8,15 @@ import Link from "next/link";
 
 import { Skeleton } from "ui/skeleton";
 
-import { disconnectComposioAppAction } from "@/app/api/composio/actions";
-import {
-  useComposioApps,
-  useComposioConnections,
-  useComposioTools,
-} from "@/hooks/queries/use-composio";
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
 import { BasicUser } from "app-types/user";
 import { cn } from "lib/utils";
-import {
-  ChevronRight,
-  FlaskConical,
-  InfoIcon,
-  Loader2,
-  PlugIcon,
-  RotateCw,
-  Settings2,
-  Wrench,
-} from "lucide-react";
+import { InfoIcon, Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { mutate } from "swr";
-import { safe } from "ts-safe";
-import { Badge } from "ui/badge";
-import { Card, CardContent, CardHeader } from "ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,10 +25,6 @@ import {
 } from "ui/dropdown-menu";
 import { MCPIcon } from "ui/mcp-icon";
 import { ScrollArea } from "ui/scroll-area";
-import { Separator } from "ui/separator";
-import { handleErrorWithToast } from "ui/shared-toast";
-import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
-import { ShareableActions } from "./shareable-actions";
 
 const LightRays = dynamic(() => import("@/components/ui/light-rays"), {
   ssr: false,
@@ -63,8 +39,8 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
   const t = useTranslations("MCP");
   const router = useRouter();
 
-  // Check if user can create MCP connections using Better Auth permissions
-  const canCreate = canCreateMCP(user?.role);
+  // All authenticated users can create MCP connections (roles/permissions removed)
+  const canCreate = true;
 
   const {
     data: mcpList,
@@ -203,13 +179,6 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
               ) : null}
 
               {canCreate && (
-                <Link href="/integrations">
-                  <Button className="font-semibold" variant={"ghost"}>
-                    {t("marketplace")}
-                  </Button>
-                </Link>
-              )}
-              {canCreate && (
                 <div className="flex items-center gap-1">
                   <SmitheryIntegration>
                     <Button variant="ghost" size="icon" className="size-8">
@@ -285,225 +254,8 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
               </p>
             </div>
           )}
-
-          {/* Composio Connected Apps Section */}
-          <ComposioConnectedAppsSection />
         </div>
       </ScrollArea>
     </>
-  );
-}
-
-function ComposioConnectedAppsSection() {
-  const { data: connectionsData } = useComposioConnections();
-  const { data: appsData } = useComposioApps();
-  const [disconnectingApp, setDisconnectingApp] = useState<string | null>(null);
-
-  const connections =
-    connectionsData?.items?.filter((c) => c.status === "active") || [];
-  const apps = appsData?.items || [];
-  const enabled = connectionsData?.enabled || false;
-
-  const handleDisconnect = async (connectionId: string, appName: string) => {
-    setDisconnectingApp(appName);
-    safe(() => disconnectComposioAppAction(connectionId, appName))
-      .ifOk(() => {
-        toast.success(`Disconnected from ${appName}`);
-        mutate("/api/composio/connections");
-      })
-      .ifFail(handleErrorWithToast)
-      .watch(() => setDisconnectingApp(null));
-  };
-
-  if (!enabled || connections.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="flex flex-col gap-4 mt-8">
-      <h2 className="text-lg font-semibold text-muted-foreground flex items-center gap-2">
-        <PlugIcon className="size-4" />
-        Connected Apps
-      </h2>
-      <div className="flex flex-col gap-6">
-        {connections.map((connection) => {
-          const appInfo = apps.find((a) => a.name === connection.appName);
-          return (
-            <ComposioAppCard
-              key={connection.id}
-              connection={connection}
-              appInfo={appInfo}
-              disconnectingApp={disconnectingApp}
-              handleDisconnect={handleDisconnect}
-            />
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ComposioAppCard({
-  connection,
-  appInfo,
-  disconnectingApp,
-  handleDisconnect,
-}: {
-  readonly connection: any;
-  readonly appInfo: any;
-  readonly disconnectingApp: string | null;
-  readonly handleDisconnect: (id: string, appName: string) => void;
-}) {
-  const { data: toolsData, isLoading: isLoadingTools } = useComposioTools(
-    connection.appName,
-  );
-  const tools = toolsData?.items || [];
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  return (
-    <Card className="relative hover:border-foreground/20 transition-colors bg-secondary/40">
-      <CardHeader className="flex items-center gap-1 mb-2">
-        {appInfo?.logo && (
-          <img
-            src={appInfo.logo}
-            alt={connection.appName}
-            className="size-6 rounded mr-2"
-          />
-        )}
-        <h4 className="font-bold text-xs sm:text-lg flex items-center gap-2">
-          {appInfo?.displayName || connection.appName}
-          <Badge
-            variant="secondary"
-            className="bg-green-100 text-green-800 text-xs"
-          >
-            Connected
-          </Badge>
-        </h4>
-        <div className="flex-1" />
-
-        {/* Manage/Customize - goes to Composio dashboard */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/integrations">
-                <Settings2 className="size-3.5" />
-              </Link>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Manage Apps</p>
-          </TooltipContent>
-        </Tooltip>
-
-        {/* Test Tools */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" asChild>
-              <Link href={`/integrations/test/${connection.appName}`}>
-                <FlaskConical className="size-3.5" />
-              </Link>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Test Tools</p>
-          </TooltipContent>
-        </Tooltip>
-
-        <div className="h-4">
-          <Separator orientation="vertical" />
-        </div>
-
-        {/* Refresh */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setIsRefreshing(true);
-                Promise.all([
-                  mutate("/api/composio/tools"),
-                  mutate("/api/composio/connections"),
-                  mutate(`/api/composio/tools?app=${connection.appName}`),
-                ]).finally(() => setIsRefreshing(false));
-              }}
-              disabled={isRefreshing}
-            >
-              <RotateCw
-                className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`}
-              />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Refresh</p>
-          </TooltipContent>
-        </Tooltip>
-
-        {/* Shareable Actions (visibility, delete) */}
-        <ShareableActions
-          type="composio"
-          visibility="private"
-          isOwner={true}
-          canChangeVisibility={true}
-          onVisibilityChange={(newVisibility) => {
-            toast.info(
-              `Visibility change to ${newVisibility} - feature coming soon!`,
-            );
-          }}
-          onDelete={() => handleDisconnect(connection.id, connection.appName)}
-          isDeleteLoading={disconnectingApp === connection.appName}
-          disabled={disconnectingApp === connection.appName}
-          renderActions={() => null}
-        />
-      </CardHeader>
-      <div className="relative hidden sm:flex w-full">
-        <CardContent className="flex min-w-0 w-full flex-col text-sm max-h-[320px] overflow-hidden">
-          <div className="flex items-center gap-2 mb-4 pt-2 pb-1 z-10">
-            <Wrench size={14} className="text-muted-foreground" />
-            <h5 className="text-muted-foreground text-sm font-medium">
-              Available Tools ({tools.length})
-            </h5>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {isLoadingTools && (
-              <div className="space-y-2">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            )}
-            {!isLoadingTools && tools.length > 0 && (
-              <div className="space-y-2 pr-2">
-                {tools.map((tool: any) => (
-                  <Link
-                    key={tool.name}
-                    href={`/integrations/test/${connection.appName}?tool=${encodeURIComponent(tool.name)}`}
-                    className="flex items-start gap-2 bg-secondary rounded-md p-2 hover:bg-input transition-colors cursor-pointer"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm mb-1 truncate">
-                        {tool.displayName || tool.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground line-clamp-1">
-                        {tool.description}
-                      </p>
-                    </div>
-                    <div className="flex items-center px-1 justify-center self-stretch">
-                      <ChevronRight size={16} />
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-            {!isLoadingTools && tools.length === 0 && (
-              <div className="bg-secondary/30 rounded-md p-3 text-center">
-                <p className="text-sm text-muted-foreground">
-                  No tools available
-                </p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </div>
-    </Card>
   );
 }

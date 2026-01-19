@@ -1,6 +1,5 @@
 import { AgentUpdateSchema } from "app-types/agent";
 import { getSession } from "auth/server";
-import { canDeleteAgent, canEditAgent } from "lib/auth/permissions";
 import { serverCache } from "lib/cache";
 import { CacheKeys } from "lib/cache/cache-keys";
 import { agentRepository } from "lib/db/repository";
@@ -37,14 +36,7 @@ export async function PUT(
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // Check if user has permission to edit agents
-  const canEdit = await canEditAgent();
-  if (!canEdit) {
-    return Response.json(
-      { error: "Only editors and admins can edit agents" },
-      { status: 403 },
-    );
-  }
+  // All authenticated users can edit agents (roles/permissions removed)
 
   try {
     const { id } = await params;
@@ -93,14 +85,7 @@ export async function DELETE(
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // Check if user has permission to delete agents
-  const canDelete = await canDeleteAgent();
-  if (!canDelete) {
-    return Response.json(
-      { error: "Only editors and admins can delete agents" },
-      { status: 403 },
-    );
-  }
+  // All authenticated users can delete agents (roles/permissions removed)
 
   try {
     const { id } = await params;

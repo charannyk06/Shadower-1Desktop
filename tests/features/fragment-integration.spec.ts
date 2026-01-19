@@ -39,11 +39,12 @@ test.describe("Fragment Integration - Complete Workflow", () => {
 
     expect(createResponse.toLowerCase()).toMatch(/created|success|counter/i);
 
-    // Extract fragment ID or preview URL from response
-    const _fragmentIdMatch = createResponse.match(
-      /fragment[:\s]+([a-z0-9-]+)/i,
-    );
-    const _previewUrlMatch = createResponse.match(/https?:\/\/[^\s]+/i);
+    // Extract fragment ID or preview URL from response (for verification only)
+    const fragmentIdMatch = createResponse.match(/fragment[:\s]+([a-z0-9-]+)/i);
+    const previewUrlMatch = createResponse.match(/https?:\/\/[^\s]+/i);
+
+    // Verify at least one identifier was returned
+    expect(fragmentIdMatch || previewUrlMatch).toBeTruthy();
 
     // Step 2: Edit fragment
     const editResponse = await sendMessageAndWaitForResponse(

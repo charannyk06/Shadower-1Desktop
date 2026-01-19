@@ -9,6 +9,7 @@ import {
   fetchCerebrasModels,
   fetchGoogleModels,
   fetchGroqModels,
+  fetchLMStudioModels,
   fetchOllamaModels,
   fetchOpenAIModels,
   fetchOpenRouterModels,
@@ -36,6 +37,7 @@ const PROVIDER_FETCHERS: Record<ProviderName, ProviderFetcher> = {
   xai: fetchXAIModels,
   openRouter: fetchOpenRouterModels,
   ollama: fetchOllamaModels,
+  lmstudio: fetchLMStudioModels,
   cerebras: fetchCerebrasModels,
 };
 
@@ -47,6 +49,7 @@ const PROVIDER_API_KEY_ENV: Record<ProviderName, string | null> = {
   xai: "XAI_API_KEY",
   openRouter: "OPENROUTER_API_KEY",
   ollama: null,
+  lmstudio: null, // LM Studio is local, no API key needed
   cerebras: "CEREBRAS_API_KEY",
 };
 
@@ -200,6 +203,7 @@ export async function getAllProviderModels(
     "xai",
     "openRouter",
     "ollama",
+    "lmstudio",
     "cerebras",
   ];
 

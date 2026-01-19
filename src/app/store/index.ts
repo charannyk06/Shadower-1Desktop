@@ -1,7 +1,6 @@
 import { AgentSummary } from "app-types/agent";
 import { ArchiveWithItemCount } from "app-types/archive";
 import { ChatMention, ChatModel, ChatThread } from "app-types/chat";
-import { ComposioToolInfo } from "app-types/composio";
 import { AllowedMCPServer, MCPServerInfo } from "app-types/mcp";
 import { WorkflowSummary } from "app-types/workflow";
 import { OPENAI_VOICE } from "lib/ai/speech/open-ai/use-voice-chat.openai";
@@ -53,7 +52,7 @@ export type FragmentOperationType =
   | "file-read" // Reading a file
   | "install" // Installing dependencies
   | "ai-call" // AI model invocation
-  | "sandbox" // Sandbox operation
+  | "local-exec" // Local code execution
   | "tool-call" // External tool invocation (MCP, system tools)
   | "info"; // General info
 
@@ -114,8 +113,6 @@ export interface AppState {
   mcpList: (MCPServerInfo & { id: string })[];
   agentList: AgentSummary[];
   workflowToolList: WorkflowSummary[];
-  composioToolList: ComposioToolInfo[];
-  composioEnabled: boolean;
   currentThreadId: ChatThread["id"] | null;
   toolChoice: "auto" | "none" | "manual";
   allowedMcpServers?: Record<string, AllowedMCPServer>;
@@ -152,16 +149,9 @@ export interface AppState {
   openShortcutsPopup: boolean;
   openChatPreferences: boolean;
   openUserSettings: boolean;
-  openReferral: boolean;
   openBilling: boolean;
   openKnowledge: boolean;
   mcpCustomizationPopup?: MCPServerInfo & { id: string };
-  composioCustomizationPopup?: {
-    appName: string;
-    displayName: string;
-    tools: ComposioToolInfo[];
-    logo?: string;
-  };
   temporaryChat: {
     isOpen: boolean;
     instructions: string;
@@ -199,18 +189,18 @@ export interface AppState {
     };
     executionArtifacts?: any[]; // For File Explorer: List of all artifacts from the run
     threadArtifacts?: { [threadId: string]: any[] }; // Thread-scoped registry of artifacts
-    sandboxFilesVersion?: number; // Incremented when sandbox files change, triggers re-fetch
+    filesVersion?: number; // Incremented when local files change, triggers re-fetch
     defaultTab?: "preview" | "files"; // Default tab to open when theater opens
     // Browser session state
     browserSession?: {
       sessionId: string;
-      provider: "browserbase" | "e2b-desktop";
+      provider: "chrome-devtools" | "local-terminal";
       currentUrl?: string;
       replayUrl?: string;
     };
-    // Desktop session state (E2B Desktop)
+    // Desktop session state (local terminal)
     desktopSession?: {
-      sandboxId: string;
+      sessionId: string;
       streamUrl?: string;
       authKey?: string;
     };
@@ -240,26 +230,23 @@ const initialState: AppState = {
   mcpList: [],
   agentList: [],
   workflowToolList: [],
-  composioToolList: [],
-  composioEnabled: false,
   currentThreadId: null,
   toolChoice: "auto",
   allowedMcpServers: undefined,
   openUserSettings: false,
-  openReferral: false,
   openBilling: false,
   openKnowledge: false,
   allowedAppDefaultToolkit: [
     AppDefaultToolkit.Visualization,
     AppDefaultToolkit.WebSearch,
     AppDefaultToolkit.Http,
-    AppDefaultToolkit.Sandbox,
     AppDefaultToolkit.Browser,
     AppDefaultToolkit.Desktop,
     AppDefaultToolkit.DataAnalysis,
     AppDefaultToolkit.Documents,
     AppDefaultToolkit.Research,
     AppDefaultToolkit.Fragments, // Autonomous app/dashboard/document generation
+    AppDefaultToolkit.Memory,
   ],
   toolPresets: [],
   chatModel: {
@@ -343,7 +330,7 @@ export const appStore = create<AppState & AppDispatch>()(
             Object.values(AppDefaultToolkit).includes(v),
           );
           // Auto-enable any new toolkits that weren't in the stored list
-          // This ensures users get new features like Sandbox automatically
+          // This ensures users get new features like Fragments automatically
           const allToolkits = Object.values(AppDefaultToolkit);
           const newToolkits = allToolkits.filter(
             (t) =>
