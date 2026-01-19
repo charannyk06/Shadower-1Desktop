@@ -1,13 +1,15 @@
 #!/usr/bin/env tsx
 /**
- * Script to seed test users using Better Auth's APIs
- * Creates test users with proper password hashing via Better Auth
+ * Script to seed test users directly in the database
+ * Creates test users with hashed passwords for E2E testing
  *
  * Usage:
  *   pnpm test:e2e:seed
  */
 
 import { config } from "dotenv";
+import { randomUUID } from "crypto";
+import { hash } from "bcrypt-ts";
 
 import { TEST_USERS } from "../tests/constants/test-users";
 
@@ -18,7 +20,6 @@ if (process.env.CI) {
   config();
 }
 
-import { auth } from "auth/auth-instance";
 import { eq, like } from "drizzle-orm";
 import { sqliteDb as db } from "lib/db/sqlite/db.sqlite";
 import {
@@ -34,6 +35,11 @@ async function getUserByEmail(email: string) {
     .from(UserTable)
     .where(eq(UserTable.email, email));
   return user || null;
+}
+
+// Helper function to hash password
+async function hashPassword(password: string): Promise<string> {
+  return hash(password, 10);
 }
 
 async function clearExistingTestUsers() {
@@ -125,7 +131,7 @@ async function clearExistingTestUsers() {
   }
 }
 
-async function createUserWithBetterAuth(userData: {
+async function createUser(userData: {
   email: string;
   password: string;
   name: string;
@@ -136,49 +142,35 @@ async function createUserWithBetterAuth(userData: {
     // First, check if user already exists
     const existingUser = await getUserByEmail(userData.email);
 
-    let user;
     if (existingUser) {
       console.log(
         `  User ${userData.email} already exists, using existing user (ID: ${existingUser.id})`,
       );
-      user = existingUser;
-    } else {
-      // Use Better Auth's signUp API to create user with proper password hashing
-      const result = await auth.api.signUpEmail({
-        body: {
-          email: userData.email,
-          password: userData.password,
-          name: userData.name,
-        },
-        headers: new Headers({
-          "content-type": "application/json",
-        }),
-      });
-
-      if (!result.user) {
-        throw new Error("User creation failed");
-      }
-
-      user = result.user;
-      console.log(`  Created new user ${userData.email} (ID: ${user.id})`);
+      return existingUser;
     }
 
-    // Ban user if needed - do this via direct database update since we don't have admin auth
-    if (userData.banned && userData.banReason) {
-      try {
-        await db
-          .update(UserTable)
-          .set({
-            banned: true,
-            banReason: userData.banReason,
-            banExpires: null, // Permanent ban for testing
-          })
-          .where(eq(UserTable.id, user.id));
-      } catch (error) {
-        console.warn(`Could not ban user ${userData.email}:`, error);
-      }
-    }
+    // Hash password and create user directly in database
+    const hashedPassword = await hashPassword(userData.password);
+    const userId = randomUUID();
+    const now = new Date();
 
+    const [user] = await db
+      .insert(UserTable)
+      .values({
+        id: userId,
+        email: userData.email,
+        name: userData.name,
+        password: hashedPassword,
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+        banned: userData.banned || false,
+        banReason: userData.banReason || null,
+        banExpires: null,
+      })
+      .returning();
+
+    console.log(`  Created new user ${userData.email} (ID: ${user.id})`);
     return user;
   } catch (error) {
     console.error(`Failed to create user ${userData.email}:`, error);
@@ -204,7 +196,7 @@ async function createUserWithBetterAuth(userData: {
 }
 
 async function seedTestUsers() {
-  console.log("🌱 Starting test user seeding using Better Auth APIs...");
+  console.log("🌱 Starting test user seeding...");
 
   try {
     // Clear existing test users first
@@ -214,7 +206,7 @@ async function seedTestUsers() {
     console.log("👤 Creating main test users...");
 
     // 1. Admin User (now just a regular user - roles removed)
-    const adminUser = await createUserWithBetterAuth({
+    const adminUser = await createUser({
       email: TEST_USERS.admin.email,
       password: TEST_USERS.admin.password,
       name: TEST_USERS.admin.name,
@@ -222,7 +214,7 @@ async function seedTestUsers() {
     console.log("✅ Created admin user:", adminUser?.id);
 
     // 2. Editor User (now just a regular user - roles removed)
-    const editorUser = await createUserWithBetterAuth({
+    const editorUser = await createUser({
       email: TEST_USERS.editor.email,
       password: TEST_USERS.editor.password,
       name: TEST_USERS.editor.name,
@@ -230,7 +222,7 @@ async function seedTestUsers() {
     console.log("✅ Created editor user:", editorUser?.id);
 
     // 3. Editor2 User (now just a regular user - roles removed)
-    const editor2User = await createUserWithBetterAuth({
+    const editor2User = await createUser({
       email: TEST_USERS.editor2.email,
       password: TEST_USERS.editor2.password,
       name: TEST_USERS.editor2.name,
@@ -238,7 +230,7 @@ async function seedTestUsers() {
     console.log("✅ Created editor2 user:", editor2User?.id);
 
     // 4. Regular User
-    const regularUser = await createUserWithBetterAuth({
+    const regularUser = await createUser({
       email: TEST_USERS.regular.email,
       password: TEST_USERS.regular.password,
       name: TEST_USERS.regular.name,
@@ -254,7 +246,7 @@ async function seedTestUsers() {
         const isBanned = i === 21;
         const email = `testuser${i}@test-seed.local`;
 
-        await createUserWithBetterAuth({
+        await createUser({
           email,
           password: `TestPass${i}!`,
           name: `Test User ${i}`,

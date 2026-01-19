@@ -1,7 +1,7 @@
 "use client";
 
+import { archiveApi } from "@/lib/electron/archive-api";
 import { Archive } from "app-types/archive";
-import { fetcher } from "lib/utils";
 import { Loader } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -62,15 +62,9 @@ export function ArchiveDialog({
       await safe(() => zodSchema.parse(config))
         .map(async (body) => {
           if (isEdit) {
-            return await fetcher(`/api/archive/${archive.id}`, {
-              method: "PUT",
-              body: JSON.stringify(body),
-            });
+            return await archiveApi.update(archive.id, body);
           } else {
-            return await fetcher("/api/archive", {
-              method: "POST",
-              body: JSON.stringify(body),
-            });
+            return await archiveApi.create(body);
           }
         })
         .ifOk(() => {

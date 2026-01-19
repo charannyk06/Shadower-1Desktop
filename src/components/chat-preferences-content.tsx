@@ -1,8 +1,9 @@
 "use client";
 import { useObjectState } from "@/hooks/use-object-state";
+import { userApi, userFetcher } from "@/lib/electron/user-api";
+import { isElectronMode } from "@/lib/electron/user-api";
 import { UserPreferences } from "app-types/user";
 import { authClient } from "auth/client";
-import { fetcher } from "lib/utils";
 import {
   AlertCircle,
   ArrowLeft,
@@ -18,6 +19,7 @@ import useSWR from "swr";
 import { safe } from "ts-safe";
 
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
+import { exportApi, exportFetcher } from "@/lib/electron/export-api";
 import { ChatExportSummary } from "app-types/chat-export";
 import { MCPServerInfo } from "app-types/mcp";
 import { formatDistanceToNow } from "date-fns";
@@ -68,7 +70,7 @@ export function UserInstructionsContent() {
     mutate: fetchPreferences,
     isLoading,
     isValidating,
-  } = useSWR<UserPreferences>("/api/user/preferences", fetcher, {
+  } = useSWR<UserPreferences>("/api/user/preferences", userFetcher, {
     fallback: {},
     dedupingInterval: 0,
     onSuccess: (data) => {
@@ -80,12 +82,7 @@ export function UserInstructionsContent() {
 
   const savePreferences = async () => {
     safe(() => setIsSaving(true))
-      .ifOk(() =>
-        fetch("/api/user/preferences", {
-          method: "PUT",
-          body: JSON.stringify(preferences),
-        }),
-      )
+      .ifOk(() => userApi.updatePreferences(preferences))
       .ifOk(() => fetchPreferences())
       .watch((result) => {
         if (result.isOk)
@@ -312,7 +309,7 @@ export function ExportsManagementContent() {
     data: exports,
     mutate: refetchExports,
     isLoading,
-  } = useSWR<ChatExportSummary[]>("/api/export", fetcher);
+  } = useSWR<ChatExportSummary[]>("/api/export", exportFetcher);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -326,13 +323,7 @@ export function ExportsManagementContent() {
 
     try {
       setDeletingId(exportId);
-      const response = await fetch(`/api/export/${exportId}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to delete export");
-      }
+      await exportApi.delete(exportId);
 
       toast.success(t("Chat.ChatPreferences.exportDeleted"));
       refetchExports();

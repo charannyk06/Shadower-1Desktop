@@ -8,7 +8,8 @@ import {
   isMaybeMCPServerConfig,
   isMaybeRemoteConfig,
 } from "lib/ai/mcp/is-mcp-config";
-import { createDebounce, fetcher, isNull, safeJSONParse } from "lib/utils";
+import { mcpApi } from "@/lib/electron/mcp-api";
+import { createDebounce, isNull, safeJSONParse } from "lib/utils";
 import { Loader } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -140,13 +141,10 @@ export default function MCPEditor({
         }
       })
       .map(() =>
-        fetcher("/api/mcp", {
-          method: "POST",
-          body: JSON.stringify({
-            name,
-            config,
-            id,
-          }),
+        mcpApi.save({
+          name,
+          config,
+          id,
         }),
       )
       .ifOk(() => {

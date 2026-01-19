@@ -1,14 +1,25 @@
 "use server";
 
-import { auth } from "@/lib/auth/server";
-import { BasicUser, UserZodSchema } from "app-types/user";
+import { BasicUser } from "app-types/user";
 import { ActionState } from "lib/action-utils";
 import { userRepository } from "lib/db/repository";
-import { headers } from "next/headers";
+import { hash } from "bcrypt-ts";
+import { randomUUID } from "crypto";
+
+/**
+ * Electron Auth Actions
+ *
+ * Server-side actions for authentication in Electron mode.
+ * These use the SQLite database directly.
+ */
 
 export async function existsByEmailAction(email: string) {
-  const exists = await userRepository.existsByEmail(email);
-  return exists;
+  try {
+    const exists = await userRepository.existsByEmail(email);
+    return exists;
+  } catch {
+    return false;
+  }
 }
 
 type SignUpActionResponse = ActionState & {
@@ -20,31 +31,53 @@ export async function signUpAction(data: {
   name: string;
   password: string;
 }): Promise<SignUpActionResponse> {
-  const { success, data: parsedData } = UserZodSchema.safeParse(data);
-  if (!success) {
-    return {
-      success: false,
-      message: "Invalid data",
-    };
-  }
   try {
-    const { user } = await auth.api.signUpEmail({
-      body: {
-        email: parsedData.email,
-        password: parsedData.password,
-        name: parsedData.name,
-      },
-      headers: await headers(),
+    // Check if email already exists
+    const exists = await userRepository.existsByEmail(data.email);
+    if (exists) {
+      return {
+        success: false,
+        message: "Email already exists",
+      };
+    }
+
+    // Hash the password
+    const hashedPassword = await hash(data.password, 10);
+
+    // Create the user
+    const user = await userRepository.create({
+      id: randomUUID(),
+      email: data.email,
+      name: data.name,
+      password: hashedPassword,
+      image: null,
     });
+
+    if (!user) {
+      return {
+        success: false,
+        message: "Failed to create user",
+      };
+    }
+
     return {
-      user,
       success: true,
-      message: "Successfully signed up",
+      message: "Account created successfully. Please sign in.",
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        emailVerified: user.emailVerified,
+        image: user.image,
+        createdAt: user.createdAt ?? new Date(),
+        updatedAt: user.updatedAt ?? new Date(),
+      },
     };
   } catch (error) {
+    console.error("[SignUpAction] Error:", error);
     return {
       success: false,
-      message: error instanceof Error ? error.message : "Failed to sign up",
+      message: error instanceof Error ? error.message : "Sign up failed",
     };
   }
 }

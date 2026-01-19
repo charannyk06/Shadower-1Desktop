@@ -1,5 +1,5 @@
 import { appStore } from "@/app/store";
-import { fetcher } from "lib/utils";
+import { modelsFetcher } from "@/lib/electron/models-api";
 import useSWR, { SWRConfiguration } from "swr";
 
 /**
@@ -32,16 +32,47 @@ interface ProviderModels {
 }
 
 export const useChatModels = (options?: SWRConfiguration) => {
-  return useSWR<ProviderModels[]>("/api/chat/models", fetcher, {
+  return useSWR<ProviderModels[]>("/api/chat/models", modelsFetcher, {
     dedupingInterval: 60_000 * 5,
     revalidateOnFocus: false,
     fallbackData: [],
     onSuccess: (data) => {
-      const status = appStore.getState();
-      if (!status.chatModel) {
-        const firstProvider = data[0].provider;
-        const model = data[0].models[0].name;
-        appStore.setState({ chatModel: { provider: firstProvider, model } });
+      if (data && data.length > 0) {
+        // Find the first provider with an API key and models
+        const availableProvider = data.find(
+          (p) => p.hasAPIKey && p.models && p.models.length > 0,
+        );
+
+        if (availableProvider) {
+          const status = appStore.getState();
+          const currentModel = status.chatModel;
+
+          // Check if current model is still valid
+          const isValidModel = currentModel
+            ? data.some(
+                (p) =>
+                  p.provider === currentModel.provider &&
+                  p.models.some((m) => m.name === currentModel.model) &&
+                  p.hasAPIKey,
+              )
+            : false;
+
+          // Set default model if none is set or current model is invalid
+          if (!currentModel || !isValidModel) {
+            appStore.setState({
+              chatModel: {
+                provider: availableProvider.provider,
+                model: availableProvider.models[0].name,
+              },
+            });
+          }
+        } else {
+          // No models with API keys available - clear the model
+          appStore.setState({ chatModel: null });
+        }
+      } else {
+        // No models available at all - clear the model
+        appStore.setState({ chatModel: null });
       }
     },
     ...options,

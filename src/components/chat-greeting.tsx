@@ -1,8 +1,8 @@
 "use client";
 
+import { userFetcher } from "@/lib/electron/user-api";
 import { BasicUser } from "app-types/user";
 import { motion } from "framer-motion";
-import { fetcher } from "lib/utils";
 import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import useSWR from "swr";
@@ -16,7 +16,7 @@ function getGreetingByTime() {
 }
 
 export const ChatGreeting = () => {
-  const { data: user } = useSWR<BasicUser>(`/api/user/details`, fetcher, {
+  const { data: user } = useSWR<BasicUser>(`/api/user/details`, userFetcher, {
     revalidateOnMount: false,
   });
   const t = useTranslations("Chat.Greeting");

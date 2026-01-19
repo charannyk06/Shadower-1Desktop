@@ -1,8 +1,7 @@
 import { MCPToolInfo, McpServerCustomizationsPrompt } from "app-types/mcp";
 
 import { Agent } from "app-types/agent";
-import { UserPreferences } from "app-types/user";
-import { User } from "better-auth";
+import { User, UserPreferences } from "app-types/user";
 import { format } from "date-fns";
 import { createMCPToolId } from "./mcp/mcp-tool-id";
 

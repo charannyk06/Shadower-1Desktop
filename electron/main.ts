@@ -195,6 +195,16 @@ app.whenReady().then(async () => {
     console.error("[Main] Failed to initialize file storage:", error);
   }
 
+  // Initialize auth service (must be done before registering handlers)
+  try {
+    const { ElectronAuthService } = require("./services/auth");
+    const authService = ElectronAuthService.getInstance();
+    await authService.initialize();
+    console.log("[Main] Auth service initialized");
+  } catch (error) {
+    console.error("[Main] Failed to initialize auth service:", error);
+  }
+
   // Register IPC handlers
   try {
     const { registerChatHandlers } = require("./ipc/chat");
@@ -206,6 +216,7 @@ app.whenReady().then(async () => {
     const { registerAuthHandlers } = require("./ipc/auth");
     const { registerTerminalHandlers } = require("./ipc/terminal");
     const { registerModelsHandlers } = require("./ipc/models");
+    const { registerArchiveHandlers } = require("./ipc/archives");
 
     registerChatHandlers();
     registerAgentHandlers();
@@ -216,6 +227,7 @@ app.whenReady().then(async () => {
     registerAuthHandlers();
     registerTerminalHandlers();
     registerModelsHandlers();
+    registerArchiveHandlers();
 
     // Register vector handlers (optional - may fail if DuckDB not available)
     try {

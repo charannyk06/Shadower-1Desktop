@@ -37,6 +37,14 @@ export type UserSessionUser = UserSession["user"];
 
 export type UserRepository = {
   existsByEmail: (email: string) => Promise<boolean>;
+  findAll: () => Promise<User[]>;
+  create: (data: {
+    id: string;
+    email: string;
+    name: string;
+    password: string;
+    image: string | null;
+  }) => Promise<User | null>;
   updateUserDetails: (data: {
     userId: string;
     name?: string;

@@ -1,5 +1,11 @@
-import { getSessionCookie } from "better-auth/cookies";
 import { type NextRequest, NextResponse } from "next/server";
+
+/**
+ * Electron-Only Proxy
+ *
+ * This proxy is simplified for Electron mode.
+ * No session cookie checking needed - user is always authenticated.
+ */
 
 // Constants for static file extensions - improves maintainability
 const STATIC_FILE_EXTENSIONS = [
@@ -20,7 +26,6 @@ const STATIC_FILE_EXTENSIONS = [
 const PING_PATH = "/ping";
 const ADMIN_PATH = "/admin";
 const ADMIN_REDIRECT_PATH = "/admin/users";
-const SIGN_IN_PATH = "/sign-in";
 const HTTP_OK_STATUS = 200;
 
 /**
@@ -53,16 +58,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL(ADMIN_REDIRECT_PATH, request.url));
   }
 
-  const sessionCookie = getSessionCookie(request);
-
-  if (!sessionCookie) {
-    return NextResponse.redirect(new URL(SIGN_IN_PATH, request.url));
-  }
+  // In Electron mode, user is always authenticated locally
+  // No session cookie checking needed
   return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|api/auth|api/proxy|api/billing/webhook|api/wopi|export|sign-in|sign-up|.*\\.png|.*\\.jpg|.*\\.jpeg|.*\\.gif|.*\\.svg|.*\\.webp|.*\\.ico|.*\\.woff|.*\\.woff2|.*\\.ttf|.*\\.eot|.*\\.otf).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|api/auth|api/proxy|api/wopi|export|.*\\.png|.*\\.jpg|.*\\.jpeg|.*\\.gif|.*\\.svg|.*\\.webp|.*\\.ico|.*\\.woff|.*\\.woff2|.*\\.ttf|.*\\.eot|.*\\.otf).*)",
   ],
 };

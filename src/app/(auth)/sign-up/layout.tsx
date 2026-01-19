@@ -1,14 +1,16 @@
+"use client";
+
 import { getAuthConfig } from "auth/config";
-import { getTranslations } from "next-intl/server";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { Button } from "ui/button";
 
-export default async function SignUpLayout({
+export default function SignUpLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const t = await getTranslations();
+  const t = useTranslations();
   const { signUpEnabled } = getAuthConfig();
 
   // Only show sign-in button if sign-up is enabled

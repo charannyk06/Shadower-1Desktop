@@ -1,7 +1,9 @@
+"use client";
+
 import SignIn from "@/components/auth/sign-in";
 import { getAuthConfig } from "lib/auth/config";
 
-export default async function SignInPage() {
+export default function SignInPage() {
   const {
     emailAndPasswordEnabled,
     signUpEnabled,

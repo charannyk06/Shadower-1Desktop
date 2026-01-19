@@ -1,12 +1,8 @@
 "use client";
 
-import {
-  deleteThreadsAction,
-  deleteUnarchivedThreadsAction,
-} from "@/app/api/chat/actions";
+import { threadApi, threadFetcher } from "@/lib/electron/thread-api";
 import { appStore } from "@/app/store";
 import { useMounted } from "@/hooks/use-mounted";
-import { fetcher } from "lib/utils";
 import { ChevronDown, ChevronUp, MoreHorizontal, Trash } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -60,7 +56,7 @@ export function AppSidebarThreads() {
   // State to track if expanded view is active
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const { data: threadList, isLoading } = useSWR("/api/thread", fetcher, {
+  const { data: threadList, isLoading } = useSWR("/api/thread", threadFetcher, {
     onError: handleErrorWithToast,
     fallbackData: [],
     onSuccess: (data) => {
@@ -147,7 +143,7 @@ export function AppSidebarThreads() {
   }, [displayThreadList]);
 
   const handleDeleteAllThreads = async () => {
-    await toast.promise(deleteThreadsAction(), {
+    await toast.promise(threadApi.deleteAll(), {
       loading: t("deletingAllChats"),
       success: () => {
         // Clear all thread-related state since all threads are deleted
@@ -166,7 +162,7 @@ export function AppSidebarThreads() {
   };
 
   const handleDeleteUnarchivedThreads = async () => {
-    await toast.promise(deleteUnarchivedThreadsAction(), {
+    await toast.promise(threadApi.deleteUnarchived(), {
       loading: t("deletingUnarchivedChats"),
       success: () => {
         // Clear thread-related state for unarchived threads

@@ -378,6 +378,14 @@ export default function PromptInput({
       });
     }
 
+    // Check if model is selected before sending
+    if (!chatModel || !chatModel.provider || !chatModel.model) {
+      toast.error(
+        "Please select a model first. Add an API key in Settings > Models.",
+      );
+      return;
+    }
+
     sendMessage({
       role: "user",
       parts: [...attachmentParts, { type: "text", text: userMessage }],
@@ -622,7 +630,9 @@ export default function PromptInput({
                         </span>
                       </>
                     ) : (
-                      <span className="text-muted-foreground">model</span>
+                      <span className="text-muted-foreground text-xs">
+                        Select model
+                      </span>
                     )}
 
                     <ChevronDown className="size-3" />

@@ -1,4 +1,6 @@
-import { getTranslations } from "next-intl/server";
+"use client";
+
+import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import {
   Card,
@@ -12,8 +14,8 @@ interface UsersLayoutProps {
   children: ReactNode;
 }
 
-export default async function UsersLayout({ children }: UsersLayoutProps) {
-  const t = await getTranslations("Admin.Users");
+export default function UsersLayout({ children }: UsersLayoutProps) {
+  const t = useTranslations("Admin.Users");
 
   return (
     <div className="relative bg-background w-full flex flex-col min-h-screen">

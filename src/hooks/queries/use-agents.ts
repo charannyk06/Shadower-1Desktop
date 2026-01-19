@@ -2,7 +2,7 @@
 import { appStore } from "@/app/store";
 import { AgentSummary } from "app-types/agent";
 import { authClient } from "auth/client";
-import { fetcher } from "lib/utils";
+import { agentFetcher } from "@/lib/electron/agent-api";
 import useSWR, { SWRConfiguration, useSWRConfig } from "swr";
 import { handleErrorWithToast } from "ui/shared-toast";
 
@@ -26,17 +26,21 @@ export function useAgents(options: UseAgentsOptions = {}) {
     error,
     isLoading,
     mutate,
-  } = useSWR<AgentSummary[]>(`/api/agent?${queryParams.toString()}`, fetcher, {
-    errorRetryCount: 0,
-    revalidateOnFocus: false,
-    fallbackData: [],
-    onError: handleErrorWithToast,
-    onSuccess: (data) => {
-      // Update Zustand store for chat mentions
-      appStore.setState({ agentList: data });
+  } = useSWR<AgentSummary[]>(
+    `/api/agent?${queryParams.toString()}`,
+    agentFetcher,
+    {
+      errorRetryCount: 0,
+      revalidateOnFocus: false,
+      fallbackData: [],
+      onError: handleErrorWithToast,
+      onSuccess: (data) => {
+        // Update Zustand store for chat mentions
+        appStore.setState({ agentList: data });
+      },
+      ...swrOptions,
     },
-    ...swrOptions,
-  });
+  );
 
   const { data: session } = authClient.useSession();
   const currentUserId = session?.user?.id;

@@ -1,27 +1,19 @@
+"use client";
+
 import MCPDashboard from "@/components/mcp-dashboard";
-import { getSession } from "auth/server";
-import { IS_VERCEL_ENV } from "lib/const";
-import { getTranslations } from "next-intl/server";
-import { redirect } from "next/navigation";
+import { authClient } from "@/lib/auth/client";
 
-export const dynamic = "force-dynamic";
+/**
+ * MCP Dashboard Page
+ * Auth is handled by AuthGuard in the layout.
+ */
+export default function Page() {
+  const { data: session } = authClient.useSession();
 
-export default async function Page() {
-  const session = await getSession();
   if (!session?.user) {
-    return redirect("/login");
+    return null; // AuthGuard will handle redirect
   }
 
-  const isAddingDisabled = process.env.NOT_ALLOW_ADD_MCP_SERVERS;
-
-  const t = await getTranslations("Info");
-  let message: string | undefined;
-
-  if (isAddingDisabled) {
-    message = t("mcpAddingDisabled");
-  } else if (IS_VERCEL_ENV) {
-    message = t("vercelSyncDelay");
-  }
-
-  return <MCPDashboard message={message} user={session?.user} />;
+  // Note: message prop removed - can be added back if needed via env check on client
+  return <MCPDashboard user={session.user} />;
 }

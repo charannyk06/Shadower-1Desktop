@@ -1,12 +1,14 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { ArchiveActionsClient } from "@/app/(chat)/archive/[id]/archive-actions-client";
-import { getSession } from "auth/server";
-import { archiveRepository, chatRepository } from "lib/db/repository";
-import { MessageCircleXIcon } from "lucide-react";
+import { authClient } from "@/lib/auth/client";
+import { archiveApi } from "@/lib/electron/archive-api";
+import { MessageCircleXIcon, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader } from "ui/card";
 import { Separator } from "ui/separator";
-
 import LightRays from "ui/light-rays";
 import Particles from "ui/particles";
 
@@ -28,6 +30,7 @@ interface ArchiveWithThreads {
   id: string;
   name: string;
   description: string | null;
+  userId: string;
   createdAt: Date;
   updatedAt: Date;
   threads: Array<{
@@ -38,51 +41,65 @@ interface ArchiveWithThreads {
   }>;
 }
 
-async function getArchiveWithThreads(
-  archiveId: string,
-): Promise<ArchiveWithThreads | null> {
-  const session = await getSession();
-  if (!session?.user?.id) return null;
+/**
+ * Archive Detail Page
+ * Auth is handled by AuthGuard in the layout.
+ */
+export default function ArchivePage() {
+  const params = useParams();
+  const router = useRouter();
+  const id = params.id as string;
+  const { data: session } = authClient.useSession();
 
-  const [archive, archiveItems] = await Promise.all([
-    archiveRepository.getArchiveById(archiveId),
-    archiveRepository.getArchiveItems(archiveId),
-  ]);
+  const [archive, setArchive] = useState<ArchiveWithThreads | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  if (!archive || archive.userId !== session.user.id) return null;
+  useEffect(() => {
+    if (!session?.user?.id || !id) return;
 
-  const threadIds = archiveItems.map((item) => item.itemId);
+    const loadArchive = async () => {
+      setIsLoading(true);
+      try {
+        // Get archive via IPC
+        const archiveData = await archiveApi.getById(id);
 
-  if (threadIds.length === 0) {
-    return { ...archive, threads: [] };
-  }
+        if (!archiveData || archiveData.userId !== session.user.id) {
+          router.replace("/");
+          return;
+        }
 
-  const allThreads = await chatRepository.selectThreadsByUserId(
-    session.user.id,
-  );
-  const threads = allThreads
-    .filter((thread) => threadIds.includes(thread.id))
-    .sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
+        // For now, we'll show the archive without threads
+        // Threads would need a separate IPC call to get archived threads
+        setArchive({
+          ...archiveData,
+          createdAt: new Date(archiveData.createdAt),
+          updatedAt: new Date(archiveData.updatedAt),
+          threads: [], // TODO: Add IPC to get archived threads
+        });
+      } catch (error) {
+        console.error("[ArchivePage] Error loading archive:", error);
+        router.replace("/");
+      }
+      setIsLoading(false);
+    };
 
-  return { ...archive, threads };
-}
-
-export default async function ArchivePage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const session = await getSession();
+    loadArchive();
+  }, [id, session?.user?.id, router]);
 
   if (!session?.user?.id) {
-    redirect("/sign-in");
+    return null; // AuthGuard will handle redirect
   }
 
-  const archive = await getArchiveWithThreads(id);
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   if (!archive) {
-    redirect("/");
+    return null;
   }
 
   return (
@@ -141,7 +158,7 @@ export default async function ArchivePage({
         {/* Threads List */}
         <div className="space-y-3">
           {archive.threads.length === 0 ? (
-            <Card className="bg-transparent  border-none">
+            <Card className="bg-transparent border-none">
               <CardContent className="flex items-center justify-center py-12">
                 <div className="text-center">
                   <MessageCircleXIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />

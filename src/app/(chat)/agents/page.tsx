@@ -1,25 +1,32 @@
+"use client";
+
 import { AgentsList } from "@/components/agent/agents-list";
 import { getSystemAgentSummaries } from "@/lib/ai/agents/system-agents";
-import { getSession } from "auth/server";
-import { notFound } from "next/navigation";
+import { authClient } from "@/lib/auth/client";
+import { Loader2 } from "lucide-react";
 
-export const dynamic = "force-dynamic";
-
-export default async function AgentsPage() {
-  const session = await getSession();
-
-  if (!session?.user.id) {
-    notFound();
-  }
-
-  // In Electron mode, database access is handled via IPC in the client component
-  // Don't fetch agents on the server - let the client component handle it via API route
-  // This avoids the SQLite database access error in Electron dev mode
-  const myAgents: any[] = [];
-  const sharedAgents: any[] = [];
+export default function AgentsPage() {
+  const { data: session, isPending } = authClient.useSession();
 
   // Get system agents (these don't require database access)
   const systemAgents = getSystemAgentSummaries();
+
+  if (isPending) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!session?.user?.id) {
+    return null; // AuthGuard will handle redirect
+  }
+
+  // In Electron mode, database access is handled via IPC in the client component
+  // Don't fetch agents on the server - let the client component handle it via IPC
+  const myAgents: any[] = [];
+  const sharedAgents: any[] = [];
 
   return (
     <AgentsList

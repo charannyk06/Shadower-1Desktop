@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { getDatabase, schema } from "../services/database";
-import { eq } from "drizzle-orm";
+import { eq, sql, count, and, gte } from "drizzle-orm";
 
 export function registerUserHandlers() {
   const db = getDatabase();
@@ -97,6 +97,67 @@ export function registerUserHandlers() {
     } catch (error) {
       console.error("[IPC] Error updating user profile:", error);
       throw error;
+    }
+  });
+
+  // Get user by ID (for admin or self-view)
+  ipcMain.handle("db:user:getById", async (_event, userId: string) => {
+    try {
+      const [user] = await db
+        .select()
+        .from(schema.UserTable)
+        .where(eq(schema.UserTable.id, userId))
+        .limit(1);
+
+      return user || null;
+    } catch (error) {
+      console.error("[IPC] Error getting user by ID:", error);
+      throw error;
+    }
+  });
+
+  // Get user stats (thread count, message count, etc.)
+  ipcMain.handle("db:user:getStats", async (_event, userId: string) => {
+    try {
+      // Get thread count
+      const threadCountResult = await db
+        .select({ count: count() })
+        .from(schema.ChatThreadTable)
+        .where(eq(schema.ChatThreadTable.userId, userId));
+
+      const threadCount = threadCountResult[0]?.count || 0;
+
+      // Get message count - join with threads to filter by user
+      const messageCountResult = await db
+        .select({ count: count() })
+        .from(schema.ChatMessageTable)
+        .innerJoin(
+          schema.ChatThreadTable,
+          eq(schema.ChatMessageTable.threadId, schema.ChatThreadTable.id),
+        )
+        .where(eq(schema.ChatThreadTable.userId, userId));
+
+      const messageCount = messageCountResult[0]?.count || 0;
+
+      // For desktop app, we don't track model stats or tokens in the same way
+      // Return simplified stats
+      return {
+        threadCount,
+        messageCount,
+        modelStats: [],
+        totalTokens: 0,
+        period: "All Time",
+      };
+    } catch (error) {
+      console.error("[IPC] Error getting user stats:", error);
+      // Return default stats on error
+      return {
+        threadCount: 0,
+        messageCount: 0,
+        modelStats: [],
+        totalTokens: 0,
+        period: "All Time",
+      };
     }
   });
 
