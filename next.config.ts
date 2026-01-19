@@ -1,27 +1,23 @@
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 
-// Determine build output type
-const BUILD_OUTPUT = process.env.NEXT_STANDALONE_OUTPUT
-  ? "standalone"
-  : process.env.ELECTRON_BUILD === "true"
-    ? "export"
-    : undefined;
-
-// Check if building for Electron
-const isElectronBuild = process.env.ELECTRON_BUILD === "true";
-
+/**
+ * Next.js Configuration for Electron-Only Application
+ *
+ * This application is Electron-only. We always export static files.
+ * No web server mode is supported.
+ */
 export default () => {
   const nextConfig: NextConfig = {
-    output: BUILD_OUTPUT,
+    // Only use static export in production builds
+    // In development, we need dynamic rendering for pages with force-dynamic
+    ...(process.env.NODE_ENV === "production" && { output: "export" }),
     cleanDistDir: true,
-    // For Electron static export, disable image optimization
-    ...(isElectronBuild && {
-      images: {
-        unoptimized: true,
-      },
-      trailingSlash: true,
-    }),
+    // Always use Electron-optimized settings
+    images: {
+      unoptimized: true,
+    },
+    trailingSlash: true,
     devIndicators: {
       position: "bottom-right",
     },
