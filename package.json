@@ -7,16 +7,10 @@
   "type": "module",
   "main": "dist-electron/electron/main.cjs",
   "scripts": {
-    "dev": "next dev",
     "electron:compile": "node scripts/build-electron.mjs",
     "electron:dev": "pnpm electron:compile && concurrently \"next dev -p 3000\" \"wait-on http://localhost:3000 -t 60000 && npx @electron/rebuild --only=better-sqlite3 --force && NODE_ENV=development PORT=3000 ELECTRON_RUN_AS_NODE= electron .\"",
-    "electron:build": "pnpm electron:compile && cross-env ELECTRON_BUILD=true next build && electron-builder",
+    "electron:build": "pnpm electron:compile && next build && electron-builder",
     "electron:start": "ELECTRON_RUN_AS_NODE= electron .",
-    "dev:turbopack": "next dev --turbopack",
-    "dev:https": "next dev --experimental-https",
-    "build": "npm run db:migrate && next build",
-    "start": "next start",
-    "build:local": "cross-env NO_HTTPS='1' next build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -93,7 +87,6 @@
     "@xyflow/react": "^12.10.0",
     "ai": "^6.0.0",
     "bcrypt-ts": "^7.1.0",
-    "better-auth": "^1.4.9",
     "better-sqlite3": "^12.6.2",
     "chokidar": "^4.0.3",
     "chrome-remote-interface": "^0.33.3",
@@ -154,7 +147,6 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
-    "@better-auth-kit/seed": "^1.0.12",
     "@biomejs/biome": "1.9.4",
     "@electron/rebuild": "^4.0.2",
     "@playwright/test": "^1.57.0",
