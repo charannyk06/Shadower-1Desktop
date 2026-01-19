@@ -4,9 +4,9 @@ import type { UIMessageStreamWriter } from "ai";
 import { fragmentAgent } from "lib/ai/agents/fragment-agent";
 import { deploymentService } from "lib/ai/fragments/deployment-service";
 import {
-  e2bCostTracker,
+  sandboxCostTracker,
   QuotaExceededError,
-} from "lib/billing/e2b-cost-tracker";
+} from "lib/billing/sandbox-cost-tracker";
 import { fragmentRepository } from "lib/db/repository";
 import logger from "logger";
 
@@ -65,7 +65,7 @@ The system is FULLY AUTONOMOUS - just describe what you want!`,
 
       try {
         // Check quota before starting
-        await e2bCostTracker.enforceQuota(context.userId);
+        await sandboxCostTracker.enforceQuota(context.userId);
 
         logger.info(
           `[FRAGMENT_TOOL] Creating fragment for user ${context.userId} (toolCallId: ${toolCallId}): ${request.slice(0, 50)}...`,
@@ -96,7 +96,7 @@ The system is FULLY AUTONOMOUS - just describe what you want!`,
 
         // Track usage
         const durationMs = Date.now() - startTime;
-        await e2bCostTracker.trackSession({
+        await sandboxCostTracker.trackSession({
           userId: context.userId,
           sessionId: result.sandboxId,
           template: result.template,
@@ -172,7 +172,7 @@ Provide the fragment ID and describe your edit.`,
 
       try {
         // Check quota
-        await e2bCostTracker.enforceQuota(context.userId);
+        await sandboxCostTracker.enforceQuota(context.userId);
 
         logger.info(
           `[FRAGMENT_TOOL] Editing fragment ${fragmentId}: ${editRequest.slice(0, 50)}...`,
@@ -206,7 +206,7 @@ Provide the fragment ID and describe your edit.`,
 
         // Track usage
         const durationMs = Date.now() - startTime;
-        await e2bCostTracker.trackSession({
+        await sandboxCostTracker.trackSession({
           userId: context.userId,
           sessionId: result.sandboxId,
           template: result.template,

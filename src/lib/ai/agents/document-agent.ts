@@ -18,7 +18,7 @@ import {
 } from "lib/vector-search/vector-search-service";
 import logger from "logger";
 import { z } from "zod";
-import { E2BSandboxService } from "../sandbox/e2b-service";
+import { E2BSandboxService } from "../sandbox/local-sandbox-service";
 import {
   generateEditorConfig,
   isCollaboraConfigured,
@@ -498,13 +498,13 @@ export class DocumentAgent {
 
       // Emit collabora-open event
       this.dataStream.write({
-        type: "collabora-open",
-        data: {
+        type: "data-collabora-open",
+        data: JSON.stringify({
           editorUrl: editorConfig.collaboraUrl,
           fileUrl: finalFileUrl,
           fileName,
           documentType,
-        },
+        }),
       });
 
       logger.info(
@@ -711,9 +711,9 @@ export class DocumentAgent {
       }
     }
 
-    const documentResult = {
+    const documentResult: DocumentResult = {
       success: true,
-      documentType: "presentation",
+      documentType: "presentation" as DocType,
       title,
       fileName: result.fileName || fileName,
       fileUrl: result.fileUrl,

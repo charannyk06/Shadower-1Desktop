@@ -3,7 +3,7 @@ export enum AppDefaultToolkit {
   WebSearch = "webSearch",
   Http = "http",
   Sandbox = "sandbox",
-  // New toolkits for E2B + Browserbase integration
+  // Browser and Desktop automation toolkits
   Browser = "browser",
   Desktop = "desktop",
   DataAnalysis = "dataAnalysis",
@@ -24,7 +24,7 @@ export enum DefaultToolName {
   WebContent = "webContent",
   Http = "http",
   Sandbox = "sandbox",
-  // Browser automation tools (Browserbase + Stagehand)
+  // Browser automation tools (Local Chrome DevTools Protocol)
   BrowserNavigate = "browserNavigate",
   BrowserAct = "browserAct",
   BrowserObserve = "browserObserve",
@@ -33,7 +33,7 @@ export enum DefaultToolName {
   BrowserStealth = "browserStealth",
   BrowserWait = "browserWait",
   BrowserClose = "browserClose",
-  // Desktop/Computer Use tools (E2B Desktop)
+  // Desktop/Computer Use tools (Local Terminal)
   DesktopCreate = "desktopCreate",
   DesktopScreenshot = "desktopScreenshot",
   DesktopClick = "desktopClick",

@@ -14,13 +14,13 @@ import { createPieChartTool } from "./visualization/create-pie-chart";
 import { createTableTool } from "./visualization/create-table";
 import { exaContentsTool, exaSearchTool } from "./web/web-search";
 
-// Browser automation tools (Browserbase + Stagehand)
+// Browser automation tools (Local Chrome DevTools Protocol)
 import {
-  browserbaseTools,
+  localBrowserTools,
   createBrowserToolsWithContext,
-} from "./browser/browserbase-tools";
+} from "./browser/local-browser-tools";
 
-// Desktop/Computer Use tools (E2B Desktop)
+// Desktop/Computer Use tools (Local Terminal)
 import { desktopTools } from "./sandbox/desktop-tools";
 
 // Data analysis tools
@@ -66,18 +66,18 @@ export const APP_DEFAULT_TOOL_KIT: Record<
   [AppDefaultToolkit.Sandbox]: {
     [DefaultToolName.Sandbox]: unifiedSandboxTool,
   },
-  // Browser automation tools (Browserbase + Stagehand)
+  // Browser automation tools (Local Chrome DevTools Protocol)
   [AppDefaultToolkit.Browser]: {
-    [DefaultToolName.BrowserNavigate]: browserbaseTools.browser_navigate,
-    [DefaultToolName.BrowserAct]: browserbaseTools.browser_act,
-    [DefaultToolName.BrowserObserve]: browserbaseTools.browser_observe,
-    [DefaultToolName.BrowserExtract]: browserbaseTools.browser_extract,
-    [DefaultToolName.BrowserScreenshot]: browserbaseTools.browser_screenshot,
-    [DefaultToolName.BrowserWait]: browserbaseTools.browser_wait,
-    [DefaultToolName.BrowserStealth]: browserbaseTools.browser_stealth,
-    [DefaultToolName.BrowserClose]: browserbaseTools.browser_close,
+    [DefaultToolName.BrowserNavigate]: localBrowserTools.browser_navigate,
+    [DefaultToolName.BrowserAct]: localBrowserTools.browser_act,
+    [DefaultToolName.BrowserObserve]: localBrowserTools.browser_observe,
+    [DefaultToolName.BrowserExtract]: localBrowserTools.browser_extract,
+    [DefaultToolName.BrowserScreenshot]: localBrowserTools.browser_screenshot,
+    [DefaultToolName.BrowserWait]: localBrowserTools.browser_wait,
+    [DefaultToolName.BrowserStealth]: localBrowserTools.browser_stealth,
+    [DefaultToolName.BrowserClose]: localBrowserTools.browser_close,
   },
-  // Desktop/Computer Use tools (E2B Desktop)
+  // Desktop/Computer Use tools (Local Terminal)
   [AppDefaultToolkit.Desktop]: {
     [DefaultToolName.DesktopCreate]: desktopTools.desktop_create,
     [DefaultToolName.DesktopScreenshot]: desktopTools.desktop_screenshot,
@@ -187,15 +187,15 @@ export function createAppDefaultToolKit(
       },
       // Browser tools work without thread context
       [AppDefaultToolkit.Browser]: {
-        [DefaultToolName.BrowserNavigate]: browserbaseTools.browser_navigate,
-        [DefaultToolName.BrowserAct]: browserbaseTools.browser_act,
-        [DefaultToolName.BrowserObserve]: browserbaseTools.browser_observe,
-        [DefaultToolName.BrowserExtract]: browserbaseTools.browser_extract,
+        [DefaultToolName.BrowserNavigate]: localBrowserTools.browser_navigate,
+        [DefaultToolName.BrowserAct]: localBrowserTools.browser_act,
+        [DefaultToolName.BrowserObserve]: localBrowserTools.browser_observe,
+        [DefaultToolName.BrowserExtract]: localBrowserTools.browser_extract,
         [DefaultToolName.BrowserScreenshot]:
-          browserbaseTools.browser_screenshot,
-        [DefaultToolName.BrowserWait]: browserbaseTools.browser_wait,
-        [DefaultToolName.BrowserStealth]: browserbaseTools.browser_stealth,
-        [DefaultToolName.BrowserClose]: browserbaseTools.browser_close,
+          localBrowserTools.browser_screenshot,
+        [DefaultToolName.BrowserWait]: localBrowserTools.browser_wait,
+        [DefaultToolName.BrowserStealth]: localBrowserTools.browser_stealth,
+        [DefaultToolName.BrowserClose]: localBrowserTools.browser_close,
       },
       // Desktop tools work without thread context
       [AppDefaultToolkit.Desktop]: {
@@ -273,7 +273,7 @@ export function createAppDefaultToolKit(
       // DEPRECATED: Use createFragment for web apps, dashboards, games, and documents
       // Sandbox tool will be removed in Phase 2 - kept for backward compatibility only
     },
-    // Browser automation tools (Browserbase + Stagehand) - context-aware versions
+    // Browser automation tools (Local Chrome DevTools) - context-aware versions
     // These tools have userId and threadId pre-injected so AI doesn't need to provide them
     [AppDefaultToolkit.Browser]: {
       [DefaultToolName.BrowserNavigate]:
@@ -290,7 +290,7 @@ export function createAppDefaultToolKit(
         contextAwareBrowserTools.browser_stealth,
       [DefaultToolName.BrowserClose]: contextAwareBrowserTools.browser_close,
     },
-    // Desktop/Computer Use tools (E2B Desktop)
+    // Desktop/Computer Use tools (Local Terminal)
     [AppDefaultToolkit.Desktop]: {
       [DefaultToolName.DesktopCreate]: desktopTools.desktop_create,
       [DefaultToolName.DesktopScreenshot]: desktopTools.desktop_screenshot,

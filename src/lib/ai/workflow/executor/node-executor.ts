@@ -4,7 +4,6 @@ import {
   generateObject,
   generateText,
 } from "ai";
-import { getComposioClientForUser, isComposioEnabled } from "lib/ai/composio";
 import { mcpClientsManager } from "lib/ai/mcp/mcp-manager";
 import { customModelProvider } from "lib/ai/models";
 import { DefaultToolName } from "lib/ai/tools";
@@ -28,7 +27,6 @@ import {
   convertTiptapJsonToText,
 } from "../shared.workflow";
 import {
-  ComposioTool,
   ConditionNodeData,
   DefaultTool,
   HttpNodeData,
@@ -421,44 +419,6 @@ async function executeMcpTool(
   return { tool_result: toolResult };
 }
 
-// Helper: Execute Composio tool
-async function executeComposioTool(
-  tool: WorkflowToolKey & ComposioTool,
-  parameter: unknown,
-  userId: string | undefined,
-): Promise<{ tool_result: unknown }> {
-  if (!userId) {
-    throw new Error(
-      "User context required for Composio tools. Workflow execution must include userId.",
-    );
-  }
-
-  if (!isComposioEnabled()) {
-    throw new Error(
-      "Composio integrations are not enabled. Please configure COMPOSIO_API_KEY.",
-    );
-  }
-
-  const client = getComposioClientForUser(userId);
-  if (!client) {
-    throw new Error("Could not create Composio client for user.");
-  }
-
-  const toolResult = await client.executeAction(
-    tool.id,
-    (parameter as Record<string, unknown>) || {},
-  );
-
-  if (toAny(toolResult)?.isError) {
-    throw new Error(
-      toAny(toolResult)?.error?.message ||
-        toAny(toolResult)?.error?.name ||
-        JSON.stringify(toolResult),
-    );
-  }
-  return { tool_result: toolResult };
-}
-
 // Helper: Execute app tool (WebSearch, WebContent)
 async function executeAppTool(
   tool: WorkflowToolKey & DefaultTool,
@@ -579,12 +539,6 @@ export const toolNodeExecutor: NodeExecutor<ToolNodeData> = async ({
   const toolType = node.tool.type;
   if (toolType === "mcp-tool") {
     result.output = await executeMcpTool(node.tool, result.input.parameter);
-  } else if (toolType === "composio-tool") {
-    result.output = await executeComposioTool(
-      node.tool,
-      result.input.parameter,
-      state.userId,
-    );
   } else if (toolType === "app-tool") {
     result.output = await executeAppTool(node.tool, result.input.parameter);
     trackWebSearchUsage(state, node, result.input.parameter);

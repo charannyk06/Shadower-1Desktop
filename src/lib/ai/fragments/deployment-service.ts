@@ -1,10 +1,9 @@
-import { Sandbox } from "@e2b/code-interpreter";
 import { nanoid } from "nanoid";
 import {
   fragmentRepository,
   fragmentSharesRepository,
-  e2bUsageRepository,
 } from "lib/db/repository";
+import { sandboxCostTracker } from "lib/billing/sandbox-cost-tracker";
 import logger from "logger";
 
 /**
@@ -105,13 +104,13 @@ export class DeploymentService {
       deploymentUrl: `${this.baseUrl}/f/${shareId}`,
     });
 
-    // Track usage
-    await e2bUsageRepository.recordUsage({
+    // Track usage locally
+    await sandboxCostTracker.trackSession({
       userId,
       sessionId: fragment.sandbox_id || `deploy-${fragmentId}`,
       template: fragment.template,
       durationMs,
-      operationType: "deploy",
+      operationType: "execute" as const,
     });
 
     const url = `${this.baseUrl}/f/${shareId}`;
@@ -127,29 +126,18 @@ export class DeploymentService {
   }
 
   /**
-   * Extend sandbox timeout
+   * Extend sandbox timeout (no-op for local execution)
+   * Local processes don't have cloud-based timeout limits
    */
   private async extendSandboxTimeout(
     sandboxId: string,
     timeoutMs: number,
   ): Promise<void> {
-    const apiKey = process.env.E2B_API_KEY;
-    if (!apiKey) {
-      throw new Error("E2B_API_KEY not configured");
-    }
-
-    // E2B API to extend sandbox timeout
-    // Note: This requires E2B SDK support for setTimeout
-    try {
-      const sandbox = await Sandbox.connect(sandboxId, { apiKey });
-      await sandbox.setTimeout(timeoutMs);
-      logger.debug(
-        `[DEPLOY] Extended sandbox ${sandboxId} timeout by ${timeoutMs}ms`,
-      );
-    } catch (error) {
-      logger.warn(`[DEPLOY] Failed to extend sandbox timeout: ${error}`);
-      throw error;
-    }
+    // For local-first desktop app, sandbox processes run locally
+    // and don't have cloud-based timeout limits to extend
+    logger.debug(
+      `[DEPLOY] Local sandbox ${sandboxId} - no timeout extension needed (${timeoutMs}ms)`,
+    );
   }
 
   /**
@@ -237,6 +225,14 @@ export class DeploymentService {
       return null;
     }
 
+    // Validate required fields exist
+    if (!fragment.template || !fragment.code) {
+      logger.warn(
+        `[DEPLOY] Fragment ${share.fragmentId} missing required fields for public view`,
+      );
+      return null;
+    }
+
     // Increment view count
     await fragmentSharesRepository.incrementViewCount(shareId);
 
@@ -244,13 +240,13 @@ export class DeploymentService {
       fragment: {
         id: fragment.id,
         title: fragment.title,
-        description: fragment.description,
+        description: fragment.description ?? "",
         template: fragment.template,
         code: fragment.code,
         previewUrl: fragment.preview_url,
       },
       share: {
-        expiresAt: share.expiresAt,
+        expiresAt: share.expiresAt ?? null,
         viewCount: share.viewCount + 1, // Include current view
       },
     };

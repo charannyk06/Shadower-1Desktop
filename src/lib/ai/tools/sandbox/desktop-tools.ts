@@ -1,538 +1,108 @@
 import { tool as createTool } from "ai";
 import { z } from "zod";
-import { getSessionForThread } from "../../../middleware/session-quota";
-import { getE2BDesktopService } from "../../sandbox/e2b-desktop-service";
 
 /**
- * Desktop automation tools using E2B Desktop Sandbox.
- * These tools enable computer use capabilities with GUI automation.
+ * Local Desktop/Terminal automation tools.
+ * These tools enable command execution and terminal operations on the local machine.
  *
- * IMPORTANT: These tools are stateless and look up sessions from the database.
- * Each tool requires userId and threadId to find the active session.
+ * IMPORTANT: These tools execute commands locally via Electron IPC.
  */
 
-// Common params for all tools that need session context
-const SessionContextParams = z.object({
-  userId: z.string().describe("User ID who owns this desktop session"),
-  threadId: z.string().describe("Thread ID to find the active session"),
-});
+// Check if running in Electron renderer
+const isElectron =
+  typeof window !== "undefined" &&
+  window.electronAPI &&
+  window.electronAPI.terminal;
 
 /**
- * Helper to get active desktop session for a thread from database
+ * Helper to call terminal IPC methods
  */
-async function getActiveDesktopForThread(
-  threadId: string,
-): Promise<string | null> {
-  const session = await getSessionForThread(threadId, "e2b-desktop");
-  return session?.sessionId || null;
+async function callTerminalIPC<T>(
+  method: string,
+  ...args: unknown[]
+): Promise<T> {
+  if (!isElectron) {
+    throw new Error("Terminal tools are only available in the desktop app");
+  }
+  const terminalAPI = window.electronAPI.terminal as unknown as Record<
+    string,
+    (...args: unknown[]) => Promise<T>
+  >;
+  if (!terminalAPI[method]) {
+    throw new Error(`Terminal method ${method} not available`);
+  }
+  return terminalAPI[method](...args);
 }
 
 /**
- * Helper function to get or create a desktop sandbox
- */
-async function getOrCreateDesktopSandbox(
-  userId: string,
-  threadId: string,
-): Promise<
-  { success: true; sandboxId: string } | { success: false; error: string }
-> {
-  const service = getE2BDesktopService();
-
-  if (!service.isConfigured()) {
-    return {
-      success: false,
-      error: "E2B is not configured. Please set E2B_API_KEY.",
-    };
-  }
-
-  // Check for existing session
-  let sandboxId = await getActiveDesktopForThread(threadId);
-
-  // Auto-create if it doesn't exist
-  if (!sandboxId) {
-    try {
-      const session = await service.createDesktop({
-        userId,
-        threadId,
-      });
-      sandboxId = session.sandboxId;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return {
-        success: false,
-        error: `Failed to create desktop sandbox: ${message}`,
-      };
-    }
-  }
-
-  return { success: true, sandboxId };
-}
-
-/**
- * Create or get the active desktop sandbox.
- */
-export const desktopCreateTool = createTool({
-  description:
-    "Create a new desktop sandbox environment for computer use tasks. This provides a full Linux desktop that can run applications, browse the web, and perform GUI automation.",
-  inputSchema: z
-    .object({
-      timeout: z
-        .number()
-        .optional()
-        .describe("Session timeout in milliseconds (default: 5 minutes)"),
-    })
-    .extend(SessionContextParams.shape),
-  execute: async ({ timeout, userId, threadId }) => {
-    const service = getE2BDesktopService();
-
-    if (!service.isConfigured()) {
-      return {
-        success: false,
-        error: "E2B is not configured. Please set E2B_API_KEY.",
-      };
-    }
-
-    try {
-      // Check for existing session and close it
-      const existingSandboxId = await getActiveDesktopForThread(threadId);
-      if (existingSandboxId) {
-        try {
-          await service.closeDesktop(existingSandboxId);
-        } catch {
-          // Ignore errors when closing old session
-        }
-      }
-
-      const session = await service.createDesktop({
-        timeout,
-        userId,
-        threadId,
-      });
-
-      return {
-        success: true,
-        sandboxId: session.sandboxId,
-        message:
-          "Desktop sandbox created. You can now launch applications and interact with the GUI.",
-        guide:
-          "Use desktop_launch to open applications, desktop_screenshot to see the screen, and desktop_click/desktop_type to interact.",
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return {
-        success: false,
-        error: message,
-      };
-    }
-  },
-});
-
-/**
- * Take a screenshot of the desktop.
- */
-export const desktopScreenshotTool = createTool({
-  description:
-    "Take a screenshot of the current desktop state. Use this to see what's on screen before performing actions.",
-  inputSchema: SessionContextParams,
-  execute: async ({ userId, threadId }) => {
-    const service = getE2BDesktopService();
-
-    if (!service.isConfigured()) {
-      return {
-        success: false,
-        error: "E2B is not configured. Please set E2B_API_KEY.",
-      };
-    }
-
-    // Look up session from database
-    let sandboxId = await getActiveDesktopForThread(threadId);
-
-    // Auto-create sandbox if it doesn't exist
-    if (!sandboxId) {
-      try {
-        const desktop = await service.createDesktop({
-          userId,
-          threadId,
-        });
-        sandboxId = desktop.sandboxId;
-      } catch (error: unknown) {
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
-        return {
-          success: false,
-          error: `Failed to create desktop sandbox: ${message}`,
-        };
-      }
-    }
-
-    try {
-      const result = await service.screenshot(sandboxId);
-
-      return {
-        success: true,
-        screenshot: `data:image/png;base64,${result.base64}`,
-        width: result.width,
-        height: result.height,
-        sandboxId,
-        guide:
-          "Analyze the screenshot to identify UI elements and their positions for interaction.",
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return {
-        success: false,
-        error: message,
-      };
-    }
-  },
-});
-
-/**
- * Click at coordinates on the desktop.
- */
-export const desktopClickTool = createTool({
-  description:
-    "Click at specific coordinates on the desktop. Use left click for normal selection, right click for context menus, double click to open items.",
-  inputSchema: z
-    .object({
-      x: z.number().describe("X coordinate to click"),
-      y: z.number().describe("Y coordinate to click"),
-      button: z
-        .enum(["left", "right", "double"])
-        .optional()
-        .describe("Mouse button to click (default: left)"),
-    })
-    .extend(SessionContextParams.shape),
-  execute: async ({ x, y, button = "left", userId, threadId }) => {
-    const sandboxResult = await getOrCreateDesktopSandbox(userId, threadId);
-    if (!sandboxResult.success) {
-      return sandboxResult;
-    }
-    const sandboxId = sandboxResult.sandboxId;
-    const service = getE2BDesktopService();
-
-    try {
-      let result;
-      if (button === "right") {
-        result = await service.rightClick(sandboxId, x, y);
-      } else if (button === "double") {
-        result = await service.doubleClick(sandboxId, x, y);
-      } else {
-        result = await service.leftClick(sandboxId, x, y);
-      }
-
-      // Take screenshot after click
-      const screenshot = await service.screenshot(sandboxId);
-
-      return {
-        success: result.success,
-        message: result.message,
-        sandboxId,
-        screenshot: `data:image/png;base64,${screenshot.base64}`,
-        error: result.error,
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return {
-        success: false,
-        error: message,
-      };
-    }
-  },
-});
-
-/**
- * Type text at current cursor position.
- */
-export const desktopTypeTool = createTool({
-  description:
-    "Type text at the current cursor position. Click on an input field first, then use this to enter text.",
-  inputSchema: z
-    .object({
-      text: z.string().describe("Text to type"),
-    })
-    .extend(SessionContextParams.shape),
-  execute: async ({ text, userId, threadId }) => {
-    const sandboxResult = await getOrCreateDesktopSandbox(userId, threadId);
-    if (!sandboxResult.success) {
-      return sandboxResult;
-    }
-    const sandboxId = sandboxResult.sandboxId;
-    const service = getE2BDesktopService();
-
-    try {
-      const result = await service.type(sandboxId, text);
-
-      // Take screenshot after typing
-      const screenshot = await service.screenshot(sandboxId);
-
-      return {
-        success: result.success,
-        message: result.message,
-        sandboxId,
-        screenshot: `data:image/png;base64,${screenshot.base64}`,
-        error: result.error,
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return {
-        success: false,
-        error: message,
-      };
-    }
-  },
-});
-
-/**
- * Press keyboard keys.
- */
-export const desktopPressTool = createTool({
-  description:
-    'Press a keyboard key or key combination. Examples: "Enter", "Tab", "ctrl+c", "ctrl+v", "alt+Tab", "F5".',
-  inputSchema: z
-    .object({
-      key: z
-        .string()
-        .describe(
-          'Key or key combination to press (e.g., "Enter", "ctrl+c", "alt+Tab")',
-        ),
-    })
-    .extend(SessionContextParams.shape),
-  execute: async ({ key, userId, threadId }) => {
-    const sandboxResult = await getOrCreateDesktopSandbox(userId, threadId);
-    if (!sandboxResult.success) {
-      return sandboxResult;
-    }
-    const sandboxId = sandboxResult.sandboxId;
-    const service = getE2BDesktopService();
-
-    try {
-      const result = await service.press(sandboxId, key);
-
-      // Wait a moment for the action to take effect
-      await service.wait(sandboxId, 500);
-
-      // Take screenshot after key press
-      const screenshot = await service.screenshot(sandboxId);
-
-      return {
-        success: result.success,
-        message: result.message,
-        sandboxId,
-        screenshot: `data:image/png;base64,${screenshot.base64}`,
-        error: result.error,
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return {
-        success: false,
-        error: message,
-      };
-    }
-  },
-});
-
-/**
- * Scroll the screen.
- */
-export const desktopScrollTool = createTool({
-  description:
-    "Scroll the screen up or down. Use this to navigate long pages or documents.",
-  inputSchema: z
-    .object({
-      direction: z.enum(["up", "down"]).describe("Direction to scroll"),
-      amount: z.number().optional().describe("Amount to scroll (default: 3)"),
-    })
-    .extend(SessionContextParams.shape),
-  execute: async ({ direction, amount = 3, userId, threadId }) => {
-    const sandboxResult = await getOrCreateDesktopSandbox(userId, threadId);
-    if (!sandboxResult.success) {
-      return sandboxResult;
-    }
-    const sandboxId = sandboxResult.sandboxId;
-    const service = getE2BDesktopService();
-
-    try {
-      const result = await service.scroll(sandboxId, direction, amount);
-
-      // Take screenshot after scrolling
-      const screenshot = await service.screenshot(sandboxId);
-
-      return {
-        success: result.success,
-        message: result.message,
-        sandboxId,
-        screenshot: `data:image/png;base64,${screenshot.base64}`,
-        error: result.error,
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return {
-        success: false,
-        error: message,
-      };
-    }
-  },
-});
-
-/**
- * Launch an application.
- */
-export const desktopLaunchTool = createTool({
-  description:
-    'Launch an application in the desktop. Common apps: "google-chrome", "firefox", "code" (VS Code), "libreoffice", "gimp", "terminal".',
-  inputSchema: z
-    .object({
-      app: z.string().describe("Application name to launch"),
-    })
-    .extend(SessionContextParams.shape),
-  execute: async ({ app, userId, threadId }) => {
-    const sandboxResult = await getOrCreateDesktopSandbox(userId, threadId);
-    if (!sandboxResult.success) {
-      return sandboxResult;
-    }
-    const sandboxId = sandboxResult.sandboxId;
-    const service = getE2BDesktopService();
-
-    try {
-      const result = await service.launchApp(sandboxId, app);
-
-      // Wait for app to fully open
-      await service.wait(sandboxId, 2000);
-
-      // Take screenshot after launching
-      const screenshot = await service.screenshot(sandboxId);
-
-      return {
-        success: result.success,
-        message: result.message,
-        sandboxId,
-        screenshot: `data:image/png;base64,${screenshot.base64}`,
-        error: result.error,
-        guide: `${app} has been launched. Use desktop_screenshot to see the current state and desktop_click/desktop_type to interact.`,
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return {
-        success: false,
-        error: message,
-      };
-    }
-  },
-});
-
-/**
- * Move mouse to coordinates.
- */
-export const desktopMoveTool = createTool({
-  description:
-    "Move the mouse cursor to specific coordinates without clicking. Useful for hovering over elements.",
-  inputSchema: z
-    .object({
-      x: z.number().describe("X coordinate to move to"),
-      y: z.number().describe("Y coordinate to move to"),
-    })
-    .extend(SessionContextParams.shape),
-  execute: async ({ x, y, userId, threadId }) => {
-    const sandboxResult = await getOrCreateDesktopSandbox(userId, threadId);
-    if (!sandboxResult.success) {
-      return sandboxResult;
-    }
-    const sandboxId = sandboxResult.sandboxId;
-    const service = getE2BDesktopService();
-
-    try {
-      const result = await service.moveMouse(sandboxId, x, y);
-
-      return {
-        success: result.success,
-        message: result.message,
-        sandboxId,
-        error: result.error,
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return {
-        success: false,
-        error: message,
-      };
-    }
-  },
-});
-
-/**
- * Drag from one point to another.
- */
-export const desktopDragTool = createTool({
-  description:
-    "Drag from one point to another. Useful for moving windows, selecting text, or drag-and-drop operations.",
-  inputSchema: z
-    .object({
-      startX: z.number().describe("Starting X coordinate"),
-      startY: z.number().describe("Starting Y coordinate"),
-      endX: z.number().describe("Ending X coordinate"),
-      endY: z.number().describe("Ending Y coordinate"),
-    })
-    .extend(SessionContextParams.shape),
-  execute: async ({ startX, startY, endX, endY, userId, threadId }) => {
-    const sandboxResult = await getOrCreateDesktopSandbox(userId, threadId);
-    if (!sandboxResult.success) {
-      return sandboxResult;
-    }
-    const sandboxId = sandboxResult.sandboxId;
-    const service = getE2BDesktopService();
-
-    try {
-      const result = await service.drag(sandboxId, startX, startY, endX, endY);
-
-      // Take screenshot after drag
-      const screenshot = await service.screenshot(sandboxId);
-
-      return {
-        success: result.success,
-        message: result.message,
-        sandboxId,
-        screenshot: `data:image/png;base64,${screenshot.base64}`,
-        error: result.error,
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return {
-        success: false,
-        error: message,
-      };
-    }
-  },
-});
-
-/**
- * Run a shell command in the sandbox.
+ * Execute a shell command locally
  */
 export const desktopCommandTool = createTool({
   description:
-    "Run a shell command in the desktop sandbox. Useful for installing software, running scripts, or system tasks.",
-  inputSchema: z
-    .object({
-      command: z.string().describe("Shell command to execute"),
-    })
-    .extend(SessionContextParams.shape),
-  execute: async ({ command, userId, threadId }) => {
-    const sandboxResult = await getOrCreateDesktopSandbox(userId, threadId);
-    if (!sandboxResult.success) {
-      return sandboxResult;
-    }
-    const sandboxId = sandboxResult.sandboxId;
-    const service = getE2BDesktopService();
-
+    "Execute a shell command on the local machine. Returns stdout, stderr, and exit code.",
+  inputSchema: z.object({
+    command: z.string().describe("Shell command to execute"),
+    cwd: z
+      .string()
+      .optional()
+      .describe("Working directory for the command (optional)"),
+    timeout: z
+      .number()
+      .optional()
+      .describe("Command timeout in milliseconds (default: 60000)"),
+  }),
+  execute: async ({ command, cwd, timeout }) => {
     try {
-      const result = await service.runCommand(sandboxId, command);
+      const result = await callTerminalIPC<{
+        success: boolean;
+        stdout: string;
+        stderr: string;
+        exitCode: number;
+        error?: string;
+      }>("execute", { command, cwd, timeout });
+
+      return result;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      return {
+        success: false,
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+        error: message,
+      };
+    }
+  },
+});
+
+/**
+ * Create a desktop sandbox (placeholder - runs in local terminal)
+ */
+export const desktopCreateTool = createTool({
+  description:
+    "Initialize a local terminal session for executing commands. This prepares the local environment for command execution.",
+  inputSchema: z.object({
+    workingDir: z
+      .string()
+      .optional()
+      .describe("Working directory for the terminal session"),
+  }),
+  execute: async ({ workingDir }) => {
+    try {
+      // For local execution, we just verify the terminal IPC is available
+      if (!isElectron) {
+        return {
+          success: false,
+          error: "Terminal tools are only available in the desktop app",
+        };
+      }
 
       return {
-        success: result.exitCode === 0,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        exitCode: result.exitCode,
-        sandboxId,
+        success: true,
+        message: "Local terminal session ready",
+        workingDir: workingDir || process.cwd?.() || "~",
+        guide:
+          "Use desktop_command to execute shell commands. Use desktop_screenshot to capture the screen.",
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -545,31 +115,41 @@ export const desktopCommandTool = createTool({
 });
 
 /**
- * Start streaming the desktop.
+ * Take a screenshot of the desktop
  */
-export const desktopStreamTool = createTool({
+export const desktopScreenshotTool = createTool({
   description:
-    "Start a live video stream of the desktop. Returns a URL that can be used to view the desktop in real-time.",
-  inputSchema: SessionContextParams,
-  execute: async ({ userId, threadId }) => {
-    const sandboxResult = await getOrCreateDesktopSandbox(userId, threadId);
-    if (!sandboxResult.success) {
-      return sandboxResult;
-    }
-    const sandboxId = sandboxResult.sandboxId;
-    const service = getE2BDesktopService();
-
+    "Take a screenshot of the current desktop. Uses system screenshot capabilities.",
+  inputSchema: z.object({
+    fullScreen: z
+      .boolean()
+      .optional()
+      .describe("Capture full screen (default: true)"),
+  }),
+  execute: async ({ fullScreen = true }) => {
     try {
-      const streamInfo = await service.startStream(sandboxId, {
-        requireAuth: true,
-      });
+      const result = await callTerminalIPC<{
+        success: boolean;
+        screenshot?: string;
+        width?: number;
+        height?: number;
+        error?: string;
+      }>("screenshot", { fullScreen });
+
+      if (result.success && result.screenshot) {
+        return {
+          success: true,
+          screenshot: result.screenshot,
+          width: result.width,
+          height: result.height,
+          guide:
+            "Analyze the screenshot to identify UI elements and their positions.",
+        };
+      }
 
       return {
-        success: true,
-        streamUrl: streamInfo.url,
-        authKey: streamInfo.authKey,
-        sandboxId,
-        message: "Desktop stream started. Open the stream URL to view live.",
+        success: false,
+        error: result.error || "Failed to capture screenshot",
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -582,32 +162,177 @@ export const desktopStreamTool = createTool({
 });
 
 /**
- * Close the desktop sandbox.
+ * Click at coordinates (requires robotjs or similar)
  */
-export const desktopCloseTool = createTool({
+export const desktopClickTool = createTool({
   description:
-    "Close the desktop sandbox and release resources. Use this when done with computer use tasks.",
-  inputSchema: SessionContextParams,
-  execute: async ({ userId: _userId, threadId }) => {
-    const service = getE2BDesktopService();
+    "Click at specific coordinates on the desktop. Requires system automation permissions.",
+  inputSchema: z.object({
+    x: z.number().describe("X coordinate to click"),
+    y: z.number().describe("Y coordinate to click"),
+    button: z
+      .enum(["left", "right", "double"])
+      .optional()
+      .describe("Mouse button to click (default: left)"),
+  }),
+  execute: async ({ x, y, button = "left" }) => {
+    try {
+      const result = await callTerminalIPC<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>("click", { x, y, button });
 
-    // Look up session from database
-    const sandboxId = await getActiveDesktopForThread(threadId);
-
-    if (!sandboxId) {
+      return result;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
       return {
-        success: true,
-        message: "No active sandbox to close.",
+        success: false,
+        error: message,
       };
     }
+  },
+});
 
+/**
+ * Type text at current cursor position
+ */
+export const desktopTypeTool = createTool({
+  description:
+    "Type text at the current cursor position. Click on an input field first.",
+  inputSchema: z.object({
+    text: z.string().describe("Text to type"),
+  }),
+  execute: async ({ text }) => {
     try {
-      await service.closeDesktop(sandboxId);
+      const result = await callTerminalIPC<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>("type", { text });
 
+      return result;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
       return {
-        success: true,
-        message: `Desktop sandbox ${sandboxId} closed successfully.`,
+        success: false,
+        error: message,
       };
+    }
+  },
+});
+
+/**
+ * Press keyboard key
+ */
+export const desktopPressTool = createTool({
+  description:
+    'Press a keyboard key or key combination. Examples: "Enter", "Tab", "ctrl+c", "cmd+v".',
+  inputSchema: z.object({
+    key: z
+      .string()
+      .describe('Key or key combination to press (e.g., "Enter", "ctrl+c")'),
+  }),
+  execute: async ({ key }) => {
+    try {
+      const result = await callTerminalIPC<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>("press", { key });
+
+      return result;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  },
+});
+
+/**
+ * Scroll the screen
+ */
+export const desktopScrollTool = createTool({
+  description: "Scroll the screen up or down.",
+  inputSchema: z.object({
+    direction: z.enum(["up", "down"]).describe("Direction to scroll"),
+    amount: z.number().optional().describe("Amount to scroll (default: 3)"),
+  }),
+  execute: async ({ direction, amount = 3 }) => {
+    try {
+      const result = await callTerminalIPC<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>("scroll", { direction, amount });
+
+      return result;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  },
+});
+
+/**
+ * Drag from one point to another
+ */
+export const desktopDragTool = createTool({
+  description:
+    "Drag from one point to another. Useful for moving windows or selecting text.",
+  inputSchema: z.object({
+    startX: z.number().describe("Starting X coordinate"),
+    startY: z.number().describe("Starting Y coordinate"),
+    endX: z.number().describe("Ending X coordinate"),
+    endY: z.number().describe("Ending Y coordinate"),
+  }),
+  execute: async ({ startX, startY, endX, endY }) => {
+    try {
+      const result = await callTerminalIPC<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>("drag", { startX, startY, endX, endY });
+
+      return result;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  },
+});
+
+/**
+ * Launch an application
+ */
+export const desktopLaunchTool = createTool({
+  description: "Launch an application on the local machine.",
+  inputSchema: z.object({
+    app: z.string().describe("Application name or path to launch"),
+    args: z
+      .array(z.string())
+      .optional()
+      .describe("Arguments to pass to the application"),
+  }),
+  execute: async ({ app, args }) => {
+    try {
+      const result = await callTerminalIPC<{
+        success: boolean;
+        message?: string;
+        pid?: number;
+        error?: string;
+      }>("launch", { app, args });
+
+      return result;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
       return {
@@ -626,10 +351,7 @@ export const desktopTools = {
   desktop_type: desktopTypeTool,
   desktop_press: desktopPressTool,
   desktop_scroll: desktopScrollTool,
-  desktop_launch: desktopLaunchTool,
-  desktop_move: desktopMoveTool,
   desktop_drag: desktopDragTool,
+  desktop_launch: desktopLaunchTool,
   desktop_command: desktopCommandTool,
-  desktop_stream: desktopStreamTool,
-  desktop_close: desktopCloseTool,
 };

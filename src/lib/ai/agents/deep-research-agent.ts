@@ -4,7 +4,10 @@ import type { UIMessageStreamWriter } from "ai";
 import { colorize } from "consola/utils";
 import globalLogger from "logger";
 import { z } from "zod";
-import { BrowserbaseService } from "../browser/browserbase-service";
+import {
+  LocalBrowserService,
+  BrowserbaseService,
+} from "../browser/local-browser-service";
 
 const logger = globalLogger.withDefaults({
   message: colorize("cyan", "[Deep Research Agent] "),
@@ -66,7 +69,7 @@ export interface ResearchOptions {
  * with source citations and fact synthesis.
  */
 export class DeepResearchAgent {
-  private browserService: BrowserbaseService;
+  private browserService: LocalBrowserService;
   private dataStream?: UIMessageStreamWriter;
 
   constructor(dataStream?: UIMessageStreamWriter) {

@@ -15,7 +15,7 @@ export interface WorkflowRuntimeState {
   outputs: {
     [nodeId: string]: any;
   };
-  userId?: string; // User ID for accessing user-specific resources like Composio
+  userId?: string;
   setInput(nodeId: string, value: any): void;
   getInput(nodeId: string): any;
   setOutput(key: OutputSchemaSourceKey, value: any): void;

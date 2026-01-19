@@ -27,6 +27,12 @@ export interface BrowserSessionOptions {
   timeout?: number;
 }
 
+// Local provider types
+export type LocalBrowserProvider = "chrome-devtools" | "local-terminal";
+// Legacy provider types for backwards compatibility
+export type LegacyBrowserProvider = "browserbase" | "e2b-desktop";
+export type BrowserProvider = LocalBrowserProvider | LegacyBrowserProvider;
+
 export interface BrowserSession {
   id: string;
   sessionId: string;
@@ -34,7 +40,7 @@ export interface BrowserSession {
   currentUrl?: string;
   replayUrl?: string;
   createdAt: Date;
-  provider: "browserbase";
+  provider: BrowserProvider;
 }
 
 // Stagehand action results
@@ -106,7 +112,7 @@ export interface BrowserSessionRecord {
   id: string;
   threadId: string;
   userId: string;
-  provider: "browserbase" | "e2b-desktop";
+  provider: BrowserProvider;
   sessionId: string;
   status: "active" | "closed" | "error";
   replayUrl?: string;
