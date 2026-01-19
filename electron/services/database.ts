@@ -395,7 +395,7 @@ const createTablesFromSchema = () => {
       CREATE INDEX IF NOT EXISTS conversation_summary_user_idx ON conversation_summary(user_id);
       CREATE INDEX IF NOT EXISTS conversation_summary_sequence_idx ON conversation_summary(thread_id, sequence_number);
 
-      CREATE TABLE IF NOT EXISTS thread_sandbox_context (
+      CREATE TABLE IF NOT EXISTS thread_file_context (
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL UNIQUE REFERENCES chat_thread(id) ON DELETE CASCADE,
         user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
@@ -407,9 +407,9 @@ const createTablesFromSchema = () => {
         last_accessed_at INTEGER,
         created_at INTEGER
       );
-      CREATE INDEX IF NOT EXISTS thread_sandbox_context_thread_idx ON thread_sandbox_context(thread_id);
-      CREATE INDEX IF NOT EXISTS thread_sandbox_context_user_idx ON thread_sandbox_context(user_id);
-      CREATE INDEX IF NOT EXISTS thread_sandbox_context_cleanup_idx ON thread_sandbox_context(last_accessed_at);
+      CREATE INDEX IF NOT EXISTS thread_file_context_thread_idx ON thread_file_context(thread_id);
+      CREATE INDEX IF NOT EXISTS thread_file_context_user_idx ON thread_file_context(user_id);
+      CREATE INDEX IF NOT EXISTS thread_file_context_cleanup_idx ON thread_file_context(last_accessed_at);
     `);
     console.log("[Database] ✓ Created chat-related tables");
 
@@ -731,7 +731,7 @@ const createTablesFromSchema = () => {
         code TEXT NOT NULL,
         file_path TEXT NOT NULL,
         port INTEGER,
-        sandbox_id TEXT,
+        session_id TEXT,
         preview_url TEXT,
         deployment_url TEXT,
         status TEXT NOT NULL DEFAULT 'draft',
@@ -746,7 +746,7 @@ const createTablesFromSchema = () => {
       CREATE TABLE IF NOT EXISTS fragment_executions (
         id TEXT PRIMARY KEY,
         fragment_id TEXT NOT NULL REFERENCES fragments(id) ON DELETE CASCADE,
-        sandbox_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
         template TEXT NOT NULL,
         stdout TEXT,
         stderr TEXT,
@@ -757,19 +757,17 @@ const createTablesFromSchema = () => {
       );
       CREATE INDEX IF NOT EXISTS fragment_executions_fragment_idx ON fragment_executions(fragment_id);
 
-      CREATE TABLE IF NOT EXISTS sandbox_usage (
+      CREATE TABLE IF NOT EXISTS local_execution_usage (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
         session_id TEXT NOT NULL,
         template TEXT,
         duration_ms INTEGER NOT NULL,
-        credits_used TEXT NOT NULL,
-        cost_usd TEXT NOT NULL,
         operation_type TEXT,
         created_at INTEGER
       );
-      CREATE INDEX IF NOT EXISTS sandbox_usage_user_idx ON sandbox_usage(user_id);
-      CREATE INDEX IF NOT EXISTS sandbox_usage_created_idx ON sandbox_usage(created_at);
+      CREATE INDEX IF NOT EXISTS local_execution_usage_user_idx ON local_execution_usage(user_id);
+      CREATE INDEX IF NOT EXISTS local_execution_usage_created_idx ON local_execution_usage(created_at);
 
       CREATE TABLE IF NOT EXISTS fragment_shares (
         id TEXT PRIMARY KEY,
@@ -849,12 +847,12 @@ const verifyTablesCreated = () => {
     "browser_session",
     "research_task",
     // Thread context tables
-    "thread_sandbox_context",
+    "thread_file_context",
     // Vector and fragment tables
     "vector_index",
     "fragments",
     "fragment_executions",
-    "sandbox_usage",
+    "local_execution_usage",
     "fragment_shares",
   ];
 
