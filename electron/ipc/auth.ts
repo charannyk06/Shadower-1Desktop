@@ -1,20 +1,83 @@
 import { ipcMain } from "electron";
-import { ElectronAuthService } from "../services/auth";
+import {
+  ElectronAuthService,
+  RegisterData,
+  SignInData,
+} from "../services/auth";
 
 /**
  * Register IPC handlers for authentication operations
- * Simplified for desktop app - always returns local user
+ * Full authentication support with registration, sign-in, sign-out, and session management
  */
 export function registerAuthHandlers() {
   const authService = ElectronAuthService.getInstance();
 
-  // Get current session
+  // Check if this is first launch (no users with passwords)
+  ipcMain.handle("auth:isFirstLaunch", async () => {
+    try {
+      return await authService.isFirstLaunch();
+    } catch (error) {
+      console.error("[IPC] Error checking first launch:", error);
+      return true; // Assume first launch on error
+    }
+  });
+
+  // Register new user
+  ipcMain.handle("auth:register", async (_event, data: RegisterData) => {
+    try {
+      return await authService.register(data);
+    } catch (error) {
+      console.error("[IPC] Error registering user:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Registration failed",
+      };
+    }
+  });
+
+  // Sign in with credentials
+  ipcMain.handle("auth:signIn", async (_event, data: SignInData) => {
+    try {
+      return await authService.signIn(data);
+    } catch (error) {
+      console.error("[IPC] Error signing in:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Sign in failed",
+      };
+    }
+  });
+
+  // Sign out
+  ipcMain.handle("auth:signOut", async () => {
+    try {
+      return await authService.signOut();
+    } catch (error) {
+      console.error("[IPC] Error signing out:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Sign out failed",
+      };
+    }
+  });
+
+  // Validate current session
+  ipcMain.handle("auth:validateSession", async () => {
+    try {
+      return await authService.validateSession();
+    } catch (error) {
+      console.error("[IPC] Error validating session:", error);
+      return null;
+    }
+  });
+
+  // Get current session (backwards compatible)
   ipcMain.handle("auth:getSession", async () => {
     try {
       return await authService.getSession();
     } catch (error) {
       console.error("[IPC] Error getting session:", error);
-      throw error;
+      return null;
     }
   });
 
@@ -24,13 +87,18 @@ export function registerAuthHandlers() {
       return await authService.getCurrentUser();
     } catch (error) {
       console.error("[IPC] Error getting current user:", error);
-      throw error;
+      return null;
     }
   });
 
-  // Check if authenticated (always true for desktop)
-  ipcMain.handle("auth:isAuthenticated", () => {
-    return authService.isAuthenticated();
+  // Check if authenticated
+  ipcMain.handle("auth:isAuthenticated", async () => {
+    try {
+      return await authService.isAuthenticated();
+    } catch (error) {
+      console.error("[IPC] Error checking authentication:", error);
+      return false;
+    }
   });
 
   // Update user profile
@@ -41,7 +109,7 @@ export function registerAuthHandlers() {
         return await authService.updateProfile(data);
       } catch (error) {
         console.error("[IPC] Error updating profile:", error);
-        throw error;
+        return null;
       }
     },
   );
@@ -52,7 +120,7 @@ export function registerAuthHandlers() {
       return await authService.getPreferences();
     } catch (error) {
       console.error("[IPC] Error getting preferences:", error);
-      throw error;
+      return {};
     }
   });
 
@@ -63,7 +131,7 @@ export function registerAuthHandlers() {
       return { success: true };
     } catch (error) {
       console.error("[IPC] Error updating preferences:", error);
-      throw error;
+      return { success: false, error: "Failed to update preferences" };
     }
   });
 

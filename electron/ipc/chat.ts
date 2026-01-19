@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { getDatabase, schema } from "../services/database";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, isNull } from "drizzle-orm";
 
 export function registerChatHandlers() {
   const db = getDatabase();
@@ -125,6 +125,80 @@ export function registerChatHandlers() {
       throw error;
     }
   });
+
+  // Get a thread with its messages
+  ipcMain.handle(
+    "db:chat:getThreadWithMessages",
+    async (_event, threadId: string, userId: string) => {
+      try {
+        // Get thread
+        const [thread] = await db
+          .select()
+          .from(schema.ChatThreadTable)
+          .where(eq(schema.ChatThreadTable.id, threadId))
+          .limit(1);
+
+        if (!thread) {
+          return null;
+        }
+
+        // Check access
+        if (thread.userId !== userId) {
+          return null;
+        }
+
+        // Get messages
+        const messages = await db
+          .select()
+          .from(schema.ChatMessageTable)
+          .where(eq(schema.ChatMessageTable.threadId, threadId))
+          .orderBy(schema.ChatMessageTable.createdAt);
+
+        return { ...thread, messages: messages || [] };
+      } catch (error) {
+        console.error("[IPC] Error getting thread with messages:", error);
+        throw error;
+      }
+    },
+  );
+
+  // Delete all threads for a user
+  ipcMain.handle("db:chat:deleteAllThreads", async (_event, userId: string) => {
+    try {
+      await db
+        .delete(schema.ChatThreadTable)
+        .where(eq(schema.ChatThreadTable.userId, userId));
+
+      console.log(`[IPC] Deleted all threads for user: ${userId}`);
+      return { success: true };
+    } catch (error) {
+      console.error("[IPC] Error deleting all chat threads:", error);
+      throw error;
+    }
+  });
+
+  // Delete all unarchived threads for a user
+  ipcMain.handle(
+    "db:chat:deleteUnarchivedThreads",
+    async (_event, userId: string) => {
+      try {
+        await db
+          .delete(schema.ChatThreadTable)
+          .where(
+            and(
+              eq(schema.ChatThreadTable.userId, userId),
+              isNull(schema.ChatThreadTable.archivedAt),
+            ),
+          );
+
+        console.log(`[IPC] Deleted unarchived threads for user: ${userId}`);
+        return { success: true };
+      } catch (error) {
+        console.error("[IPC] Error deleting unarchived chat threads:", error);
+        throw error;
+      }
+    },
+  );
 
   console.log("[IPC] Chat handlers registered");
 }

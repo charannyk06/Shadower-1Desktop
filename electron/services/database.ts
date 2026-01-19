@@ -1062,46 +1062,16 @@ export const resetDatabase = async () => {
   return getDatabase();
 };
 
-// Create default user for local-first setup
+/**
+ * Initialize user data (deprecated - users are now created through registration)
+ * This function is kept for backwards compatibility but doesn't create users automatically.
+ * Users must register through the auth flow.
+ */
 export const createDefaultUser = async () => {
-  const database = getDatabase();
-  const { eq } = require("drizzle-orm");
-
-  try {
-    // Check if default user exists
-    const [existingUser] = await database
-      .select()
-      .from(schema.UserTable)
-      .where(eq(schema.UserTable.email, "local@shadower.app"))
-      .limit(1);
-
-    if (!existingUser) {
-      console.log("[Database] Creating default local user");
-
-      const [user] = await database
-        .insert(schema.UserTable)
-        .values({
-          name: "Local User",
-          email: "local@shadower.app",
-          emailVerified: true,
-          role: "admin",
-          preferences: {
-            displayName: "Local User",
-            botName: "Shadower",
-          },
-        } as typeof schema.UserTable.$inferInsert)
-        .returning();
-
-      console.log("[Database] Default user created:", user.id);
-      return user;
-    }
-
-    console.log("[Database] Default user already exists");
-    return existingUser;
-  } catch (error) {
-    console.error("[Database] Error creating default user:", error);
-    throw error;
-  }
+  console.log(
+    "[Database] User initialization: Users are created through registration flow",
+  );
+  return null;
 };
 
 // Database health check

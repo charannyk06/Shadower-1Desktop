@@ -1,5 +1,23 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+// Type definitions for auth operations
+export interface RegisterData {
+  email: string;
+  password: string;
+  name: string;
+}
+
+export interface SignInData {
+  email: string;
+  password: string;
+}
+
+export interface AuthResult {
+  success: boolean;
+  error?: string;
+  session?: any;
+}
+
 // Type definitions for the Electron API
 export interface ElectronAPI {
   // Platform information
@@ -7,6 +25,14 @@ export interface ElectronAPI {
 
   // Authentication operations
   auth: {
+    // Core auth methods
+    isFirstLaunch: () => Promise<boolean>;
+    register: (data: RegisterData) => Promise<AuthResult>;
+    signIn: (data: SignInData) => Promise<AuthResult>;
+    signOut: () => Promise<{ success: boolean; error?: string }>;
+    validateSession: () => Promise<any>;
+
+    // Backwards compatible methods
     getSession: () => Promise<any>;
     getCurrentUser: () => Promise<any>;
     isAuthenticated: () => Promise<boolean>;
@@ -23,11 +49,28 @@ export interface ElectronAPI {
     chat: {
       getThreads: (userId: string) => Promise<any[]>;
       getThread: (id: string) => Promise<any>;
+      getThreadWithMessages: (threadId: string, userId: string) => Promise<any>;
       getMessages: (threadId: string) => Promise<any[]>;
       createThread: (data: any) => Promise<any>;
       createMessage: (data: any) => Promise<any>;
       updateThread: (id: string, data: any) => Promise<void>;
       deleteThread: (id: string) => Promise<void>;
+      deleteAllThreads: (userId: string) => Promise<{ success: boolean }>;
+      deleteUnarchivedThreads: (
+        userId: string,
+      ) => Promise<{ success: boolean }>;
+    };
+    archives: {
+      getAll: (userId: string) => Promise<any[]>;
+      getById: (id: string) => Promise<any>;
+      create: (data: any) => Promise<any>;
+      update: (id: string, data: any) => Promise<any>;
+      delete: (id: string) => Promise<void>;
+      archiveThread: (
+        threadId: string,
+        archiveId: string,
+      ) => Promise<{ success: boolean }>;
+      unarchiveThread: (threadId: string) => Promise<{ success: boolean }>;
     };
     agents: {
       getAll: (userId: string) => Promise<any[]>;
@@ -61,6 +104,7 @@ export interface ElectronAPI {
     };
     mcp: {
       getServers: () => Promise<any[]>;
+      getServerById: (id: string) => Promise<any>;
       saveServer: (data: any) => Promise<any>;
       deleteServer: (id: string) => Promise<void>;
       getToolCustomizations: (serverId: string) => Promise<any[]>;
@@ -71,6 +115,14 @@ export interface ElectronAPI {
       updatePreferences: (data: any) => Promise<void>;
       getCurrent: () => Promise<any>;
       updateProfile: (data: any) => Promise<any>;
+      getById: (userId: string) => Promise<any>;
+      getStats: (userId: string) => Promise<{
+        threadCount: number;
+        messageCount: number;
+        modelStats: any[];
+        totalTokens: number;
+        period: string;
+      }>;
     };
   };
 
@@ -329,6 +381,14 @@ const electronAPI: ElectronAPI = {
 
   // Authentication operations
   auth: {
+    // Core auth methods
+    isFirstLaunch: () => ipcRenderer.invoke("auth:isFirstLaunch"),
+    register: (data: RegisterData) => ipcRenderer.invoke("auth:register", data),
+    signIn: (data: SignInData) => ipcRenderer.invoke("auth:signIn", data),
+    signOut: () => ipcRenderer.invoke("auth:signOut"),
+    validateSession: () => ipcRenderer.invoke("auth:validateSession"),
+
+    // Backwards compatible methods
     getSession: () => ipcRenderer.invoke("auth:getSession"),
     getCurrentUser: () => ipcRenderer.invoke("auth:getCurrentUser"),
     isAuthenticated: () => ipcRenderer.invoke("auth:isAuthenticated"),
@@ -345,6 +405,8 @@ const electronAPI: ElectronAPI = {
       getThreads: (userId: string) =>
         ipcRenderer.invoke("db:chat:getThreads", userId),
       getThread: (id: string) => ipcRenderer.invoke("db:chat:getThread", id),
+      getThreadWithMessages: (threadId: string, userId: string) =>
+        ipcRenderer.invoke("db:chat:getThreadWithMessages", threadId, userId),
       getMessages: (threadId: string) =>
         ipcRenderer.invoke("db:chat:getMessages", threadId),
       createThread: (data: any) =>
@@ -355,6 +417,10 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.invoke("db:chat:updateThread", id, data),
       deleteThread: (id: string) =>
         ipcRenderer.invoke("db:chat:deleteThread", id),
+      deleteAllThreads: (userId: string) =>
+        ipcRenderer.invoke("db:chat:deleteAllThreads", userId),
+      deleteUnarchivedThreads: (userId: string) =>
+        ipcRenderer.invoke("db:chat:deleteUnarchivedThreads", userId),
     },
     agents: {
       getAll: (userId: string) =>
@@ -394,6 +460,8 @@ const electronAPI: ElectronAPI = {
     },
     mcp: {
       getServers: () => ipcRenderer.invoke("db:mcp:getServers"),
+      getServerById: (id: string) =>
+        ipcRenderer.invoke("db:mcp:getServerById", id),
       saveServer: (data: any) => ipcRenderer.invoke("db:mcp:saveServer", data),
       deleteServer: (id: string) =>
         ipcRenderer.invoke("db:mcp:deleteServer", id),
@@ -409,6 +477,23 @@ const electronAPI: ElectronAPI = {
       getCurrent: () => ipcRenderer.invoke("db:user:getCurrent"),
       updateProfile: (data: any) =>
         ipcRenderer.invoke("db:user:updateProfile", data),
+      getById: (userId: string) =>
+        ipcRenderer.invoke("db:user:getById", userId),
+      getStats: (userId: string) =>
+        ipcRenderer.invoke("db:user:getStats", userId),
+    },
+    archives: {
+      getAll: (userId: string) =>
+        ipcRenderer.invoke("db:archives:getAll", userId),
+      getById: (id: string) => ipcRenderer.invoke("db:archives:getById", id),
+      create: (data: any) => ipcRenderer.invoke("db:archives:create", data),
+      update: (id: string, data: any) =>
+        ipcRenderer.invoke("db:archives:update", id, data),
+      delete: (id: string) => ipcRenderer.invoke("db:archives:delete", id),
+      archiveThread: (threadId: string, archiveId: string) =>
+        ipcRenderer.invoke("db:archives:archiveThread", threadId, archiveId),
+      unarchiveThread: (threadId: string) =>
+        ipcRenderer.invoke("db:archives:unarchiveThread", threadId),
     },
   },
 

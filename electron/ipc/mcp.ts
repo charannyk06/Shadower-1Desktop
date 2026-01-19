@@ -17,6 +17,22 @@ export function registerMcpHandlers() {
     }
   });
 
+  // Get MCP server by ID
+  ipcMain.handle("db:mcp:getServerById", async (_event, id: string) => {
+    try {
+      const [server] = await db
+        .select()
+        .from(schema.McpServerTable)
+        .where(eq(schema.McpServerTable.id, id))
+        .limit(1);
+
+      return server || null;
+    } catch (error) {
+      console.error("[IPC] Error getting MCP server by ID:", error);
+      throw error;
+    }
+  });
+
   // Save MCP server (create or update)
   ipcMain.handle("db:mcp:saveServer", async (_event, data: any) => {
     try {

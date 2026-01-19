@@ -265,6 +265,15 @@ async function fetchLocalModels(
   }
 }
 
+// Helper to require authenticated user
+async function requireAuth(authService: ElectronAuthService) {
+  const user = await authService.getCurrentUser();
+  if (!user) {
+    throw new Error("Authentication required");
+  }
+  return user;
+}
+
 export function registerModelsHandlers() {
   const db = getDatabase();
   const authService = ElectronAuthService.getInstance();
@@ -276,7 +285,7 @@ export function registerModelsHandlers() {
   // Get all provider configurations
   ipcMain.handle("models:getProviders", async () => {
     try {
-      const user = await authService.getCurrentUser();
+      const user = await requireAuth(authService);
       const providers = await db
         .select()
         .from(schema.ProviderConfigTable)
@@ -323,7 +332,7 @@ export function registerModelsHandlers() {
       },
     ) => {
       try {
-        const user = await authService.getCurrentUser();
+        const user = await requireAuth(authService);
 
         if (data.id) {
           // Update existing
@@ -389,7 +398,7 @@ export function registerModelsHandlers() {
       data: { providerId: string; baseUrl?: string; apiKey?: string },
     ) => {
       try {
-        const user = await authService.getCurrentUser();
+        const user = await requireAuth(authService);
 
         // Get API key if not provided
         let apiKey = data.apiKey;
@@ -504,7 +513,7 @@ export function registerModelsHandlers() {
   // Get all API keys (without actual key values)
   ipcMain.handle("models:getApiKeys", async () => {
     try {
-      const user = await authService.getCurrentUser();
+      const user = await requireAuth(authService);
       const keys = await db
         .select({
           id: schema.ApiKeyTable.id,
@@ -534,7 +543,7 @@ export function registerModelsHandlers() {
       data: { providerId: string; apiKey: string; validate?: boolean },
     ) => {
       try {
-        const user = await authService.getCurrentUser();
+        const user = await requireAuth(authService);
 
         // Validate format
         if (!validateApiKeyFormat(data.providerId, data.apiKey)) {
@@ -675,7 +684,7 @@ export function registerModelsHandlers() {
   // Delete API key
   ipcMain.handle("models:deleteApiKey", async (_event, providerId: string) => {
     try {
-      const user = await authService.getCurrentUser();
+      const user = await requireAuth(authService);
 
       await db
         .delete(schema.ApiKeyTable)
@@ -747,7 +756,7 @@ export function registerModelsHandlers() {
     "models:getDecryptedApiKey",
     async (_event, providerId: string) => {
       try {
-        const user = await authService.getCurrentUser();
+        const user = await requireAuth(authService);
 
         const [keyRecord] = await db
           .select()
@@ -779,7 +788,7 @@ export function registerModelsHandlers() {
   // Get all local models
   ipcMain.handle("models:getLocalModels", async () => {
     try {
-      const user = await authService.getCurrentUser();
+      const user = await requireAuth(authService);
       const models = await db
         .select()
         .from(schema.LocalModelTable)
@@ -798,7 +807,7 @@ export function registerModelsHandlers() {
     "models:refreshLocalModels",
     async (_event, data: { providerId: string; baseUrl?: string }) => {
       try {
-        const user = await authService.getCurrentUser();
+        const user = await requireAuth(authService);
 
         const baseUrl =
           data.baseUrl ||
@@ -883,7 +892,7 @@ export function registerModelsHandlers() {
     "models:downloadModel",
     async (_event, data: { modelName: string; baseUrl?: string }) => {
       try {
-        const user = await authService.getCurrentUser();
+        const user = await requireAuth(authService);
         const baseUrl = data.baseUrl || "http://localhost:11434";
 
         // Create model record with downloading status
@@ -977,7 +986,7 @@ export function registerModelsHandlers() {
       data: { id?: string; modelName?: string; providerId?: string },
     ) => {
       try {
-        const user = await authService.getCurrentUser();
+        const user = await requireAuth(authService);
 
         if (data.id) {
           await db
@@ -1010,7 +1019,7 @@ export function registerModelsHandlers() {
   // Get all available models (combines cloud providers with API keys + local models)
   ipcMain.handle("models:getAvailableModels", async () => {
     try {
-      const user = await authService.getCurrentUser();
+      const user = await requireAuth(authService);
 
       // Get providers with valid API keys
       const apiKeys = await db
@@ -1059,7 +1068,7 @@ export function registerModelsHandlers() {
   // Get model status summary
   ipcMain.handle("models:getStatus", async () => {
     try {
-      const user = await authService.getCurrentUser();
+      const user = await requireAuth(authService);
 
       const [providers, apiKeys, localModels] = await Promise.all([
         db
