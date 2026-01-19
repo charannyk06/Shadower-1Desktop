@@ -5,6 +5,14 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import * as schema from "@/lib/db/sqlite/schema.sqlite";
 import fs from "fs-extra";
+import {
+  runMigrations as runSchemaMigrations,
+  getSchemaInfo,
+  getMigrationHistory,
+  validateMigrations,
+  CURRENT_SCHEMA_VERSION,
+  APP_VERSION,
+} from "@/lib/db/migrations/sqlite/schema-migration";
 
 // Get the user data directory based on platform
 const getUserDataDir = () => {
@@ -88,27 +96,115 @@ export const runMigrations = () => {
     try {
       migrate(db, { migrationsFolder });
       console.log("[Database] Migrations completed successfully");
-      return;
     } catch (error) {
       console.warn(
         "[Database] Migration failed, falling back to schema push:",
         error,
       );
+      // Fallback to creating tables from schema
+      createTablesFromSchema();
+    }
+  } else {
+    // Fallback: Use Drizzle Kit's push functionality
+    console.log("[Database] No migrations found, pushing schema directly...");
+    try {
+      // Use drizzle-kit push via exec or create tables manually from schema
+      // For now, we'll use a simpler approach: create tables using SQL based on schema
+      createTablesFromSchema();
+      console.log("[Database] Schema pushed successfully");
+    } catch (error) {
+      console.error("[Database] Schema push error:", error);
+      // Last resort: create minimal tables manually
+      createBasicTables();
     }
   }
 
-  // Fallback: Use Drizzle Kit's push functionality
-  console.log("[Database] No migrations found, pushing schema directly...");
-  try {
-    // Use drizzle-kit push via exec or create tables manually from schema
-    // For now, we'll use a simpler approach: create tables using SQL based on schema
-    createTablesFromSchema();
-    console.log("[Database] Schema pushed successfully");
-  } catch (error) {
-    console.error("[Database] Schema push error:", error);
-    // Last resort: create minimal tables manually
-    createBasicTables();
+  // Run schema migrations for auto-updates (adds new columns, etc.)
+  runSchemaMigrationsForUpdates();
+};
+
+// Run schema migrations to handle auto-updates (new columns, tables)
+const runSchemaMigrationsForUpdates = () => {
+  if (!sqlite) {
+    console.error(
+      "[Database] Cannot run schema migrations - database not initialized",
+    );
+    return;
   }
+
+  try {
+    // Validate migrations first (in development)
+    if (process.env.NODE_ENV === "development") {
+      const validation = validateMigrations();
+      if (!validation.valid) {
+        console.error(
+          "[Database] ⚠️ Migration validation errors:",
+          validation.errors,
+        );
+      }
+    }
+
+    // Get current schema info
+    const schemaInfo = getSchemaInfo(sqlite);
+    console.log("[Database] ========================================");
+    console.log(`[Database] Schema Info:`);
+    console.log(`[Database]   Current Version: ${schemaInfo.version}`);
+    console.log(`[Database]   Target Version: ${CURRENT_SCHEMA_VERSION}`);
+    console.log(`[Database]   App Version: ${APP_VERSION}`);
+    console.log(
+      `[Database]   Last Migration: ${schemaInfo.lastMigrationAt?.toISOString() || "Never"}`,
+    );
+    console.log("[Database] ========================================");
+
+    if (schemaInfo.version < CURRENT_SCHEMA_VERSION) {
+      console.log("[Database] Running schema migrations for auto-update...");
+      const result = runSchemaMigrations(sqlite);
+
+      if (result.success) {
+        console.log(`[Database] ✓ Schema migrations complete.`);
+        console.log(`[Database]   Migrations run: ${result.migrationsRun}`);
+        console.log(
+          `[Database]   From version: ${result.fromVersion} → ${result.toVersion}`,
+        );
+
+        // Log migration details
+        for (const detail of result.details) {
+          if (detail.success) {
+            console.log(
+              `[Database]   ✓ v${detail.version} (${detail.name}) - ${detail.durationMs}ms`,
+            );
+          } else {
+            console.error(
+              `[Database]   ✗ v${detail.version} (${detail.name}) - ${detail.error}`,
+            );
+          }
+        }
+      } else {
+        console.error(`[Database] ⚠️ Schema migration error: ${result.error}`);
+        console.error(`[Database]   Stopped at version: ${result.toVersion}`);
+      }
+    } else {
+      console.log("[Database] ✓ Schema is up to date, no migrations needed.");
+    }
+  } catch (error) {
+    console.error("[Database] Error running schema migrations:", error);
+  }
+};
+
+// Get database schema information (for debugging/diagnostics)
+export const getDatabaseSchemaInfo = () => {
+  if (!sqlite) {
+    return null;
+  }
+  return getSchemaInfo(sqlite);
+};
+
+// Get migration history (for debugging/diagnostics)
+export const getDatabaseMigrationHistory = () => {
+  if (!sqlite) {
+    return [];
+  }
+  return getMigrationHistory(sqlite);
 };
 
 // Create tables from schema definition
@@ -134,11 +230,7 @@ const createTablesFromSchema = () => {
         banned INTEGER DEFAULT 0,
         ban_reason TEXT,
         ban_expires INTEGER,
-        role TEXT NOT NULL DEFAULT 'user',
-        referral_code TEXT UNIQUE,
-        referred_by_id TEXT,
-        total_referrals INTEGER NOT NULL DEFAULT 0,
-        total_referral_bonus TEXT NOT NULL DEFAULT '0'
+        role TEXT NOT NULL DEFAULT 'user'
       );
     `);
     console.log("[Database] ✓ Created table: user");
@@ -338,21 +430,6 @@ const createTablesFromSchema = () => {
       CREATE INDEX IF NOT EXISTS usage_alert_user_id_idx ON usage_alert(user_id);
       CREATE INDEX IF NOT EXISTS usage_alert_type_idx ON usage_alert(alert_type, limit_type);
 
-      CREATE TABLE IF NOT EXISTS referral (
-        id TEXT PRIMARY KEY,
-        referrer_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        referee_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        referral_code TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        referrer_bonus TEXT NOT NULL DEFAULT '0',
-        referee_bonus TEXT NOT NULL DEFAULT '0',
-        completed_at INTEGER,
-        created_at INTEGER,
-        UNIQUE(referee_id)
-      );
-      CREATE INDEX IF NOT EXISTS referral_referrer_id_idx ON referral(referrer_id);
-      CREATE INDEX IF NOT EXISTS referral_referee_id_idx ON referral(referee_id);
-      CREATE INDEX IF NOT EXISTS referral_status_idx ON referral(status);
     `);
     console.log("[Database] ✓ Created user-dependent tables");
 
@@ -839,7 +916,6 @@ const verifyTablesCreated = () => {
     "promo_code",
     "promo_code_redemption",
     "usage_alert",
-    "referral",
     // Webhook tables
     "webhook_event",
     "webhook_retry_queue",
@@ -911,11 +987,7 @@ const createBasicTables = () => {
           banned INTEGER DEFAULT 0,
           ban_reason TEXT,
           ban_expires INTEGER,
-          role TEXT NOT NULL DEFAULT 'user',
-          referral_code TEXT UNIQUE,
-          referred_by_id TEXT,
-          total_referrals INTEGER NOT NULL DEFAULT 0,
-          total_referral_bonus TEXT NOT NULL DEFAULT '0'
+          role TEXT NOT NULL DEFAULT 'user'
         )
       `);
       console.log("[Database] Created minimal user table as last resort");

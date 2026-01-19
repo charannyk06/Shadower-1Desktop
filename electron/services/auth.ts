@@ -12,7 +12,6 @@ export interface LocalUser {
   email: string;
   name: string;
   image: string | null;
-  role: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,7 +30,6 @@ export const DEFAULT_LOCAL_USER = {
   email: "local@shadower.app",
   name: "Local User",
   image: null,
-  role: "admin",
 } as const;
 
 /**
@@ -76,7 +74,6 @@ export class ElectronAuthService {
         email: user.email,
         name: user.name || DEFAULT_LOCAL_USER.name,
         image: user.image,
-        role: user.role || DEFAULT_LOCAL_USER.role,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
@@ -130,7 +127,6 @@ export class ElectronAuthService {
       email: updatedUser.email,
       name: updatedUser.name || DEFAULT_LOCAL_USER.name,
       image: updatedUser.image,
-      role: updatedUser.role || DEFAULT_LOCAL_USER.role,
       createdAt: updatedUser.createdAt,
       updatedAt: updatedUser.updatedAt,
     };
