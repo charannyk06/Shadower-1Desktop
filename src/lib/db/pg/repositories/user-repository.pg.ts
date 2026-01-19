@@ -182,7 +182,7 @@ export const pgUserRepository: UserRepository = {
   getUsageCounts: async (userId: string, from: Date, to: Date) => {
     const defaultCounts = {
       image_generation: 0,
-      sandbox_execution: 0,
+      local_execution: 0,
       voice_minutes: 0,
       mcp_tool_call: 0,
       workflow_execution: 0,
@@ -281,9 +281,9 @@ export const pgUserRepository: UserRepository = {
           imageCount,
           eventCounts.image_generation || 0,
         ),
-        sandbox_execution: Math.max(
+        local_execution: Math.max(
           sandboxCount,
-          eventCounts.sandbox_execution || 0,
+          eventCounts.local_execution || 0,
         ),
         voice_minutes: eventCounts.voice_minutes || 0, // Voice is only tracked via events
         mcp_tool_call: Math.max(mcpToolCount, eventCounts.mcp_tool_call || 0),

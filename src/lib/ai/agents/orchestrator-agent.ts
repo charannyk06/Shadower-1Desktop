@@ -1242,12 +1242,12 @@ function createSubAgentTools(
               }
             }
           }
-          if (requirements.sandbox) {
-            // Sandbox (local code execution), visualization, and data analysis tools
+          if (requirements.codeExecution) {
+            // Local code execution: fragments, visualization, and data analysis tools
             for (const [name, tool] of Object.entries(availableTools)) {
               if (
-                name === "sandbox" ||
-                name.startsWith("create") || // createVisualization, createPieChart, etc.
+                name.startsWith("create") || // createFragment, createVisualization, createPieChart, etc.
+                name.startsWith("edit") || // editFragment
                 name.startsWith("profile") || // profileData
                 name.startsWith("analyze") // analyzeData
               ) {
@@ -1490,13 +1490,13 @@ function createSubAgentTools(
           );
         }
 
-        // Sandbox and visualization tools for local code execution requirement (data-analysis, coding, documents)
-        // Tool names: sandbox, createVisualization, createPieChart, profileData, analyzeData, etc.
-        if (requirements.sandbox) {
+        // Fragment and visualization tools for local code execution requirement (data-analysis, coding, documents)
+        // Tool names: createFragment, editFragment, createVisualization, createPieChart, profileData, analyzeData, etc.
+        if (requirements.codeExecution) {
           for (const [name, tool] of Object.entries(availableTools)) {
             if (
-              name === "sandbox" ||
-              name.startsWith("create") ||
+              name.startsWith("create") || // createFragment, createVisualization, etc.
+              name.startsWith("edit") || // editFragment
               name.startsWith("profile") ||
               name.startsWith("analyze")
             ) {
@@ -1504,7 +1504,7 @@ function createSubAgentTools(
             }
           }
           logger.info(
-            `[System Agent ${systemAgentId}] Added sandbox/visualization tools for local code execution requirement`,
+            `[System Agent ${systemAgentId}] Added fragment/visualization tools for local code execution requirement`,
           );
         }
       }

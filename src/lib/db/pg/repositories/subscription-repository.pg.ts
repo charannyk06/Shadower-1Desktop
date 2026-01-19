@@ -316,7 +316,7 @@ export const pgSubscriptionRepository: SubscriptionRepository = {
               (${UsageEventTable.metadata}->>'creditsConsumed')::numeric,
               CASE ${UsageEventTable.eventType}
                 WHEN 'llm_tokens' THEN ${UsageEventTable.amount}::numeric
-                WHEN 'sandbox_execution' THEN 425
+                WHEN 'local_execution' THEN 425
                 WHEN 'mcp_tool_call' THEN 250
                 WHEN 'workflow_execution' THEN 1250
                 WHEN 'voice_minutes' THEN ${UsageEventTable.amount}::numeric * 75000
@@ -380,8 +380,8 @@ export const pgSubscriptionRepository: SubscriptionRepository = {
         case "voice_minutes":
           summary.voice_credits = (summary.voice_credits || 0) + credits;
           break;
-        case "sandbox_execution":
-          summary.sandbox_credits = (summary.sandbox_credits || 0) + credits;
+        case "local_execution":
+          summary.local_credits = (summary.local_credits || 0) + credits;
           break;
         case "mcp_tool_call":
           summary.mcp_credits = (summary.mcp_credits || 0) + credits;
@@ -438,7 +438,7 @@ export const pgSubscriptionRepository: SubscriptionRepository = {
             (${UsageEventTable.metadata}->>'creditsConsumed')::numeric,
             CASE ${UsageEventTable.eventType}
               WHEN 'llm_tokens' THEN ${UsageEventTable.amount}::numeric
-              WHEN 'sandbox_execution' THEN 425
+              WHEN 'local_execution' THEN 425
               WHEN 'mcp_tool_call' THEN 250
               WHEN 'workflow_execution' THEN 1250
               WHEN 'voice_minutes' THEN ${UsageEventTable.amount}::numeric * 75000

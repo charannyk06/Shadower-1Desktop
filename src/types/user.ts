@@ -87,7 +87,7 @@ export type UserRepository = {
     to: Date,
   ) => Promise<{
     image_generation: number;
-    sandbox_execution: number;
+    local_execution: number;
     voice_minutes: number;
     mcp_tool_call: number;
     workflow_execution: number;

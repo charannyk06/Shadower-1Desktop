@@ -532,7 +532,7 @@ const createTablesIfNotExist = (sqliteInstance: Database.Database) => {
         created_at INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS thread_sandbox_context (
+      CREATE TABLE IF NOT EXISTS thread_file_context (
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL UNIQUE REFERENCES chat_thread(id) ON DELETE CASCADE,
         user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
@@ -883,7 +883,7 @@ const createTablesIfNotExist = (sqliteInstance: Database.Database) => {
         code TEXT NOT NULL,
         file_path TEXT NOT NULL,
         port INTEGER,
-        sandbox_id TEXT,
+        session_id TEXT,
         preview_url TEXT,
         deployment_url TEXT,
         status TEXT NOT NULL DEFAULT 'draft',
@@ -895,7 +895,7 @@ const createTablesIfNotExist = (sqliteInstance: Database.Database) => {
       CREATE TABLE IF NOT EXISTS fragment_executions (
         id TEXT PRIMARY KEY,
         fragment_id TEXT NOT NULL REFERENCES fragments(id) ON DELETE CASCADE,
-        sandbox_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
         template TEXT NOT NULL,
         stdout TEXT,
         stderr TEXT,
@@ -905,14 +905,12 @@ const createTablesIfNotExist = (sqliteInstance: Database.Database) => {
         created_at INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS sandbox_usage (
+      CREATE TABLE IF NOT EXISTS local_execution_usage (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
         session_id TEXT NOT NULL,
         template TEXT,
         duration_ms INTEGER NOT NULL,
-        credits_used TEXT NOT NULL,
-        cost_usd TEXT NOT NULL,
         operation_type TEXT,
         created_at INTEGER
       );
@@ -974,11 +972,11 @@ const createTablesIfNotExist = (sqliteInstance: Database.Database) => {
       CREATE INDEX IF NOT EXISTS fragments_user_idx ON fragments(user_id);
       CREATE INDEX IF NOT EXISTS fragments_status_idx ON fragments(status);
       CREATE INDEX IF NOT EXISTS fragment_executions_fragment_idx ON fragment_executions(fragment_id);
-      CREATE INDEX IF NOT EXISTS sandbox_usage_user_idx ON sandbox_usage(user_id);
+      CREATE INDEX IF NOT EXISTS local_execution_usage_user_idx ON local_execution_usage(user_id);
       CREATE INDEX IF NOT EXISTS fragment_shares_fragment_idx ON fragment_shares(fragment_id);
       CREATE INDEX IF NOT EXISTS fragment_shares_share_id_idx ON fragment_shares(share_id);
-      CREATE INDEX IF NOT EXISTS thread_sandbox_context_thread_idx ON thread_sandbox_context(thread_id);
-      CREATE INDEX IF NOT EXISTS thread_sandbox_context_user_idx ON thread_sandbox_context(user_id);
+      CREATE INDEX IF NOT EXISTS thread_file_context_thread_idx ON thread_file_context(thread_id);
+      CREATE INDEX IF NOT EXISTS thread_file_context_user_idx ON thread_file_context(user_id);
     `);
 
     // Run migrations for existing databases (add missing columns)

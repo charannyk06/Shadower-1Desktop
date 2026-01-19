@@ -18,7 +18,13 @@ import {
 } from "lib/vector-search/vector-search-service";
 import logger from "logger";
 import { z } from "zod";
-import { E2BSandboxService } from "../sandbox/local-sandbox-service";
+import { exec } from "child_process";
+import { promisify } from "util";
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
+
+const execAsync = promisify(exec);
 import {
   generateEditorConfig,
   isCollaboraConfigured,
@@ -517,7 +523,8 @@ export class DocumentAgent {
   }
 
   /**
-   * Execute code in E2B sandbox and handle result
+   * Execute code locally using child_process
+   * Runs JavaScript/Python code on the user's local machine
    */
   private async executeCode(
     code: string,
@@ -530,82 +537,163 @@ export class DocumentAgent {
     fileName?: string;
     error?: string;
   }> {
+    // Create a temporary directory for execution
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "doc-gen-"));
+    const outputDir = path.join(tempDir, "output");
+    await fs.mkdir(outputDir, { recursive: true });
+
     try {
-      const sandbox = E2BSandboxService.getInstance();
+      if (language === "javascript") {
+        // Write the JavaScript code to a file
+        const scriptPath = path.join(tempDir, "generate.mjs");
 
-      const logs: any[] = [];
-      let artifacts: any[] = [];
-      let executionError: string | undefined;
+        // Wrap code to handle output file path - the templates use fs.writeFileSync
+        // We need to ensure the output goes to our temp directory
+        const wrappedCode = `
+import PptxGenJS from 'pptxgenjs';
+import { Document, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType, Packer } from 'docx';
+import ExcelJS from 'exceljs';
+import * as fs from 'fs';
+import * as path from 'path';
+import PDFDocument from 'pdfkit';
 
-      const onEvent = (event: any) => {
-        if (event.type === "log") {
-          logs.push(event.value);
-        } else if (event.type === "artifacts") {
-          artifacts = event.value;
-        } else if (event.type === "finish" && event.value?.error) {
-          executionError = event.value.error;
+// Override output directory
+const OUTPUT_DIR = ${JSON.stringify(outputDir)};
+const ORIGINAL_FILENAME = ${JSON.stringify(fileName)};
+
+// Store original fs.writeFileSync
+const originalWriteFileSync = fs.writeFileSync;
+
+// Override to redirect output files to our temp directory
+fs.writeFileSync = function(filePath, data, options) {
+  const basename = path.basename(filePath);
+  const ext = path.extname(basename).toLowerCase();
+
+  // Redirect document files to output directory
+  if (['.pptx', '.docx', '.xlsx', '.pdf'].includes(ext)) {
+    const newPath = path.join(OUTPUT_DIR, basename);
+    console.log('[OUTPUT_FILE]:' + newPath);
+    return originalWriteFileSync.call(fs, newPath, data, options);
+  }
+  return originalWriteFileSync.call(fs, filePath, data, options);
+};
+
+// User's document generation code
+${code}
+`;
+
+        await fs.writeFile(scriptPath, wrappedCode, "utf-8");
+
+        // Execute with Node.js
+        const { stdout, stderr } = await execAsync(`node "${scriptPath}"`, {
+          cwd: tempDir,
+          timeout: 60000, // 60 second timeout
+          maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+        });
+
+        if (stderr && !stderr.includes("ExperimentalWarning")) {
+          logger.warn("[DocumentAgent] Script stderr:", stderr);
         }
-      };
 
-      if (this.threadId && this.userId) {
-        await sandbox.runCodeWithContext(
-          code,
-          language,
-          this.threadId,
-          this.userId,
-          onEvent,
+        // Find the output file
+        const outputFiles = await fs.readdir(outputDir);
+        const fileExtension = fileName.split(".").pop();
+        const outputFile = outputFiles.find(
+          (f) => f.endsWith(`.${fileExtension}`) || f === fileName,
         );
-      } else {
-        await sandbox.runCodeWithCallback(code, language, onEvent);
-      }
 
-      if (executionError) {
-        return { success: false, error: executionError };
-      }
+        if (outputFile) {
+          const outputPath = path.join(outputDir, outputFile);
+          const fileData = await fs.readFile(outputPath);
+          const fileBase64 = fileData.toString("base64");
 
-      // Find the file in artifacts
-      const fileExtension = fileName.split(".").pop();
-      const outputFile = artifacts.find(
-        (a: any) =>
-          a.filename?.endsWith(`.${fileExtension}`) || a.filename === fileName,
-      );
+          return {
+            success: true,
+            fileName: outputFile,
+            fileBase64,
+          };
+        }
 
-      if (outputFile) {
+        // Check stdout for output file path
+        const outputMatch = stdout.match(/\[OUTPUT_FILE\]:(.+)/);
+        if (outputMatch) {
+          const outputPath = outputMatch[1].trim();
+          try {
+            const fileData = await fs.readFile(outputPath);
+            const fileBase64 = fileData.toString("base64");
+            return {
+              success: true,
+              fileName: path.basename(outputPath),
+              fileBase64,
+            };
+          } catch {
+            // File might not exist yet
+          }
+        }
+
+        // If no output file but no error, still return success
         return {
           success: true,
-          fileName: outputFile.filename || fileName,
-          fileUrl: outputFile.url,
-          fileBase64: outputFile.base64,
+          fileName,
         };
-      }
+      } else if (language === "python") {
+        // Write Python code
+        const scriptPath = path.join(tempDir, "generate.py");
+        await fs.writeFile(scriptPath, code, "utf-8");
 
-      // Check if result is in stdout (for JavaScript with console.log)
-      const stdout = logs
-        .filter(
-          (l) =>
-            (l.type === "data" && l.args?.[0]?.value) ||
-            (typeof l === "string" && l.includes("saved to")),
-        )
-        .map((l) => (typeof l === "string" ? l : l.args?.[0]?.value || ""))
-        .join("\n");
+        // Execute with Python
+        const { stderr } = await execAsync(`python3 "${scriptPath}"`, {
+          cwd: outputDir,
+          timeout: 60000,
+          maxBuffer: 10 * 1024 * 1024,
+        });
 
-      if (stdout.includes("saved to")) {
+        if (stderr) {
+          logger.warn("[DocumentAgent] Python stderr:", stderr);
+        }
+
+        // Find output files
+        const outputFiles = await fs.readdir(outputDir);
+        const fileExtension = fileName.split(".").pop();
+        const outputFile = outputFiles.find(
+          (f) => f.endsWith(`.${fileExtension}`) || f === fileName,
+        );
+
+        if (outputFile) {
+          const outputPath = path.join(outputDir, outputFile);
+          const fileData = await fs.readFile(outputPath);
+          const fileBase64 = fileData.toString("base64");
+
+          return {
+            success: true,
+            fileName: outputFile,
+            fileBase64,
+          };
+        }
+
         return {
           success: true,
           fileName,
         };
       }
 
-      // If no artifacts found but no error, still return success
-      return {
-        success: true,
-        fileName,
-      };
-    } catch (error: any) {
       return {
         success: false,
-        error: error.message || "Failed to execute code",
+        error: `Unsupported language: ${language}`,
       };
+    } catch (error: any) {
+      logger.error("[DocumentAgent] Local execution error:", error);
+      return {
+        success: false,
+        error: error.message || "Failed to execute code locally",
+      };
+    } finally {
+      // Clean up temp directory
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
     }
   }
 

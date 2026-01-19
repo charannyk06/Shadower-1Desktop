@@ -472,6 +472,18 @@ export const auth = new Proxy({} as ReturnType<typeof betterAuth>, {
           signIn: {
             email: async () => ({ error: null, data: null }),
           },
+          signUpEmail: async () => ({ error: null, data: null }),
+          listUserAccounts: async () => [],
+          listSessions: async () => [],
+          updateUser: async () => ({ error: null, data: null }),
+          changeEmail: async () => ({ error: null, data: null }),
+          removeUser: async () => ({ error: null, data: null }),
+          changePassword: async () => ({ error: null, data: null }),
+          setUserPassword: async () => ({ error: null, data: null }),
+          revokeUserSessions: async () => ({ error: null, data: null }),
+          setRole: async () => ({ error: null, data: null }),
+          banUser: async () => ({ error: null, data: null }),
+          unbanUser: async () => ({ error: null, data: null }),
         };
       }
       if (prop === "handler") {

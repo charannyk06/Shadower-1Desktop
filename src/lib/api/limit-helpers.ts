@@ -1,6 +1,6 @@
 import {
   checkImageLimit,
-  checkSandboxLimit,
+  checkLocalExecutionLimit,
   checkTokenLimit,
   checkWorkflowLimit,
 } from "lib/billing";
@@ -54,12 +54,12 @@ export async function validateTokenLimit(
 }
 
 /**
- * Validates sandbox limit and returns error response if exceeded
+ * Validates local execution limit and returns error response if exceeded
  */
-export async function validateSandboxLimit(
+export async function validateLocalExecutionLimit(
   userId: string,
 ): Promise<LimitCheckResult | null> {
-  const limitCheck = await checkSandboxLimit(userId);
+  const limitCheck = await checkLocalExecutionLimit(userId);
   return limitCheck.allowed ? null : limitCheck;
 }
 

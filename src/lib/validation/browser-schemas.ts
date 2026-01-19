@@ -16,9 +16,9 @@ const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Browserbase session ID pattern (alphanumeric with dashes)
+ * Session ID pattern (alphanumeric with dashes, compatible with local sessions)
  */
-const browserbaseSessionIdPattern = /^[a-zA-Z0-9-_]{10,64}$/;
+const sessionIdPattern = /^[a-zA-Z0-9-_]{10,64}$/;
 
 /**
  * Valid URL pattern (strict)
@@ -76,7 +76,7 @@ export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 export const getSessionQuerySchema = z.object({
   sessionId: z
     .string()
-    .regex(browserbaseSessionIdPattern, "Invalid session ID format")
+    .regex(sessionIdPattern, "Invalid session ID format")
     .optional(),
   threadId: z
     .string()
@@ -93,7 +93,7 @@ export const deleteSessionQuerySchema = z.object({
   sessionId: z
     .string()
     .min(1)
-    .regex(browserbaseSessionIdPattern, "Invalid session ID format"),
+    .regex(sessionIdPattern, "Invalid session ID format"),
 });
 
 export type DeleteSessionQueryInput = z.infer<typeof deleteSessionQuerySchema>;
@@ -103,9 +103,7 @@ export type DeleteSessionQueryInput = z.infer<typeof deleteSessionQuerySchema>;
  */
 export const updateSessionSchema = z
   .object({
-    sessionId: z
-      .string()
-      .regex(browserbaseSessionIdPattern, "Invalid session ID format"),
+    sessionId: z.string().regex(sessionIdPattern, "Invalid session ID format"),
     currentUrl: z
       .string()
       .regex(urlPattern, "Invalid URL format")
@@ -122,9 +120,7 @@ export type UpdateSessionInput = z.infer<typeof updateSessionSchema>;
  */
 export const screenshotRequestSchema = z
   .object({
-    sessionId: z
-      .string()
-      .regex(browserbaseSessionIdPattern, "Invalid session ID format"),
+    sessionId: z.string().regex(sessionIdPattern, "Invalid session ID format"),
     saveToHistory: z.boolean().optional().default(false),
     format: z.enum(["png", "jpeg"]).optional().default("png"),
     quality: z.number().int().min(1).max(100).optional(),
@@ -137,9 +133,7 @@ export type ScreenshotRequestInput = z.infer<typeof screenshotRequestSchema>;
  * GET /api/browser/stream query params
  */
 export const streamQuerySchema = z.object({
-  sessionId: z
-    .string()
-    .regex(browserbaseSessionIdPattern, "Invalid session ID format"),
+  sessionId: z.string().regex(sessionIdPattern, "Invalid session ID format"),
   interval: z
     .string()
     .optional()
@@ -155,9 +149,7 @@ export type StreamQueryInput = z.infer<typeof streamQuerySchema>;
  */
 export const browserActionSchema = z
   .object({
-    sessionId: z
-      .string()
-      .regex(browserbaseSessionIdPattern, "Invalid session ID format"),
+    sessionId: z.string().regex(sessionIdPattern, "Invalid session ID format"),
     action: z.string().min(1).max(1024), // Natural language action
     timeout: z.number().int().min(1000).max(60000).optional(),
   })
@@ -170,9 +162,7 @@ export type BrowserActionInput = z.infer<typeof browserActionSchema>;
  */
 export const browserNavigateSchema = z
   .object({
-    sessionId: z
-      .string()
-      .regex(browserbaseSessionIdPattern, "Invalid session ID format"),
+    sessionId: z.string().regex(sessionIdPattern, "Invalid session ID format"),
     url: z.string().regex(urlPattern, "Invalid URL format").max(2048),
     waitUntil: z
       .enum(["load", "domcontentloaded", "networkidle0", "networkidle2"])
@@ -189,9 +179,7 @@ export type BrowserNavigateInput = z.infer<typeof browserNavigateSchema>;
  */
 export const browserExtractSchema = z
   .object({
-    sessionId: z
-      .string()
-      .regex(browserbaseSessionIdPattern, "Invalid session ID format"),
+    sessionId: z.string().regex(sessionIdPattern, "Invalid session ID format"),
     instruction: z.string().min(1).max(2048),
     schema: z.record(z.string(), z.unknown()).optional(), // JSON schema for extraction
   })

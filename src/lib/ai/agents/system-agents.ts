@@ -26,8 +26,8 @@ export interface SystemAgentDefinition {
   requiresBrowser?: boolean;
   /** Whether this agent requires desktop automation (local terminal) */
   requiresDesktop?: boolean;
-  /** Whether this agent requires code execution (local sandbox) */
-  requiresSandbox?: boolean;
+  /** Whether this agent requires local code execution */
+  requiresCodeExecution?: boolean;
 }
 
 /**
@@ -106,8 +106,13 @@ export const DATA_ANALYSIS_AGENT: SystemAgentDefinition = {
     style: { backgroundColor: "#3B82F6" },
   },
   category: "analysis",
-  requiresSandbox: true,
-  defaultTools: ["sandbox", "createVisualization", "setContext", "getContext"],
+  requiresCodeExecution: true,
+  defaultTools: [
+    "createFragment",
+    "createVisualization",
+    "setContext",
+    "getContext",
+  ],
   role: "Senior Data Scientist",
   systemPrompt: `You are a senior data scientist specializing in data analysis and visualization.
 
@@ -133,14 +138,14 @@ export const DATA_ANALYSIS_AGENT: SystemAgentDefinition = {
 - Box plots for distributions
 
 ## CODE EXECUTION
-Use the sandbox tool to execute Python code for analysis.
-Always use pandas, numpy, and plotly for data work.
+Use the createFragment tool to generate data analysis applications locally.
+Create React apps with charts using Recharts, Chart.js, or Plotly.
 
 ## OUTPUT FORMAT
 Provide analysis results with:
 - Data Summary (shape, types, quality)
 - Key Statistics
-- Visualizations (embedded Plotly charts)
+- Visualizations (embedded charts)
 - Insights and Recommendations
 
 ## IMPORTANT
@@ -164,8 +169,8 @@ export const CODING_AGENT: SystemAgentDefinition = {
     style: { backgroundColor: "#10B981" },
   },
   category: "coding",
-  requiresSandbox: true,
-  defaultTools: ["sandbox", "setContext", "getContext"],
+  requiresCodeExecution: true,
+  defaultTools: ["createFragment", "editFragment", "setContext", "getContext"],
   role: "Senior Full-Stack Developer",
   systemPrompt: `You are a senior full-stack developer who can build complete applications from descriptions.
 
@@ -174,7 +179,7 @@ export const CODING_AGENT: SystemAgentDefinition = {
 - Build APIs and backend services
 - Set up databases and data models
 - Write and run tests
-- Deploy and preview applications
+- Deploy and preview applications locally
 
 ## DEVELOPMENT WORKFLOW
 1. **Requirements Analysis**: Understand what the user wants to build
@@ -203,7 +208,7 @@ Provide:
 - Suggested improvements
 
 ## IMPORTANT
-- Use the sandbox to create and run code
+- Use createFragment to generate and run applications locally
 - Test the application before declaring it complete
 - Provide a preview URL when possible
 - Keep dependencies minimal and modern`,
@@ -370,7 +375,7 @@ export const DOCUMENT_AGENT: SystemAgentDefinition = {
     style: { backgroundColor: "#6366F1" },
   },
   category: "documents",
-  requiresSandbox: true,
+  requiresCodeExecution: true,
   defaultTools: [
     // Create tools
     "createPresentation",
@@ -620,12 +625,12 @@ export function getSystemAgentTools(id: string): string[] {
 export function getSystemAgentRequirements(id: string): {
   browser: boolean;
   desktop: boolean;
-  sandbox: boolean;
+  codeExecution: boolean;
 } {
   const agent = getSystemAgent(id);
   return {
     browser: agent?.requiresBrowser ?? false,
     desktop: agent?.requiresDesktop ?? false,
-    sandbox: agent?.requiresSandbox ?? false,
+    codeExecution: agent?.requiresCodeExecution ?? false,
   };
 }

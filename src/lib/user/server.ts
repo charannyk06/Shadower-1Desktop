@@ -160,16 +160,39 @@ export async function getUserStats(userId?: string): Promise<{
   period: string;
 }> {
   const resolvedUserId = await getUserIdAndCheckAccess(userId);
-  const stats = await userRepository.getUserStats(resolvedUserId);
 
-  // Add provider information to each model stat
-  return {
-    ...stats,
-    modelStats: stats.modelStats.map((stat) => ({
-      ...stat,
-      provider: customModelProvider.getProviderForModel(stat.model),
-    })),
-  };
+  try {
+    const stats = await userRepository.getUserStats(resolvedUserId);
+
+    // Add provider information to each model stat
+    return {
+      ...stats,
+      modelStats: stats.modelStats.map((stat) => ({
+        ...stat,
+        provider: customModelProvider.getProviderForModel(stat.model),
+      })),
+    };
+  } catch (error: any) {
+    const errorMsg = error?.message || String(error) || "";
+    // If this is an Electron mode error, return mock stats
+    if (
+      error?.isElectronMode ||
+      errorMsg.includes("SQLite database is not available") ||
+      errorMsg.includes("Electron dev mode") ||
+      errorMsg.includes("Electron IPC")
+    ) {
+      // Return empty stats for Electron mode
+      return {
+        threadCount: 0,
+        messageCount: 0,
+        modelStats: [],
+        totalTokens: 0,
+        period: "Last 30 Days",
+      };
+    }
+    // Re-throw other errors
+    throw error;
+  }
 }
 
 /**
@@ -181,7 +204,27 @@ export async function getUserPreferences(
   userId?: string,
 ): Promise<UserPreferences | null> {
   const resolvedUserId = await getUserIdAndCheckAccess(userId);
-  return await userRepository.getPreferences(resolvedUserId);
+  try {
+    return await userRepository.getPreferences(resolvedUserId);
+  } catch (error: any) {
+    const errorMsg = error?.message || String(error) || "";
+    // If this is an Electron mode error, return default preferences
+    if (
+      error?.isElectronMode ||
+      errorMsg.includes("SQLite database is not available") ||
+      errorMsg.includes("Electron dev mode") ||
+      errorMsg.includes("Electron IPC")
+    ) {
+      // Return default preferences for Electron mode
+      return {
+        theme: "system",
+        language: "en",
+        notifications: true,
+      };
+    }
+    // Re-throw other errors
+    throw error;
+  }
 }
 
 export async function updateUserDetails(
@@ -194,10 +237,26 @@ export async function updateUserDetails(
   if (!name && !email && !image) {
     return;
   }
-  return await userRepository.updateUserDetails({
-    userId: resolvedUserId,
-    ...(name && { name }),
-    ...(email && { email }),
-    ...(image && { image }),
-  });
+  try {
+    return await userRepository.updateUserDetails({
+      userId: resolvedUserId,
+      ...(name && { name }),
+      ...(email && { email }),
+      ...(image && { image }),
+    });
+  } catch (error: any) {
+    const errorMsg = error?.message || String(error) || "";
+    // If this is an Electron mode error, silently succeed (updates handled via IPC)
+    if (
+      error?.isElectronMode ||
+      errorMsg.includes("SQLite database is not available") ||
+      errorMsg.includes("Electron dev mode") ||
+      errorMsg.includes("Electron IPC")
+    ) {
+      // In Electron mode, updates are handled via IPC, so just return success
+      return;
+    }
+    // Re-throw other errors
+    throw error;
+  }
 }

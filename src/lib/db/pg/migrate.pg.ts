@@ -44,7 +44,6 @@ const CRITICAL_TABLES = [
   // Fragment system tables
   "fragments",
   "fragment_executions",
-  "e2b_usage",
   "fragment_shares",
 ];
 
@@ -498,20 +497,7 @@ async function createMissingTablesDirectly(
         "updated_at" timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL
       );
       CREATE INDEX IF NOT EXISTS "research_task_user_idx" ON "research_task" ("user_id")`,
-    e2b_usage: `
-      CREATE TABLE IF NOT EXISTS "e2b_usage" (
-        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-        "user_id" uuid NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
-        "session_id" varchar(100) NOT NULL,
-        "template" varchar(100),
-        "duration_ms" integer NOT NULL,
-        "credits_used" text NOT NULL,
-        "cost_usd" text NOT NULL,
-        "operation_type" varchar(50),
-        "created_at" timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS "e2b_usage_user_idx" ON "e2b_usage" ("user_id");
-      CREATE INDEX IF NOT EXISTS "e2b_usage_created_idx" ON "e2b_usage" ("created_at")`,
+    // Note: e2b_usage table removed - local execution is free and doesn't need billing tracking
     fragments: `
       CREATE TABLE IF NOT EXISTS "fragments" (
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -523,7 +509,7 @@ async function createMissingTablesDirectly(
         "code" text NOT NULL,
         "file_path" varchar(500) NOT NULL,
         "port" integer,
-        "sandbox_id" varchar(100),
+        "session_id" varchar(100),
         "preview_url" text,
         "deployment_url" text,
         "status" varchar(50) DEFAULT 'draft',
@@ -538,7 +524,7 @@ async function createMissingTablesDirectly(
       CREATE TABLE IF NOT EXISTS "fragment_executions" (
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
         "fragment_id" uuid NOT NULL REFERENCES "fragments"("id") ON DELETE CASCADE,
-        "sandbox_id" varchar(100) NOT NULL,
+        "session_id" varchar(100) NOT NULL,
         "template" varchar(100) NOT NULL,
         "stdout" text,
         "stderr" text,
@@ -579,7 +565,7 @@ async function createMissingTablesDirectly(
   const fixAllTablesSQL = `
     DO $$ BEGIN
       -- Fix browser_session table
-      ALTER TABLE "browser_session" ADD COLUMN IF NOT EXISTS "provider" varchar NOT NULL DEFAULT 'browserbase';
+      ALTER TABLE "browser_session" ADD COLUMN IF NOT EXISTS "provider" varchar NOT NULL DEFAULT 'chrome-devtools';
       ALTER TABLE "browser_session" ADD COLUMN IF NOT EXISTS "session_id" text NOT NULL DEFAULT '';
       ALTER TABLE "browser_session" ADD COLUMN IF NOT EXISTS "current_url" text;
       ALTER TABLE "browser_session" ADD COLUMN IF NOT EXISTS "replay_url" text;

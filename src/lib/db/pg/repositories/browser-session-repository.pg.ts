@@ -3,8 +3,8 @@ import { pgDb as db } from "../db.pg";
 import { BrowserSessionTable, type BrowserSessionEntity } from "../schema.pg";
 
 /**
- * Browser Session Repository - Manages browser and E2B sandbox sessions
- * Used by the persistence manager for reconnecting to existing sandboxes
+ * Browser Session Repository - Manages local browser and terminal sessions
+ * Used for tracking and persisting local automation sessions
  */
 export class PgBrowserSessionRepository {
   /**
@@ -13,7 +13,7 @@ export class PgBrowserSessionRepository {
   async createSession(data: {
     threadId?: string;
     userId: string;
-    provider: "browserbase" | "e2b-desktop";
+    provider: "chrome-devtools" | "local-terminal";
     sessionId: string;
     persistenceEnabled?: boolean;
     currentUrl?: string;
@@ -40,7 +40,7 @@ export class PgBrowserSessionRepository {
    */
   async getSessionForThread(
     threadId: string,
-    provider: "browserbase" | "e2b-desktop",
+    provider: "chrome-devtools" | "local-terminal",
   ): Promise<BrowserSessionEntity | null> {
     const [session] = await db
       .select()

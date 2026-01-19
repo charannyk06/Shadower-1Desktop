@@ -390,9 +390,9 @@ export async function POST(request: Request) {
             loadAppDefaultTools({
               mentions,
               allowedAppDefaultToolkit,
-              // Pass thread context for file persistence in code execution tools
+              // Pass thread context for tool creation
               // IMPORTANT: Include dataStream for fragment progress streaming
-              codeExecutionContext: {
+              toolContext: {
                 threadId: thread?.id,
                 userId: auth.userId,
                 chatModel,

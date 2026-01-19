@@ -200,7 +200,7 @@ export const sqliteUserRepository: UserRepository = {
   getUsageCounts: async (userId: string, from: Date, to: Date) => {
     const defaultCounts = {
       image_generation: 0,
-      sandbox_execution: 0,
+      local_execution: 0,
       voice_minutes: 0,
       mcp_tool_call: 0,
       workflow_execution: 0,
@@ -230,7 +230,7 @@ export const sqliteUserRepository: UserRepository = {
 
       return {
         image_generation: eventCounts.image_generation || 0,
-        sandbox_execution: eventCounts.sandbox_execution || 0,
+        local_execution: eventCounts.local_execution || 0,
         voice_minutes: eventCounts.voice_minutes || 0,
         mcp_tool_call: eventCounts.mcp_tool_call || 0,
         workflow_execution: eventCounts.workflow_execution || 0,

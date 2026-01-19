@@ -3,7 +3,6 @@ import { pgDb as db } from "../db.pg";
 import {
   FragmentsTable,
   FragmentExecutionsTable,
-  E2BUsageTable,
   FragmentSharesTable,
 } from "../schema.pg";
 import type {
@@ -29,7 +28,7 @@ export class FragmentRepository {
     code: string;
     filePath: string;
     port?: number;
-    sandboxId?: string;
+    sessionId?: string;
     previewUrl?: string;
   }): Promise<Fragment> {
     const [fragment] = await db
@@ -43,7 +42,7 @@ export class FragmentRepository {
         code: data.code,
         filePath: data.filePath,
         port: data.port,
-        sandboxId: data.sandboxId,
+        sessionId: data.sessionId,
         previewUrl: data.previewUrl,
         status: "draft",
       })
@@ -99,7 +98,7 @@ export class FragmentRepository {
     id: string,
     data: Partial<{
       code: string;
-      sandboxId: string;
+      sessionId: string;
       previewUrl: string;
       deploymentUrl: string;
       status: FragmentStatus;
@@ -111,7 +110,7 @@ export class FragmentRepository {
     };
 
     if (data.code !== undefined) updateData.code = data.code;
-    if (data.sandboxId !== undefined) updateData.sandboxId = data.sandboxId;
+    if (data.sessionId !== undefined) updateData.sessionId = data.sessionId;
     if (data.previewUrl !== undefined) updateData.previewUrl = data.previewUrl;
     if (data.deploymentUrl !== undefined)
       updateData.deploymentUrl = data.deploymentUrl;
@@ -144,7 +143,7 @@ export class FragmentRepository {
    */
   async recordExecution(data: {
     fragmentId: string;
-    sandboxId: string;
+    sessionId: string;
     template: string;
     stdout?: string;
     stderr?: string;
@@ -154,7 +153,7 @@ export class FragmentRepository {
   }): Promise<void> {
     await db.insert(FragmentExecutionsTable).values({
       fragmentId: data.fragmentId,
-      sandboxId: data.sandboxId,
+      sessionId: data.sessionId,
       template: data.template,
       stdout: data.stdout,
       stderr: data.stderr,
@@ -189,7 +188,7 @@ export class FragmentRepository {
       description: row.description || "",
       code: row.code,
       file_path: row.filePath,
-      sandbox_id: row.sandboxId || undefined,
+      session_id: row.sessionId || undefined,
       port: row.port || undefined,
       preview_url: row.previewUrl || undefined,
       deployment_url: row.deploymentUrl || undefined,
@@ -202,104 +201,47 @@ export class FragmentRepository {
 }
 
 /**
- * E2B Usage Repository - Track sandbox usage for billing
+ * Local Execution Repository - Track local execution for analytics (free, no billing)
+ * Local execution runs on the user's machine, so there's no cost to track.
+ * This is just for usage analytics.
  */
-export class E2BUsageRepository {
+export class LocalExecutionRepository {
   /**
-   * Record sandbox usage
+   * Record local execution (no-op, local execution is free)
+   * Kept for interface compatibility
    */
-  async recordUsage(data: {
+  async recordExecution(_data: {
     userId: string;
-    sessionId: string;
-    template?: string;
-    durationMs: number;
-    operationType?: "create" | "edit" | "execute" | "deploy";
+    threadId?: string;
+    executionMs: number;
+    language?: string;
   }): Promise<void> {
-    // Calculate credits: 1 credit per minute, minimum 1 credit
-    const creditsUsed = Math.max(1, Math.ceil(data.durationMs / 60000));
-    // Calculate cost: $0.001 per credit
-    const costUsd = (creditsUsed * 0.001).toFixed(6);
-
-    await db.insert(E2BUsageTable).values({
-      userId: data.userId,
-      sessionId: data.sessionId,
-      template: data.template,
-      durationMs: data.durationMs,
-      creditsUsed: creditsUsed.toString(),
-      costUsd,
-      operationType: data.operationType,
-    });
+    // Local execution is free - runs on user's machine
+    // No database tracking needed for billing purposes
   }
 
   /**
-   * Get daily usage for a user
+   * Get daily execution count for a user (returns 0 - no tracking needed)
    */
-  async getDailyUsage(userId: string): Promise<number> {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const result = await db
-      .select({
-        totalCredits: sql<string>`COALESCE(SUM(${E2BUsageTable.creditsUsed}::numeric), 0)`,
-      })
-      .from(E2BUsageTable)
-      .where(
-        and(
-          eq(E2BUsageTable.userId, userId),
-          sql`${E2BUsageTable.createdAt} >= ${startOfDay}`,
-        ),
-      );
-
-    return parseFloat(result[0]?.totalCredits || "0");
+  async getDailyExecutions(_userId: string): Promise<number> {
+    return 0;
   }
 
   /**
-   * Get monthly usage for a user
+   * Get monthly execution count for a user (returns 0 - no tracking needed)
    */
-  async getMonthlyUsage(userId: string): Promise<number> {
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const result = await db
-      .select({
-        totalCredits: sql<string>`COALESCE(SUM(${E2BUsageTable.creditsUsed}::numeric), 0)`,
-      })
-      .from(E2BUsageTable)
-      .where(
-        and(
-          eq(E2BUsageTable.userId, userId),
-          sql`${E2BUsageTable.createdAt} >= ${startOfMonth}`,
-        ),
-      );
-
-    return parseFloat(result[0]?.totalCredits || "0");
+  async getMonthlyExecutions(_userId: string): Promise<number> {
+    return 0;
   }
 
   /**
-   * Get usage history for a user
+   * Get execution history (returns empty - no tracking needed)
    */
-  async getUsageHistory(
-    userId: string,
-    limit: number = 100,
-  ): Promise<
-    Array<{
-      id: string;
-      sessionId: string;
-      template: string | null;
-      durationMs: number;
-      creditsUsed: string;
-      costUsd: string;
-      operationType: string | null;
-      createdAt: Date;
-    }>
-  > {
-    return await db
-      .select()
-      .from(E2BUsageTable)
-      .where(eq(E2BUsageTable.userId, userId))
-      .orderBy(desc(E2BUsageTable.createdAt))
-      .limit(limit);
+  async getExecutionHistory(
+    _userId: string,
+    _limit: number = 100,
+  ): Promise<Array<never>> {
+    return [];
   }
 }
 
@@ -408,5 +350,8 @@ export class FragmentSharesRepository {
 
 // Singleton instances
 export const fragmentRepository = new FragmentRepository();
-export const e2bUsageRepository = new E2BUsageRepository();
+export const localExecutionRepository = new LocalExecutionRepository();
 export const fragmentSharesRepository = new FragmentSharesRepository();
+
+// Legacy alias for backwards compatibility
+export const e2bUsageRepository = localExecutionRepository;

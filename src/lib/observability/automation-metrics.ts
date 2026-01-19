@@ -59,11 +59,7 @@ export interface MetricContext {
   userId?: string;
   sessionId?: string;
   threadId?: string;
-  provider?:
-    | "chrome-devtools"
-    | "local-terminal"
-    | "browserbase"
-    | "e2b-desktop";
+  provider?: "chrome-devtools" | "local-terminal";
   operation?: string;
   [key: string]: unknown;
 }
@@ -104,10 +100,8 @@ const systemLogger = globalLogger.withDefaults({
  * Get the appropriate logger for a provider
  */
 function getLogger(provider?: string) {
-  if (provider === "browserbase" || provider === "chrome-devtools")
-    return browserLogger;
-  if (provider === "e2b-desktop" || provider === "local-terminal")
-    return desktopLogger;
+  if (provider === "chrome-devtools") return browserLogger;
+  if (provider === "local-terminal") return desktopLogger;
   return systemLogger;
 }
 
@@ -248,11 +242,7 @@ export function logEvent(
  */
 export function logSessionCreated(
   sessionId: string,
-  provider:
-    | "chrome-devtools"
-    | "local-terminal"
-    | "browserbase"
-    | "e2b-desktop",
+  provider: "chrome-devtools" | "local-terminal",
   context: {
     userId: string;
     threadId?: string;
@@ -283,11 +273,7 @@ export function logSessionCreated(
  */
 export function logSessionClosed(
   sessionId: string,
-  provider:
-    | "chrome-devtools"
-    | "local-terminal"
-    | "browserbase"
-    | "e2b-desktop",
+  provider: "chrome-devtools" | "local-terminal",
   context: {
     userId?: string;
     reason?: string;
@@ -325,11 +311,7 @@ export function logSessionClosed(
  */
 export function logSessionError(
   sessionId: string,
-  provider:
-    | "chrome-devtools"
-    | "local-terminal"
-    | "browserbase"
-    | "e2b-desktop",
+  provider: "chrome-devtools" | "local-terminal",
   error: Error | string,
   context?: MetricContext,
 ): void {
@@ -476,11 +458,7 @@ export function logBrowserError(
  */
 export function logScreenshot(
   sessionId: string,
-  provider:
-    | "chrome-devtools"
-    | "local-terminal"
-    | "browserbase"
-    | "e2b-desktop",
+  provider: "chrome-devtools" | "local-terminal",
   context: {
     userId?: string;
     sizeBytes?: number;
@@ -489,7 +467,7 @@ export function logScreenshot(
   },
 ): void {
   const event =
-    provider === "browserbase"
+    provider === "chrome-devtools"
       ? AutomationEvent.BROWSER_SCREENSHOT
       : AutomationEvent.DESKTOP_SCREENSHOT;
 

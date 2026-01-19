@@ -45,7 +45,7 @@ import { mcpClientsManager } from "lib/ai/mcp/mcp-manager";
 import { AppDefaultToolkit } from "lib/ai/tools";
 import {
   APP_DEFAULT_TOOL_KIT,
-  CodeExecutionContext,
+  ToolCreationContext,
   createAppDefaultToolKit,
 } from "lib/ai/tools/tool-kit";
 import { createWorkflowExecutor } from "lib/ai/workflow/executor/workflow-executor";
@@ -541,17 +541,17 @@ export const loadWorkFlowTools = (opt: {
 export const loadAppDefaultTools = (opt?: {
   mentions?: ChatMention[];
   allowedAppDefaultToolkit?: string[];
-  /** Thread context for file persistence in code execution tools */
-  codeExecutionContext?: CodeExecutionContext;
+  /** Thread context for tool creation */
+  toolContext?: ToolCreationContext;
 }) => {
-  // Log context for debugging sandbox persistence issues
+  // Log context for debugging
   logger.info(
-    `[Tools] Loading app default tools with context: threadId=${opt?.codeExecutionContext?.threadId}, userId=${opt?.codeExecutionContext?.userId}`,
+    `[Tools] Loading app default tools with context: threadId=${opt?.toolContext?.threadId}, userId=${opt?.toolContext?.userId}`,
   );
 
-  // Create tool kit with context-aware code tools if context is provided
-  const toolKit = opt?.codeExecutionContext
-    ? createAppDefaultToolKit(opt.codeExecutionContext)
+  // Create tool kit with context-aware tools if context is provided
+  const toolKit = opt?.toolContext
+    ? createAppDefaultToolKit(opt.toolContext)
     : APP_DEFAULT_TOOL_KIT;
 
   return safe(toolKit)
@@ -568,7 +568,7 @@ export const loadAppDefaultTools = (opt?: {
             const requirements = getSystemAgentRequirements(mention.agentId);
             const agentDef = getSystemAgent(mention.agentId);
             logger.info(
-              `[Tools] System agent ${mention.agentId} (category: ${agentDef?.category}) requirements: browser=${requirements.browser}, desktop=${requirements.desktop}, sandbox=${requirements.sandbox}`,
+              `[Tools] System agent ${mention.agentId} (category: ${agentDef?.category}) requirements: browser=${requirements.browser}, desktop=${requirements.desktop}, codeExecution=${requirements.codeExecution}`,
             );
 
             // Add required toolkits based on agent requirements
@@ -579,8 +579,9 @@ export const loadAppDefaultTools = (opt?: {
             if (requirements.desktop) {
               systemAgentToolkits.push(AppDefaultToolkit.Desktop);
             }
-            if (requirements.sandbox) {
-              systemAgentToolkits.push(AppDefaultToolkit.Sandbox);
+            if (requirements.codeExecution) {
+              // Local code execution uses Fragments for app generation and visualization tools
+              systemAgentToolkits.push(AppDefaultToolkit.Fragments);
               systemAgentToolkits.push(AppDefaultToolkit.Visualization);
               systemAgentToolkits.push(AppDefaultToolkit.DataAnalysis);
             }
