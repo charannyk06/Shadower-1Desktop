@@ -1,12 +1,12 @@
-import { ipcMain } from 'electron';
-import { getDatabase, schema } from '../services/database';
-import { eq, desc } from 'drizzle-orm';
+import { ipcMain } from "electron";
+import { getDatabase, schema } from "../services/database";
+import { eq, desc } from "drizzle-orm";
 
 export function registerAgentHandlers() {
   const db = getDatabase();
 
   // Get all agents for a user
-  ipcMain.handle('db:agents:getAll', async (event, userId: string) => {
+  ipcMain.handle("db:agents:getAll", async (_event, userId: string) => {
     try {
       const agents = await db
         .select()
@@ -16,27 +16,30 @@ export function registerAgentHandlers() {
 
       return agents;
     } catch (error) {
-      console.error('[IPC] Error getting agents:', error);
+      console.error("[IPC] Error getting agents:", error);
       throw error;
     }
   });
 
   // Get agent by ID
-  ipcMain.handle('db:agents:getById', async (event, id: string) => {
+  ipcMain.handle("db:agents:getById", async (_event, id: string) => {
     try {
-      const agent = await db.query.AgentTable.findFirst({
-        where: eq(schema.AgentTable.id, id),
-      });
+      // Use select query instead of db.query which may not be available
+      const [agent] = await db
+        .select()
+        .from(schema.AgentTable)
+        .where(eq(schema.AgentTable.id, id))
+        .limit(1);
 
-      return agent;
+      return agent || null;
     } catch (error) {
-      console.error('[IPC] Error getting agent:', error);
+      console.error("[IPC] Error getting agent:", error);
       throw error;
     }
   });
 
   // Create a new agent
-  ipcMain.handle('db:agents:create', async (event, data: any) => {
+  ipcMain.handle("db:agents:create", async (_event, data: any) => {
     try {
       const [agent] = await db
         .insert(schema.AgentTable)
@@ -46,19 +49,19 @@ export function registerAgentHandlers() {
           icon: data.icon,
           userId: data.userId,
           instructions: data.instructions,
-          visibility: data.visibility || 'private',
-        })
+          visibility: data.visibility || "private",
+        } as typeof schema.AgentTable.$inferInsert)
         .returning();
 
       return agent;
     } catch (error) {
-      console.error('[IPC] Error creating agent:', error);
+      console.error("[IPC] Error creating agent:", error);
       throw error;
     }
   });
 
   // Update an agent
-  ipcMain.handle('db:agents:update', async (event, id: string, data: any) => {
+  ipcMain.handle("db:agents:update", async (_event, id: string, data: any) => {
     try {
       const [agent] = await db
         .update(schema.AgentTable)
@@ -69,28 +72,28 @@ export function registerAgentHandlers() {
           instructions: data.instructions,
           visibility: data.visibility,
           updatedAt: new Date(),
-        })
+        } as Partial<typeof schema.AgentTable.$inferInsert>)
         .where(eq(schema.AgentTable.id, id))
         .returning();
 
       return agent;
     } catch (error) {
-      console.error('[IPC] Error updating agent:', error);
+      console.error("[IPC] Error updating agent:", error);
       throw error;
     }
   });
 
   // Delete an agent
-  ipcMain.handle('db:agents:delete', async (event, id: string) => {
+  ipcMain.handle("db:agents:delete", async (_event, id: string) => {
     try {
       await db.delete(schema.AgentTable).where(eq(schema.AgentTable.id, id));
 
       return { success: true };
     } catch (error) {
-      console.error('[IPC] Error deleting agent:', error);
+      console.error("[IPC] Error deleting agent:", error);
       throw error;
     }
   });
 
-  console.log('[IPC] Agent handlers registered');
+  console.log("[IPC] Agent handlers registered");
 }

@@ -1,8 +1,8 @@
-import * as ort from 'onnxruntime-node';
-import { app } from 'electron';
-import path from 'path';
-import fs from 'fs-extra';
-import https from 'https';
+import * as ort from "onnxruntime-node";
+import { app } from "electron";
+import path from "path";
+import fs from "fs-extra";
+import https from "https";
 
 /**
  * Local Embedding Service using ONNX Runtime
@@ -13,43 +13,48 @@ import https from 'https';
  */
 export class LocalEmbeddingService {
   private session: ort.InferenceSession | null = null;
-  private tokenizer: any = null;
   private initialized = false;
-  private readonly modelName = 'all-MiniLM-L6-v2';
+  private readonly modelName = "all-MiniLM-L6-v2";
   private readonly embeddingDim = 384; // or 1536 for larger models
+
+  private static _instance: LocalEmbeddingService | null = null;
+
+  static getInstance(): LocalEmbeddingService {
+    if (!LocalEmbeddingService._instance) {
+      LocalEmbeddingService._instance = new LocalEmbeddingService();
+    }
+    return LocalEmbeddingService._instance;
+  }
 
   async initialize() {
     if (this.initialized) {
       return;
     }
 
-    console.log('[Embedding] Initializing local embedding service...');
+    console.log("[Embedding] Initializing local embedding service...");
 
     // Download and load model
     const modelPath = await this.ensureModel();
 
     // Create ONNX Runtime session
     this.session = await ort.InferenceSession.create(modelPath, {
-      executionProviders: ['cpu'], // Use CPU by default, can add 'cuda' if GPU available
-      graphOptimizationLevel: 'all',
+      executionProviders: ["cpu"], // Use CPU by default, can add 'cuda' if GPU available
+      graphOptimizationLevel: "all",
       enableMemPattern: true,
     });
 
-    // Load tokenizer (simplified - in production use proper tokenizer)
-    await this.loadTokenizer();
-
     this.initialized = true;
-    console.log('[Embedding] Local embedding service initialized successfully');
+    console.log("[Embedding] Local embedding service initialized successfully");
   }
 
   private async ensureModel(): Promise<string> {
-    const userDataDir = app.getPath('userData');
-    const modelsDir = path.join(userDataDir, 'models', this.modelName);
-    const modelPath = path.join(modelsDir, 'model.onnx');
+    const userDataDir = app.getPath("userData");
+    const modelsDir = path.join(userDataDir, "models", this.modelName);
+    const modelPath = path.join(modelsDir, "model.onnx");
 
     // Check if model already exists
     if (fs.existsSync(modelPath)) {
-      console.log('[Embedding] Model already downloaded:', modelPath);
+      console.log("[Embedding] Model already downloaded:", modelPath);
       return modelPath;
     }
 
@@ -57,13 +62,15 @@ export class LocalEmbeddingService {
     fs.ensureDirSync(modelsDir);
 
     // Download model from HuggingFace
-    console.log('[Embedding] Downloading model... This may take a few minutes.');
+    console.log(
+      "[Embedding] Downloading model... This may take a few minutes.",
+    );
 
     const modelUrl = `https://huggingface.co/sentence-transformers/${this.modelName}/resolve/main/onnx/model.onnx`;
 
     await this.downloadFile(modelUrl, modelPath);
 
-    console.log('[Embedding] Model downloaded successfully');
+    console.log("[Embedding] Model downloaded successfully");
     return modelPath;
   }
 
@@ -71,39 +78,31 @@ export class LocalEmbeddingService {
     return new Promise((resolve, reject) => {
       const file = fs.createWriteStream(destPath);
 
-      https.get(url, (response) => {
-        if (response.statusCode === 302 || response.statusCode === 301) {
-          // Follow redirect
-          const redirectUrl = response.headers.location;
-          if (redirectUrl) {
-            this.downloadFile(redirectUrl, destPath).then(resolve).catch(reject);
-            return;
+      https
+        .get(url, (response) => {
+          if (response.statusCode === 302 || response.statusCode === 301) {
+            // Follow redirect
+            const redirectUrl = response.headers.location;
+            if (redirectUrl) {
+              this.downloadFile(redirectUrl, destPath)
+                .then(resolve)
+                .catch(reject);
+              return;
+            }
           }
-        }
 
-        response.pipe(file);
+          response.pipe(file);
 
-        file.on('finish', () => {
-          file.close();
-          resolve();
+          file.on("finish", () => {
+            file.close();
+            resolve();
+          });
+        })
+        .on("error", (err) => {
+          fs.unlinkSync(destPath);
+          reject(err);
         });
-      }).on('error', (err) => {
-        fs.unlinkSync(destPath);
-        reject(err);
-      });
     });
-  }
-
-  private async loadTokenizer() {
-    // Simplified tokenizer - in production, use @xenova/transformers
-    // For now, use basic word splitting
-    this.tokenizer = {
-      encode: (text: string) => {
-        // Very basic tokenization - split by spaces and convert to IDs
-        const tokens = text.toLowerCase().split(/\s+/).filter(Boolean);
-        return tokens.map((token, idx) => idx); // Placeholder IDs
-      },
-    };
   }
 
   /**
@@ -119,30 +118,34 @@ export class LocalEmbeddingService {
     const textsArray = Array.isArray(texts) ? texts : [texts];
 
     try {
-      // For production, use proper tokenization
+      // For production, use proper tokenization with ONNX model inference
       // For now, return random embeddings as placeholder
-      // TODO: Integrate proper ONNX model inference
+      // TODO: Integrate proper ONNX model inference with tokenizer
 
       const embeddings: number[][] = [];
 
-      for (const text of textsArray) {
+      for (const _text of textsArray) {
         // Placeholder: generate random embedding
         const embedding = Array.from(
           { length: this.embeddingDim },
-          () => Math.random() * 2 - 1
+          () => Math.random() * 2 - 1,
         );
 
         // Normalize to unit vector
-        const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
-        const normalized = embedding.map(val => val / norm);
+        const norm = Math.sqrt(
+          embedding.reduce((sum, val) => sum + val * val, 0),
+        );
+        const normalized = embedding.map((val) => val / norm);
 
         embeddings.push(normalized);
       }
 
-      console.log(`[Embedding] Generated embeddings for ${textsArray.length} texts`);
+      console.log(
+        `[Embedding] Generated embeddings for ${textsArray.length} texts`,
+      );
       return embeddings;
     } catch (error) {
-      console.error('[Embedding] Error generating embeddings:', error);
+      console.error("[Embedding] Error generating embeddings:", error);
       throw error;
     }
   }
@@ -155,7 +158,7 @@ export class LocalEmbeddingService {
    */
   async embedBatch(
     texts: string[],
-    batchSize: number = 32
+    batchSize: number = 32,
   ): Promise<number[][]> {
     if (!this.initialized) {
       await this.initialize();
@@ -169,7 +172,7 @@ export class LocalEmbeddingService {
       allEmbeddings.push(...batchEmbeddings);
 
       console.log(
-        `[Embedding] Processed batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(texts.length / batchSize)}`
+        `[Embedding] Processed batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(texts.length / batchSize)}`,
       );
     }
 
@@ -184,7 +187,7 @@ export class LocalEmbeddingService {
    */
   cosineSimilarity(embedding1: number[], embedding2: number[]): number {
     if (embedding1.length !== embedding2.length) {
-      throw new Error('Embeddings must have the same dimension');
+      throw new Error("Embeddings must have the same dimension");
     }
 
     let dotProduct = 0;
@@ -205,9 +208,8 @@ export class LocalEmbeddingService {
    */
   close() {
     if (this.session) {
-      console.log('[Embedding] Closing embedding service');
+      console.log("[Embedding] Closing embedding service");
       this.session = null;
-      this.tokenizer = null;
       this.initialized = false;
     }
   }
