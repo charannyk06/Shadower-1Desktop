@@ -1,6 +1,7 @@
 "use client";
+import { mcpApi, mcpFetcher } from "@/lib/electron/mcp-api";
 import { MCPToolInfo, McpToolCustomization } from "app-types/mcp";
-import { cn, fetcher } from "lib/utils";
+import { cn } from "lib/utils";
 import { Info, Loader, Pencil, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { PropsWithChildren, ReactNode, useState } from "react";
@@ -81,7 +82,7 @@ export function ToolDetailPopupContent({
 
   const { data, isLoading, mutate } = useSWR<McpToolCustomization | null>(
     createApiUrl(serverId, tool.name),
-    fetcher,
+    mcpFetcher,
   );
 
   const startEdit = (e: any) => {
@@ -101,12 +102,7 @@ export function ToolDetailPopupContent({
           prompt: value,
         }),
     )
-      .map((body) =>
-        fetch(createApiUrl(serverId, tool.name), {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      )
+      .map((body) => mcpApi.saveToolCustomization(serverId, tool.name, body))
       .ifOk(() => {
         mutate();
         onUpdate?.();
@@ -120,11 +116,7 @@ export function ToolDetailPopupContent({
 
   const handleDelete = () => {
     setProcessing(true);
-    safe(() =>
-      fetch(createApiUrl(serverId, tool.name), {
-        method: "DELETE",
-      }),
-    )
+    safe(() => mcpApi.deleteToolCustomization(serverId, tool.name))
       .ifOk(() => {
         mutate();
         onUpdate?.();

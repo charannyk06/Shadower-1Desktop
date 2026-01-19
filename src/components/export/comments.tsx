@@ -1,9 +1,10 @@
 "use client";
 
+import { exportFetcher } from "@/lib/electron/export-api";
 import { ChatExportCommentWithUser } from "app-types/chat-export";
 import { authClient } from "auth/client";
 import { notify } from "lib/notify";
-import { fetcher, truncateString } from "lib/utils";
+import { truncateString } from "lib/utils";
 import { CornerDownRightIcon, MessagesSquareIcon, XIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
@@ -47,7 +48,7 @@ export default function Comments({
 
   const { data, isLoading } = useSWR<ChatExportCommentWithUser[]>(
     isLoggedIn ? `/api/export/${id}/comments` : null,
-    fetcher,
+    exportFetcher,
     {
       fallbackData: defaultComments,
       revalidateOnMount: false,

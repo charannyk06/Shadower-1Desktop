@@ -1,6 +1,5 @@
 "use client";
 
-import { existsByEmailAction, signUpAction } from "@/app/api/auth/actions";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useObjectState } from "@/hooks/use-object-state";
+import { authClient } from "@/lib/auth/client";
 import { UserZodSchema } from "app-types/user";
 import { cn } from "lib/utils";
 import { Check, ChevronLeft, Loader, X } from "lucide-react";
@@ -19,7 +19,6 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { safe } from "ts-safe";
 
 export default function EmailSignUp({
   isFirstUser,
@@ -52,11 +51,6 @@ export default function EmailSignUp({
     };
   }, [formData.password]);
 
-  const safeProcessWithLoading = function <T>(fn: () => Promise<T>) {
-    setIsLoading(true);
-    return safe(() => fn()).watch(() => setIsLoading(false));
-  };
-
   const backStep = () => {
     setStep(Math.max(step - 1, 1));
   };
@@ -67,13 +61,7 @@ export default function EmailSignUp({
       toast.error(t("Auth.SignUp.invalidEmail"));
       return;
     }
-    const exists = await safeProcessWithLoading(() =>
-      existsByEmailAction(formData.email),
-    ).orElse(false);
-    if (exists) {
-      toast.error(t("Auth.SignUp.emailAlreadyExists"));
-      return;
-    }
+    // Skip email exists check here - will be handled during registration via IPC
     setStep(2);
   };
 
@@ -87,7 +75,7 @@ export default function EmailSignUp({
   };
 
   const successPasswordStep = async () => {
-    // client side validation
+    // Client side validation
     const { success: passwordSuccess, error: passwordError } =
       UserZodSchema.shape.password.safeParse(formData.password);
     if (!passwordSuccess) {
@@ -96,19 +84,30 @@ export default function EmailSignUp({
       return;
     }
 
-    // server side validation and admin user creation if first user
-    const { success, message } = await safeProcessWithLoading(() =>
-      signUpAction({
+    setIsLoading(true);
+
+    try {
+      // Use IPC-based registration via authClient
+      const result = await authClient.register({
         email: formData.email,
         name: formData.name,
         password: formData.password,
-      }),
-    ).unwrap();
-    if (success) {
-      toast.success(message);
-      router.push("/");
-    } else {
-      toast.error(message);
+      });
+
+      if (result.success) {
+        toast.success("Account created successfully!");
+        // Session is already set by authClient, redirect to main app
+        router.push("/");
+      } else {
+        toast.error(result.error || "Registration failed");
+      }
+    } catch (error) {
+      console.error("[EmailSignUp] Registration error:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Registration failed",
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -274,7 +273,7 @@ export default function EmailSignUp({
               }}
             >
               {step === 3 ? t("Auth.SignUp.createAccount") : t("Common.next")}
-              {isLoading && <Loader className="size-4 ml-2" />}
+              {isLoading && <Loader className="size-4 ml-2 animate-spin" />}
             </Button>
             <Button
               tabIndex={step === 1 ? -1 : 0}

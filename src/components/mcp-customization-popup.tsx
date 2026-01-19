@@ -9,7 +9,8 @@ import {
   DialogTitle,
 } from "ui/dialog";
 
-import { cn, fetcher } from "lib/utils";
+import { mcpApi, mcpFetcher } from "@/lib/electron/mcp-api";
+import { cn } from "lib/utils";
 import useSWR from "swr";
 
 import { appStore } from "@/app/store";
@@ -92,12 +93,7 @@ export function McpServerCustomizationContent({
           prompt,
         }),
     )
-      .map((body) =>
-        fetch(`/api/mcp/server-customizations/${id}`, {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      )
+      .map((body) => mcpApi.saveServerCustomization(id, body))
       .ifOk(() => refreshMcpServerCustomization())
       .ifFail(handleErrorWithToast)
       .watch(() => {
@@ -107,11 +103,7 @@ export function McpServerCustomizationContent({
 
   const handleDelete = () => {
     setIsProcessing(true);
-    safe(() =>
-      fetch(`/api/mcp/server-customizations/${id}`, {
-        method: "DELETE",
-      }),
-    )
+    safe(() => mcpApi.deleteServerCustomization(id))
       .ifOk(() => refreshMcpServerCustomization())
       .ifFail(handleErrorWithToast)
       .watch(() => {
@@ -125,7 +117,7 @@ export function McpServerCustomizationContent({
     isLoading: isLoadingMcpServerCustomization,
   } = useSWR<null | McpServerCustomization>(
     `/api/mcp/server-customizations/${id}`,
-    fetcher,
+    mcpFetcher,
     {
       onSuccess: (data) => {
         setPrompt(data?.prompt || "");
@@ -140,7 +132,7 @@ export function McpServerCustomizationContent({
     isLoading: isLoadingMcpToolCustomizations,
   } = useSWR<McpToolCustomization[]>(
     `/api/mcp/tool-customizations/${id}`,
-    fetcher,
+    mcpFetcher,
     {
       fallbackData: [],
     },

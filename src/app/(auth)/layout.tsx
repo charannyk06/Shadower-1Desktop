@@ -1,5 +1,7 @@
+"use client";
+
 import { AnimatedLogo } from "@/components/layouts/animated-logo";
-import { getTranslations } from "next-intl/server";
+import { useTranslations } from "next-intl";
 import { BackgroundPaths } from "ui/background-paths";
 import { FlipWords } from "ui/flip-words";
 
@@ -11,8 +13,8 @@ interface AuthLayoutProps {
   readonly children: React.ReactNode;
 }
 
-export default async function AuthLayout({ children }: AuthLayoutProps) {
-  const t = await getTranslations("Auth.Intro");
+export default function AuthLayout({ children }: AuthLayoutProps) {
+  const t = useTranslations("Auth.Intro");
   return (
     <main className="relative w-full flex flex-col h-screen">
       <div className="flex-1">

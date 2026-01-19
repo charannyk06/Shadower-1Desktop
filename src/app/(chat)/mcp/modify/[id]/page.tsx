@@ -1,20 +1,69 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import MCPEditor from "@/components/mcp-editor";
-import { mcpRepository } from "lib/db/repository";
-import { ArrowLeft } from "lucide-react";
-import { getTranslations } from "next-intl/server";
+import { mcpApi } from "@/lib/electron/mcp-api";
+import { authClient } from "@/lib/auth/client";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Alert } from "ui/alert";
 
-export default async function Page({
-  params,
-}: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const t = await getTranslations();
-  const mcpClient = await mcpRepository.selectById(id);
+/**
+ * MCP Server Edit Page
+ * Auth is handled by AuthGuard in the layout.
+ * Server data is fetched via IPC in Electron mode.
+ */
+export default function Page() {
+  const params = useParams();
+  const router = useRouter();
+  const t = useTranslations();
+  const id = params.id as string;
+  const { data: session } = authClient.useSession();
 
-  if (!mcpClient) {
-    return redirect("/mcp");
+  const [mcpClient, setMcpClient] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    if (!session?.user?.id || !id) return;
+
+    const loadMcpServer = async () => {
+      setIsLoading(true);
+      try {
+        const server = await mcpApi.getById(id);
+
+        if (!server) {
+          setNotFound(true);
+        } else {
+          setMcpClient(server);
+        }
+      } catch (error) {
+        console.error("[MCPModifyPage] Error loading MCP server:", error);
+        setNotFound(true);
+      }
+      setIsLoading(false);
+    };
+
+    loadMcpServer();
+  }, [id, session?.user?.id]);
+
+  if (!session?.user?.id) {
+    return null; // AuthGuard will handle redirect
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (notFound) {
+    router.replace("/mcp");
+    return null;
   }
 
   return (

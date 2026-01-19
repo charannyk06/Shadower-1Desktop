@@ -1,68 +1,49 @@
+"use client";
+
 import { AdminUsersTabs } from "@/components/admin/admin-users-tabs";
-import { getAdminInvitations } from "lib/admin/invitation-server";
-import {
-  ADMIN_USER_LIST_LIMIT,
-  DEFAULT_SORT_BY,
-  DEFAULT_SORT_DIRECTION,
-} from "lib/admin/server";
-import { getAdminUsers } from "lib/admin/server";
-import { getSession } from "lib/auth/server";
+import { authClient } from "@/lib/auth/client";
+import { useSearchParams } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-import { redirect } from "next/navigation";
+const ADMIN_USER_LIST_LIMIT = 20;
+const DEFAULT_SORT_BY = "createdAt";
+const DEFAULT_SORT_DIRECTION = "desc";
 
-interface PageProps {
-  searchParams: Promise<{
-    page?: string;
-    limit?: string;
-    query?: string;
-    sortBy?: string;
-    sortDirection?: "asc" | "desc";
-  }>;
-}
+/**
+ * Admin Users List Page
+ * Auth is handled by AuthGuard in the layout.
+ *
+ * Note: In Electron mode, user list is fetched client-side via IPC
+ */
+export default function UserListPage() {
+  const { data: session } = authClient.useSession();
+  const searchParams = useSearchParams();
 
-export default async function UserListPage({ searchParams }: PageProps) {
-  // All authenticated users have access (roles/permissions removed)
-  const session = await getSession();
-  if (!session) {
-    redirect("/login");
+  if (!session?.user?.id) {
+    return null; // AuthGuard will handle redirect
   }
 
-  const params = await searchParams;
-  const page = Number.parseInt(params.page ?? "1", 10);
+  const page = Number.parseInt(searchParams.get("page") ?? "1", 10);
   const limit = Number.parseInt(
-    params.limit ?? ADMIN_USER_LIST_LIMIT.toString(),
+    searchParams.get("limit") ?? ADMIN_USER_LIST_LIMIT.toString(),
     10,
   );
-  const offset = (page - 1) * limit;
-  const sortBy = params.sortBy ?? DEFAULT_SORT_BY;
-  const sortDirection = params.sortDirection ?? DEFAULT_SORT_DIRECTION;
+  const query = searchParams.get("query") || undefined;
+  const sortBy = searchParams.get("sortBy") ?? DEFAULT_SORT_BY;
+  const sortDirection =
+    (searchParams.get("sortDirection") as "asc" | "desc") ??
+    DEFAULT_SORT_DIRECTION;
 
-  // Fetch users and invitations in parallel
-  const [usersResult, invitationsResult] = await Promise.all([
-    getAdminUsers({
-      searchValue: params.query,
-      searchField: "email",
-      searchOperator: "contains",
-      limit,
-      offset,
-      sortBy,
-      sortDirection,
-    }),
-    getAdminInvitations({ limit: 50 }),
-  ]);
-
+  // In Electron mode, AdminUsersTabs will fetch users via IPC
   return (
     <AdminUsersTabs
-      users={usersResult.users}
+      users={[]}
       currentUserId={session.user.id}
-      usersTotal={usersResult.total}
+      usersTotal={0}
       page={page}
       limit={limit}
-      query={params.query}
+      query={query}
       sortBy={sortBy}
       sortDirection={sortDirection}
-      invitations={invitationsResult.invitations}
     />
   );
 }

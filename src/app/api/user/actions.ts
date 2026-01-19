@@ -1,8 +1,7 @@
 "use server";
 
-import { auth } from "auth/server";
 import { eq } from "drizzle-orm";
-import { logger } from "better-auth";
+import logger from "logger";
 import {
   validatedActionWithAdminPermission,
   validatedActionWithUserManagePermission,
@@ -19,9 +18,8 @@ import {
   SessionTable,
   AccountTable,
 } from "lib/db/sqlite/schema.sqlite";
-import { getUser, getUserAccounts, updateUserDetails } from "lib/user/server";
+import { getUser, updateUserDetails } from "lib/user/server";
 import { getTranslations } from "next-intl/server";
-import { headers } from "next/headers";
 import {
   DeleteUserActionState,
   DeleteUserSchema,
@@ -31,12 +29,19 @@ import {
   UpdateUserPasswordSchema,
 } from "./validations";
 
+/**
+ * Electron-Only User Actions
+ *
+ * Authentication is handled via Electron IPC.
+ * These actions work with the local SQLite database.
+ */
+
 export const updateUserImageAction = validatedActionWithUserManagePermission(
   UpdateUserDetailsSchema.pick({ userId: true, image: true }),
   async (
     data,
     userId,
-    userSession,
+    _userSession,
     isOwnResource,
   ): Promise<UpdateUserActionState> => {
     const t = await getTranslations("User.Profile.common");
@@ -44,20 +49,8 @@ export const updateUserImageAction = validatedActionWithUserManagePermission(
     try {
       const { image } = data;
 
-      if (isOwnResource) {
-        await auth.api.updateUser({
-          returnHeaders: true,
-          body: { image },
-          headers: await headers(),
-        });
-      } else {
-        await updateUserDetails(
-          userId,
-          userSession.user.name,
-          userSession.user.email || "",
-          image,
-        );
-      }
+      // Update user details in database
+      await updateUserDetails(userId, undefined, undefined, image);
 
       const user = await getUser(userId);
       if (!user) {
@@ -108,25 +101,8 @@ export const updateUserDetailsAction = validatedActionWithUserManagePermission(
       const isDifferentName = name && name !== userSession.user.name;
       const isDifferentImage = image && image !== userSession.user.image;
 
-      // this forces a session update for the current user, getting the latest data
-      if (isOwnResource) {
-        if (isDifferentName || isDifferentImage) {
-          await auth.api.updateUser({
-            returnHeaders: true,
-            body: { name, ...(image && { image }) },
-            headers: await headers(),
-          });
-        }
-        if (isDifferentEmail) {
-          await auth.api.changeEmail({
-            returnHeaders: true,
-            body: { newEmail: email },
-            headers: await headers(),
-          });
-        }
-      } else {
-        await updateUserDetails(userId, name, email);
-      }
+      // Update user details in database
+      await updateUserDetails(userId, name, email, image);
 
       if (isDifferentEmail) user.email = email;
       if (isDifferentName) user.name = name;
@@ -179,61 +155,21 @@ export const deleteUserAction = validatedActionWithAdminPermission(
 export const updateUserPasswordAction = validatedActionWithUserManagePermission(
   UpdateUserPasswordSchema,
   async (
-    data,
-    userId,
+    _data,
+    _userId,
     _userSession,
-    isOwnResource,
+    _isOwnResource,
     _formData,
   ): Promise<UpdateUserPasswordActionState> => {
     const t = await getTranslations("User.Profile.common");
-    const {
-      newPassword,
-      isCurrentUser: isCurrentUserParam,
-      currentPassword,
-    } = data;
-    const { hasPassword } = await getUserAccounts(userId);
 
-    const isCurrentUser = isCurrentUserParam ? isOwnResource : false;
-
-    if (!hasPassword) {
-      return {
-        success: false,
-        message: t("userHasNoPasswordAccount"),
-      };
-    }
-
-    try {
-      if (isCurrentUser) {
-        if (!currentPassword) {
-          return {
-            success: false,
-            message: t("failedToUpdatePassword"),
-          };
-        }
-        await auth.api.changePassword({
-          body: { currentPassword, newPassword, revokeOtherSessions: true },
-          headers: await headers(),
-        });
-      } else {
-        // For admin updating another user's password, use setPassword
-        await auth.api.setPassword({
-          body: { newPassword },
-          headers: await headers(),
-        });
-        // Revoke all sessions for the user
-        await db.delete(SessionTable).where(eq(SessionTable.userId, userId));
-      }
-      return {
-        success: true,
-        message: t("passwordUpdatedSuccessfully"),
-      };
-    } catch (_error) {
-      console.error("Failed to update user password:", _error);
-      return {
-        success: false,
-        message: t("failedToUpdatePassword"),
-      };
-    }
+    // Password management not available in Electron mode
+    return {
+      success: false,
+      message:
+        t("passwordManagementNotAvailable") ||
+        "Password management not available in Electron mode",
+    };
   },
 );
 

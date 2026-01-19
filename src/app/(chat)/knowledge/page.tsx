@@ -1,13 +1,17 @@
+"use client";
+
 import { KnowledgeBasePage } from "@/components/knowledge/knowledge-base-page";
-import { getSession } from "auth/server";
-import { redirect } from "next/navigation";
+import { authClient } from "@/lib/auth/client";
 
-export const dynamic = "force-dynamic";
+/**
+ * Knowledge Page
+ * Auth is handled by AuthGuard in the layout.
+ */
+export default function KnowledgePage() {
+  const { data: session } = authClient.useSession();
 
-export default async function KnowledgePage() {
-  const session = await getSession();
-  if (!session) {
-    redirect("/sign-in");
+  if (!session?.user?.id) {
+    return null; // AuthGuard will handle redirect
   }
 
   return <KnowledgeBasePage userId={session.user.id} />;

@@ -4,9 +4,9 @@ import { Visibility } from "@/components/shareable-actions";
 import { ShareableCard } from "@/components/shareable-card";
 import { useMutateAgents } from "@/hooks/queries/use-agents";
 import { useBookmark } from "@/hooks/queries/use-bookmark";
+import { agentApi, agentFetcher } from "@/lib/electron/agent-api";
 import { AgentSummary, AgentUpdateSchema } from "app-types/agent";
 import { notify } from "lib/notify";
-import { fetcher } from "lib/utils";
 import { ArrowUpRight, Plus, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
@@ -43,7 +43,7 @@ export function AgentsList({
 
   const { data: allAgents } = useSWR(
     "/api/agent?filters=mine,shared",
-    fetcher,
+    agentFetcher,
     {
       fallbackData: [...initialMyAgents, ...initialSharedAgents],
     },
@@ -69,13 +69,7 @@ export function AgentsList({
   const updateVisibility = async (agentId: string, visibility: Visibility) => {
     safe(() => setVisibilityChangeLoading(agentId))
       .map(() => AgentUpdateSchema.parse({ visibility }))
-      .map(JSON.stringify)
-      .map(async (body) =>
-        fetcher(`/api/agent/${agentId}`, {
-          method: "PUT",
-          body,
-        }),
-      )
+      .map(async (data) => agentApi.update(agentId, data))
       .ifOk(() => {
         mutateAgents({ id: agentId, visibility });
         toast.success(t("Agent.visibilityUpdated"));
@@ -93,11 +87,7 @@ export function AgentsList({
     });
     if (!ok) return;
     safe(() => setDeletingAgentLoading(agentId))
-      .map(() =>
-        fetcher(`/api/agent/${agentId}`, {
-          method: "DELETE",
-        }),
-      )
+      .map(() => agentApi.delete(agentId))
       .ifOk(() => {
         mutateAgents({ id: agentId }, true);
         toast.success(t("Agent.deleted"));

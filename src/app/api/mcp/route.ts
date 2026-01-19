@@ -1,8 +1,14 @@
 import { getSession } from "auth/server";
-import { logger } from "better-auth";
+import logger from "logger";
 import { McpServerTable } from "lib/db/sqlite/schema.sqlite";
 import { NextResponse } from "next/server";
 import { saveMcpClientAction } from "./actions";
+
+/**
+ * MCP Route - Electron-Only
+ *
+ * Handles MCP server connections for the local user.
+ */
 
 export async function POST(request: Request) {
   const session = await getSession();

@@ -1,12 +1,12 @@
 "use client";
 
 import { format } from "date-fns";
-import { ChevronRight, Search, UserPlus, X } from "lucide-react";
+import { ChevronRight, Search, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useRef, useTransition } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { Badge } from "ui/badge";
-import { Button, buttonVariants } from "ui/button";
+import { buttonVariants } from "ui/button";
 import { Input } from "ui/input";
 import {
   Table,
@@ -16,7 +16,6 @@ import {
   TableHeader,
   TableRow,
 } from "ui/table";
-import { InviteUserDialog } from "./invite-user-dialog";
 
 import { UserStatusBadge } from "@/components/user/user-detail/user-status-badge";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -177,12 +176,6 @@ export function UsersTable({
             {t("clear")}
           </Link>
         )}
-        <InviteUserDialog>
-          <Button data-testid="invite-user-button">
-            <UserPlus className="h-4 w-4 mr-2" />
-            {t("inviteUser")}
-          </Button>
-        </InviteUserDialog>
         <div
           className="text-sm text-muted-foreground ml-auto"
           data-testid="users-total-count"

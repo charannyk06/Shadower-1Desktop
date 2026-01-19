@@ -7,7 +7,8 @@ import { BasicUser } from "app-types/user";
 import { authClient } from "auth/client";
 import { BASE_THEMES, COOKIE_KEY_LOCALE, SUPPORTED_LOCALES } from "lib/const";
 import { getUserAvatar } from "lib/user/utils";
-import { capitalizeFirstLetter, cn, fetcher } from "lib/utils";
+import { userFetcher } from "@/lib/electron/user-api";
+import { capitalizeFirstLetter, cn } from "lib/utils";
 import {
   ChevronRight,
   ChevronsUpDown,
@@ -47,7 +48,7 @@ export function AppSidebarUserInner(
     user?: BasicUser;
   }>,
 ) {
-  const { data: user } = useSWR<BasicUser>(`/api/user/details`, fetcher, {
+  const { data: user } = useSWR<BasicUser>(`/api/user/details`, userFetcher, {
     fallbackData: props.user,
     suspense: true,
     revalidateOnMount: false,

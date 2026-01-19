@@ -1,49 +1,108 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import EditAgent from "@/components/agent/edit-agent";
-import { getSession } from "auth/server";
+import { authClient } from "@/lib/auth/client";
+import { agentApi } from "@/lib/electron/agent-api";
 import {
   getSystemAgent,
   isSystemAgent,
   systemAgentToSummary,
 } from "lib/ai/agents/system-agents";
-import { agentRepository } from "lib/db/repository";
-import { notFound, redirect } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
-export default async function AgentPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const session = await getSession();
+/**
+ * Agent Edit/View Page
+ * Auth is handled by AuthGuard in the layout.
+ */
+export default function AgentPage() {
+  const params = useParams();
+  const router = useRouter();
+  const id = params.id as string;
+  const { data: session } = authClient.useSession();
 
-  if (!session?.user.id) {
-    redirect("/sign-in");
+  const [agent, setAgent] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    if (!session?.user?.id || !id) return;
+
+    const loadAgent = async () => {
+      setIsLoading(true);
+
+      // For new agents, no data needed
+      if (id === "new") {
+        setIsLoading(false);
+        return;
+      }
+
+      // Handle system agents (not stored in database)
+      if (isSystemAgent(id)) {
+        const systemAgent = getSystemAgent(id);
+        if (!systemAgent) {
+          setNotFound(true);
+          setIsLoading(false);
+          return;
+        }
+
+        const agentSummary = systemAgentToSummary(systemAgent);
+        setAgent({
+          ...agentSummary,
+          instructions: {
+            role: systemAgent.role,
+            systemPrompt: systemAgent.systemPrompt,
+            tools: systemAgent.defaultTools,
+          },
+          isSystemAgent: true,
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch regular agent via IPC
+      try {
+        const fetchedAgent = await agentApi.getById(id);
+        if (!fetchedAgent) {
+          setNotFound(true);
+        } else {
+          setAgent(fetchedAgent);
+        }
+      } catch (error) {
+        console.error("[AgentPage] Error loading agent:", error);
+        setNotFound(true);
+      }
+      setIsLoading(false);
+    };
+
+    loadAgent();
+  }, [id, session?.user?.id]);
+
+  if (!session?.user?.id) {
+    return null; // AuthGuard will handle redirect
   }
 
-  // For new agents, pass no initial data
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (notFound) {
+    router.replace("/");
+    return null;
+  }
+
+  // New agent
   if (id === "new") {
     return <EditAgent userId={session.user.id} />;
   }
 
-  // Handle system agents (not stored in database)
-  if (isSystemAgent(id)) {
-    const systemAgent = getSystemAgent(id);
-    if (!systemAgent) {
-      notFound();
-    }
-
-    // Convert system agent to the format expected by EditAgent
-    const agentSummary = systemAgentToSummary(systemAgent);
-    const agent = {
-      ...agentSummary,
-      instructions: {
-        role: systemAgent.role,
-        systemPrompt: systemAgent.systemPrompt,
-        tools: systemAgent.defaultTools,
-      },
-    };
-
-    // System agents are read-only for all users
+  // System agent
+  if (agent?.isSystemAgent) {
     return (
       <EditAgent
         key={id}
@@ -57,24 +116,22 @@ export default async function AgentPage({
     );
   }
 
-  // Fetch the agent data on the server (regular user agents)
-  const agent = await agentRepository.selectAgentById(id, session.user.id);
+  // Regular agent
+  if (agent) {
+    const isOwner = agent.userId === session.user.id;
+    const hasEditAccess = isOwner || agent.visibility === "public";
 
-  if (!agent) {
-    notFound();
+    return (
+      <EditAgent
+        key={id}
+        initialAgent={agent}
+        userId={session.user.id}
+        isOwner={isOwner}
+        hasEditAccess={hasEditAccess}
+        isBookmarked={agent.isBookmarked || false}
+      />
+    );
   }
 
-  const isOwner = agent.userId === session.user.id;
-  const hasEditAccess = isOwner || agent.visibility === "public";
-
-  return (
-    <EditAgent
-      key={id}
-      initialAgent={agent}
-      userId={session.user.id}
-      isOwner={isOwner}
-      hasEditAccess={hasEditAccess}
-      isBookmarked={agent.isBookmarked || false}
-    />
-  );
+  return null;
 }

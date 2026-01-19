@@ -1,8 +1,9 @@
 "use client";
 
 import { useProfileTranslations } from "@/hooks/use-profile-translations";
+import { userFetcher } from "@/lib/electron/user-api";
 import { BasicUserWithLastLogin } from "app-types/user";
-import { cn, fetcher } from "lib/utils";
+import { cn } from "lib/utils";
 import useSWR, { mutate } from "swr";
 import { useSidebar } from "ui/sidebar";
 import { UserAccessCard } from "./user-access-card";
@@ -33,7 +34,7 @@ export function UserDetail({
       : `/api/user/details/${initialUser.id}`;
   const { data: user } = useSWR<BasicUserWithLastLogin>(
     userDetailRoute,
-    fetcher,
+    userFetcher,
     {
       fallbackData: initialUser,
       revalidateOnMount: false,

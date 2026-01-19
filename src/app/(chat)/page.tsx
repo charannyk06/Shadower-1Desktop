@@ -1,15 +1,18 @@
+"use client";
+
 import ChatBot from "@/components/chat-bot";
-import { getSession } from "auth/server";
 import { generateUUID } from "lib/utils";
-import { redirect } from "next/navigation";
+import { useMemo } from "react";
 
-export const dynamic = "force-dynamic";
+/**
+ * Home Page - Chat Interface
+ *
+ * Note: Auth is handled by AuthGuard in the layout.
+ * No server-side session check needed in Electron mode.
+ */
+export default function HomePage() {
+  // Generate a stable thread ID for this page load
+  const id = useMemo(() => generateUUID(), []);
 
-export default async function HomePage() {
-  const session = await getSession();
-  if (!session) {
-    redirect("/sign-in");
-  }
-  const id = generateUUID();
   return <ChatBot initialMessages={[]} threadId={id} key={id} />;
 }

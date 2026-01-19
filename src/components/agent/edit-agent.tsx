@@ -18,7 +18,8 @@ import { WorkflowSummary } from "app-types/workflow";
 import { DefaultToolName } from "lib/ai/tools";
 import { BACKGROUND_COLORS } from "lib/const";
 import { notify } from "lib/notify";
-import { cn, fetcher, objectFlow } from "lib/utils";
+import { agentApi } from "@/lib/electron/agent-api";
+import { cn, objectFlow } from "lib/utils";
 import { Loader, WandSparklesIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
@@ -190,13 +191,7 @@ export default function EditAgent({
     if (initialAgent) {
       safe(() => setIsSaving(true))
         .map(() => AgentUpdateSchema.parse({ ...agent }))
-        .map(JSON.stringify)
-        .map(async (body) =>
-          fetcher(`/api/agent/${initialAgent.id}`, {
-            method: "PUT",
-            body,
-          }),
-        )
+        .map(async (data) => agentApi.update(initialAgent.id, data))
         .ifOk((updatedAgent) => {
           mutateAgents(updatedAgent);
           toast.success(t("Agent.updated"));
@@ -207,13 +202,7 @@ export default function EditAgent({
     } else {
       safe(() => setIsSaving(true))
         .map(() => AgentCreateSchema.parse({ ...agent, userId }))
-        .map(JSON.stringify)
-        .map(async (body) => {
-          return fetcher(`/api/agent`, {
-            method: "POST",
-            body,
-          });
-        })
+        .map(async (data) => agentApi.create(data))
         .ifOk((updatedAgent) => {
           mutateAgents(updatedAgent);
           toast.success(t("Agent.created"));
@@ -229,13 +218,7 @@ export default function EditAgent({
       if (initialAgent?.id) {
         safe(() => setIsVisibilityChangeLoading(true))
           .map(() => AgentUpdateSchema.parse({ visibility }))
-          .map(JSON.stringify)
-          .map(async (body) =>
-            fetcher(`/api/agent/${initialAgent.id}`, {
-              method: "PUT",
-              body,
-            }),
-          )
+          .map(async (data) => agentApi.update(initialAgent.id, data))
           .ifOk(() => {
             setAgent({ visibility });
             mutateAgents({ id: initialAgent.id, visibility });
@@ -257,11 +240,7 @@ export default function EditAgent({
     });
     if (!ok) return;
     safe(() => setIsSaving(true))
-      .map(() =>
-        fetcher(`/api/agent/${initialAgent.id}`, {
-          method: "DELETE",
-        }),
-      )
+      .map(() => agentApi.delete(initialAgent.id))
       .ifOk(() => {
         mutateAgents({ id: initialAgent.id }, true);
         toast.success(t("Agent.deleted"));
