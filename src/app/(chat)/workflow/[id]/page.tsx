@@ -14,6 +14,11 @@ export default async function WorkflowPage({
     redirect("/sign-in");
   }
 
+  // Ensure id is valid
+  if (!id || id === "undefined") {
+    redirect("/workflow");
+  }
+
   // In Electron mode, database access is handled via IPC in the client component
   // Don't fetch workflow data on the server - let the client component handle it via API route
   // This avoids the SQLite database access error in Electron dev mode

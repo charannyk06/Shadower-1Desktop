@@ -72,11 +72,13 @@ export default function Workflow({
     [processIds.length],
   );
   const { data: workflow } = useSWR<DBWorkflow>(
-    `/api/workflow/${workflowId}`,
+    workflowId ? `/api/workflow/${workflowId}` : null,
     fetcher,
     {
       onSuccess: (workflow) => {
-        init(workflow, hasEditAccess);
+        if (workflow) {
+          init(workflow, hasEditAccess);
+        }
       },
     },
   );
