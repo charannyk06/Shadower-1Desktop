@@ -1,5 +1,6 @@
 "use client";
 
+import { modelsFetcher, modelsApi } from "@/lib/electron/models-api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -164,13 +165,6 @@ const PROVIDER_REGISTRY: Record<string, ProviderInfo> = {
   },
 };
 
-// API fetcher
-const fetcher = async (url: string) => {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch");
-  return res.json();
-};
-
 export default function ModelsDashboard() {
   const [activeTab, setActiveTab] = useState("api-keys");
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
@@ -189,7 +183,7 @@ export default function ModelsDashboard() {
     data: apiKeysData,
     mutate: mutateApiKeys,
     isLoading: isLoadingApiKeys,
-  } = useSWR("/api/models/keys", fetcher, {
+  } = useSWR("/api/models/keys", modelsFetcher, {
     refreshInterval: 30000,
     revalidateOnFocus: true,
   });
@@ -198,7 +192,7 @@ export default function ModelsDashboard() {
     data: localModelsData,
     mutate: mutateLocalModels,
     isLoading: isLoadingLocalModels,
-  } = useSWR("/api/models/local", fetcher, {
+  } = useSWR("/api/models/local", modelsFetcher, {
     refreshInterval: 10000,
     revalidateOnFocus: true,
   });
@@ -230,17 +224,10 @@ export default function ModelsDashboard() {
     setTestResult(null);
 
     try {
-      const response = await fetch("/api/models/keys", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          providerId: selectedProvider,
-          apiKey: apiKeyInput,
-          testOnly: true,
-        }),
+      const result = await modelsApi.testApiKey({
+        providerId: selectedProvider,
+        apiKey: apiKeyInput,
       });
-
-      const result = await response.json();
 
       if (result.success) {
         setTestResult({ success: true, message: "API key is valid!" });
@@ -263,16 +250,10 @@ export default function ModelsDashboard() {
     setIsSaving(true);
 
     try {
-      const response = await fetch("/api/models/keys", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          providerId: selectedProvider,
-          apiKey: apiKeyInput,
-        }),
+      const result = await modelsApi.saveKey({
+        providerId: selectedProvider,
+        apiKey: apiKeyInput,
       });
-
-      const result = await response.json();
 
       if (result.success) {
         toast.success(
@@ -280,13 +261,6 @@ export default function ModelsDashboard() {
         );
         setApiKeyDialogOpen(false);
         mutateApiKeys();
-
-        // Invalidate model cache
-        await fetch("/api/models/invalidate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ providerId: selectedProvider }),
-        });
       } else {
         toast.error(result.error || "Failed to save API key");
       }
@@ -300,14 +274,7 @@ export default function ModelsDashboard() {
   const handleDeleteApiKey = useCallback(
     async (providerId: string) => {
       try {
-        const response = await fetch(
-          `/api/models/keys?providerId=${providerId}`,
-          {
-            method: "DELETE",
-          },
-        );
-
-        const result = await response.json();
+        const result = await modelsApi.deleteKey(providerId);
 
         if (result.success) {
           toast.success(
@@ -327,13 +294,7 @@ export default function ModelsDashboard() {
   const handleRefreshLocalModels = useCallback(
     async (providerId: string) => {
       try {
-        const response = await fetch("/api/models/local", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ providerId }),
-        });
-
-        const result = await response.json();
+        const result = await modelsApi.refreshLocalModels(providerId);
 
         if (result.success) {
           toast.success(
