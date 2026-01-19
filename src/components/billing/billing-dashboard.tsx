@@ -153,7 +153,6 @@ interface CreditsBreakdown {
   sandboxCredits: number;
   mcpCredits: number;
   workflowCredits: number;
-  composioCredits: number;
   webSearchCredits: number;
   totalCredits: number;
 }
@@ -177,7 +176,6 @@ interface UsageData {
     voice_minutes: number;
     mcp_tool_call: number;
     workflow_execution: number;
-    composio_action: number;
   };
   subscription: {
     tier: "free" | "pro" | "ultra";
@@ -589,7 +587,6 @@ export function BillingDashboard() {
       sandboxCredits: 0,
       mcpCredits: 0,
       workflowCredits: 0,
-      composioCredits: 0,
       webSearchCredits: 0,
       totalCredits: 0,
     },
@@ -897,7 +894,6 @@ export function BillingDashboard() {
                           credits.breakdown.sandboxCredits +
                           credits.breakdown.mcpCredits +
                           credits.breakdown.workflowCredits +
-                          credits.breakdown.composioCredits +
                           credits.breakdown.webSearchCredits,
                       )}
                       limit={undefined}
@@ -1261,10 +1257,6 @@ export function BillingDashboard() {
                           <UsageRow
                             label="Workflow Credits"
                             value={credits.breakdown.workflowCredits}
-                          />
-                          <UsageRow
-                            label="Composio Credits"
-                            value={credits.breakdown.composioCredits}
                           />
                           <UsageRow
                             label="Web Search Credits"

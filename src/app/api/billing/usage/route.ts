@@ -102,10 +102,6 @@ export async function GET(request: Request) {
             actualUsageCounts.workflow_execution ||
             usageSummary.workflow_execution ||
             0,
-          composio_action:
-            actualUsageCounts.composio_action ||
-            usageSummary.composio_action ||
-            0,
         },
         // Purchased credits info for display
         purchasedTokens,

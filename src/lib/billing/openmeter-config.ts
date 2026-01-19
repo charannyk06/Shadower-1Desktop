@@ -81,17 +81,6 @@ export const OPENMETER_METERS = {
     aggregation: "COUNT",
     groupBy: ["workflowId"],
   },
-
-  /**
-   * Composio Actions
-   * Tracks Composio action executions
-   */
-  composio_action: {
-    slug: "composio_action",
-    description: "Composio action execution count",
-    aggregation: "COUNT",
-    groupBy: ["actionName"],
-  },
 } as const;
 
 /**

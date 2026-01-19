@@ -255,15 +255,6 @@ export async function checkVoiceLimit(
 }
 
 /**
- * Check Composio action limit using credits system
- */
-export async function checkComposioLimit(
-  userId: string,
-): Promise<CreditLimitCheckResult> {
-  return checkCreditsLimit(userId, SERVICE_CREDIT_COSTS.composioPerAction);
-}
-
-/**
  * Check web search limit using credits system
  */
 export async function checkWebSearchLimit(
@@ -298,7 +289,6 @@ export type CreditsWarningsResult = {
     sandboxCredits: number;
     mcpCredits: number;
     workflowCredits: number;
-    composioCredits: number;
     webSearchCredits: number;
     totalCredits: number;
   };
@@ -360,7 +350,6 @@ export async function getCreditsWarnings(
       sandboxCredits: usageSummary.sandbox_credits || 0,
       mcpCredits: usageSummary.mcp_credits || 0,
       workflowCredits: usageSummary.workflow_credits || 0,
-      composioCredits: usageSummary.composio_credits || 0,
       webSearchCredits: usageSummary.web_search_credits || 0,
       totalCredits: totalCreditsUsed,
     },

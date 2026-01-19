@@ -5,7 +5,6 @@ export type UsageEventType =
   | "voice_minutes"
   | "mcp_tool_call"
   | "workflow_execution"
-  | "composio_action"
   | "web_search";
 
 // Re-export model multiplier types for convenience
@@ -56,7 +55,6 @@ export const SERVICE_CREDIT_COSTS = {
   sandboxPerExecution: 425,
   mcpPerCall: 250,
   workflowPerRun: 1_250,
-  composioPerAction: 75,
   webSearchPerQuery: 1_500,
 } as const;
 

@@ -177,23 +177,6 @@ export async function trackWorkflowExecution(params: {
   });
 }
 
-export async function trackComposioAction(params: {
-  userId: string;
-  actionName: string;
-}): Promise<void> {
-  // Fixed credit cost per Composio action
-  const creditsConsumed = SERVICE_CREDIT_COSTS.composioPerAction;
-
-  await trackUsageEvent({
-    type: "composio_action",
-    userId: params.userId,
-    data: {
-      actionName: params.actionName,
-      creditsConsumed,
-    },
-  });
-}
-
 export async function trackWebSearch(params: {
   userId: string;
   query: string;
@@ -227,7 +210,6 @@ export async function getUserUsage(
       voice_minutes: 0,
       mcp_tool_call: 0,
       workflow_execution: 0,
-      composio_action: 0,
       web_search: 0,
     };
   }
@@ -239,7 +221,6 @@ export async function getUserUsage(
     "voice_minutes",
     "mcp_tool_call",
     "workflow_execution",
-    "composio_action",
     "web_search",
   ];
 
@@ -250,7 +231,6 @@ export async function getUserUsage(
     voice_minutes: 0,
     mcp_tool_call: 0,
     workflow_execution: 0,
-    composio_action: 0,
     web_search: 0,
   };
 
@@ -285,7 +265,6 @@ export const openmeter = {
   trackVoiceMinutes,
   trackMcpToolCall,
   trackWorkflowExecution,
-  trackComposioAction,
   trackWebSearch,
   getUserUsage,
 };

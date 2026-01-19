@@ -1,47 +1,7 @@
-import { PromoCodesManager } from "@/components/admin/promo-codes-manager";
 import { requireAdminPermission } from "auth/permissions";
-import { getSession } from "lib/auth/server";
-import { promoCodeRepository } from "lib/db/repository";
-import { redirect, unauthorized } from "next/navigation";
+import { unauthorized } from "next/navigation";
 
 export const dynamic = "force-dynamic";
-
-async function getPromoCodes() {
-  const promoCodes = await promoCodeRepository.getAll();
-
-  return promoCodes.map((code) => ({
-    id: code.id,
-    code: code.code,
-    description: code.description,
-    discountType: code.discountType,
-    discountValue: Number(code.discountValue),
-    discountDisplay:
-      code.discountType === "percentage"
-        ? `${code.discountValue}%`
-        : `$${(Number(code.discountValue) / 100).toFixed(2)}`,
-    appliesTo: code.appliesTo,
-    applicableTiers: code.applicableTiers,
-    applicableTokenPacks: code.applicableTokenPacks,
-    maxRedemptions: code.maxRedemptions ? Number(code.maxRedemptions) : null,
-    currentRedemptions: Number(code.currentRedemptions || 0),
-    maxPerUser: Number(code.maxPerUser || 1),
-    newUsersOnly: code.newUsersOnly,
-    minAmount: code.minAmount ? Number(code.minAmount) : null,
-    startsAt: code.startsAt?.toISOString(),
-    expiresAt: code.expiresAt?.toISOString(),
-    isActive: code.isActive,
-    stripeCouponId: code.stripeCouponId,
-    createdAt: code.createdAt?.toISOString(),
-    usagePercent:
-      code.maxRedemptions && Number(code.maxRedemptions) > 0
-        ? Math.round(
-            (Number(code.currentRedemptions || 0) /
-              Number(code.maxRedemptions)) *
-              100,
-          )
-        : null,
-  }));
-}
 
 export default async function PromoCodesPage() {
   try {
@@ -50,12 +10,16 @@ export default async function PromoCodesPage() {
     unauthorized();
   }
 
-  const session = await getSession();
-  if (!session) {
-    redirect("/login");
-  }
+  return (
+    <div className="container mx-auto py-10 px-4">
+      <h1 className="text-3xl font-bold mb-8">Promo Codes</h1>
 
-  const promoCodes = await getPromoCodes();
-
-  return <PromoCodesManager promoCodes={promoCodes} />;
+      <div className="bg-muted/50 rounded-lg p-8 text-center">
+        <h2 className="text-xl font-semibold mb-2">Local-First Mode</h2>
+        <p className="text-muted-foreground">
+          Promo codes are not available in the local desktop version.
+        </p>
+      </div>
+    </div>
+  );
 }
