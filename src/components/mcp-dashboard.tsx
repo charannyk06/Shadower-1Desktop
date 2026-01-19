@@ -179,13 +179,6 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
               ) : null}
 
               {canCreate && (
-                <Link href="/integrations">
-                  <Button className="font-semibold" variant={"ghost"}>
-                    {t("marketplace")}
-                  </Button>
-                </Link>
-              )}
-              {canCreate && (
                 <div className="flex items-center gap-1">
                   <SmitheryIntegration>
                     <Button variant="ghost" size="icon" className="size-8">

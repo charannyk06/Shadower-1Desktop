@@ -68,6 +68,7 @@ import { WorkflowGreeting } from "./workflow/workflow-greeting";
 
 import { AgentSummary } from "app-types/agent";
 import { authClient } from "auth/client";
+import { getCurrentUserId, isElectronMode } from "lib/electron/workflow-api";
 import { Separator } from "ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
@@ -460,7 +461,18 @@ function WorkflowToolSelector({
   const t = useTranslations();
   const workflowToolList = appStore((state) => state.workflowToolList);
   const { data: session } = authClient.useSession();
-  const currentUserId = session?.user?.id;
+  // In Electron mode, we need the actual database user ID (UUID), not the hardcoded "local-user"
+  const [electronUserId, setElectronUserId] = useState<string | undefined>();
+
+  useEffect(() => {
+    // Fetch the actual user ID in Electron mode
+    if (isElectronMode()) {
+      getCurrentUserId().then(setElectronUserId);
+    }
+  }, []);
+
+  // Use Electron user ID if available, otherwise fall back to session
+  const currentUserId = electronUserId || session?.user?.id;
 
   // Ensure we only work with actual workflows
   const workflowsOnly = workflowToolList.filter((w) => w.type === "workflow");
