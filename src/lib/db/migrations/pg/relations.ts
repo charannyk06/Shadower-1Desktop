@@ -9,7 +9,6 @@ import {
   chatExportComment,
   chatMessage,
   chatThread,
-  composioConnection,
   mcpOauthSession,
   mcpServer,
   mcpServerCustomInstructions,
@@ -50,7 +49,6 @@ export const userRelations = relations(user, ({ many }) => ({
   mcpServers: many(mcpServer),
   archiveItems: many(archiveItem),
   workflows: many(workflow),
-  composioConnections: many(composioConnection),
   subscriptions: many(subscription),
   referrals_referrerId: many(referral, {
     relationName: "referral_referrerId_user_id",
@@ -241,16 +239,6 @@ export const workflowNodeRelations = relations(
     workflow: one(workflow, {
       fields: [workflowNode.workflowId],
       references: [workflow.id],
-    }),
-  }),
-);
-
-export const composioConnectionRelations = relations(
-  composioConnection,
-  ({ one }) => ({
-    user: one(user, {
-      fields: [composioConnection.userId],
-      references: [user.id],
     }),
   }),
 );

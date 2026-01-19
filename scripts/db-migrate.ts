@@ -1,20 +1,59 @@
 import { colorize } from "consola/utils";
 import "load-env";
 
-// Ensure environment variables are loaded before importing db module
-// This is critical for Vercel builds where env vars need to be explicitly loaded
-// Support both POSTGRES_URL and DATABASE_URL for compatibility
-if (!process.env.POSTGRES_URL && !process.env.DATABASE_URL) {
-  console.error(
-    "❌ Neither POSTGRES_URL nor DATABASE_URL environment variable is set.\n" +
-      "Please ensure POSTGRES_URL or DATABASE_URL is configured in your Vercel project settings\n" +
-      "under Environment Variables for Production, Preview, and Development environments.",
-  );
-  process.exit(1);
+// Check if we're in local-first/Electron mode (no PostgreSQL needed)
+const isLocalFirst =
+  process.env.LOCAL_FIRST === "true" ||
+  process.env.USE_SQLITE === "true" ||
+  process.env.ELECTRON === "true";
+
+// In local-first mode, skip PostgreSQL migrations
+if (isLocalFirst) {
+  console.info("🏠 Local-first mode detected - skipping PostgreSQL migrations");
+  console.info("📦 SQLite database will be initialized on first run");
+  process.exit(0);
+}
+
+// Get database URL
+const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL || "";
+
+// Check if we have a valid database URL (not just set but actually valid)
+const isValidDbUrl =
+  dbUrl &&
+  dbUrl.length > 10 &&
+  (dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://"));
+
+// For local development without a valid PostgreSQL URL, use SQLite
+if (!isValidDbUrl) {
+  console.info("ℹ️  No valid POSTGRES_URL or DATABASE_URL found");
+  console.info("🏠 Using local-first mode - skipping PostgreSQL migrations");
+  console.info("📦 SQLite database will be initialized on first run");
+  process.exit(0);
+}
+
+// Check if connecting to localhost (likely no database running)
+const isLocalhost =
+  dbUrl.includes("localhost") ||
+  dbUrl.includes("127.0.0.1") ||
+  dbUrl.includes("::1");
+
+// For localhost without explicit opt-in, skip migrations (assume local-first mode)
+if (isLocalhost) {
+  // Only run migrations if explicitly requested
+  if (process.env.RUN_PG_MIGRATIONS !== "true") {
+    console.info(
+      "ℹ️  Localhost database URL detected but RUN_PG_MIGRATIONS not set",
+    );
+    console.info("🏠 Skipping PostgreSQL migrations for local-first mode");
+    console.info("📦 SQLite database will be initialized on first run");
+    console.info(
+      "   (Set RUN_PG_MIGRATIONS=true to run PostgreSQL migrations)",
+    );
+    process.exit(0);
+  }
 }
 
 // PRODUCTION SAFEGUARD: Warn if connecting to production database
-const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL || "";
 const isProductionDb =
   dbUrl.includes("neon.tech") ||
   dbUrl.includes("supabase.co") ||
@@ -38,18 +77,37 @@ if (isProductionDb) {
   );
 }
 
-const { runMigrate } = await import("lib/db/pg/migrate.pg");
+// Try to run PostgreSQL migrations
+try {
+  const { runMigrate } = await import("lib/db/pg/migrate.pg");
 
-await runMigrate()
-  .then(() => {
-    console.info("🚀 DB Migration completed");
-    process.exit(0);
-  })
-  .catch((err) => {
-    console.error(err);
+  await runMigrate();
+  console.info("🚀 DB Migration completed");
+  process.exit(0);
+} catch (err: any) {
+  // Check if it's a connection error (from the wrapper error message)
+  const errMessage = err?.message || String(err);
+  const isConnectionError =
+    err?.code === "ECONNREFUSED" ||
+    errMessage.includes("ECONNREFUSED") ||
+    errMessage.includes("connection refused") ||
+    errMessage.includes("Database connection failed");
 
+  if (isConnectionError) {
     console.warn(
-      `
+      colorize("yellow", "⚠️  Could not connect to PostgreSQL database"),
+    );
+    console.info(
+      "🏠 Falling back to local-first mode - SQLite will be used instead",
+    );
+    process.exit(0);
+  }
+
+  // Other errors should be reported
+  console.error(err);
+
+  console.warn(
+    `
       ${colorize("red", "🚨 Migration failed due to incompatible schema.")}
 
 ❗️DB Migration failed – incompatible schema detected.
@@ -66,11 +124,11 @@ As a result, your existing database structure may no longer be compatible.
 ${colorize("green", "pnpm db:migrate")}
 
 **Note:** This schema overhaul lays the foundation for more stable updates moving forward.
-You shouldn’t have to do this kind of reset again in future releases.
+You shouldn't have to do this kind of reset again in future releases.
 
 
       `.trim(),
-    );
+  );
 
-    process.exit(1);
-  });
+  process.exit(1);
+}

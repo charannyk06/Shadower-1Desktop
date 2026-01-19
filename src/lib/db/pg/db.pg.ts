@@ -8,6 +8,13 @@ import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
 // }
 
 const getDatabaseUrl = () => {
+  // Skip PostgreSQL in Electron mode (uses SQLite instead)
+  if (process.env.ELECTRON_BUILD === "true") {
+    throw new Error(
+      "PostgreSQL is not available in Electron mode. Use SQLite database instead.",
+    );
+  }
+
   // Support both POSTGRES_URL and DATABASE_URL for compatibility
   // DATABASE_URL is commonly used in Vercel Preview/Development environments
   const url = process.env.POSTGRES_URL || process.env.DATABASE_URL;
@@ -45,8 +52,29 @@ const getUnpooledDatabaseUrl = () => {
   return url;
 };
 
-export const pgDb = drizzlePg(getDatabaseUrl(), {
-  //   logger: new MyLogger(),
+// Lazy-load database connections to avoid errors when PostgreSQL is not available
+let _pgDb: ReturnType<typeof drizzlePg> | null = null;
+let _pgDbUnpooled: ReturnType<typeof drizzlePg> | null = null;
+
+export const pgDb = new Proxy({} as ReturnType<typeof drizzlePg>, {
+  get(_target, prop) {
+    if (!_pgDb) {
+      try {
+        _pgDb = drizzlePg(getDatabaseUrl(), {
+          //   logger: new MyLogger(),
+        });
+      } catch (error) {
+        // In Electron mode, return a mock object that throws helpful errors
+        if (process.env.ELECTRON_BUILD === "true") {
+          throw new Error(
+            "PostgreSQL is not available in Electron mode. Use Electron IPC handlers to access SQLite database instead.",
+          );
+        }
+        throw error;
+      }
+    }
+    return (_pgDb as any)[prop];
+  },
 });
 
 /**
@@ -54,6 +82,23 @@ export const pgDb = drizzlePg(getDatabaseUrl(), {
  * (e.g., SELECT ... FOR UPDATE). Uses unpooled connection to ensure all queries
  * in a transaction execute on the same backend connection.
  */
-export const pgDbUnpooled = drizzlePg(getUnpooledDatabaseUrl(), {
-  //   logger: new MyLogger(),
+export const pgDbUnpooled = new Proxy({} as ReturnType<typeof drizzlePg>, {
+  get(_target, prop) {
+    if (!_pgDbUnpooled) {
+      try {
+        _pgDbUnpooled = drizzlePg(getUnpooledDatabaseUrl(), {
+          //   logger: new MyLogger(),
+        });
+      } catch (error) {
+        // In Electron mode, return a mock object that throws helpful errors
+        if (process.env.ELECTRON_BUILD === "true") {
+          throw new Error(
+            "PostgreSQL is not available in Electron mode. Use Electron IPC handlers to access SQLite database instead.",
+          );
+        }
+        throw error;
+      }
+    }
+    return (_pgDbUnpooled as any)[prop];
+  },
 });

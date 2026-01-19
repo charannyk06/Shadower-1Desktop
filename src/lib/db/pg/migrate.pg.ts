@@ -19,7 +19,6 @@ const CRITICAL_TABLES = [
   "webhook_retry_queue",
   "promo_code",
   "promo_code_redemption",
-  "composio_connection",
   // Agent tables for autonomous agent implementation
   "agent_state",
   "agent_execution_log",
@@ -232,15 +231,6 @@ async function createMissingTablesDirectly(
       );
       CREATE INDEX IF NOT EXISTS "redemption_user_idx" ON "promo_code_redemption" ("user_id");
       CREATE INDEX IF NOT EXISTS "redemption_code_idx" ON "promo_code_redemption" ("promo_code_id")`,
-    composio_connection: `
-      CREATE TABLE IF NOT EXISTS "composio_connection" (
-        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-        "user_id" uuid NOT NULL UNIQUE REFERENCES "user"("id") ON DELETE CASCADE,
-        "entity_id" text NOT NULL,
-        "connected_apps" json DEFAULT '[]'::json,
-        "created_at" timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        "updated_at" timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL
-      )`,
     // Agent tables for autonomous agent implementation
     agent_state: `
       CREATE TABLE IF NOT EXISTS "agent_state" (

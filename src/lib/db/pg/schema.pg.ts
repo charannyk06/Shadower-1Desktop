@@ -407,21 +407,6 @@ export type ArchiveEntity = typeof ArchiveTable.$inferSelect;
 export type ArchiveItemEntity = typeof ArchiveItemTable.$inferSelect;
 export type BookmarkEntity = typeof BookmarkTable.$inferSelect;
 
-export const ComposioConnectionTable = pgTable("composio_connection", {
-  id: uuid("id").primaryKey().notNull().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .unique()
-    .references(() => UserTable.id, { onDelete: "cascade" }),
-  entityId: text("entity_id").notNull(),
-  connectedApps: json("connected_apps").$type<string[]>().default([]),
-  createdAt: timestamp("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: timestamp("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
-
-export type ComposioConnectionEntity =
-  typeof ComposioConnectionTable.$inferSelect;
-
 export const SubscriptionTable = pgTable("subscription", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   userId: uuid("user_id")
@@ -477,7 +462,6 @@ export const UsageEventTable = pgTable(
         "voice_minutes",
         "mcp_tool_call",
         "workflow_execution",
-        "composio_action",
         "web_search",
       ],
     }).notNull(),
@@ -974,7 +958,7 @@ export const AgentToolExecutionTable = pgTable(
     // Tool identification
     toolName: text("tool_name").notNull(),
     toolSource: varchar("tool_source", {
-      enum: ["built_in", "mcp", "workflow", "composio", "agent_context"],
+      enum: ["built_in", "mcp", "workflow", "agent_context"],
     }).notNull(),
     // MCP server ID if applicable
     mcpServerId: uuid("mcp_server_id").references(() => McpServerTable.id, {

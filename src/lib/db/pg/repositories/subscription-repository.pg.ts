@@ -304,7 +304,7 @@ export const pgSubscriptionRepository: SubscriptionRepository = {
     // When creditsConsumed is missing from metadata (old events), calculate fallback:
     // - llm_tokens: use amount as credits (assumes 1x multiplier as fallback)
     // - Fixed services: use the standard credit costs
-    // Credit costs (verified Jan 2026): sandbox=425, mcp=250, workflow=1250, composio=75, voice=75000/min, image=10000, web_search=1500
+    // Credit costs (verified Jan 2026): sandbox=425, mcp=250, workflow=1250, voice=75000/min, image=10000, web_search=1500
     const results = await db
       .select({
         eventType: UsageEventTable.eventType,
@@ -319,7 +319,6 @@ export const pgSubscriptionRepository: SubscriptionRepository = {
                 WHEN 'sandbox_execution' THEN 425
                 WHEN 'mcp_tool_call' THEN 250
                 WHEN 'workflow_execution' THEN 1250
-                WHEN 'composio_action' THEN 75
                 WHEN 'voice_minutes' THEN ${UsageEventTable.amount}::numeric * 75000
                 WHEN 'image_generation' THEN 10000
                 WHEN 'web_search' THEN 1500
@@ -390,9 +389,6 @@ export const pgSubscriptionRepository: SubscriptionRepository = {
         case "workflow_execution":
           summary.workflow_credits = (summary.workflow_credits || 0) + credits;
           break;
-        case "composio_action":
-          summary.composio_credits = (summary.composio_credits || 0) + credits;
-          break;
         case "web_search":
           summary.web_search_credits =
             (summary.web_search_credits || 0) + credits;
@@ -445,7 +441,6 @@ export const pgSubscriptionRepository: SubscriptionRepository = {
               WHEN 'sandbox_execution' THEN 425
               WHEN 'mcp_tool_call' THEN 250
               WHEN 'workflow_execution' THEN 1250
-              WHEN 'composio_action' THEN 75
               WHEN 'voice_minutes' THEN ${UsageEventTable.amount}::numeric * 75000
               WHEN 'image_generation' THEN 10000
               WHEN 'web_search' THEN 1500

@@ -186,7 +186,6 @@ export const pgUserRepository: UserRepository = {
       voice_minutes: 0,
       mcp_tool_call: 0,
       workflow_execution: 0,
-      composio_action: 0,
     };
 
     try {
@@ -217,7 +216,6 @@ export const pgUserRepository: UserRepository = {
       let imageCount = 0;
       let workflowCount = 0;
       let mcpToolCount = 0;
-      let composioCount = 0;
 
       const rows = toolUsageQuery.rows as Array<{
         tool_name: string;
@@ -243,14 +241,6 @@ export const pgUserRepository: UserRepository = {
         else if (toolName.startsWith("workflow_")) {
           workflowCount += count;
         }
-        // Composio tools (start with "app_" prefix, e.g., app_gmail_GMAIL_FETCH_EMAILS)
-        else if (
-          toolName.startsWith("app_") ||
-          toolName.includes("COMPOSIO") ||
-          toolName.includes("composio")
-        ) {
-          composioCount += count;
-        }
         // MCP tools (contain "::" which is the MCP tool ID separator)
         else if (toolName.includes("::")) {
           mcpToolCount += count;
@@ -262,7 +252,6 @@ export const pgUserRepository: UserRepository = {
         image: imageCount,
         workflow: workflowCount,
         mcp: mcpToolCount,
-        composio: composioCount,
       });
 
       // Also check UsageEventTable for any events recorded there
@@ -301,10 +290,6 @@ export const pgUserRepository: UserRepository = {
         workflow_execution: Math.max(
           workflowCount,
           eventCounts.workflow_execution || 0,
-        ),
-        composio_action: Math.max(
-          composioCount,
-          eventCounts.composio_action || 0,
         ),
       };
     } catch (error) {

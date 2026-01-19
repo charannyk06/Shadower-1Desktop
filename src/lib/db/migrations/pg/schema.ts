@@ -541,30 +541,6 @@ export const workflowNode = pgTable(
   ],
 );
 
-export const composioConnection = pgTable(
-  "composio_connection",
-  {
-    id: uuid().defaultRandom().primaryKey().notNull(),
-    userId: uuid("user_id").notNull(),
-    entityId: text("entity_id").notNull(),
-    connectedApps: json("connected_apps").default([]),
-    createdAt: timestamp("created_at", { mode: "string" })
-      .default(sql`CURRENT_TIMESTAMP`)
-      .notNull(),
-    updatedAt: timestamp("updated_at", { mode: "string" })
-      .default(sql`CURRENT_TIMESTAMP`)
-      .notNull(),
-  },
-  (table) => [
-    foreignKey({
-      columns: [table.userId],
-      foreignColumns: [user.id],
-      name: "composio_connection_user_id_user_id_fk",
-    }).onDelete("cascade"),
-    unique("composio_connection_user_id_unique").on(table.userId),
-  ],
-);
-
 export const subscription = pgTable(
   "subscription",
   {
