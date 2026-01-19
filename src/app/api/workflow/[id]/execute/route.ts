@@ -47,7 +47,7 @@ export async function POST(
     edges: workflow.edges,
     nodes: workflow.nodes,
     logger: wfLogger,
-    userId: auth.userId, // Pass userId for Composio tool execution
+    userId: auth.userId,
   });
 
   const encoder = new TextEncoder();

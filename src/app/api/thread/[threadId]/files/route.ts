@@ -189,7 +189,7 @@ export async function DELETE(
       await threadSandboxContextRepository.removeFile(auth.threadId, filename);
 
       const currentSize = Number.parseInt(context.contextSizeBytes || "0", 10);
-      const newSize = Math.max(0, currentSize - file.size);
+      const newSize = Math.max(0, currentSize - (file.size || 0));
       await threadSandboxContextRepository.updateArchive(
         auth.threadId,
         context.contextStorageKey || "",

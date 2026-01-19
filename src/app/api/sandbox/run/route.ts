@@ -1,11 +1,14 @@
-import { E2BSandboxService, SandboxEvent } from "lib/ai/sandbox/e2b-service";
+/**
+ * Local Sandbox API Route
+ *
+ * Executes code and commands locally in the Electron environment.
+ * This replaces the cloud-based E2B sandbox with local terminal execution.
+ *
+ * Note: This API route is primarily for non-Electron contexts.
+ * In the Electron app, prefer using IPC calls directly.
+ */
+
 import { validateSession } from "lib/api/auth-helpers";
-import {
-  createLimitExceededResponse,
-  validateSandboxLimit,
-} from "lib/api/limit-helpers";
-import { SERVICE_CREDIT_COSTS, trackSandboxExecution } from "lib/billing";
-import { subscriptionRepository } from "lib/db/repository";
 
 type SandboxAction =
   | "runCode"
@@ -68,7 +71,7 @@ interface SandboxRequest {
   action: SandboxAction;
   // For code execution
   code?: string;
-  language?: "python" | "javascript" | "typescript";
+  language?: "python" | "javascript" | "typescript" | "bash";
   // For shell commands
   command?: string;
   // For file operations
@@ -78,43 +81,50 @@ interface SandboxRequest {
   threadId?: string;
 }
 
+interface SandboxEvent {
+  type:
+    | "stdout"
+    | "stderr"
+    | "error"
+    | "finish"
+    | "artifact"
+    | "command_result";
+  value?: string;
+  path?: string;
+  filename?: string;
+}
+
 export async function POST(req: Request) {
   try {
     const auth = await validateSession();
     if (!auth.success) return auth.response;
 
-    // Check billing limits before processing
-    const limitError = await validateSandboxLimit(auth.userId);
-    if (limitError) {
-      console.warn(
-        `[Billing] Sandbox limit exceeded for user ${auth.userId}: ${limitError.usage}/${limitError.limit}`,
-      );
-      return createLimitExceededResponse(limitError);
-    }
-
     const body: SandboxRequest = await req.json();
-    const action = body.action || "runCode"; // Default to runCode for backwards compatibility
-
-    const sandbox = E2BSandboxService.getInstance();
-    const userId = auth.userId;
-    const threadId = body.threadId;
+    const action = body.action || "runCode";
 
     // Normalize action names (support both old and new naming)
     const normalizedAction = normalizeAction(action);
 
-    // Handle streaming actions (runCode, runShell)
-    if (normalizedAction === "runCode" || normalizedAction === "runShell") {
-      return handleStreamingAction(
-        sandbox,
-        body,
-        normalizedAction,
-        userId,
-        threadId,
+    // For Electron environment, return instructions to use IPC
+    // This API route is a fallback for non-Electron contexts
+    if (typeof window !== "undefined" && (window as any).electronAPI) {
+      return Response.json(
+        {
+          error:
+            "In Electron environment, use IPC calls instead of API routes for sandbox operations",
+          suggestion: "Use window.electronAPI.terminal.execute() for commands",
+        },
+        { status: 400 },
       );
     }
 
+    // Handle streaming actions (runCode, runShell)
+    if (normalizedAction === "runCode" || normalizedAction === "runShell") {
+      return handleStreamingAction(body, normalizedAction);
+    }
+
     // Handle non-streaming actions (readFile, writeFile, listDir, deleteFile)
-    return handleFileAction(sandbox, body, normalizedAction, userId, threadId);
+    return handleFileAction(body, normalizedAction);
   } catch (error: any) {
     console.error("Sandbox API Error:", error);
     return Response.json({ error: error.message }, { status: 500 });
@@ -123,130 +133,135 @@ export async function POST(req: Request) {
 
 /**
  * Handle streaming actions (code execution, shell commands)
+ * For server-side execution in non-Electron environment
  */
 function handleStreamingAction(
-  sandbox: E2BSandboxService,
   body: SandboxRequest,
   action: "runCode" | "runShell",
-  userId: string,
-  threadId?: string,
 ): Response {
   const encoder = new TextEncoder();
-  const startTime = Date.now();
 
   const stream = new ReadableStream({
     async start(controller) {
-      const onEvent = (event: SandboxEvent) => {
+      const sendEvent = (event: SandboxEvent) => {
         controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
-
-        // Track usage when execution finishes
-        if (event.type === "finish") {
-          const executionMs = Date.now() - startTime;
-          console.log(
-            `[Billing] Recording sandbox ${action} for user ${userId}`,
-          );
-
-          trackSandboxExecution({
-            userId,
-            executionMs,
-          }).catch(console.error);
-
-          subscriptionRepository
-            .recordUsageEvent({
-              userId,
-              eventType: "sandbox_execution",
-              amount: "1",
-              metadata: {
-                action,
-                language: body.language,
-                executionMs,
-                creditsConsumed: SERVICE_CREDIT_COSTS.sandboxPerExecution,
-              },
-            })
-            .then(() => console.log("[Billing] Sandbox execution recorded"))
-            .catch((err) =>
-              console.error("[Billing] Failed to record sandbox:", err),
-            );
-        }
       };
 
       try {
         if (action === "runCode") {
           if (!body.code) {
-            controller.enqueue(
-              encoder.encode(
-                JSON.stringify({ type: "error", value: "Code is required" }) +
-                  "\n",
-              ),
-            );
+            sendEvent({ type: "error", value: "Code is required" });
             controller.close();
             return;
           }
 
           const language = body.language || "python";
 
-          if (threadId) {
-            await sandbox.runCodeWithContext(
-              body.code,
-              language,
-              threadId,
-              userId,
-              onEvent,
-            );
-          } else {
-            await sandbox.runCodeWithCallback(body.code, language, onEvent);
+          // For server-side, we use dynamic imports to avoid bundling Node.js modules
+          const { spawn } = await import("child_process");
+          const { writeFile, unlink } = await import("fs/promises");
+          const { join } = await import("path");
+          const { tmpdir } = await import("os");
+
+          const ext = {
+            python: ".py",
+            javascript: ".js",
+            typescript: ".ts",
+            bash: ".sh",
+          }[language];
+
+          const cmd = {
+            python: "python3",
+            javascript: "node",
+            typescript: "npx tsx",
+            bash: "bash",
+          }[language];
+
+          const tempFile = join(tmpdir(), `sandbox_${Date.now()}${ext}`);
+
+          try {
+            await writeFile(tempFile, body.code, "utf-8");
+
+            const [command, ...args] = cmd.split(" ");
+            const proc = spawn(command, [...args, tempFile], {
+              timeout: 60000,
+              shell: process.platform === "win32",
+            });
+
+            proc.stdout.on("data", (data) => {
+              sendEvent({ type: "stdout", value: data.toString() });
+            });
+
+            proc.stderr.on("data", (data) => {
+              sendEvent({ type: "stderr", value: data.toString() });
+            });
+
+            await new Promise<void>((resolve, reject) => {
+              proc.on("close", () => {
+                sendEvent({ type: "finish" });
+                resolve();
+              });
+              proc.on("error", (err) => {
+                sendEvent({ type: "error", value: err.message });
+                reject(err);
+              });
+            });
+
+            await unlink(tempFile).catch(() => {});
+          } catch (err: any) {
+            sendEvent({ type: "error", value: err.message });
+            await unlink(tempFile).catch(() => {});
           }
         } else if (action === "runShell") {
           if (!body.command) {
-            controller.enqueue(
-              encoder.encode(
-                JSON.stringify({
-                  type: "error",
-                  value: "Command is required",
-                }) + "\n",
-              ),
-            );
+            sendEvent({ type: "error", value: "Command is required" });
             controller.close();
             return;
           }
 
-          if (threadId) {
-            const result = await sandbox.runCommandWithContext(
-              body.command,
-              threadId,
-              userId,
-              onEvent,
-            );
-            // Send final result
-            controller.enqueue(
-              encoder.encode(
-                JSON.stringify({ type: "command_result", value: result }) +
-                  "\n",
-              ),
-            );
-          } else {
-            const result = await sandbox.runCommand(body.command, onEvent);
-            controller.enqueue(
-              encoder.encode(
-                JSON.stringify({ type: "command_result", value: result }) +
-                  "\n",
-              ),
-            );
-          }
+          const { spawn } = await import("child_process");
 
-          // Send finish event for shell commands
-          controller.enqueue(
-            encoder.encode(JSON.stringify({ type: "finish" }) + "\n"),
-          );
+          const shell = process.platform === "win32" ? "cmd.exe" : "/bin/sh";
+          const shellFlag = process.platform === "win32" ? "/c" : "-c";
+
+          const proc = spawn(shell, [shellFlag, body.command], {
+            timeout: 60000,
+          });
+
+          let stdout = "";
+          let stderr = "";
+
+          proc.stdout.on("data", (data) => {
+            const text = data.toString();
+            stdout += text;
+            sendEvent({ type: "stdout", value: text });
+          });
+
+          proc.stderr.on("data", (data) => {
+            const text = data.toString();
+            stderr += text;
+            sendEvent({ type: "stderr", value: text });
+          });
+
+          await new Promise<void>((resolve) => {
+            proc.on("close", (code) => {
+              sendEvent({
+                type: "command_result",
+                value: JSON.stringify({
+                  exitCode: code,
+                  stdout,
+                  stderr,
+                }),
+              });
+              sendEvent({ type: "finish" });
+              resolve();
+            });
+          });
         }
 
         controller.close();
       } catch (error: any) {
-        controller.enqueue(
-          encoder.encode(
-            JSON.stringify({ type: "error", value: error.message }) + "\n",
-          ),
-        );
+        sendEvent({ type: "error", value: error.message });
         controller.close();
       }
     },
@@ -265,50 +280,26 @@ function handleStreamingAction(
  * Handle non-streaming file operations
  */
 async function handleFileAction(
-  sandbox: E2BSandboxService,
   body: SandboxRequest,
   action: "readFile" | "writeFile" | "listDir" | "deleteFile",
-  userId: string,
-  threadId?: string,
 ): Promise<Response> {
-  if (!threadId) {
-    return Response.json(
-      { error: "Thread context (threadId) is required for file operations" },
-      { status: 400 },
-    );
-  }
+  const { readFile, writeFile, unlink, readdir, stat } = await import(
+    "fs/promises"
+  );
+  const { join } = await import("path");
+  const { app } = await import("electron").catch(() => ({
+    app: { getPath: () => process.cwd() },
+  }));
 
-  const startTime = Date.now();
+  const sandboxDir = join(
+    (app as any).getPath?.("userData") || process.cwd(),
+    "sandbox",
+    body.threadId || "default",
+  );
 
-  // Track billing for file operations
-  const trackFileOperation = async () => {
-    const executionMs = Date.now() - startTime;
-    console.log(`[Billing] Recording sandbox ${action} for user ${userId}`);
-
-    trackSandboxExecution({
-      userId,
-      executionMs,
-    }).catch(console.error);
-
-    subscriptionRepository
-      .recordUsageEvent({
-        userId,
-        eventType: "sandbox_execution",
-        amount: "1",
-        metadata: {
-          action,
-          executionMs,
-          creditsConsumed: SERVICE_CREDIT_COSTS.sandboxPerExecution,
-        },
-      })
-      .then(() => console.log("[Billing] Sandbox file operation recorded"))
-      .catch((err) =>
-        console.error(
-          "[Billing] Failed to record sandbox file operation:",
-          err,
-        ),
-      );
-  };
+  // Ensure sandbox directory exists
+  const { mkdir } = await import("fs/promises");
+  await mkdir(sandboxDir, { recursive: true });
 
   try {
     switch (action) {
@@ -316,18 +307,14 @@ async function handleFileAction(
         if (!body.path) {
           return Response.json({ error: "Path is required" }, { status: 400 });
         }
-        const result = await sandbox.readFileWithContext(
-          body.path,
-          threadId,
-          userId,
-        );
-        trackFileOperation(); // Track billing
+        const filePath = join(sandboxDir, body.path);
+        const content = await readFile(filePath, "utf-8");
+        const stats = await stat(filePath);
         return Response.json({
           success: true,
           action: "readFile",
-          content: result.content,
-          size: result.size,
-          url: result.url, // Include URL so file shows in Theater Panel
+          content,
+          size: stats.size,
         });
       }
 
@@ -341,31 +328,24 @@ async function handleFileAction(
             { status: 400 },
           );
         }
-        const writeResult = await sandbox.writeFileWithContext(
-          body.path,
-          body.content,
-          threadId,
-          userId,
-        );
-        trackFileOperation(); // Track billing
+        const filePath = join(sandboxDir, body.path);
+        await writeFile(filePath, body.content, "utf-8");
         return Response.json({
           success: true,
           action: "writeFile",
-          url: writeResult.url,
-          filename: writeResult.filename,
+          filename: body.path,
           message: `File written: ${body.path}`,
           size: body.content.length,
         });
       }
 
       case "listDir": {
-        const path = body.path || "/home/user";
-        const files = await sandbox.listDirectoryWithContext(
-          path,
-          threadId,
-          userId,
-        );
-        trackFileOperation(); // Track billing
+        const dirPath = join(sandboxDir, body.path || "");
+        const entries = await readdir(dirPath, { withFileTypes: true });
+        const files = entries.map((entry) => ({
+          name: entry.name,
+          type: entry.isDirectory() ? "directory" : "file",
+        }));
         return Response.json({
           success: true,
           action: "listDir",
@@ -377,8 +357,8 @@ async function handleFileAction(
         if (!body.path) {
           return Response.json({ error: "Path is required" }, { status: 400 });
         }
-        await sandbox.deleteFileWithContext(body.path, threadId, userId);
-        trackFileOperation(); // Track billing
+        const filePath = join(sandboxDir, body.path);
+        await unlink(filePath);
         return Response.json({
           success: true,
           action: "deleteFile",

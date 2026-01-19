@@ -78,7 +78,6 @@ import {
   filterMcpServerCustomizations,
   handleError,
   loadAppDefaultTools,
-  loadComposioTools,
   loadMcpTools,
   loadWorkFlowTools,
   manualToolExecuteByLastMessage,
@@ -369,7 +368,7 @@ export async function POST(request: Request) {
             loadWorkFlowTools({
               mentions,
               dataStream,
-              userId: auth.userId, // Pass userId for Composio tool execution within workflows
+              userId: auth.userId,
             }),
           )
           .orElse({});
@@ -403,16 +402,6 @@ export async function POST(request: Request) {
           )
           .orElse({});
 
-        const COMPOSIO_TOOLS = await safe()
-          .map(errorIf(() => !isToolCallAllowed && "Not allowed"))
-          .map(() =>
-            loadComposioTools({
-              mentions,
-              userId: auth.userId,
-            }),
-          )
-          .orElse({});
-
         const inProgressToolParts = extractInProgressToolPart(message);
         if (inProgressToolParts.length) {
           await Promise.all(
@@ -423,7 +412,6 @@ export async function POST(request: Request) {
                   ...MCP_TOOLS,
                   ...WORKFLOW_TOOLS,
                   ...APP_DEFAULT_TOOLS,
-                  ...COMPOSIO_TOOLS,
                 },
                 request.signal,
               );
@@ -468,13 +456,12 @@ export async function POST(request: Request) {
         let orchestratorSystemPrompt: string | undefined;
         let agentStateId: string | undefined;
 
-        // Check if ONLY workflow tools are mentioned (no MCP, no Composio, no app default tools)
+        // Check if ONLY workflow tools are mentioned (no MCP, no app default tools)
         // In this case, skip the autonomous agent orchestrator - workflows execute directly
         const hasOnlyWorkflowMentions =
           mentions.length > 0 &&
           mentions.every((m) => m.type === "workflow") &&
-          Object.keys(MCP_TOOLS ?? {}).length === 0 &&
-          Object.keys(COMPOSIO_TOOLS ?? {}).length === 0;
+          Object.keys(MCP_TOOLS ?? {}).length === 0;
 
         // Build agent configuration with tools and ToolLoopAgent
         const agentSetup = await (async () => {
@@ -548,7 +535,6 @@ export async function POST(request: Request) {
             chatModel,
             availableTools: {
               ...APP_DEFAULT_TOOLS,
-              ...COMPOSIO_TOOLS,
             },
             mcpTools: MCP_TOOLS ?? {},
             userAgent: agent,
@@ -615,7 +601,6 @@ export async function POST(request: Request) {
         const vercelAITooles = safe({
           ...MCP_TOOLS,
           ...WORKFLOW_TOOLS,
-          ...COMPOSIO_TOOLS,
           ...AGENT_TOOLS,
         })
           .map((t) => {

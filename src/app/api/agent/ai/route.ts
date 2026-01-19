@@ -15,7 +15,6 @@ import globalLogger from "logger";
 import { AgentGenerateSchema } from "app-types/agent";
 import { getSession } from "auth/server";
 import { colorize } from "consola/utils";
-import { getComposioClientForUser, isComposioEnabled } from "lib/ai/composio";
 import { mcpClientsManager } from "lib/ai/mcp/mcp-manager";
 import { objectFlow } from "lib/utils";
 import { safe } from "ts-safe";
@@ -82,39 +81,6 @@ export async function POST(request: Request) {
         });
       })
       .unwrap();
-
-    // Inject Composio tools
-    if (isComposioEnabled()) {
-      try {
-        const client = getComposioClientForUser(session.user.id);
-        if (client) {
-          const connections = await client.getConnections();
-          const connectedApps = connections
-            .filter((c) => c.status === "active")
-            .map((c) => c.appName);
-
-          await Promise.all(
-            connectedApps.map(async (appName) => {
-              const tools = await client.getToolsForApp(appName);
-              tools.forEach((tool) => {
-                // Format: appName_toolName (same as Vercel AI SDK format in composio-client.ts)
-                // Use the same ID generation logic as in ComposioClient.getVercelAITools
-                let toolId = `app_${tool.appName}_${tool.name}`;
-                if (toolId.length > 64) {
-                  toolId = toolId.substring(0, 64);
-                }
-                toolNames.add(toolId);
-              });
-            }),
-          );
-        }
-      } catch (error) {
-        logger.error(
-          "Failed to load Composio tools for agent generation",
-          error,
-        );
-      }
-    }
 
     const dynamicAgentTable = AgentGenerateSchema.extend({
       tools: z

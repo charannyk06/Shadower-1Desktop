@@ -1,4 +1,10 @@
-import { type HandleUploadBody, handleUpload } from "@vercel/blob/client";
+/**
+ * Upload URL API - Local-First Implementation
+ *
+ * Vercel Blob client upload has been removed for local-first architecture.
+ * This endpoint now only supports local file storage fallback.
+ */
+
 import { getSession } from "auth/server";
 import { colorize } from "consola/utils";
 import { serverFileStorage, storageDriver } from "lib/file-storage";
@@ -35,58 +41,8 @@ function createFallbackResponse(): FallbackResponse {
   };
 }
 
-function isVercelBlobRequest(body: unknown): body is HandleUploadBody {
-  return (
-    typeof body === "object" &&
-    body !== null &&
-    (body as HandleUploadBody).type === "blob.generate-client-token"
-  );
-}
-
 /**
- * Handles Vercel Blob client upload flow.
- * Generates client token and handles upload completion webhook.
- */
-async function handleVercelBlobUpload(
-  body: HandleUploadBody,
-  request: Request,
-  userId: string,
-) {
-  const jsonResponse = await handleUpload({
-    body,
-    request,
-    onBeforeGenerateToken: async () => {
-      return {
-        allowedContentTypes: undefined, // Allow all file types
-        addRandomSuffix: true, // Prevent filename collisions
-        tokenPayload: JSON.stringify({
-          userId,
-          uploadedAt: new Date().toISOString(),
-        }),
-      };
-    },
-    onUploadCompleted: async ({ blob, tokenPayload }) => {
-      logger.info("Upload completed", {
-        url: blob.url,
-        pathname: blob.pathname,
-        tokenPayload,
-      });
-
-      try {
-        // TODO: Add custom logic here (save to database, send notification, etc.)
-        // const { userId } = JSON.parse(tokenPayload);
-        // await db.files.create({ url: blob.url, userId });
-      } catch (error) {
-        logger.error("Error in onUploadCompleted callback", error);
-      }
-    },
-  });
-
-  return NextResponse.json(jsonResponse);
-}
-
-/**
- * Handles generic upload URL request (S3, Local FS, etc.).
+ * Handles generic upload URL request (Local FS).
  * Returns presigned URL if supported, otherwise returns fallback response.
  */
 async function handleGenericUpload(request: GenericUploadRequest) {
@@ -108,7 +64,8 @@ async function handleGenericUpload(request: GenericUploadRequest) {
   }
 
   // Provide a public source URL for clients to reference after successful PUT
-  const sourceUrl = await serverFileStorage.getSourceUrl(uploadUrl.key);
+  const sourceUrl =
+    (await serverFileStorage.getSourceUrl?.(uploadUrl.key)) || uploadUrl.url;
 
   return NextResponse.json({
     directUploadSupported: true,
@@ -121,9 +78,9 @@ async function handleGenericUpload(request: GenericUploadRequest) {
  * Upload URL endpoint.
  *
  * Provides optimal upload method based on storage backend:
- * - Vercel Blob: Client token for direct upload
- * - S3: Presigned URL (future)
- * - Local FS: Fallback to server upload
+ * - Local FS: Server upload (fallback)
+ *
+ * Note: Vercel Blob and S3 direct uploads have been removed for local-first architecture.
  */
 export async function POST(request: Request) {
   // Authenticate
@@ -159,11 +116,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Route to appropriate handler
-    if (isVercelBlobRequest(body)) {
-      return await handleVercelBlobUpload(body, request, session.user.id);
-    }
-
+    // For local-first mode, always use generic upload handler
     return await handleGenericUpload(body as GenericUploadRequest);
   } catch (error) {
     logger.error("Upload URL generation failed", error);

@@ -205,7 +205,7 @@ export async function POST(
     );
 
     // Update total context size
-    const sizeDiff = newSize - file.size;
+    const sizeDiff = newSize - (file.size || 0);
     const currentSize = Number.parseInt(context.contextSizeBytes || "0", 10);
     await threadSandboxContextRepository.updateArchive(
       payload.threadId,

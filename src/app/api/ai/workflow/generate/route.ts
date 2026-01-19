@@ -39,18 +39,16 @@ const logger = globalLogger.withDefaults({
 interface WorkflowTool {
   id: string;
   name?: string;
-  type: "mcp-tool" | "app-tool" | "composio-tool";
+  type: "mcp-tool" | "app-tool";
   description?: string;
   serverId?: string;
   serverName?: string;
-  appName?: string;
   parameterSchema?: unknown;
 }
 
 interface CompactTool {
   id: string;
   type: string;
-  appName?: string;
   desc: string;
 }
 
@@ -147,12 +145,11 @@ const WorkflowNodeSchema = z.object({
     tool: z
       .object({
         id: z.string(),
-        type: z.enum(["mcp-tool", "app-tool", "composio-tool"]),
+        type: z.enum(["mcp-tool", "app-tool"]),
         description: z.string().optional(),
         serverId: z.string().optional(),
         serverName: z.string().optional(),
         parameterSchema: z.any().optional(),
-        appName: z.string().optional(),
       })
       .optional(),
     message: z.string().min(1).optional(),
@@ -439,18 +436,15 @@ export async function POST(req: Request) {
       (availableTools as WorkflowTool[] | undefined)
         ?.filter(
           (t): t is WorkflowTool =>
-            t.type === "mcp-tool" ||
-            t.type === "app-tool" ||
-            t.type === "composio-tool",
+            t.type === "mcp-tool" || t.type === "app-tool",
         )
         .map((t) => ({
           name: t.name || t.id,
           id: t.id,
-          type: t.type, // CRITICAL: must be exact - mcp-tool, app-tool, or composio-tool
+          type: t.type, // CRITICAL: must be exact - mcp-tool or app-tool
           description: t.description || "No description available",
           serverId: t.serverId || "",
           serverName: t.serverName || "",
-          appName: t.appName || "", // For composio-tool types
           parameterSchema: t.parameterSchema,
         })) || [];
 
@@ -462,29 +456,16 @@ export async function POST(req: Request) {
       .map((t) => ({
         id: t.id,
         type: t.type,
-        appName: t.appName || undefined,
         desc: t.description?.substring(0, 80) || "",
       }));
 
     // Log tool counts for debugging
-    const composioToolCount = compactTools.filter(
-      (t) => t.type === "composio-tool",
-    ).length;
     const mcpToolCount = compactTools.filter(
       (t) => t.type === "mcp-tool",
     ).length;
     logger.info(
-      `[Workflow Generation] Tools available: ${compactTools.length} total (${composioToolCount} composio, ${mcpToolCount} mcp)`,
+      `[Workflow Generation] Tools available: ${compactTools.length} total (${mcpToolCount} mcp)`,
     );
-    if (composioToolCount > 0) {
-      logger.info(
-        `[Workflow Generation] Composio tools: ${compactTools
-          .filter((t) => t.type === "composio-tool")
-          .map((t) => `${t.appName}:${t.id}`)
-          .slice(0, 10)
-          .join(", ")}${composioToolCount > 10 ? "..." : ""}`,
-      );
-    }
 
     // Create formatted tool documentation for the prompt
     // Group tools by type and app for better AI understanding
@@ -498,32 +479,9 @@ export async function POST(req: Request) {
     // Build detailed tool documentation
     let toolDocumentation = "";
 
-    // Composio tools - include app name and exact action names
-    if (toolsByType["composio-tool"]?.length) {
-      const byApp: Record<string, CompactTool[]> = {};
-      toolsByType["composio-tool"].forEach((t) => {
-        const app = t.appName || "unknown";
-        if (!byApp[app]) byApp[app] = [];
-        byApp[app].push(t);
-      });
-
-      toolDocumentation +=
-        "\n### COMPOSIO TOOLS (type: composio-tool) - USE EXACT IDs AND appName:\n";
-      toolDocumentation +=
-        "When using these, set tool.type='composio-tool' and tool.appName to the app name shown.\n";
-      Object.entries(byApp).forEach(([app, tools]) => {
-        toolDocumentation += `\n**${app.toUpperCase()}** (appName: "${app}"):\n`;
-        tools.forEach((t) => {
-          toolDocumentation += `- ID: "${t.id}" | ${t.desc}\n`;
-        });
-      });
-    }
-
     // MCP tools
     if (toolsByType["mcp-tool"]?.length) {
       toolDocumentation += "\n### MCP TOOLS (type: mcp-tool):\n";
-      toolDocumentation +=
-        "When using these, set tool.type='mcp-tool'. No appName needed.\n";
       toolsByType["mcp-tool"].forEach((t) => {
         toolDocumentation += `- ID: "${t.id}" | ${t.desc}\n`;
       });
@@ -532,8 +490,6 @@ export async function POST(req: Request) {
     // App tools
     if (toolsByType["app-tool"]?.length) {
       toolDocumentation += "\n### APP TOOLS (type: app-tool):\n";
-      toolDocumentation +=
-        "When using these, set tool.type='app-tool'. No appName needed.\n";
       toolsByType["app-tool"].forEach((t) => {
         toolDocumentation += `- ID: "${t.id}" | ${t.desc}\n`;
       });
@@ -549,9 +505,9 @@ export async function POST(req: Request) {
 - IDs: "input-1", "llm-1", "tool-1", "output-1" (node.id AND node.data.id MUST match)
 - input: outputSchema.properties defines inputs (e.g., { query: { type: "string" } })
 - llm: messages array with {{nodeId.output.answer}} references. OUTPUT PATH IS ALWAYS ["answer"]
-- tool: MUST include tool object with id, type, and appName. OUTPUT PATH IS ALWAYS ["tool_result"]
-  - For COMPOSIO tools: { tool: { id: "EXACT_ID_FROM_LIST", type: "composio-tool", appName: "APP_NAME" }, message: "..." }
+- tool: MUST include tool object with id and type. OUTPUT PATH IS ALWAYS ["tool_result"]
   - For MCP tools: { tool: { id: "EXACT_ID_FROM_LIST", type: "mcp-tool" }, message: "..." }
+  - For App tools: { tool: { id: "EXACT_ID_FROM_LIST", type: "app-tool" }, message: "..." }
   - CRITICAL: tool.id MUST be the EXACT ID from AVAILABLE TOOLS list below!
 - template: text template. OUTPUT PATH IS ALWAYS ["template"]
 - http: HTTP request. OUTPUT PATH IS ["response", "body"] for response body
@@ -1102,57 +1058,10 @@ Remember: After your brief explanation, you MUST call update_workflow_graph to c
                       // The AI provides the ID, but we must use the authoritative definition from the system
                       if (node.data.tool && node.data.tool.id) {
                         const toolId = node.data.tool.id;
-                        // precise match
-                        let originalTool = availableTools?.find(
+                        // Find matching tool
+                        const originalTool = availableTools?.find(
                           (t: any) => t.id === toolId || t.name === toolId,
                         );
-
-                        // If no exact match, try fuzzy matching for Composio tools (AI may hallucinate names)
-                        if (!originalTool && toolId.includes("_")) {
-                          // Extract app prefix (e.g., GMAIL from GMAIL_LIST_MESSAGES)
-                          const appPrefix = toolId.split("_")[0].toLowerCase();
-                          const searchTerms = toolId
-                            .toLowerCase()
-                            .split("_")
-                            .slice(1); // ["list", "messages"]
-
-                          // Find tools from the same app that match keywords
-                          const appTools =
-                            availableTools?.filter(
-                              (t: any) =>
-                                t.appName?.toLowerCase() === appPrefix ||
-                                t.id?.toLowerCase().startsWith(appPrefix + "_"),
-                            ) || [];
-
-                          if (appTools.length > 0) {
-                            // Score tools by how many search terms they match
-                            const scoredTools = appTools
-                              .map((t: any) => {
-                                const toolName = (
-                                  t.id ||
-                                  t.name ||
-                                  ""
-                                ).toLowerCase();
-                                const matchCount = searchTerms.filter((term) =>
-                                  toolName.includes(term),
-                                ).length;
-                                return { tool: t, score: matchCount };
-                              })
-                              .filter(
-                                (s: { tool: any; score: number }) =>
-                                  s.score > 0,
-                              );
-
-                            // Use the best match if found
-                            scoredTools.sort(
-                              (a: { score: number }, b: { score: number }) =>
-                                b.score - a.score,
-                            );
-                            if (scoredTools.length > 0) {
-                              originalTool = scoredTools[0].tool;
-                            }
-                          }
-                        }
 
                         if (originalTool) {
                           baseData.tool = {
@@ -1164,7 +1073,6 @@ Remember: After your brief explanation, you MUST call update_workflow_graph to c
                               originalTool.description ||
                               node.data.tool.description ||
                               "",
-                            appName: originalTool.appName || "", // Critical for composio
                             parameterSchema:
                               originalTool.parameterSchema ||
                               node.data.tool.parameterSchema,
@@ -1186,7 +1094,6 @@ Remember: After your brief explanation, you MUST call update_workflow_graph to c
                             serverId: node.data.tool.serverId || "",
                             serverName: node.data.tool.serverName || "",
                             description: `⚠️ INVALID TOOL: ${node.data.tool.description || node.data.tool.id}`,
-                            appName: node.data.tool.appName || "",
                             parameterSchema:
                               node.data.tool.parameterSchema || undefined,
                           };

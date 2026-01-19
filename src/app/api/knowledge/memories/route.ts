@@ -308,7 +308,7 @@ export async function GET(request: Request) {
                 const baseItem: MemoryItem = {
                   id: String(point.id),
                   content: String(payload.content || ""),
-                  source: name,
+                  source: name === "messages" ? "memory" : name,
                   createdAt: payload.createdAt as string | undefined,
                   userId: payload.userId as string | undefined,
                 };
