@@ -265,15 +265,6 @@ const createTablesFromSchema = () => {
       CREATE INDEX IF NOT EXISTS user_invitation_email_idx ON user_invitation(email);
       CREATE INDEX IF NOT EXISTS user_invitation_token_idx ON user_invitation(token);
 
-      CREATE TABLE IF NOT EXISTS composio_connection (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL UNIQUE REFERENCES user(id) ON DELETE CASCADE,
-        entity_id TEXT NOT NULL,
-        connected_apps TEXT DEFAULT '[]',
-        created_at INTEGER,
-        updated_at INTEGER
-      );
-
       CREATE TABLE IF NOT EXISTS subscription (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL UNIQUE REFERENCES user(id) ON DELETE CASCADE,
@@ -844,7 +835,6 @@ const verifyTablesCreated = () => {
     "bookmark",
     // User management tables
     "user_invitation",
-    "composio_connection",
     // Subscription and billing tables
     "subscription",
     "usage_event",

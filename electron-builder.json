@@ -7,10 +7,10 @@
     "buildResources": "resources"
   },
   "files": [
-    "electron/**/*",
+    "dist-electron/**/*",
     "out/**/*",
     "package.json",
-    "!electron/**/*.ts",
+    "!**/*.ts",
     "!**/*.map"
   ],
   "extraResources": [

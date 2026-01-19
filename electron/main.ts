@@ -121,28 +121,41 @@ app.whenReady().then(async () => {
   }
 
   // Initialize vector services (optional - may not be available)
+  // Skip for now if DuckDB causes crashes - initialize lazily when needed
   try {
-    const { VectorStore } = require("./services/vector-store");
-    const { LocalEmbeddingService } = require("./services/embedding");
-    console.log("[Main] Initializing vector services...");
+    // Try to load vector services - if DuckDB isn't available, this will fail gracefully
+    const vectorStoreModule = require("./services/vector-store");
+    const embeddingModule = require("./services/embedding");
 
-    const vectorStore = VectorStore.getInstance();
-    const embeddingService = LocalEmbeddingService.getInstance();
+    // Initialize asynchronously after window is created to prevent blocking
+    setImmediate(async () => {
+      try {
+        console.log("[Main] Initializing vector services...");
+        const vectorStore = vectorStoreModule.VectorStore.getInstance();
+        const embeddingService =
+          embeddingModule.LocalEmbeddingService.getInstance();
 
-    await vectorStore.initialize().catch((err: Error) => {
-      console.warn(
-        "[Main] Vector store initialization failed (non-critical):",
-        err.message,
-      );
+        await vectorStore.initialize().catch((err: Error) => {
+          console.warn(
+            "[Main] Vector store initialization failed (non-critical):",
+            err.message,
+          );
+        });
+        await embeddingService.initialize().catch((err: Error) => {
+          console.warn(
+            "[Main] Embedding service initialization failed (non-critical):",
+            err.message,
+          );
+        });
+
+        console.log("[Main] Vector services initialization completed");
+      } catch (error) {
+        console.warn(
+          "[Main] Vector services initialization error (non-critical):",
+          error,
+        );
+      }
     });
-    await embeddingService.initialize().catch((err: Error) => {
-      console.warn(
-        "[Main] Embedding service initialization failed (non-critical):",
-        err.message,
-      );
-    });
-
-    console.log("[Main] Vector services initialization completed");
   } catch (error) {
     console.warn("[Main] Vector services not available (non-critical):", error);
   }
