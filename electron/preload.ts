@@ -32,6 +32,11 @@ export interface ElectronAPI {
     agents: {
       getAll: (userId: string) => Promise<any[]>;
       getById: (id: string) => Promise<any>;
+      selectAgents: (
+        userId: string,
+        filters?: string[],
+        limit?: number,
+      ) => Promise<any[]>;
       create: (data: any) => Promise<any>;
       update: (id: string, data: any) => Promise<any>;
       delete: (id: string) => Promise<void>;
@@ -44,6 +49,15 @@ export interface ElectronAPI {
       delete: (id: string) => Promise<void>;
       saveNodes: (workflowId: string, nodes: any[]) => Promise<void>;
       saveEdges: (workflowId: string, edges: any[]) => Promise<void>;
+      saveStructure: (
+        workflowId: string,
+        data: {
+          nodes?: any[];
+          edges?: any[];
+          deleteNodes?: string[];
+          deleteEdges?: string[];
+        },
+      ) => Promise<{ success: boolean }>;
     };
     mcp: {
       getServers: () => Promise<any[]>;
@@ -131,13 +145,68 @@ export interface ElectronAPI {
 
   // Terminal operations (for computer use agent)
   terminal: {
-    execute: (
-      command: string,
-    ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
-    screenshot: () => Promise<Buffer>;
-    click: (x: number, y: number) => Promise<void>;
-    type: (text: string) => Promise<void>;
-    keyPress: (key: string) => Promise<void>;
+    execute: (options: {
+      command: string;
+      cwd?: string;
+      timeout?: number;
+      env?: Record<string, string>;
+    }) => Promise<{
+      success: boolean;
+      stdout: string;
+      stderr: string;
+      exitCode: number;
+      error?: string;
+    }>;
+    screenshot: (options?: {
+      fullScreen?: boolean;
+      displayId?: string;
+    }) => Promise<{
+      success: boolean;
+      screenshot?: string;
+      width?: number;
+      height?: number;
+      error?: string;
+    }>;
+    click: (
+      x: number,
+      y: number,
+      button?: "left" | "right" | "double",
+    ) => Promise<{ success: boolean; message?: string; error?: string }>;
+    type: (
+      text: string,
+    ) => Promise<{ success: boolean; message?: string; error?: string }>;
+    keyPress: (
+      key: string,
+    ) => Promise<{ success: boolean; message?: string; error?: string }>;
+    scroll: (
+      direction: "up" | "down",
+      amount?: number,
+    ) => Promise<{ success: boolean; message?: string; error?: string }>;
+    drag: (
+      startX: number,
+      startY: number,
+      endX: number,
+      endY: number,
+    ) => Promise<{ success: boolean; message?: string; error?: string }>;
+    launch: (
+      app: string,
+      args?: string[],
+    ) => Promise<{
+      success: boolean;
+      message?: string;
+      pid?: number;
+      error?: string;
+    }>;
+    getDisplayInfo: () => Promise<{
+      displays: Array<{
+        id: number;
+        bounds: { x: number; y: number; width: number; height: number };
+        workArea: { x: number; y: number; width: number; height: number };
+        scaleFactor: number;
+        isPrimary: boolean;
+      }>;
+    }>;
+    getCursorPosition: () => Promise<{ x: number; y: number }>;
   };
 
   // App utilities
@@ -208,6 +277,15 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.invoke("db:workflows:saveNodes", workflowId, nodes),
       saveEdges: (workflowId: string, edges: any[]) =>
         ipcRenderer.invoke("db:workflows:saveEdges", workflowId, edges),
+      saveStructure: (
+        workflowId: string,
+        data: {
+          nodes?: any[];
+          edges?: any[];
+          deleteNodes?: string[];
+          deleteEdges?: string[];
+        },
+      ) => ipcRenderer.invoke("db:workflows:saveStructure", workflowId, data),
     },
     mcp: {
       getServers: () => ipcRenderer.invoke("db:mcp:getServers"),
@@ -310,12 +388,26 @@ const electronAPI: ElectronAPI = {
 
   // Terminal operations
   terminal: {
-    execute: (command: string) =>
-      ipcRenderer.invoke("terminal:execute", command),
-    screenshot: () => ipcRenderer.invoke("terminal:screenshot"),
-    click: (x: number, y: number) => ipcRenderer.invoke("terminal:click", x, y),
+    execute: (options: {
+      command: string;
+      cwd?: string;
+      timeout?: number;
+      env?: Record<string, string>;
+    }) => ipcRenderer.invoke("terminal:execute", options),
+    screenshot: (options?: { fullScreen?: boolean; displayId?: string }) =>
+      ipcRenderer.invoke("terminal:screenshot", options),
+    click: (x: number, y: number, button?: "left" | "right" | "double") =>
+      ipcRenderer.invoke("terminal:click", x, y, button),
     type: (text: string) => ipcRenderer.invoke("terminal:type", text),
     keyPress: (key: string) => ipcRenderer.invoke("terminal:keyPress", key),
+    scroll: (direction: "up" | "down", amount?: number) =>
+      ipcRenderer.invoke("terminal:scroll", direction, amount),
+    drag: (startX: number, startY: number, endX: number, endY: number) =>
+      ipcRenderer.invoke("terminal:drag", startX, startY, endX, endY),
+    launch: (app: string, args?: string[]) =>
+      ipcRenderer.invoke("terminal:launch", app, args),
+    getDisplayInfo: () => ipcRenderer.invoke("terminal:getDisplayInfo"),
+    getCursorPosition: () => ipcRenderer.invoke("terminal:getCursorPosition"),
   },
 
   // App utilities
