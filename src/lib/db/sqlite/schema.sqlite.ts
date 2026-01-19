@@ -777,277 +777,6 @@ export const BookmarkTable = sqliteTable(
 );
 
 // ============================================================================
-// ============================================================================
-// Subscription & Billing Tables
-// ============================================================================
-
-// Subscription Table
-export const SubscriptionTable = sqliteTable("subscription", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => randomUUID()),
-  userId: text("user_id")
-    .notNull()
-    .unique()
-    .references(() => UserTable.id, { onDelete: "cascade" }),
-  tier: text("tier", { enum: ["free", "pro", "ultra"] })
-    .notNull()
-    .default("free"),
-  stripeCustomerId: text("stripe_customer_id"),
-  stripeSubscriptionId: text("stripe_subscription_id"),
-  stripePriceId: text("stripe_price_id"),
-  status: text("status", {
-    enum: [
-      "active",
-      "canceled",
-      "past_due",
-      "trialing",
-      "incomplete",
-      "incomplete_expired",
-      "unpaid",
-      "paused",
-    ],
-  })
-    .notNull()
-    .default("active"),
-  currentPeriodStart: integer("current_period_start", { mode: "timestamp" }),
-  currentPeriodEnd: integer("current_period_end", { mode: "timestamp" }),
-  cancelAtPeriodEnd: integer("cancel_at_period_end", {
-    mode: "boolean",
-  }).default(false),
-  cancelAt: integer("cancel_at", { mode: "timestamp" }),
-  purchasedTokens: text("purchased_tokens").notNull().default("0"),
-  purchasedTokensUsed: text("purchased_tokens_used").notNull().default("0"),
-  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-});
-
-// Usage Event Table
-export const UsageEventTable = sqliteTable(
-  "usage_event",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    userId: text("user_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    eventType: text("event_type", {
-      enum: [
-        "llm_tokens",
-        "image_generation",
-        "local_execution",
-        "voice_minutes",
-        "mcp_tool_call",
-        "workflow_execution",
-        "web_search",
-      ],
-    }).notNull(),
-    amount: text("amount").notNull(),
-    metadata: text("metadata", { mode: "json" }).$type<
-      Record<string, unknown>
-    >(),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    userIdx: index("usage_event_user_idx").on(table.userId),
-    typeIdx: index("usage_event_type_idx").on(table.eventType),
-    createdIdx: index("usage_event_created_idx").on(table.createdAt),
-  }),
-);
-
-// Promo Code Table
-export const PromoCodeTable = sqliteTable(
-  "promo_code",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    code: text("code").notNull().unique(),
-    description: text("description"),
-    discountType: text("discount_type", {
-      enum: ["percentage", "fixed_amount"],
-    }).notNull(),
-    discountValue: text("discount_value").notNull(),
-    appliesTo: text("applies_to", {
-      enum: ["all", "subscription", "token_pack"],
-    })
-      .notNull()
-      .default("all"),
-    applicableTiers: text("applicable_tiers", { mode: "json" })
-      .$type<string[]>()
-      .default([]),
-    applicableTokenPacks: text("applicable_token_packs", { mode: "json" })
-      .$type<string[]>()
-      .default([]),
-    maxRedemptions: text("max_redemptions"),
-    currentRedemptions: text("current_redemptions").notNull().default("0"),
-    maxPerUser: text("max_per_user").notNull().default("1"),
-    newUsersOnly: integer("new_users_only", { mode: "boolean" })
-      .notNull()
-      .default(false),
-    minAmount: text("min_amount"),
-    startsAt: integer("starts_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-    expiresAt: integer("expires_at", { mode: "timestamp" }),
-    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
-    stripeCouponId: text("stripe_coupon_id"),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    codeIdx: index("promo_code_code_idx").on(table.code),
-    activeIdx: index("promo_code_active_idx").on(
-      table.isActive,
-      table.expiresAt,
-    ),
-  }),
-);
-
-// Promo Code Redemption Table
-export const PromoCodeRedemptionTable = sqliteTable(
-  "promo_code_redemption",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    promoCodeId: text("promo_code_id")
-      .notNull()
-      .references(() => PromoCodeTable.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    purchaseType: text("purchase_type", {
-      enum: ["subscription", "token_pack"],
-    }).notNull(),
-    originalAmount: text("original_amount").notNull(),
-    discountAmount: text("discount_amount").notNull(),
-    finalAmount: text("final_amount").notNull(),
-    stripeCheckoutSessionId: text("stripe_checkout_session_id"),
-    stripeInvoiceId: text("stripe_invoice_id"),
-    redeemedAt: integer("redeemed_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    userIdx: index("redemption_user_idx").on(table.userId),
-    codeIdx: index("redemption_code_idx").on(table.promoCodeId),
-  }),
-);
-
-// Webhook Event Table
-export const WebhookEventTable = sqliteTable(
-  "webhook_event",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    eventId: text("event_id").notNull().unique(),
-    eventType: text("event_type").notNull(),
-    processedAt: integer("processed_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-    metadata: text("metadata", { mode: "json" }).$type<{
-      customerId?: string;
-      subscriptionId?: string;
-      error?: string;
-    }>(),
-  },
-  (table) => ({
-    eventIdIdx: index("webhook_event_id_idx").on(table.eventId),
-    processedAtIdx: index("webhook_event_processed_at_idx").on(
-      table.processedAt,
-    ),
-  }),
-);
-
-// Webhook Retry Queue Table
-export const WebhookRetryQueueTable = sqliteTable(
-  "webhook_retry_queue",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    eventId: text("event_id").notNull(),
-    eventType: text("event_type").notNull(),
-    payload: text("payload", { mode: "json" }).notNull(),
-    retryCount: text("retry_count").notNull().default("0"),
-    maxRetries: text("max_retries").notNull().default("5"),
-    nextRetryAt: integer("next_retry_at", { mode: "timestamp" }).notNull(),
-    lastError: text("last_error"),
-    status: text("status", {
-      enum: ["pending", "processing", "succeeded", "dead_letter"],
-    })
-      .notNull()
-      .default("pending"),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    eventIdIdx: index("webhook_retry_event_id_idx").on(table.eventId),
-    statusIdx: index("webhook_retry_status_idx").on(table.status),
-    nextRetryIdx: index("webhook_retry_next_retry_idx").on(table.nextRetryAt),
-  }),
-);
-
-// Usage Alert Table
-export const UsageAlertTable = sqliteTable(
-  "usage_alert",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    userId: text("user_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    alertType: text("alert_type", {
-      enum: ["approaching_80", "approaching_100", "exceeded"],
-    }).notNull(),
-    limitType: text("limit_type", {
-      enum: ["monthly", "weekly", "daily_expensive"],
-    }).notNull(),
-    threshold: text("threshold").notNull(),
-    currentUsage: text("current_usage").notNull(),
-    usageLimit: text("usage_limit").notNull(),
-    emailSent: integer("email_sent", { mode: "boolean" })
-      .notNull()
-      .default(false),
-    emailSentAt: integer("email_sent_at", { mode: "timestamp" }),
-    acknowledgedAt: integer("acknowledged_at", { mode: "timestamp" }),
-    periodStart: integer("period_start", { mode: "timestamp" }).notNull(),
-    periodEnd: integer("period_end", { mode: "timestamp" }).notNull(),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    userIdIdx: index("usage_alert_user_id_idx").on(table.userId),
-    typeIdx: index("usage_alert_type_idx").on(table.alertType, table.limitType),
-    uniqueAlert: unique("usage_alert_unique").on(
-      table.userId,
-      table.alertType,
-      table.limitType,
-      table.periodStart,
-    ),
-  }),
-);
-
-// ============================================================================
 // Thread File Context (for per-thread file persistence in local execution)
 // ============================================================================
 
@@ -1404,6 +1133,148 @@ export const FragmentSharesTable = sqliteTable(
 );
 
 // ============================================================================
+// Models & Provider Configuration Tables
+// ============================================================================
+
+// Provider Configuration Table - Store custom provider configurations
+export const ProviderConfigTable = sqliteTable(
+  "provider_config",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    name: text("name").notNull(),
+    providerId: text("provider_id").notNull(), // openai, anthropic, ollama, lmstudio, custom, etc.
+    type: text("type", { enum: ["cloud", "local"] }).notNull(),
+    baseUrl: text("base_url"),
+    authType: text("auth_type", { enum: ["api-key", "oauth", "none"] })
+      .notNull()
+      .default("api-key"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    status: text("status", {
+      enum: ["connected", "disconnected", "testing", "error", "disabled"],
+    })
+      .notNull()
+      .default("disconnected"),
+    lastTestedAt: integer("last_tested_at", { mode: "timestamp" }),
+    errorMessage: text("error_message"),
+    metadata: text("metadata", { mode: "json" }).$type<
+      Record<string, unknown>
+    >(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => UserTable.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+  },
+  (table) => ({
+    userIdx: index("provider_config_user_idx").on(table.userId),
+    providerIdx: index("provider_config_provider_idx").on(table.providerId),
+    typeIdx: index("provider_config_type_idx").on(table.type),
+    enabledIdx: index("provider_config_enabled_idx").on(table.enabled),
+    uniqueUserProvider: unique("provider_config_unique_user_provider").on(
+      table.userId,
+      table.providerId,
+    ),
+  }),
+);
+
+// Local Model Table - Store local model metadata
+export const LocalModelTable = sqliteTable(
+  "local_model",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    name: text("name").notNull(), // Model identifier (e.g., "llama3.3", "mistral-7b")
+    displayName: text("display_name").notNull(),
+    providerId: text("provider_id").notNull(), // ollama, lmstudio, custom-local
+    providerConfigId: text("provider_config_id").references(
+      () => ProviderConfigTable.id,
+      { onDelete: "set null" },
+    ),
+    path: text("path"), // File path for local model files
+    size: integer("size"), // Size in bytes
+    quantization: text("quantization"), // e.g., "Q4_K_M", "Q8_0"
+    family: text("family"), // e.g., "llama", "mistral", "qwen"
+    status: text("status", {
+      enum: ["available", "downloading", "validating", "error", "disabled"],
+    })
+      .notNull()
+      .default("available"),
+    isVision: integer("is_vision", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    isToolCallSupported: integer("is_tool_call_supported", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    downloadProgress: integer("download_progress"), // 0-100
+    errorMessage: text("error_message"),
+    metadata: text("metadata", { mode: "json" }).$type<
+      Record<string, unknown>
+    >(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => UserTable.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+  },
+  (table) => ({
+    userIdx: index("local_model_user_idx").on(table.userId),
+    providerIdx: index("local_model_provider_idx").on(table.providerId),
+    statusIdx: index("local_model_status_idx").on(table.status),
+    nameIdx: index("local_model_name_idx").on(table.name),
+    uniqueUserModel: unique("local_model_unique_user_model").on(
+      table.userId,
+      table.providerId,
+      table.name,
+    ),
+  }),
+);
+
+// API Keys Table - Store encrypted API keys separately for security
+// Note: In production, consider using Electron's safeStorage for additional encryption
+export const ApiKeyTable = sqliteTable(
+  "api_key",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    providerId: text("provider_id").notNull(),
+    encryptedKey: text("encrypted_key").notNull(),
+    keyHint: text("key_hint"), // Last 4 characters for display (e.g., "...abc1")
+    isValid: integer("is_valid", { mode: "boolean" }).notNull().default(false),
+    lastValidatedAt: integer("last_validated_at", { mode: "timestamp" }),
+    errorMessage: text("error_message"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => UserTable.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+  },
+  (table) => ({
+    userIdx: index("api_key_user_idx").on(table.userId),
+    providerIdx: index("api_key_provider_idx").on(table.providerId),
+    uniqueUserProvider: unique("api_key_unique_user_provider").on(
+      table.userId,
+      table.providerId,
+    ),
+  }),
+);
+
+// ============================================================================
 // Type Exports
 // ============================================================================
 
@@ -1441,15 +1312,6 @@ export type WorkflowEdgeEntity = typeof WorkflowEdgeTable.$inferSelect;
 export type ArchiveEntity = typeof ArchiveTable.$inferSelect;
 export type ArchiveItemEntity = typeof ArchiveItemTable.$inferSelect;
 export type BookmarkEntity = typeof BookmarkTable.$inferSelect;
-export type SubscriptionEntity = typeof SubscriptionTable.$inferSelect;
-export type UsageEventEntity = typeof UsageEventTable.$inferSelect;
-export type PromoCodeEntity = typeof PromoCodeTable.$inferSelect;
-export type PromoCodeRedemptionEntity =
-  typeof PromoCodeRedemptionTable.$inferSelect;
-export type WebhookEventEntity = typeof WebhookEventTable.$inferSelect;
-export type WebhookRetryQueueEntity =
-  typeof WebhookRetryQueueTable.$inferSelect;
-export type UsageAlertEntity = typeof UsageAlertTable.$inferSelect;
 export type ThreadSandboxContextEntity =
   typeof ThreadSandboxContextTable.$inferSelect;
 export type ThreadFileContextEntity = ThreadSandboxContextEntity;
@@ -1460,6 +1322,9 @@ export type FragmentsEntity = typeof FragmentsTable.$inferSelect;
 export type FragmentExecutionsEntity =
   typeof FragmentExecutionsTable.$inferSelect;
 export type FragmentSharesEntity = typeof FragmentSharesTable.$inferSelect;
+export type ProviderConfigEntity = typeof ProviderConfigTable.$inferSelect;
+export type LocalModelEntity = typeof LocalModelTable.$inferSelect;
+export type ApiKeyEntity = typeof ApiKeyTable.$inferSelect;
 
 // Insert types (for inserting into database - includes optional fields with defaults)
 export type UserInsert = typeof UserTable.$inferInsert;
@@ -1495,14 +1360,6 @@ export type WorkflowEdgeInsert = typeof WorkflowEdgeTable.$inferInsert;
 export type ArchiveInsert = typeof ArchiveTable.$inferInsert;
 export type ArchiveItemInsert = typeof ArchiveItemTable.$inferInsert;
 export type BookmarkInsert = typeof BookmarkTable.$inferInsert;
-export type UsageEventInsert = typeof UsageEventTable.$inferInsert;
-export type PromoCodeInsert = typeof PromoCodeTable.$inferInsert;
-export type PromoCodeRedemptionInsert =
-  typeof PromoCodeRedemptionTable.$inferInsert;
-export type WebhookEventInsert = typeof WebhookEventTable.$inferInsert;
-export type WebhookRetryQueueInsert =
-  typeof WebhookRetryQueueTable.$inferInsert;
-export type UsageAlertInsert = typeof UsageAlertTable.$inferInsert;
 export type ThreadSandboxContextInsert =
   typeof ThreadSandboxContextTable.$inferInsert;
 export type BrowserSessionInsert = typeof BrowserSessionTable.$inferInsert;
@@ -1512,3 +1369,6 @@ export type FragmentsInsert = typeof FragmentsTable.$inferInsert;
 export type FragmentExecutionsInsert =
   typeof FragmentExecutionsTable.$inferInsert;
 export type FragmentSharesInsert = typeof FragmentSharesTable.$inferInsert;
+export type ProviderConfigInsert = typeof ProviderConfigTable.$inferInsert;
+export type LocalModelInsert = typeof LocalModelTable.$inferInsert;
+export type ApiKeyInsert = typeof ApiKeyTable.$inferInsert;

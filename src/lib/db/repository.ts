@@ -6,7 +6,6 @@ export { sqliteChatRepository as chatRepository } from "./sqlite/repositories/ch
 export { sqliteAgentRepository as agentRepository } from "./sqlite/repositories/agent-repository.sqlite";
 export { sqliteAgentStateRepository as agentStateRepository } from "./sqlite/repositories/agent-state-repository.sqlite";
 export { sqliteMcpRepository as mcpRepository } from "./sqlite/repositories/mcp-repository.sqlite";
-export { sqliteSubscriptionRepository as subscriptionRepository } from "./sqlite/repositories/subscription-repository.sqlite";
 export { sqliteBookmarkRepository as bookmarkRepository } from "./sqlite/repositories/bookmark-repository.sqlite";
 export { sqliteWorkflowRepository as workflowRepository } from "./sqlite/repositories/workflow-repository.sqlite";
 export { sqliteArchiveRepository as archiveRepository } from "./sqlite/repositories/archive-repository.sqlite";
