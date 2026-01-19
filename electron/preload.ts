@@ -215,6 +215,111 @@ export interface ElectronAPI {
     getPath: (name: string) => Promise<string>;
     quit: () => void;
   };
+
+  // Models management
+  models: {
+    // Provider configuration
+    getProviders: () => Promise<any[]>;
+    getProvider: (id: string) => Promise<any>;
+    saveProvider: (data: {
+      id?: string;
+      name: string;
+      providerId: string;
+      type: "cloud" | "local";
+      baseUrl?: string;
+      authType: "api-key" | "oauth" | "none";
+      enabled?: boolean;
+      metadata?: Record<string, unknown>;
+    }) => Promise<any>;
+    deleteProvider: (id: string) => Promise<{ success: boolean }>;
+    testProvider: (data: {
+      providerId: string;
+      baseUrl?: string;
+      apiKey?: string;
+    }) => Promise<{
+      success: boolean;
+      error?: string;
+      modelCount?: number;
+      models?: Array<{ name: string; size?: number; family?: string }>;
+    }>;
+
+    // API keys
+    getApiKeys: () => Promise<
+      Array<{
+        id: string;
+        providerId: string;
+        keyHint: string;
+        isValid: boolean;
+        lastValidatedAt?: Date;
+        errorMessage?: string;
+      }>
+    >;
+    saveApiKey: (data: {
+      providerId: string;
+      apiKey: string;
+      validate?: boolean;
+    }) => Promise<{
+      success: boolean;
+      isValid?: boolean;
+      error?: string;
+      key?: {
+        id: string;
+        providerId: string;
+        keyHint: string;
+        isValid: boolean;
+      };
+    }>;
+    deleteApiKey: (providerId: string) => Promise<{ success: boolean }>;
+    validateApiKey: (data: {
+      providerId: string;
+      apiKey: string;
+      baseUrl?: string;
+    }) => Promise<{
+      success: boolean;
+      error?: string;
+      modelCount?: number;
+    }>;
+    getDecryptedApiKey: (providerId: string) => Promise<string | null>;
+
+    // Local models
+    getLocalModels: () => Promise<any[]>;
+    refreshLocalModels: (data: {
+      providerId: string;
+      baseUrl?: string;
+    }) => Promise<{
+      success: boolean;
+      models?: any[];
+      error?: string;
+    }>;
+    downloadModel: (data: {
+      modelName: string;
+      baseUrl?: string;
+    }) => Promise<{
+      success: boolean;
+      modelId?: string;
+      error?: string;
+    }>;
+    deleteLocalModel: (data: {
+      id?: string;
+      modelName?: string;
+      providerId?: string;
+    }) => Promise<{ success: boolean }>;
+
+    // Combined status
+    getAvailableModels: () => Promise<{
+      cloudProviders: string[];
+      providers: any[];
+      localModels: any[];
+    }>;
+    getStatus: () => Promise<{
+      totalProviders: number;
+      connectedProviders: number;
+      validApiKeys: number;
+      totalLocalModels: number;
+      availableLocalModels: number;
+      downloadingModels: number;
+    }>;
+  };
 }
 
 // Expose protected methods that allow the renderer process to use
@@ -415,6 +520,63 @@ const electronAPI: ElectronAPI = {
     getVersion: () => ipcRenderer.invoke("app:getVersion"),
     getPath: (name: string) => ipcRenderer.invoke("app:getPath", name),
     quit: () => ipcRenderer.send("app:quit"),
+  },
+
+  // Models management
+  models: {
+    // Provider configuration
+    getProviders: () => ipcRenderer.invoke("models:getProviders"),
+    getProvider: (id: string) => ipcRenderer.invoke("models:getProvider", id),
+    saveProvider: (data: {
+      id?: string;
+      name: string;
+      providerId: string;
+      type: "cloud" | "local";
+      baseUrl?: string;
+      authType: "api-key" | "oauth" | "none";
+      enabled?: boolean;
+      metadata?: Record<string, unknown>;
+    }) => ipcRenderer.invoke("models:saveProvider", data),
+    deleteProvider: (id: string) =>
+      ipcRenderer.invoke("models:deleteProvider", id),
+    testProvider: (data: {
+      providerId: string;
+      baseUrl?: string;
+      apiKey?: string;
+    }) => ipcRenderer.invoke("models:testProvider", data),
+
+    // API keys
+    getApiKeys: () => ipcRenderer.invoke("models:getApiKeys"),
+    saveApiKey: (data: {
+      providerId: string;
+      apiKey: string;
+      validate?: boolean;
+    }) => ipcRenderer.invoke("models:saveApiKey", data),
+    deleteApiKey: (providerId: string) =>
+      ipcRenderer.invoke("models:deleteApiKey", providerId),
+    validateApiKey: (data: {
+      providerId: string;
+      apiKey: string;
+      baseUrl?: string;
+    }) => ipcRenderer.invoke("models:validateApiKey", data),
+    getDecryptedApiKey: (providerId: string) =>
+      ipcRenderer.invoke("models:getDecryptedApiKey", providerId),
+
+    // Local models
+    getLocalModels: () => ipcRenderer.invoke("models:getLocalModels"),
+    refreshLocalModels: (data: { providerId: string; baseUrl?: string }) =>
+      ipcRenderer.invoke("models:refreshLocalModels", data),
+    downloadModel: (data: { modelName: string; baseUrl?: string }) =>
+      ipcRenderer.invoke("models:downloadModel", data),
+    deleteLocalModel: (data: {
+      id?: string;
+      modelName?: string;
+      providerId?: string;
+    }) => ipcRenderer.invoke("models:deleteLocalModel", data),
+
+    // Combined status
+    getAvailableModels: () => ipcRenderer.invoke("models:getAvailableModels"),
+    getStatus: () => ipcRenderer.invoke("models:getStatus"),
   },
 };
 

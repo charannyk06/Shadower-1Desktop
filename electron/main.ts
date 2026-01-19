@@ -205,6 +205,7 @@ app.whenReady().then(async () => {
     const { registerFileHandlers } = require("./ipc/files");
     const { registerAuthHandlers } = require("./ipc/auth");
     const { registerTerminalHandlers } = require("./ipc/terminal");
+    const { registerModelsHandlers } = require("./ipc/models");
 
     registerChatHandlers();
     registerAgentHandlers();
@@ -214,6 +215,7 @@ app.whenReady().then(async () => {
     registerFileHandlers();
     registerAuthHandlers();
     registerTerminalHandlers();
+    registerModelsHandlers();
 
     // Register vector handlers (optional - may fail if DuckDB not available)
     try {
