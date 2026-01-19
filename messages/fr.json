@@ -202,6 +202,7 @@
     "toggleSidebar": "Basculer la Barre Latérale",
     "newChat": "Nouveau Chat",
     "mcpConfiguration": "Configuration MCP",
+    "models": "Modèles",
     "agents": "Agents",
     "newAgent": "Nouvel Agent",
     "createAgent": "Créer un agent",
@@ -247,7 +248,6 @@
     "reportAnIssue": "Signaler un problème",
     "joinCommunity": "Rejoindre la Communauté",
     "workflow": "Flux de Travail",
-    "billing": "Facturation",
     "userSettings": "Paramètres Utilisateur"
   },
   "Archive": {

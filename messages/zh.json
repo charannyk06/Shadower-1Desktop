@@ -201,6 +201,7 @@
     "toggleSidebar": "切换侧边栏",
     "newChat": "新聊天",
     "mcpConfiguration": "MCP 配置",
+    "models": "模型",
     "agents": "智能体",
     "newAgent": "新智能体",
     "createAgent": "创建智能体",
@@ -245,7 +246,6 @@
     "reportAnIssue": "报告问题",
     "joinCommunity": "加入社区",
     "workflow": "工作流",
-    "billing": "账单",
     "userSettings": "用户设置"
   },
   "Archive": {

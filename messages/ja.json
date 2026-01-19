@@ -202,6 +202,7 @@
     "toggleSidebar": "サイドバーの切り替え",
     "newChat": "新しいチャット",
     "mcpConfiguration": "MCP設定",
+    "models": "モデル",
     "agents": "エージェント",
     "newAgent": "新しいエージェント",
     "createAgent": "エージェントを作成",
@@ -246,7 +247,6 @@
     "reportAnIssue": "問題を報告",
     "joinCommunity": "コミュニティに参加",
     "workflow": "ワークフロー",
-    "billing": "請求",
     "userSettings": "ユーザー設定"
   },
   "Archive": {
