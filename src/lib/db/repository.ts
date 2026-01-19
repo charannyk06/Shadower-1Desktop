@@ -462,15 +462,16 @@ export const webhookRetryRepository = {
   },
 };
 
-// Thread Sandbox Context - stub
-export const threadSandboxContextRepository = {
+// Thread File Context - stub (for tracking files in local execution)
+export const threadFileContextRepository = {
   async getByThreadId(_threadId: string): Promise<{
     threadId: string;
-    sandboxId?: string;
+    sessionId?: string;
     fileMetadata?: Array<{
       name: string;
       storageKey?: string;
       path?: string;
+      localPath?: string;
       size?: number;
       type?: string;
       url?: string;
@@ -486,7 +487,7 @@ export const threadSandboxContextRepository = {
   },
   async upsert(_data: {
     threadId: string;
-    sandboxId?: string;
+    sessionId?: string;
     context?: unknown;
   }) {
     return null;
@@ -497,7 +498,7 @@ export const threadSandboxContextRepository = {
     _userId: string,
   ): Promise<{
     threadId: string;
-    sandboxId?: string;
+    sessionId?: string;
     fileMetadata?: Array<any>;
     totalFilesCount?: number;
     contextSizeBytes?: string;
@@ -520,8 +521,12 @@ export const threadSandboxContextRepository = {
   async removeFile(_threadId: string, _filename: string): Promise<void> {},
   async updateFileMetadata(_threadId: string, _files: any[]): Promise<void> {},
 };
-export type ThreadSandboxContextRepository =
-  typeof threadSandboxContextRepository;
+export type ThreadFileContextRepository = typeof threadFileContextRepository;
+
+// Alias for backwards compatibility with existing API routes
+// TODO: Migrate usages to threadFileContextRepository
+export const threadSandboxContextRepository = threadFileContextRepository;
+export type ThreadSandboxContextRepository = ThreadFileContextRepository;
 
 // Vector Index - stub (using DuckDB instead)
 export const vectorIndexRepository = {
@@ -583,7 +588,7 @@ export const fragmentRepository = {
     code: string;
     filePath: string;
     port?: number;
-    sandboxId?: string;
+    sessionId?: string;
     previewUrl?: string;
   }): Promise<{ id: string }> {
     return { id: `local-fragment-${Date.now()}` };
@@ -595,7 +600,7 @@ export const fragmentRepository = {
       previewUrl?: string;
       deploymentUrl?: string;
       code?: string;
-      sandboxId?: string;
+      sessionId?: string;
     },
   ): Promise<void> {},
   async getById(_id: string): Promise<{
@@ -608,7 +613,7 @@ export const fragmentRepository = {
     code?: string;
     file_path?: string;
     port?: number;
-    sandbox_id?: string;
+    session_id?: string;
     preview_url?: string;
     deployment_url?: string;
     status?: string;
@@ -655,16 +660,21 @@ export const fragmentRepository = {
 };
 export type FragmentRepository = typeof fragmentRepository;
 
-// E2B Usage Repository - stub (replaced by local sandbox)
-export const e2bUsageRepository = {
-  async recordUsage() {
+// Local Execution Usage Repository - stub (local execution is free, just for tracking)
+export const localExecutionRepository = {
+  async recordExecution(_data: {
+    userId: string;
+    threadId?: string;
+    executionMs: number;
+    language?: string;
+  }) {
     return null;
   },
-  async getUsageByUserId() {
+  async getExecutionsByUserId(_userId: string, _from?: Date, _to?: Date) {
     return [];
   },
 };
-export type E2BUsageRepository = typeof e2bUsageRepository;
+export type LocalExecutionRepository = typeof localExecutionRepository;
 
 // Fragment Shares - stub
 export const fragmentSharesRepository = {

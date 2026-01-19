@@ -847,7 +847,7 @@ export const UsageEventTable = sqliteTable(
       enum: [
         "llm_tokens",
         "image_generation",
-        "sandbox_execution",
+        "local_execution",
         "voice_minutes",
         "mcp_tool_call",
         "workflow_execution",
@@ -1092,7 +1092,7 @@ export const ReferralTable = sqliteTable(
 );
 
 // ============================================================================
-// Thread Sandbox Context (for per-thread file persistence)
+// Thread File Context (for per-thread file persistence in local execution)
 // ============================================================================
 
 export interface ThreadFileMetadata {
@@ -1102,12 +1102,12 @@ export interface ThreadFileMetadata {
   source: "user" | "generated";
   storageKey?: string;
   url?: string;
-  sandboxPath?: string;
+  localPath?: string;
   uploadedAt: string;
 }
 
-export const ThreadSandboxContextTable = sqliteTable(
-  "thread_sandbox_context",
+export const ThreadFileContextTable = sqliteTable(
+  "thread_file_context",
   {
     id: text("id")
       .primaryKey()
@@ -1134,13 +1134,16 @@ export const ThreadSandboxContextTable = sqliteTable(
     ),
   },
   (table) => ({
-    threadIdx: index("thread_sandbox_context_thread_idx").on(table.threadId),
-    userIdx: index("thread_sandbox_context_user_idx").on(table.userId),
-    cleanupIdx: index("thread_sandbox_context_cleanup_idx").on(
+    threadIdx: index("thread_file_context_thread_idx").on(table.threadId),
+    userIdx: index("thread_file_context_user_idx").on(table.userId),
+    cleanupIdx: index("thread_file_context_cleanup_idx").on(
       table.lastAccessedAt,
     ),
   }),
 );
+
+// Legacy alias for backwards compatibility
+export const ThreadSandboxContextTable = ThreadFileContextTable;
 
 // ============================================================================
 // Browser Sessions
@@ -1159,7 +1162,7 @@ export const BrowserSessionTable = sqliteTable(
       .notNull()
       .references(() => UserTable.id, { onDelete: "cascade" }),
     provider: text("provider", {
-      enum: ["browserbase", "e2b-desktop", "local"],
+      enum: ["chrome-devtools", "local-terminal"],
     }).notNull(),
     sessionId: text("session_id").notNull(),
     status: text("status", {
@@ -1367,7 +1370,7 @@ export const FragmentsTable = sqliteTable(
     code: text("code").notNull(),
     filePath: text("file_path").notNull(),
     port: integer("port"),
-    sandboxId: text("sandbox_id"),
+    sessionId: text("session_id"),
     previewUrl: text("preview_url"),
     deploymentUrl: text("deployment_url"),
     status: text("status", {
@@ -1399,7 +1402,7 @@ export const FragmentExecutionsTable = sqliteTable(
     fragmentId: text("fragment_id")
       .notNull()
       .references(() => FragmentsTable.id, { onDelete: "cascade" }),
-    sandboxId: text("sandbox_id").notNull(),
+    sessionId: text("session_id").notNull(),
     template: text("template").notNull(),
     stdout: text("stdout"),
     stderr: text("stderr"),
@@ -1415,32 +1418,7 @@ export const FragmentExecutionsTable = sqliteTable(
   }),
 );
 
-export const SandboxUsageTable = sqliteTable(
-  "sandbox_usage",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    userId: text("user_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    sessionId: text("session_id").notNull(),
-    template: text("template"),
-    durationMs: integer("duration_ms").notNull(),
-    creditsUsed: text("credits_used").notNull(),
-    costUsd: text("cost_usd").notNull(),
-    operationType: text("operation_type", {
-      enum: ["create", "edit", "execute", "deploy"],
-    }),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    userIdx: index("sandbox_usage_user_idx").on(table.userId),
-    createdIdx: index("sandbox_usage_created_idx").on(table.createdAt),
-  }),
-);
+// SandboxUsageTable removed - local execution is free and doesn't need billing tracking
 
 export const FragmentSharesTable = sqliteTable(
   "fragment_shares",
@@ -1525,7 +1503,6 @@ export type VectorIndexEntity = typeof VectorIndexTable.$inferSelect;
 export type FragmentsEntity = typeof FragmentsTable.$inferSelect;
 export type FragmentExecutionsEntity =
   typeof FragmentExecutionsTable.$inferSelect;
-export type SandboxUsageEntity = typeof SandboxUsageTable.$inferSelect;
 export type FragmentSharesEntity = typeof FragmentSharesTable.$inferSelect;
 
 // Insert types (for inserting into database - includes optional fields with defaults)
@@ -1579,5 +1556,4 @@ export type VectorIndexInsert = typeof VectorIndexTable.$inferInsert;
 export type FragmentsInsert = typeof FragmentsTable.$inferInsert;
 export type FragmentExecutionsInsert =
   typeof FragmentExecutionsTable.$inferInsert;
-export type SandboxUsageInsert = typeof SandboxUsageTable.$inferInsert;
 export type FragmentSharesInsert = typeof FragmentSharesTable.$inferInsert;

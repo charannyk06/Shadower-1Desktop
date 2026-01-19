@@ -458,7 +458,7 @@ export const UsageEventTable = pgTable(
       enum: [
         "llm_tokens",
         "image_generation",
-        "sandbox_execution",
+        "local_execution",
         "voice_minutes",
         "mcp_tool_call",
         "workflow_execution",
@@ -1047,14 +1047,14 @@ export type AgentSubAgentRelationEntity =
   typeof AgentSubAgentRelationTable.$inferSelect;
 
 // ============================================================================
-// Thread Sandbox Context (for per-thread file system persistence)
+// Thread File Context (for per-thread file system persistence)
 // ============================================================================
 
 /**
- * ThreadSandboxContextTable stores context for per-thread E2B sandbox file persistence.
+ * ThreadFileContextTable stores context for per-thread local file persistence.
  * Enables:
  * - Files created in one execution to persist to the next
- * - User-uploaded files to be available in sandbox
+ * - User-uploaded files to be available locally
  * - Thread-scoped file management
  */
 export interface ThreadFileMetadata {
@@ -1064,12 +1064,12 @@ export interface ThreadFileMetadata {
   source: "user" | "generated";
   storageKey?: string;
   url?: string;
-  sandboxPath?: string; // Path within the sandbox filesystem
+  localPath?: string; // Path within the local filesystem
   uploadedAt: string;
 }
 
-export const ThreadSandboxContextTable = pgTable(
-  "thread_sandbox_context",
+export const ThreadFileContextTable = pgTable(
+  "thread_file_context",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     threadId: uuid("thread_id")
@@ -1097,21 +1097,25 @@ export const ThreadSandboxContextTable = pgTable(
       .default(sql`CURRENT_TIMESTAMP`),
   },
   (t) => [
-    index("thread_sandbox_context_thread_idx").on(t.threadId),
-    index("thread_sandbox_context_user_idx").on(t.userId),
-    index("thread_sandbox_context_cleanup_idx").on(t.lastAccessedAt),
+    index("thread_file_context_thread_idx").on(t.threadId),
+    index("thread_file_context_user_idx").on(t.userId),
+    index("thread_file_context_cleanup_idx").on(t.lastAccessedAt),
   ],
 );
 
-export type ThreadSandboxContextEntity =
-  typeof ThreadSandboxContextTable.$inferSelect;
+export type ThreadFileContextEntity =
+  typeof ThreadFileContextTable.$inferSelect;
+
+// Legacy aliases for backwards compatibility
+export const ThreadSandboxContextTable = ThreadFileContextTable;
+export type ThreadSandboxContextEntity = ThreadFileContextEntity;
 
 // ============================================================================
-// Browser Sessions (for Browserbase and E2B Desktop tracking)
+// Browser Sessions (for local Chrome DevTools browser tracking)
 // ============================================================================
 
 /**
- * BrowserSessionTable tracks browser and desktop sandbox sessions.
+ * BrowserSessionTable tracks local browser sessions.
  * Enables:
  * - Live browser preview in theater mode
  * - Session replay URLs
@@ -1130,7 +1134,7 @@ export const BrowserSessionTable = pgTable(
       .references(() => UserTable.id, { onDelete: "cascade" }),
     // Provider identification
     provider: varchar("provider", {
-      enum: ["browserbase", "e2b-desktop"],
+      enum: ["chrome-devtools", "local-terminal"],
     }).notNull(),
     // External session ID from provider
     sessionId: text("session_id").notNull(),
@@ -1425,8 +1429,8 @@ export const FragmentsTable = pgTable(
     filePath: varchar("file_path", { length: 500 }).notNull(),
     port: integer("port"),
 
-    // Sandbox and deployment
-    sandboxId: varchar("sandbox_id", { length: 100 }),
+    // Local execution and deployment
+    sessionId: varchar("session_id", { length: 100 }),
     previewUrl: text("preview_url"),
     deploymentUrl: text("deployment_url"),
 
@@ -1468,7 +1472,7 @@ export const FragmentExecutionsTable = pgTable(
     fragmentId: uuid("fragment_id")
       .notNull()
       .references(() => FragmentsTable.id, { onDelete: "cascade" }),
-    sandboxId: varchar("sandbox_id", { length: 100 }).notNull(),
+    sessionId: varchar("session_id", { length: 100 }).notNull(),
     template: varchar("template", { length: 100 }).notNull(),
 
     // Results
@@ -1489,43 +1493,7 @@ export const FragmentExecutionsTable = pgTable(
 export type FragmentExecutionsEntity =
   typeof FragmentExecutionsTable.$inferSelect;
 
-/**
- * E2BUsageTable tracks sandbox usage for cost management.
- * Enables:
- * - Per-user usage tracking
- * - Billing and quota enforcement
- * - Cost analysis and optimization
- */
-export const E2BUsageTable = pgTable(
-  "e2b_usage",
-  {
-    id: uuid("id").primaryKey().notNull().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    sessionId: varchar("session_id", { length: 100 }).notNull(),
-    template: varchar("template", { length: 100 }),
-
-    // Usage metrics
-    durationMs: integer("duration_ms").notNull(),
-    creditsUsed: text("credits_used").notNull(),
-    costUsd: text("cost_usd").notNull(),
-
-    // Metadata
-    operationType: varchar("operation_type", {
-      enum: ["create", "edit", "execute", "deploy"],
-    }),
-    createdAt: timestamp("created_at")
-      .notNull()
-      .default(sql`CURRENT_TIMESTAMP`),
-  },
-  (t) => [
-    index("e2b_usage_user_idx").on(t.userId),
-    index("e2b_usage_created_idx").on(t.createdAt),
-  ],
-);
-
-export type E2BUsageEntity = typeof E2BUsageTable.$inferSelect;
+// E2BUsageTable removed - local execution is free and doesn't need tracking
 
 /**
  * FragmentSharesTable tracks shared fragment links.

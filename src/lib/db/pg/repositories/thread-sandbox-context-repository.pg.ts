@@ -2,15 +2,18 @@ import { eq, lt } from "drizzle-orm";
 import { pgDb as db } from "../db.pg";
 import {
   ThreadFileMetadata,
-  ThreadSandboxContextEntity,
-  ThreadSandboxContextTable,
+  ThreadFileContextEntity,
+  ThreadFileContextTable,
 } from "../schema.pg";
 
 /**
- * Repository for managing per-thread sandbox context persistence.
- * Handles storage keys for archived /home/user directories and file metadata.
+ * Repository for managing per-thread file context persistence.
+ * Handles storage keys for archived local working directories and file metadata.
+ *
+ * Note: This was previously called ThreadSandboxContextRepository.
+ * The naming is being migrated to ThreadFileContextRepository.
  */
-export interface ThreadSandboxContextRepository {
+export interface ThreadFileContextRepository {
   /**
    * Get or create a context for a thread.
    * If the context doesn't exist, creates one with default values.
@@ -18,12 +21,12 @@ export interface ThreadSandboxContextRepository {
   getOrCreate(
     threadId: string,
     userId: string,
-  ): Promise<ThreadSandboxContextEntity>;
+  ): Promise<ThreadFileContextEntity>;
 
   /**
    * Get context by thread ID.
    */
-  getByThreadId(threadId: string): Promise<ThreadSandboxContextEntity | null>;
+  getByThreadId(threadId: string): Promise<ThreadFileContextEntity | null>;
 
   /**
    * Update the context storage key and size after archiving.
@@ -71,7 +74,7 @@ export interface ThreadSandboxContextRepository {
    * Get all contexts that haven't been accessed in the given number of days.
    * Used for cleanup.
    */
-  getStaleContexts(inactiveDays: number): Promise<ThreadSandboxContextEntity[]>;
+  getStaleContexts(inactiveDays: number): Promise<ThreadFileContextEntity[]>;
 
   /**
    * Delete stale contexts and return the storage keys that need cleanup.
@@ -79,146 +82,147 @@ export interface ThreadSandboxContextRepository {
   deleteStaleContexts(inactiveDays: number): Promise<string[]>;
 }
 
-export const pgThreadSandboxContextRepository: ThreadSandboxContextRepository =
-  {
-    async getOrCreate(threadId, userId) {
-      // Try to get existing
-      const existing = await this.getByThreadId(threadId);
-      if (existing) {
-        return existing;
-      }
+export const pgThreadFileContextRepository: ThreadFileContextRepository = {
+  async getOrCreate(threadId, userId) {
+    // Try to get existing
+    const existing = await this.getByThreadId(threadId);
+    if (existing) {
+      return existing;
+    }
 
-      // Create new context
-      const [result] = await db
-        .insert(ThreadSandboxContextTable)
-        .values({
-          threadId,
-          userId,
-          fileMetadata: [],
-          totalFilesCount: 0,
-          contextSizeBytes: "0",
-        })
-        .returning();
+    // Create new context
+    const [result] = await db
+      .insert(ThreadFileContextTable)
+      .values({
+        threadId,
+        userId,
+        fileMetadata: [],
+        totalFilesCount: 0,
+        contextSizeBytes: "0",
+      })
+      .returning();
 
-      return result;
-    },
+    return result;
+  },
 
-    async getByThreadId(threadId) {
-      const [result] = await db
-        .select()
-        .from(ThreadSandboxContextTable)
-        .where(eq(ThreadSandboxContextTable.threadId, threadId));
+  async getByThreadId(threadId) {
+    const [result] = await db
+      .select()
+      .from(ThreadFileContextTable)
+      .where(eq(ThreadFileContextTable.threadId, threadId));
 
-      return result ?? null;
-    },
+    return result ?? null;
+  },
 
-    async updateArchive(threadId, storageKey, sizeBytes) {
-      await db
-        .update(ThreadSandboxContextTable)
-        .set({
-          contextStorageKey: storageKey,
-          contextSizeBytes: sizeBytes.toString(),
-          lastExecutionAt: new Date(),
-          lastAccessedAt: new Date(),
-        })
-        .where(eq(ThreadSandboxContextTable.threadId, threadId));
-    },
+  async updateArchive(threadId, storageKey, sizeBytes) {
+    await db
+      .update(ThreadFileContextTable)
+      .set({
+        contextStorageKey: storageKey,
+        contextSizeBytes: sizeBytes.toString(),
+        lastExecutionAt: new Date(),
+        lastAccessedAt: new Date(),
+      })
+      .where(eq(ThreadFileContextTable.threadId, threadId));
+  },
 
-    async updateFileMetadata(threadId, fileMetadata) {
-      await db
-        .update(ThreadSandboxContextTable)
-        .set({
-          fileMetadata,
-          totalFilesCount: fileMetadata.length,
-          lastAccessedAt: new Date(),
-        })
-        .where(eq(ThreadSandboxContextTable.threadId, threadId));
-    },
+  async updateFileMetadata(threadId, fileMetadata) {
+    await db
+      .update(ThreadFileContextTable)
+      .set({
+        fileMetadata,
+        totalFilesCount: fileMetadata.length,
+        lastAccessedAt: new Date(),
+      })
+      .where(eq(ThreadFileContextTable.threadId, threadId));
+  },
 
-    async addFile(threadId, file) {
-      const context = await this.getByThreadId(threadId);
-      if (!context) {
-        throw new Error(`Thread context not found: ${threadId}`);
-      }
+  async addFile(threadId, file) {
+    const context = await this.getByThreadId(threadId);
+    if (!context) {
+      throw new Error(`Thread context not found: ${threadId}`);
+    }
 
-      const existingFiles =
-        (context.fileMetadata as ThreadFileMetadata[]) ?? [];
-      // Remove any existing file with the same name
-      const updatedFiles = existingFiles.filter((f) => f.name !== file.name);
-      updatedFiles.push(file);
+    const existingFiles = (context.fileMetadata as ThreadFileMetadata[]) ?? [];
+    // Remove any existing file with the same name
+    const updatedFiles = existingFiles.filter((f) => f.name !== file.name);
+    updatedFiles.push(file);
 
-      await this.updateFileMetadata(threadId, updatedFiles);
-    },
+    await this.updateFileMetadata(threadId, updatedFiles);
+  },
 
-    async removeFile(threadId, fileName) {
-      const context = await this.getByThreadId(threadId);
-      if (!context) {
-        return;
-      }
+  async removeFile(threadId, fileName) {
+    const context = await this.getByThreadId(threadId);
+    if (!context) {
+      return;
+    }
 
-      const existingFiles =
-        (context.fileMetadata as ThreadFileMetadata[]) ?? [];
-      const updatedFiles = existingFiles.filter((f) => f.name !== fileName);
+    const existingFiles = (context.fileMetadata as ThreadFileMetadata[]) ?? [];
+    const updatedFiles = existingFiles.filter((f) => f.name !== fileName);
 
-      await this.updateFileMetadata(threadId, updatedFiles);
-    },
+    await this.updateFileMetadata(threadId, updatedFiles);
+  },
 
-    async touchExecution(threadId) {
-      await db
-        .update(ThreadSandboxContextTable)
-        .set({
-          lastExecutionAt: new Date(),
-          lastAccessedAt: new Date(),
-        })
-        .where(eq(ThreadSandboxContextTable.threadId, threadId));
-    },
+  async touchExecution(threadId) {
+    await db
+      .update(ThreadFileContextTable)
+      .set({
+        lastExecutionAt: new Date(),
+        lastAccessedAt: new Date(),
+      })
+      .where(eq(ThreadFileContextTable.threadId, threadId));
+  },
 
-    async touchAccess(threadId) {
-      await db
-        .update(ThreadSandboxContextTable)
-        .set({
-          lastAccessedAt: new Date(),
-        })
-        .where(eq(ThreadSandboxContextTable.threadId, threadId));
-    },
+  async touchAccess(threadId) {
+    await db
+      .update(ThreadFileContextTable)
+      .set({
+        lastAccessedAt: new Date(),
+      })
+      .where(eq(ThreadFileContextTable.threadId, threadId));
+  },
 
-    async deleteByThreadId(threadId) {
-      await db
-        .delete(ThreadSandboxContextTable)
-        .where(eq(ThreadSandboxContextTable.threadId, threadId));
-    },
+  async deleteByThreadId(threadId) {
+    await db
+      .delete(ThreadFileContextTable)
+      .where(eq(ThreadFileContextTable.threadId, threadId));
+  },
 
-    async getStaleContexts(inactiveDays) {
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - inactiveDays);
+  async getStaleContexts(inactiveDays) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - inactiveDays);
 
-      const result = await db
-        .select()
-        .from(ThreadSandboxContextTable)
-        .where(lt(ThreadSandboxContextTable.lastAccessedAt, cutoffDate));
+    const result = await db
+      .select()
+      .from(ThreadFileContextTable)
+      .where(lt(ThreadFileContextTable.lastAccessedAt, cutoffDate));
 
-      return result;
-    },
+    return result;
+  },
 
-    async deleteStaleContexts(inactiveDays) {
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - inactiveDays);
+  async deleteStaleContexts(inactiveDays) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - inactiveDays);
 
-      // Get storage keys before deletion
-      const staleContexts = await db
-        .select({ storageKey: ThreadSandboxContextTable.contextStorageKey })
-        .from(ThreadSandboxContextTable)
-        .where(lt(ThreadSandboxContextTable.lastAccessedAt, cutoffDate));
+    // Get storage keys before deletion
+    const staleContexts = await db
+      .select({ storageKey: ThreadFileContextTable.contextStorageKey })
+      .from(ThreadFileContextTable)
+      .where(lt(ThreadFileContextTable.lastAccessedAt, cutoffDate));
 
-      const storageKeys = staleContexts
-        .map((c) => c.storageKey)
-        .filter((key): key is string => key !== null);
+    const storageKeys = staleContexts
+      .map((c) => c.storageKey)
+      .filter((key): key is string => key !== null);
 
-      // Delete the contexts
-      await db
-        .delete(ThreadSandboxContextTable)
-        .where(lt(ThreadSandboxContextTable.lastAccessedAt, cutoffDate));
+    // Delete the contexts
+    await db
+      .delete(ThreadFileContextTable)
+      .where(lt(ThreadFileContextTable.lastAccessedAt, cutoffDate));
 
-      return storageKeys;
-    },
-  };
+    return storageKeys;
+  },
+};
+
+// Legacy alias for backwards compatibility
+export const pgThreadSandboxContextRepository = pgThreadFileContextRepository;
+export type ThreadSandboxContextRepository = ThreadFileContextRepository;
