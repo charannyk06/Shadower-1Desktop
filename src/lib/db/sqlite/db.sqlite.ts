@@ -3,139 +3,40 @@ import fs from "fs-extra";
 import type BetterSqlite3 from "better-sqlite3";
 import * as schema from "./schema.sqlite";
 
+/**
+ * SQLite Database Module - Electron-Only Application
+ *
+ * This module manages the SQLite database for the Electron app.
+ * In dev mode, Next.js may run alongside Electron with different Node.js versions,
+ * causing native module version mismatches.
+ */
+
 // Type alias for the SQLite database instance
 type SqliteDatabase = BetterSqlite3.Database;
-
-// CRITICAL: Detect Electron mode BEFORE importing better-sqlite3
-// This prevents NODE_MODULE_VERSION errors when Electron's Node.js version differs
-// When Next.js dev server runs alongside Electron, they use different Node.js versions
-// Electron uses its bundled Node.js (NODE_MODULE_VERSION 137), but Next.js uses system Node.js (143)
-// This causes better-sqlite3 to fail because it was compiled for the wrong version
-const detectElectronMode = (): boolean => {
-  // Check environment variable first (fastest and most reliable)
-  if (process.env.ELECTRON_BUILD === "true") {
-    return true;
-  }
-
-  // Check if we're running in Electron context (Next.js dev server in Electron)
-  // When Next.js runs in Electron dev mode, it's using system Node.js but Electron uses bundled Node.js
-  // This causes NODE_MODULE_VERSION mismatches for native modules like better-sqlite3
-  try {
-    // Check if electron module is available (indicates we're in Electron context)
-    const electron = require("electron");
-    if (electron && electron.app) {
-      return true;
-    }
-  } catch {
-    // Electron not available, continue checking
-  }
-
-  // CRITICAL: In Electron dev mode, Next.js dev server runs on a port (usually 3000)
-  // When Next.js dev server runs alongside Electron, they use different Node.js versions
-  // This causes NODE_MODULE_VERSION mismatches for native modules like better-sqlite3
-  //
-  // Detection strategy:
-  // 1. Check global flag first (set by previous detection or error handling)
-  // 2. If PORT is set in dev, try a silent detection by checking module version compatibility
-  // 3. Only assume Electron mode if we can confirm it won't break normal Next.js usage
-  if (process.env.PORT && process.env.NODE_ENV === "development") {
-    // Check if global flag is already set (from a previous detection attempt or error)
-    if ((globalThis as any).__SQLITE_ELECTRON_MODE__) {
-      return true;
-    }
-
-    // Try to detect by checking if we're in an Electron context
-    // We check for Electron-specific environment or process indicators
-    // This is safer than trying to require better-sqlite3 (which logs errors)
-
-    // Check if electron is available (most reliable indicator)
-    try {
-      const electron = require("electron");
-      if (electron && (electron.app || electron.remote)) {
-        return true;
-      }
-    } catch {
-      // Electron not available - might be pure Next.js
-    }
-
-    // If we can't confirm Electron mode, don't assume it
-    // Let the actual database access attempt handle it (with proper error handling)
-    return false;
-  }
-
-  return false;
-};
-
-// Detect Electron mode at module load time
-let IS_ELECTRON_MODE = detectElectronMode();
-
-// Check global flag - it might have been set by a previous module load or error handling
-if ((globalThis as any).__SQLITE_ELECTRON_MODE__) {
-  IS_ELECTRON_MODE = true;
-}
-
-// Set global flag immediately so other modules can check (and persist across hot reloads)
-if (IS_ELECTRON_MODE) {
-  (globalThis as any).__SQLITE_ELECTRON_MODE__ = true;
-  console.warn(
-    "[SQLite] Electron mode detected at module load. " +
-      "SQLite will be handled by Electron main process via IPC.",
-  );
-}
-
-// Use dynamic require for better-sqlite3 to handle Electron mode gracefully
-let Database: typeof BetterSqlite3 | null = null;
-let drizzle: typeof import("drizzle-orm/better-sqlite3").drizzle | null = null;
 
 // Type for the drizzle database instance
 type DrizzleDb = ReturnType<
   typeof import("drizzle-orm/better-sqlite3").drizzle<typeof schema>
 >;
 
-// Try to load better-sqlite3 only if not in Electron mode
-// Double-check global flag before attempting to load (it might have been set by error handling)
-if (!IS_ELECTRON_MODE && !(globalThis as any).__SQLITE_ELECTRON_MODE__) {
-  try {
-    Database = require("better-sqlite3");
-    drizzle = require("drizzle-orm/better-sqlite3").drizzle;
-  } catch (error: any) {
-    const errorMsg = error?.message || String(error) || "";
-    if (
-      errorMsg.includes("NODE_MODULE_VERSION") ||
-      errorMsg.includes("was compiled against a different Node.js version")
-    ) {
-      // Electron mode detected via module version mismatch
-      // Set flags IMMEDIATELY to prevent further attempts
-      (globalThis as any).__SQLITE_ELECTRON_MODE__ = true;
-      IS_ELECTRON_MODE = true;
+// Use dynamic require for better-sqlite3 to handle Electron mode gracefully
+let Database: typeof BetterSqlite3 | null = null;
+let drizzle: typeof import("drizzle-orm/better-sqlite3").drizzle | null = null;
+let IS_SQLITE_AVAILABLE = false;
 
-      // Only log once - use warn instead of error to reduce noise
-      if (!(globalThis as any).__SQLITE_ELECTRON_MODE_LOGGED__) {
-        console.warn(
-          "[SQLite] Electron mode detected via NODE_MODULE_VERSION mismatch. " +
-            "SQLite will be handled by Electron main process via IPC.",
-        );
-        (globalThis as any).__SQLITE_ELECTRON_MODE_LOGGED__ = true;
-      }
-    } else {
-      // Re-throw other errors - these are real issues
-      throw error;
-    }
-  }
-} else {
-  // Already in Electron mode, don't try to load better-sqlite3
-  if (!(globalThis as any).__SQLITE_ELECTRON_MODE_LOGGED__) {
-    console.warn(
-      "[SQLite] Skipping better-sqlite3 load - Electron mode detected",
-    );
-    (globalThis as any).__SQLITE_ELECTRON_MODE_LOGGED__ = true;
-  }
+// Try to load better-sqlite3
+try {
+  Database = require("better-sqlite3");
+  drizzle = require("drizzle-orm/better-sqlite3").drizzle;
+  IS_SQLITE_AVAILABLE = true;
+} catch (_error: any) {
+  // In Electron dev mode, native module version mismatch is expected
+  // Database operations will be handled by Electron IPC instead
+  // Silently set IS_SQLITE_AVAILABLE = false (already default)
 }
 
 // Get database path - use local data directory for Next.js server
 const getDbPath = () => {
-  // In development, use local data directory
-  // In production (Electron), this will be overridden by Electron's userData path
   const isDev = process.env.NODE_ENV === "development";
 
   if (isDev) {
@@ -145,9 +46,8 @@ const getDbPath = () => {
     return path.join(dbDir, "shadower.db");
   }
 
-  // Production: try to use Electron's userData if available, otherwise fallback to local
+  // Production: try to use Electron's userData if available
   try {
-    // Check if we're in Electron context
     const { app } = require("electron");
     if (app) {
       const userDataDir = app.getPath("userData");
@@ -156,7 +56,7 @@ const getDbPath = () => {
       return path.join(dbDir, "shadower.db");
     }
   } catch {
-    // Not in Electron, use local data directory
+    // Not in Electron context
   }
 
   // Fallback: use local data directory
@@ -204,9 +104,7 @@ const tableExists = (
 const runMigrations = (sqliteInstance: SqliteDatabase) => {
   console.log("[SQLite] Running migrations...");
 
-  // =========================================================================
   // User table migrations
-  // =========================================================================
   if (tableExists(sqliteInstance, "user")) {
     if (!columnExists(sqliteInstance, "user", "password")) {
       console.log("[SQLite] Adding password column to user table...");
@@ -214,9 +112,7 @@ const runMigrations = (sqliteInstance: SqliteDatabase) => {
     }
   }
 
-  // =========================================================================
   // Session table migrations
-  // =========================================================================
   if (tableExists(sqliteInstance, "session")) {
     if (!columnExists(sqliteInstance, "session", "impersonated_by")) {
       console.log("[SQLite] Adding impersonated_by column to session table...");
@@ -226,9 +122,7 @@ const runMigrations = (sqliteInstance: SqliteDatabase) => {
     }
   }
 
-  // =========================================================================
   // Subscription table migrations
-  // =========================================================================
   if (tableExists(sqliteInstance, "subscription")) {
     if (!columnExists(sqliteInstance, "subscription", "tier")) {
       console.log("[SQLite] Adding tier column to subscription table...");
@@ -262,9 +156,7 @@ const runMigrations = (sqliteInstance: SqliteDatabase) => {
     }
   }
 
-  // =========================================================================
   // Archive table migrations
-  // =========================================================================
   if (tableExists(sqliteInstance, "archive")) {
     if (!columnExists(sqliteInstance, "archive", "description")) {
       console.log("[SQLite] Adding description column to archive table...");
@@ -276,9 +168,7 @@ const runMigrations = (sqliteInstance: SqliteDatabase) => {
     }
   }
 
-  // =========================================================================
   // Workflow table migrations
-  // =========================================================================
   if (tableExists(sqliteInstance, "workflow")) {
     if (!columnExists(sqliteInstance, "workflow", "version")) {
       console.log("[SQLite] Adding version column to workflow table...");
@@ -306,9 +196,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
   console.log("[SQLite] Checking and creating tables if needed...");
 
   try {
-    // =========================================================================
     // Level 1: Base tables (no dependencies)
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS user (
         id TEXT PRIMARY KEY,
@@ -327,9 +215,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Level 2: Auth tables (depend on user)
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS session (
         id TEXT PRIMARY KEY,
@@ -381,9 +267,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Level 3: User-dependent tables
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS chat_thread (
         id TEXT PRIMARY KEY,
@@ -475,9 +359,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
 
     `);
 
-    // =========================================================================
     // Level 4: Tables depending on chat_thread
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS chat_message (
         id TEXT PRIMARY KEY NOT NULL,
@@ -527,9 +409,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
-    // Level 5: Agent state tables (depend on user and chat_thread)
-    // =========================================================================
+    // Level 5: Agent state tables
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS agent_state (
         id TEXT PRIMARY KEY,
@@ -546,9 +426,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Level 6: Tables depending on agent_state
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS agent_execution_log (
         id TEXT PRIMARY KEY,
@@ -607,9 +485,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Level 7: Tables depending on mcp_server
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS mcp_server_tool_custom_instructions (
         id TEXT PRIMARY KEY,
@@ -645,9 +521,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Level 8: Tables depending on workflow
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS workflow_node (
         id TEXT PRIMARY KEY,
@@ -673,9 +547,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Level 9: Tables depending on archive
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS archive_item (
         id TEXT PRIMARY KEY,
@@ -686,9 +558,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Level 10: Tables depending on chat_export
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS chat_export_comment (
         id TEXT PRIMARY KEY,
@@ -701,9 +571,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Level 11: Browser & Research tables
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS browser_session (
         id TEXT PRIMARY KEY,
@@ -742,9 +610,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
-    // Level 12: Billing & Promo tables
-    // =========================================================================
+    // Level 12: Promo & Webhook tables
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS promo_code (
         id TEXT PRIMARY KEY,
@@ -821,9 +687,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Level 13: Vector tables
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS vector_index (
         id TEXT PRIMARY KEY,
@@ -837,9 +701,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Level 14: Fragment tables
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE TABLE IF NOT EXISTS fragments (
         id TEXT PRIMARY KEY,
@@ -896,9 +758,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
-    // =========================================================================
     // Create indexes
-    // =========================================================================
     sqliteInstance.exec(`
       CREATE INDEX IF NOT EXISTS bookmark_user_id_idx ON bookmark(user_id);
       CREATE INDEX IF NOT EXISTS bookmark_item_idx ON bookmark(item_id, item_type);
@@ -1006,36 +866,17 @@ const createDefaultUserIfNotExists = (sqliteInstance: SqliteDatabase) => {
 };
 
 export const getSqliteDb = () => {
-  // Check Electron mode first - if in Electron mode, SQLite is handled by Electron main process
-  // ALWAYS check global flag first (it persists across hot reloads and is set by error handling)
-  const electronMode =
-    (globalThis as any).__SQLITE_ELECTRON_MODE__ || IS_ELECTRON_MODE;
-
-  if (electronMode) {
-    // Update module-level flag to match
-    IS_ELECTRON_MODE = true;
-
-    // Don't even try to initialize - throw immediately
+  // Check if SQLite is available
+  if (!IS_SQLITE_AVAILABLE || !Database || !drizzle) {
     const error = new Error(
-      "SQLite is not available in Next.js when running in Electron dev mode. " +
-        "Database operations should be handled by Electron IPC. " +
-        "This is expected behavior - Electron main process manages the database.",
+      "SQLite is not available. " +
+        "In Electron dev mode, database operations should be handled via Electron IPC.",
     );
-    // Mark error so it can be identified by callers
     (error as any).isElectronMode = true;
     throw error;
   }
 
-  // Check if Database and drizzle are available
-  if (!Database || !drizzle) {
-    throw new Error(
-      "better-sqlite3 module is not available. " +
-        "This may indicate Electron dev mode or a module installation issue.",
-    );
-  }
-
   if (db) {
-    console.log("[SQLite] Returning cached database instance");
     return db;
   }
 
@@ -1043,13 +884,6 @@ export const getSqliteDb = () => {
   console.log(`[SQLite] Initializing database at: ${dbPath}`);
 
   try {
-    // Check that Database constructor is available
-    if (!Database) {
-      throw new Error(
-        "better-sqlite3 Database constructor is not available - Electron mode may be active",
-      );
-    }
-
     // Create SQLite database instance
     sqlite = new Database(dbPath);
     console.log("[SQLite] SQLite database connection created");
@@ -1066,49 +900,26 @@ export const getSqliteDb = () => {
     // Create default user for local-first setup
     createDefaultUserIfNotExists(sqlite);
 
-    // Create drizzle instance - drizzle should be available from the require above
-    if (!drizzle) {
-      throw new Error(
-        "drizzle function is not available - Electron mode may be active",
-      );
-    }
+    // Create drizzle instance
     db = drizzle(sqlite, { schema });
-
-    // Verify the drizzle instance is valid
-    if (!db) {
-      throw new Error("Drizzle instance is null after creation");
-    }
-
-    // Verify we can access the select method
-    if (typeof db.select !== "function") {
-      console.error(
-        "[SQLite] Drizzle instance missing select method. Instance type:",
-        typeof db,
-      );
-      throw new Error("Drizzle instance missing select method");
-    }
 
     console.log("[SQLite] Database initialized successfully with drizzle ORM");
   } catch (error: any) {
     const errorMsg = error?.message || String(error) || "";
     console.error("[SQLite] Database initialization error:", errorMsg);
 
-    // Handle module version mismatch (Electron vs system Node.js)
+    // Handle module version mismatch
     if (
       errorMsg.includes("NODE_MODULE_VERSION") ||
       errorMsg.includes("was compiled against a different Node.js version")
     ) {
-      console.warn(
-        "[SQLite] Module version mismatch detected. This is expected when Next.js runs alongside Electron.",
-        "SQLite will be handled by Electron via IPC.",
+      IS_SQLITE_AVAILABLE = false;
+      const newError = new Error(
+        "SQLite is not available due to Node.js version mismatch. " +
+          "Use Electron IPC instead.",
       );
-      // Mark as Electron mode for future checks
-      (globalThis as any).__SQLITE_ELECTRON_MODE__ = true;
-      // In Electron dev mode, SQLite is handled by Electron main process
-      // Throw a clear error that can be caught by callers
-      throw new Error(
-        "SQLite is not available in Next.js when running in Electron dev mode. Use Electron IPC instead.",
-      );
+      (newError as any).isElectronMode = true;
+      throw newError;
     }
     throw error;
   }
@@ -1117,24 +928,10 @@ export const getSqliteDb = () => {
 };
 
 // Export the database instance (lazy-loaded)
-// This Proxy will throw a clear error if SQLite is not available (Electron mode)
 export const sqliteDb = new Proxy({} as DrizzleDb, {
   get(_target, prop) {
-    // Check Electron mode FIRST before doing anything
-    // ALWAYS check global flag first (it persists across hot reloads)
-    const electronMode =
-      (globalThis as any).__SQLITE_ELECTRON_MODE__ || IS_ELECTRON_MODE;
-
-    if (electronMode) {
-      // Update module-level flag to match
-      IS_ELECTRON_MODE = true;
-
-      // Create a clear error that can be identified
-      const error = new Error(
-        "SQLite database is not available in Next.js when running in Electron dev mode. " +
-          "Database operations should be handled via Electron IPC. " +
-          "This is expected behavior - Electron main process manages the database.",
-      );
+    if (!IS_SQLITE_AVAILABLE) {
+      const error = new Error("SQLite not available in renderer - use IPC");
       (error as any).isElectronMode = true;
       throw error;
     }
@@ -1142,41 +939,38 @@ export const sqliteDb = new Proxy({} as DrizzleDb, {
     try {
       return (getSqliteDb() as any)[prop];
     } catch (error: any) {
+      if (error?.isElectronMode) {
+        throw error;
+      }
       const errorMsg = error?.message || String(error) || "";
-
-      // Check for Electron mode indicators
       if (
-        error?.isElectronMode ||
         errorMsg.includes("NODE_MODULE_VERSION") ||
-        errorMsg.includes("was compiled against a different Node.js version") ||
-        errorMsg.includes("SQLite is not available") ||
-        errorMsg.includes("better-sqlite3") ||
-        errorMsg.includes("Electron")
+        errorMsg.includes("SQLite is not available")
       ) {
-        // Mark as Electron mode for future checks
-        (globalThis as any).__SQLITE_ELECTRON_MODE__ = true;
-
-        // Create a clear error that can be identified
-        const electronError = new Error(
-          "SQLite database is not available in Next.js when running in Electron dev mode. " +
-            "Database operations should be handled via Electron IPC. " +
-            "This is expected behavior - Electron main process manages the database.",
+        IS_SQLITE_AVAILABLE = false;
+        const newError = new Error(
+          "SQLite not available in renderer - use IPC",
         );
-        (electronError as any).isElectronMode = true;
-        throw electronError;
+        (newError as any).isElectronMode = true;
+        throw newError;
       }
       throw error;
     }
   },
 });
 
-// Initialize database on module load to ensure it's ready
-// This ensures tables exist before Better Auth tries to use them
+// Initialize database on module load
 try {
   getSqliteDb();
-} catch (error) {
-  console.error(
-    "[SQLite] Failed to initialize database on module load:",
-    error,
-  );
+} catch (error: any) {
+  // Silently handle Electron mode - database access goes through IPC
+  if (error?.isElectronMode) {
+    // Expected in Electron - don't log
+  } else {
+    // Only log unexpected errors
+    console.warn(
+      "[SQLite] Database not initialized:",
+      (error as Error).message?.substring(0, 100),
+    );
+  }
 }

@@ -1,6 +1,6 @@
 "use client";
 import { Agent } from "app-types/agent";
-import { fetcher } from "lib/utils";
+import { agentFetcher } from "@/lib/electron/agent-api";
 import useSWR, { SWRConfiguration } from "swr";
 import { handleErrorWithToast } from "ui/shared-toast";
 
@@ -21,7 +21,7 @@ export function useAgent(
     mutate,
   } = useSWR<Agent>(
     agentId && enabled ? `/api/agent/${agentId}` : null,
-    fetcher,
+    agentFetcher,
     {
       errorRetryCount: 0,
       revalidateOnFocus: false,

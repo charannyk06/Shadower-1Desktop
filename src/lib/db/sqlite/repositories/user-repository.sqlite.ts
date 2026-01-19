@@ -23,6 +23,53 @@ export const sqliteUserRepository: UserRepository = {
     return result.length > 0;
   },
 
+  findAll: async (): Promise<User[]> => {
+    const results = await db.select().from(UserTable);
+    return results.map((r) => ({
+      ...r,
+      preferences: r.preferences ?? null,
+      createdAt: r.createdAt ?? new Date(),
+      updatedAt: r.updatedAt ?? new Date(),
+      banExpires: r.banExpires ?? null,
+    }));
+  },
+
+  create: async (data: {
+    id: string;
+    email: string;
+    name: string;
+    password: string;
+    image: string | null;
+  }): Promise<User | null> => {
+    try {
+      const [result] = await db
+        .insert(UserTable)
+        .values({
+          id: data.id,
+          email: data.email,
+          name: data.name,
+          password: data.password,
+          image: data.image,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .returning();
+
+      if (!result) return null;
+
+      return {
+        ...result,
+        preferences: result.preferences ?? null,
+        createdAt: result.createdAt ?? new Date(),
+        updatedAt: result.updatedAt ?? new Date(),
+        banExpires: result.banExpires ?? null,
+      };
+    } catch (error) {
+      console.error("[UserRepository] Error creating user:", error);
+      return null;
+    }
+  },
+
   updateUserDetails: async ({
     userId,
     name,
