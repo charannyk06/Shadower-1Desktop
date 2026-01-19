@@ -2,7 +2,6 @@
 
 import { createInvitationAction } from "@/app/api/admin/invitation-actions";
 import { CreateInvitationActionState } from "@/app/api/admin/invitation-validations";
-import { DEFAULT_USER_ROLE, userRolesInfo } from "app-types/roles";
 import { Check, Copy, Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import Form from "next/form";
@@ -20,7 +19,6 @@ import {
 import { Button } from "ui/button";
 import { Input } from "ui/input";
 import { Label } from "ui/label";
-import { RadioGroup, RadioGroupItem } from "ui/radio-group";
 
 export function InviteUserDialog({
   children,
@@ -98,35 +96,7 @@ export function InviteUserDialog({
                 />
               </div>
 
-              <div className="space-y-3">
-                <Label>{t("selectRole")}</Label>
-                <RadioGroup name="role" defaultValue={DEFAULT_USER_ROLE}>
-                  {Object.entries(userRolesInfo).map(([role, info]) => (
-                    <div key={role} className="flex items-start space-x-3">
-                      <RadioGroupItem
-                        value={role}
-                        id={`invite-role-${role}`}
-                        disabled={isPending}
-                        className="data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
-                        data-testid={`invite-role-radio-${role}`}
-                      />
-                      <div className="leading-none flex flex-col w-full">
-                        <Label
-                          htmlFor={`invite-role-${role}`}
-                          className="flex flex-col w-full cursor-pointer"
-                        >
-                          <span className="w-full flex-1 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-start">
-                            {info.label}
-                          </span>
-                          <span className="w-full flex-1 text-sm text-muted-foreground text-start mt-1">
-                            {info.description}
-                          </span>
-                        </Label>
-                      </div>
-                    </div>
-                  ))}
-                </RadioGroup>
-              </div>
+              {/* Role selection removed - all users have the same permissions */}
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 pt-2">

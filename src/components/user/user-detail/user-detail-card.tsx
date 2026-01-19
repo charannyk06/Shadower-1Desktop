@@ -10,7 +10,6 @@ import { Badge } from "ui/badge";
 import { Card, CardHeader } from "ui/card";
 import { CardTitle } from "ui/card";
 import { CardDescription } from "ui/card";
-import { UserRoleBadges } from "./user-role-badges";
 
 export function UserDetailCard({
   user,
@@ -51,7 +50,12 @@ export function UserDetailCard({
               <CardDescription data-testid="user-email">
                 {user.email}
               </CardDescription>
-              <UserRoleBadges user={user} showBanned={true} />
+              {/* User banned status */}
+              {user.banned && (
+                <Badge variant="destructive" className="mt-1">
+                  Banned
+                </Badge>
+              )}
             </div>
           </div>
         </div>

@@ -8,7 +8,7 @@ import {
   threadFileContextRepository,
 } from "lib/db/repository";
 import { serverFileStorage } from "lib/file-storage";
-import type { ThreadFileMetadata } from "lib/db/pg/schema.pg";
+import type { ThreadFileMetadata } from "lib/db/sqlite/schema.sqlite";
 import { morphService } from "../editing/morph-service";
 import {
   FRAGMENT_TEMPLATES,

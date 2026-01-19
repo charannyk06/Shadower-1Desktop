@@ -1,6 +1,5 @@
 "use client";
 import { MCPCard } from "@/components/mcp-card";
-import { canCreateMCP } from "lib/auth/client-permissions";
 
 import { MCPOverview, RECOMMENDED_MCPS } from "@/components/mcp-overview";
 import { SmitheryIntegration } from "@/components/smithery-integration";
@@ -40,8 +39,8 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
   const t = useTranslations("MCP");
   const router = useRouter();
 
-  // Check if user can create MCP connections using Better Auth permissions
-  const canCreate = canCreateMCP(user?.role);
+  // All authenticated users can create MCP connections (roles/permissions removed)
+  const canCreate = true;
 
   const {
     data: mcpList,

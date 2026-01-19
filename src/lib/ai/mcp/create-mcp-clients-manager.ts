@@ -7,7 +7,7 @@ import {
   VercelAIMcpToolTag,
 } from "app-types/mcp";
 import { colorize } from "consola/utils";
-import { McpServerTable } from "lib/db/pg/schema.pg";
+import { McpServerTable } from "lib/db/sqlite/schema.sqlite";
 import {
   Locker,
   errorToString,

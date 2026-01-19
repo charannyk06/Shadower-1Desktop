@@ -1,9 +1,15 @@
 import "server-only";
 
-import type {
-  AlertType,
-  LimitType,
-} from "lib/db/pg/repositories/usage-alert-repository.pg";
+// Alert types for usage alerts (stub types for local-first mode)
+export type AlertType = "approaching_80" | "approaching_100" | "exceeded";
+export type LimitType =
+  | "image_generation"
+  | "local_execution"
+  | "voice_minutes"
+  | "mcp_tool_call"
+  | "workflow_execution"
+  | "monthly";
+
 import {
   subscriptionRepository,
   usageAlertRepository,

@@ -50,10 +50,6 @@ export const sqliteUserRepository: UserRepository = {
       preferences: result.preferences ?? null,
       createdAt: result.createdAt ?? new Date(),
       updatedAt: result.updatedAt ?? new Date(),
-      referralCode: null,
-      referredById: null,
-      totalReferrals: 0,
-      totalReferralBonus: "0",
       banExpires: result.banExpires ?? null,
     };
   },
@@ -75,10 +71,6 @@ export const sqliteUserRepository: UserRepository = {
       preferences: result.preferences ?? null,
       createdAt: result.createdAt ?? new Date(),
       updatedAt: result.updatedAt ?? new Date(),
-      referralCode: null,
-      referredById: null,
-      totalReferrals: 0,
-      totalReferralBonus: "0",
       banExpires: result.banExpires ?? null,
     };
   },
@@ -107,7 +99,6 @@ export const sqliteUserRepository: UserRepository = {
         banned: UserTable.banned,
         banReason: UserTable.banReason,
         banExpires: UserTable.banExpires,
-        role: UserTable.role,
       })
       .from(UserTable)
       .where(eq(UserTable.id, userId));

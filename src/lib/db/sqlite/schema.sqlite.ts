@@ -43,12 +43,6 @@ export const UserTable = sqliteTable("user", {
   banned: integer("banned", { mode: "boolean" }).default(false),
   banReason: text("ban_reason"),
   banExpires: integer("ban_expires", { mode: "timestamp" }),
-  role: text("role").notNull().default("user"),
-  // Referral system fields
-  referralCode: text("referral_code").unique(),
-  referredById: text("referred_by_id"),
-  totalReferrals: integer("total_referrals").notNull().default(0),
-  totalReferralBonus: text("total_referral_bonus").notNull().default("0"),
 });
 
 // Session Table - For auth sessions
@@ -127,7 +121,6 @@ export const UserInvitationTable = sqliteTable(
       .$defaultFn(() => randomUUID()),
     email: text("email").notNull(),
     token: text("token").notNull().unique(),
-    role: text("role").notNull().default("editor"),
     invitedBy: text("invited_by")
       .notNull()
       .references(() => UserTable.id, { onDelete: "cascade" }),
@@ -1055,43 +1048,6 @@ export const UsageAlertTable = sqliteTable(
 );
 
 // ============================================================================
-// Referral System
-// ============================================================================
-
-export const ReferralTable = sqliteTable(
-  "referral",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    referrerId: text("referrer_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    refereeId: text("referee_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    referralCode: text("referral_code").notNull(),
-    status: text("status", {
-      enum: ["pending", "completed", "expired"],
-    })
-      .notNull()
-      .default("pending"),
-    referrerBonus: text("referrer_bonus").notNull().default("0"),
-    refereeBonus: text("referee_bonus").notNull().default("0"),
-    completedAt: integer("completed_at", { mode: "timestamp" }),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    referrerIdx: index("referral_referrer_id_idx").on(table.referrerId),
-    refereeIdx: index("referral_referee_id_idx").on(table.refereeId),
-    statusIdx: index("referral_status_idx").on(table.status),
-    uniqueReferee: unique("referral_referee_unique").on(table.refereeId),
-  }),
-);
-
-// ============================================================================
 // Thread File Context (for per-thread file persistence in local execution)
 // ============================================================================
 
@@ -1494,9 +1450,9 @@ export type WebhookEventEntity = typeof WebhookEventTable.$inferSelect;
 export type WebhookRetryQueueEntity =
   typeof WebhookRetryQueueTable.$inferSelect;
 export type UsageAlertEntity = typeof UsageAlertTable.$inferSelect;
-export type ReferralEntity = typeof ReferralTable.$inferSelect;
 export type ThreadSandboxContextEntity =
   typeof ThreadSandboxContextTable.$inferSelect;
+export type ThreadFileContextEntity = ThreadSandboxContextEntity;
 export type BrowserSessionEntity = typeof BrowserSessionTable.$inferSelect;
 export type ResearchTaskEntity = typeof ResearchTaskTable.$inferSelect;
 export type VectorIndexEntity = typeof VectorIndexTable.$inferSelect;
@@ -1547,7 +1503,6 @@ export type WebhookEventInsert = typeof WebhookEventTable.$inferInsert;
 export type WebhookRetryQueueInsert =
   typeof WebhookRetryQueueTable.$inferInsert;
 export type UsageAlertInsert = typeof UsageAlertTable.$inferInsert;
-export type ReferralInsert = typeof ReferralTable.$inferInsert;
 export type ThreadSandboxContextInsert =
   typeof ThreadSandboxContextTable.$inferInsert;
 export type BrowserSessionInsert = typeof BrowserSessionTable.$inferInsert;

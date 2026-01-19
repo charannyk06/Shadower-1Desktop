@@ -1,5 +1,4 @@
 import { getSession } from "auth/server";
-import { canDeleteWorkflow, canEditWorkflow } from "lib/auth/permissions";
 import { workflowRepository } from "lib/db/repository";
 
 export async function GET(
@@ -31,14 +30,7 @@ export async function PUT(
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // Check if user has permission to edit workflows
-  const canEdit = await canEditWorkflow();
-  if (!canEdit) {
-    return Response.json(
-      { error: "Only editors and admins can edit workflows" },
-      { status: 403 },
-    );
-  }
+  // All authenticated users can edit workflows (roles/permissions removed)
   const hasAccess = await workflowRepository.checkAccess(
     id,
     session.user.id,
@@ -75,14 +67,7 @@ export async function DELETE(
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // Check if user has permission to delete workflows
-  const canDelete = await canDeleteWorkflow();
-  if (!canDelete) {
-    return Response.json(
-      { error: "Only editors and admins can delete workflows" },
-      { status: 403 },
-    );
-  }
+  // All authenticated users can delete workflows (roles/permissions removed)
   const hasAccess = await workflowRepository.checkAccess(
     id,
     session.user.id,

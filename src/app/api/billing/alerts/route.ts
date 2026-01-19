@@ -4,11 +4,9 @@ import {
   acknowledgeAllAlerts,
   getActiveAlertsForUser,
   getAlertSummary,
+  type AlertType,
+  type LimitType,
 } from "lib/billing/alerts";
-import type {
-  AlertType,
-  LimitType,
-} from "lib/db/pg/repositories/usage-alert-repository.pg";
 import { NextResponse } from "next/server";
 
 /**

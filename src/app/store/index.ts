@@ -149,7 +149,6 @@ export interface AppState {
   openShortcutsPopup: boolean;
   openChatPreferences: boolean;
   openUserSettings: boolean;
-  openReferral: boolean;
   openBilling: boolean;
   openKnowledge: boolean;
   mcpCustomizationPopup?: MCPServerInfo & { id: string };
@@ -235,7 +234,6 @@ const initialState: AppState = {
   toolChoice: "auto",
   allowedMcpServers: undefined,
   openUserSettings: false,
-  openReferral: false,
   openBilling: false,
   openKnowledge: false,
   allowedAppDefaultToolkit: [

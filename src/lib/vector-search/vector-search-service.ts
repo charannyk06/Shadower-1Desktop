@@ -5,7 +5,7 @@ import {
   generateBatchEmbeddings,
   generateTextEmbedding,
 } from "lib/ai/embeddings/embedding-service";
-import { pgVectorIndexRepository } from "lib/db/pg/repositories/vector-index-repository.pg";
+import { vectorIndexRepository } from "lib/db/repository";
 import logger from "logger";
 
 // Qdrant service was removed for local-first architecture
@@ -552,12 +552,12 @@ export async function indexContent(
     await upsertPoints(collectionName, points, { wait: false });
     const upsertTime = Math.round(performance.now() - upsertStart);
 
-    // Track in PostgreSQL for consistency
-    if (trackInPostgres) {
+    // Track in database for consistency (only if userId is provided)
+    if (trackInPostgres && userId) {
       const trackStart = performance.now();
       await Promise.all(
         points.map((point, index) =>
-          pgVectorIndexRepository
+          vectorIndexRepository
             .create({
               qdrantPointId: String(point.id),
               collectionName,
@@ -580,7 +580,7 @@ export async function indexContent(
         ),
       );
       const trackTime = Math.round(performance.now() - trackStart);
-      logger.debug("PostgreSQL tracking completed", { trackTime });
+      logger.debug("Database tracking completed", { trackTime });
     }
 
     const totalTime = Math.round(performance.now() - start);
@@ -653,7 +653,7 @@ export async function removeFromIndex(
     if (removeFromPostgres) {
       await Promise.all(
         pointIds.map((id) =>
-          pgVectorIndexRepository
+          vectorIndexRepository
             .deleteByQdrantPointId(String(id))
             .catch(() => {}),
         ),
@@ -696,7 +696,7 @@ export async function removeUserContent(
     );
 
     // Remove from PostgreSQL tracking
-    await pgVectorIndexRepository.deleteByUserId(userId);
+    await vectorIndexRepository.deleteByUserId(userId);
 
     const elapsed = Math.round(performance.now() - start);
     logger.info(`Removed all content for user ${userId}`, {
@@ -748,9 +748,6 @@ export async function isIndexed(
         ? "document"
         : "knowledge";
 
-  const record = await pgVectorIndexRepository.getByEntity(
-    entityType,
-    entityId,
-  );
+  const record = await vectorIndexRepository.getByEntity(entityType, entityId);
   return record !== null;
 }

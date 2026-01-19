@@ -18,7 +18,6 @@ import {
 } from "ui/table";
 import { InviteUserDialog } from "./invite-user-dialog";
 
-import { UserRoleBadges } from "@/components/user/user-detail/user-role-badges";
 import { UserStatusBadge } from "@/components/user/user-detail/user-status-badge";
 import { useDebounce } from "@/hooks/use-debounce";
 import { buildUserDetailUrl } from "@/lib/admin/navigation-utils";
@@ -205,15 +204,6 @@ export function UsersTable({
               >
                 <span className="px-2">{t("user")}</span>
               </SortableHeader>
-              <SortableHeader
-                field="role"
-                currentSortBy={sortBy}
-                currentSortDirection={sortDirection}
-                onSort={handleSort}
-                data-testid="sort-header-role"
-              >
-                {t("role")}
-              </SortableHeader>
               <TableHead className="font-semibold" data-testid="header-status">
                 {t("status")}
               </TableHead>
@@ -242,7 +232,7 @@ export function UsersTable({
             {users.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={5}
                   className="text-center py-8 text-muted-foreground"
                 >
                   {t("noUsersFound")}
@@ -284,13 +274,6 @@ export function UsersTable({
                     </div>
                   </TableCell>
                   <TableCell>
-                    <UserRoleBadges
-                      user={{ ...user }}
-                      showBanned={false}
-                      className="mt-0"
-                    />
-                  </TableCell>
-                  <TableCell>
                     <UserStatusBadge
                       user={{ ...user, lastLogin: user.lastLogin || null }}
                       currentUserId={currentUserId}
@@ -298,7 +281,9 @@ export function UsersTable({
                     />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {format(new Date(user.createdAt), "MMM d, yyyy")}
+                    {user.createdAt
+                      ? format(new Date(user.createdAt), "MMM d, yyyy")
+                      : "-"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {user.lastLogin

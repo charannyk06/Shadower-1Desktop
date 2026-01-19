@@ -13,19 +13,12 @@ export interface AdminUsersQuery {
   filterOperator?: "lt" | "eq" | "ne" | "lte" | "gt" | "gte" | "contains";
 }
 
-// Better Auth's UserWithRole type - minimal definition for list view
+// User type - minimal definition for list view
 export type AdminUserListItem = Omit<
   User,
-  | "password"
-  | "preferences"
-  | "image"
-  | "role"
-  | "banned"
-  | "banReason"
-  | "banExpires"
+  "password" | "preferences" | "image" | "banned" | "banReason" | "banExpires"
 > & {
   image?: string | null;
-  role?: string | null;
   banned?: boolean | null;
   banReason?: string | null;
   banExpires?: Date | null;

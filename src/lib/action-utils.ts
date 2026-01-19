@@ -3,10 +3,6 @@ import { UserSession, UserSessionUser } from "app-types/user";
 import { z } from "zod";
 
 import { getSession } from "auth/server";
-import {
-  requireAdminPermission,
-  requireUserManagePermissionFor,
-} from "./auth/permissions";
 
 // Type constraint for schemas that can have optional userId
 type SchemaWithOptionalUserId = z.ZodType<{ userId?: string }, any>;
@@ -88,7 +84,7 @@ type ValidatedActionWithSimpleAdminAccess<S extends z.ZodType<any, any>, T> = (
 ) => Promise<T>;
 
 /**
- * Validates action and requires admin permissions
+ * Validates action and requires authenticated user (previously required admin permissions)
  */
 export function validatedActionWithAdminPermission<
   S extends z.ZodType<any, any>,
@@ -120,19 +116,7 @@ export function validatedActionWithAdminPermission<
       } as T;
     }
 
-    // Check admin permissions
-    try {
-      await requireAdminPermission();
-    } catch (error) {
-      return {
-        success: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "You are not authorized to perform this action",
-      } as T;
-    }
-
+    // All authenticated users have access (roles/permissions removed)
     return action(result.data, formData, userSession);
   };
 }
@@ -146,7 +130,7 @@ type ValidatedActionWithUserManageAccess<S extends z.ZodType<any, any>, T> = (
 ) => Promise<T>;
 
 /**
- * Validates action and allows if user manages themselves OR has user management permissions
+ * Validates action and allows authenticated users to manage any user (roles/permissions removed)
  */
 export function validatedActionWithUserManagePermission<
   S extends SchemaWithOptionalUserId,
@@ -180,19 +164,7 @@ export function validatedActionWithUserManagePermission<
 
     const userId = result.data.userId || userSession.user.id;
 
-    // Check permissions using our simplified permission system
-    try {
-      await requireUserManagePermissionFor(userId);
-    } catch (error) {
-      return {
-        success: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "You are not authorized to perform this action",
-      } as T;
-    }
-
+    // All authenticated users have access (roles/permissions removed)
     const isOwnResource = userId === userSession.user.id;
     return action(result.data, userId, userSession, isOwnResource, formData);
   };

@@ -9,7 +9,6 @@ import {
   RevokeInvitationActionState,
 } from "@/app/api/admin/invitation-validations";
 import { InvitationListItem, getInvitationStatus } from "app-types/invitation";
-import { UserRoleNames, userRolesInfo } from "app-types/roles";
 import { formatDistanceToNow } from "date-fns";
 import { Check, Copy, RefreshCw, XCircle } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -141,7 +140,6 @@ export function PendingInvitationsTable({
               <TableHead className="font-semibold">
                 {t("emailAddress")}
               </TableHead>
-              <TableHead className="font-semibold">{t("role")}</TableHead>
               <TableHead className="font-semibold">{t("status")}</TableHead>
               <TableHead className="font-semibold">{t("invitedBy")}</TableHead>
               <TableHead className="font-semibold">{t("expires")}</TableHead>
@@ -154,8 +152,6 @@ export function PendingInvitationsTable({
             {invitations.map((invitation) => {
               const status = getInvitationStatus(invitation);
               const isPending = status === "pending";
-              const roleInfo =
-                userRolesInfo[invitation.role as UserRoleNames] || null;
 
               return (
                 <TableRow
@@ -165,11 +161,6 @@ export function PendingInvitationsTable({
                 >
                   <TableCell className="font-medium">
                     {invitation.email}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">
-                      {roleInfo?.label || invitation.role}
-                    </Badge>
                   </TableCell>
                   <TableCell>{getStatusBadge(invitation)}</TableCell>
                   <TableCell className="text-muted-foreground">

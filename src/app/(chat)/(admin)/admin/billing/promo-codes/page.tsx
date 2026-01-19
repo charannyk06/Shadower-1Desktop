@@ -1,15 +1,7 @@
-import { requireAdminPermission } from "auth/permissions";
-import { unauthorized } from "next/navigation";
-
 export const dynamic = "force-dynamic";
 
 export default async function PromoCodesPage() {
-  try {
-    await requireAdminPermission();
-  } catch (_error) {
-    unauthorized();
-  }
-
+  // All authenticated users have access (roles/permissions removed)
   return (
     <div className="container mx-auto py-10 px-4">
       <h1 className="text-3xl font-bold mb-8">Promo Codes</h1>

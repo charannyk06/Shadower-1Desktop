@@ -6,7 +6,6 @@ import {
   webhookEventRepository,
   webhookRetryRepository,
 } from "lib/db/repository";
-import { completeReferral, hasPendingReferral } from "lib/referral/service";
 import type Stripe from "stripe";
 
 // Events that are critical and should be retried on failure
@@ -133,28 +132,6 @@ async function handleTokenPackPurchase(
   } else {
     console.error(
       `[Webhook] Could not find subscription for customer ${customerId} to credit tokens`,
-    );
-  }
-}
-
-// Handle referral completion after purchase
-async function handleReferralCompletion(
-  session: Stripe.Checkout.Session,
-): Promise<void> {
-  const customerId = extractCustomerId(session.customer);
-  if (!customerId) return;
-
-  const subscription =
-    await subscriptionRepository.getByStripeCustomerId(customerId);
-  if (!subscription) return;
-
-  const hasPending = await hasPendingReferral(subscription.userId);
-  if (!hasPending) return;
-
-  const result = await completeReferral(subscription.userId);
-  if (result.success) {
-    console.log(
-      `[Webhook] Completed referral for user ${subscription.userId}: referrer got ${result.referrerBonusAwarded}, referee got ${result.refereeBonusAwarded}`,
     );
   }
 }
@@ -347,11 +324,6 @@ async function handleCheckoutSessionCompleted(
       console.error("[Webhook] Failed to credit token pack:", error);
     });
   }
-
-  // Complete any pending referral after first purchase
-  await handleReferralCompletion(session).catch((error) => {
-    console.error("[Webhook] Error completing referral:", error);
-  });
 }
 
 // Build update data for subscription events

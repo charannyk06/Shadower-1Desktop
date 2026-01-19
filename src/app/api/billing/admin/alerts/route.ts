@@ -1,4 +1,4 @@
-import { requireAdminPermission } from "@/lib/auth/permissions";
+import { getSession } from "@/lib/auth/server";
 import {
   calculateUserCost,
   getAggregateCostStats,
@@ -8,7 +8,7 @@ import {
 /**
  * GET /api/billing/admin/alerts
  *
- * Admin endpoint to view cost alerts and margin analysis
+ * Endpoint to view cost alerts and margin analysis
  * Shows users with low or negative margins
  *
  * Query params:
@@ -20,8 +20,11 @@ import {
  */
 export async function GET(request: Request) {
   try {
-    // Require admin permission
-    await requireAdminPermission("view billing alerts");
+    // All authenticated users have access (roles/permissions removed)
+    const session = await getSession();
+    if (!session?.user?.id) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const url = new URL(request.url);
     const type = url.searchParams.get("type") || "alerts";

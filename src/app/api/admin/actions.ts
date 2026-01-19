@@ -1,58 +1,18 @@
 "use server";
 
-import { DEFAULT_USER_ROLE, userRolesInfo } from "app-types/roles";
-import { auth } from "auth/server";
+import { eq } from "drizzle-orm";
 import { validatedActionWithAdminPermission } from "lib/action-utils";
+import { sqliteDb as db } from "lib/db/sqlite/db.sqlite";
+import { UserTable } from "lib/db/sqlite/schema.sqlite";
 import logger from "lib/logger";
 import { getUser } from "lib/user/server";
 import { getTranslations } from "next-intl/server";
-import { headers } from "next/headers";
 import {
   UpdateUserBanStatusActionState,
   UpdateUserBanStatusSchema,
-  UpdateUserRoleActionState,
-  UpdateUserRoleSchema,
 } from "./validations";
 
-export const updateUserRolesAction = validatedActionWithAdminPermission(
-  UpdateUserRoleSchema,
-  async (data, _formData, userSession): Promise<UpdateUserRoleActionState> => {
-    const t = await getTranslations("Admin.UserRoles");
-    const tCommon = await getTranslations("User.Profile.common");
-    const { userId, role: roleInput } = data;
-
-    const role = roleInput || DEFAULT_USER_ROLE;
-    if (userSession.user.id === userId) {
-      return {
-        success: false,
-        message: t("cannotUpdateOwnRole"),
-      };
-    }
-    await auth.api.setRole({
-      body: { userId, role } as any,
-      headers: await headers(),
-    });
-    await auth.api.revokeUserSessions({
-      body: { userId },
-      headers: await headers(),
-    });
-    const user = await getUser(userId);
-    if (!user) {
-      return {
-        success: false,
-        message: tCommon("userNotFound"),
-      };
-    }
-
-    return {
-      success: true,
-      message: t("roleUpdatedSuccessfullyTo", {
-        role: userRolesInfo[role].label,
-      }),
-      user,
-    };
-  },
-);
+// Note: updateUserRolesAction has been removed as roles/permissions are no longer used
 
 export const updateUserBanStatusAction = validatedActionWithAdminPermission(
   UpdateUserBanStatusSchema,
@@ -72,24 +32,26 @@ export const updateUserBanStatusAction = validatedActionWithAdminPermission(
     }
     try {
       if (!banned) {
-        await auth.api.banUser({
-          body: {
-            userId,
+        // Ban user via direct database update
+        await db
+          .update(UserTable)
+          .set({
+            banned: true,
             banReason:
               banReason ||
               (await getTranslations("User.Profile.common"))("bannedByAdmin"),
-          },
-          headers: await headers(),
-        });
-        await auth.api.revokeUserSessions({
-          body: { userId },
-          headers: await headers(),
-        });
+          })
+          .where(eq(UserTable.id, userId));
       } else {
-        await auth.api.unbanUser({
-          body: { userId },
-          headers: await headers(),
-        });
+        // Unban user via direct database update
+        await db
+          .update(UserTable)
+          .set({
+            banned: false,
+            banReason: null,
+            banExpires: null,
+          })
+          .where(eq(UserTable.id, userId));
       }
       const user = await getUser(userId);
       if (!user) {

@@ -45,9 +45,17 @@ const getAuth = () => {
   return auth;
 };
 
+// Mutable flag for fallback mode
+let electronFallbackMode = false;
+
 // Helper to check if we're in Electron dev mode
 // Use the early check result, but allow rechecking
 const isElectronDevMode = (): boolean => {
+  // Check fallback flag first
+  if (electronFallbackMode) {
+    return true;
+  }
+
   // Use the early check first
   if (IS_ELECTRON_MODE) {
     return true;
@@ -60,17 +68,10 @@ const isElectronDevMode = (): boolean => {
 // In Electron mode, bypass better-auth and return success for sign-in
 const handleElectronAuth = async (
   request: NextRequest,
-  segments?: string[],
+  _segments?: string[],
 ) => {
   const url = new URL(request.url);
-  const pathname = url.pathname;
-
-  // Parse route segments - the catch-all route [...all] captures everything after /api/auth/
-  // segments will be like ["sign-in", "email"] or ["session"]
-  const _routePath =
-    segments?.join("/") || pathname.replace("/api/auth/", "") || "";
-  const _firstSegment =
-    segments?.[0] || pathname.split("/api/auth/")[1]?.split("/")[0] || "";
+  void url.pathname; // Silence unused variable warning
 
   // Create local user session response
   const localUserSession = {
@@ -142,7 +143,7 @@ const getNormalHandlers = () => {
         errorMsg.includes("database") ||
         errorMsg.includes("select")
       ) {
-        _isElectronDevMode = true; // Force Electron mode
+        electronFallbackMode = true; // Force Electron mode
       }
       return null;
     }

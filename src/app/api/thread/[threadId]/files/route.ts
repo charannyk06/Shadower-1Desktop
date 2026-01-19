@@ -1,5 +1,5 @@
 import { getSession } from "auth/server";
-import { ThreadFileMetadata } from "lib/db/pg/schema.pg";
+import { ThreadFileMetadata } from "lib/db/sqlite/schema.sqlite";
 import {
   chatRepository,
   threadSandboxContextRepository,

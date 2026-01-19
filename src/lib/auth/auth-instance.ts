@@ -1,9 +1,7 @@
-import { DEFAULT_USER_ROLE, USER_ROLES } from "app-types/roles";
 // Base auth instance without "server-only" - can be used in seed scripts
 import { type BetterAuthOptions, betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { admin as adminPlugin } from "better-auth/plugins";
 // Import SQLite database module - use try/catch to handle Electron mode gracefully
 // CRITICAL: Detect Electron mode BEFORE requiring SQLite module to prevent NODE_MODULE_VERSION errors
 let sqliteDbModule: { getSqliteDb: () => any; sqliteDb: any } | null = null;
@@ -61,7 +59,6 @@ import { count } from "drizzle-orm";
 import logger from "logger";
 import { headers } from "next/headers";
 import { getAuthConfig } from "./config";
-import { ac, admin, editor, user } from "./roles";
 
 // Helper to check if we're in Electron dev mode (where SQLite is not available)
 // Cache the result to avoid repeated checks, but allow resetting if needed
@@ -340,19 +337,7 @@ const createAuthOptions = (): BetterAuthOptions | null => {
 
   return {
     secret: getAuthSecret(),
-    plugins: [
-      adminPlugin({
-        defaultRole: DEFAULT_USER_ROLE,
-        adminRoles: [USER_ROLES.ADMIN],
-        ac,
-        roles: {
-          admin,
-          editor,
-          user,
-        },
-      }),
-      nextCookies(),
-    ],
+    plugins: [nextCookies()],
     baseURL: getBaseURL(),
     user: {
       changeEmail: {
@@ -363,31 +348,7 @@ const createAuthOptions = (): BetterAuthOptions | null => {
       },
     },
     database: getDatabaseAdapter(),
-    databaseHooks: {
-      user: {
-        create: {
-          before: async (user) => {
-            // This hook ONLY runs during user creation (sign-up), not on sign-in
-            // Use our optimized getIsFirstUser function with caching
-            const isFirstUser = await getIsFirstUser();
 
-            // Set role based on whether this is the first user
-            const role = isFirstUser ? USER_ROLES.ADMIN : DEFAULT_USER_ROLE;
-
-            logger.info(
-              `User creation hook: ${user.email} will get role: ${role} (isFirstUser: ${isFirstUser})`,
-            );
-
-            return {
-              data: {
-                ...user,
-                role,
-              },
-            };
-          },
-        },
-      },
-    },
     emailAndPassword: {
       enabled: emailAndPasswordEnabled,
       disableSignUp: !signUpEnabled,
@@ -481,7 +442,6 @@ export const auth = new Proxy({} as ReturnType<typeof betterAuth>, {
           changePassword: async () => ({ error: null, data: null }),
           setUserPassword: async () => ({ error: null, data: null }),
           revokeUserSessions: async () => ({ error: null, data: null }),
-          setRole: async () => ({ error: null, data: null }),
           banUser: async () => ({ error: null, data: null }),
           unbanUser: async () => ({ error: null, data: null }),
         };
@@ -518,7 +478,6 @@ const createLocalUserSession = () => ({
     name: "Local User",
     image: null,
     emailVerified: true,
-    role: "admin",
     createdAt: new Date(),
     updatedAt: new Date(),
   },

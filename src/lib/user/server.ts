@@ -32,10 +32,9 @@ const createLocalUser = (userId: string): BasicUserWithLastLogin => ({
   email: "local@shadower.app",
   emailVerified: true,
   image: null,
-  role: "admin",
   createdAt: new Date(),
   updatedAt: new Date(),
-  lastLoginAt: null,
+  lastLogin: null,
   banned: false,
   banReason: null,
   banExpires: null,
@@ -216,10 +215,12 @@ export async function getUserPreferences(
       errorMsg.includes("Electron IPC")
     ) {
       // Return default preferences for Electron mode
+      // Note: theme/language/notifications are not defined in UserPreferences
       return {
-        theme: "system",
-        language: "en",
-        notifications: true,
+        displayName: undefined,
+        profession: undefined,
+        responseStyleExample: undefined,
+        botName: undefined,
       };
     }
     // Re-throw other errors

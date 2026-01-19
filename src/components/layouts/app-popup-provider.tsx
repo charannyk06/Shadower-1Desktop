@@ -59,26 +59,6 @@ const UserSettingsPopup = dynamic(
   },
 );
 
-const ReferralPopup = dynamic(
-  () =>
-    import("@/components/referral/referral-popup").then(
-      (mod) => mod.ReferralPopup,
-    ),
-  {
-    ssr: false,
-  },
-);
-
-const ReferralContent = dynamic(
-  () =>
-    import("@/components/referral/referral-content").then(
-      (mod) => mod.ReferralContent,
-    ),
-  {
-    ssr: false,
-  },
-);
-
 const BillingPopup = dynamic(
   () =>
     import("@/components/billing/billing-popup").then(
@@ -129,7 +109,6 @@ export function AppPopupProvider({
       <KeyboardShortcutsPopup />
       <ChatPreferencesPopup />
       <UserSettingsPopup userSettingsComponent={userSettingsComponent} />
-      <ReferralPopup referralComponent={<ReferralContent />} />
       <BillingPopup billingComponent={<BillingDashboard />} />
       <KnowledgePopup knowledgeComponent={<KnowledgeContent />} />
       <ChatBotVoice />

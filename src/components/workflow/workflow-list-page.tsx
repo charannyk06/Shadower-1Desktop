@@ -1,7 +1,6 @@
 "use client";
 import { EditWorkflowPopup } from "@/components/workflow/edit-workflow-popup";
 import { authClient } from "auth/client";
-import { canCreateWorkflow } from "lib/auth/client-permissions";
 
 import { ArrowUpRight, MousePointer2 } from "lucide-react";
 
@@ -20,13 +19,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "ui/card";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "ui/dialog";
 import { Skeleton } from "ui/skeleton";
 
-interface WorkflowListPageProps {
-  userRole?: string | null;
-}
-
-export default function WorkflowListPage({
-  userRole,
-}: WorkflowListPageProps = {}) {
+export default function WorkflowListPage() {
   const t = useTranslations();
   const { data: session } = authClient.useSession();
   const currentUserId = session?.user?.id;
@@ -95,8 +88,8 @@ export default function WorkflowListPage({
     }
   };
 
-  // Check if user can create workflows using Better Auth permissions
-  const canCreate = canCreateWorkflow(userRole);
+  // All authenticated users can create workflows (roles/permissions removed)
+  const canCreate = true;
 
   // For regular users, combine all workflows into one list
   const displayWorkflows = canCreate

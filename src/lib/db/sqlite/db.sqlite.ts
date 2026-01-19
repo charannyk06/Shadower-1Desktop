@@ -1,6 +1,10 @@
 import path from "path";
 import fs from "fs-extra";
+import type BetterSqlite3 from "better-sqlite3";
 import * as schema from "./schema.sqlite";
+
+// Type alias for the SQLite database instance
+type SqliteDatabase = BetterSqlite3.Database;
 
 // CRITICAL: Detect Electron mode BEFORE importing better-sqlite3
 // This prevents NODE_MODULE_VERSION errors when Electron's Node.js version differs
@@ -80,8 +84,13 @@ if (IS_ELECTRON_MODE) {
 }
 
 // Use dynamic require for better-sqlite3 to handle Electron mode gracefully
-let Database: typeof import("better-sqlite3").default | null = null;
+let Database: typeof BetterSqlite3 | null = null;
 let drizzle: typeof import("drizzle-orm/better-sqlite3").drizzle | null = null;
+
+// Type for the drizzle database instance
+type DrizzleDb = ReturnType<
+  typeof import("drizzle-orm/better-sqlite3").drizzle<typeof schema>
+>;
 
 // Try to load better-sqlite3 only if not in Electron mode
 // Double-check global flag before attempting to load (it might have been set by error handling)
@@ -157,12 +166,12 @@ const getDbPath = () => {
 };
 
 // Initialize SQLite database connection
-let sqlite: Database.Database | null = null;
-let db: ReturnType<typeof drizzle> | null = null;
+let sqlite: SqliteDatabase | null = null;
+let db: DrizzleDb | null = null;
 
 // Helper to check if a column exists in a table
 const columnExists = (
-  sqliteInstance: Database.Database,
+  sqliteInstance: SqliteDatabase,
   tableName: string,
   columnName: string,
 ): boolean => {
@@ -178,7 +187,7 @@ const columnExists = (
 
 // Helper to check if a table exists
 const tableExists = (
-  sqliteInstance: Database.Database,
+  sqliteInstance: SqliteDatabase,
   tableName: string,
 ): boolean => {
   try {
@@ -192,7 +201,7 @@ const tableExists = (
 };
 
 // Run migrations for existing databases
-const runMigrations = (sqliteInstance: Database.Database) => {
+const runMigrations = (sqliteInstance: SqliteDatabase) => {
   console.log("[SQLite] Running migrations...");
 
   // =========================================================================
@@ -202,30 +211,6 @@ const runMigrations = (sqliteInstance: Database.Database) => {
     if (!columnExists(sqliteInstance, "user", "password")) {
       console.log("[SQLite] Adding password column to user table...");
       sqliteInstance.exec(`ALTER TABLE user ADD COLUMN password TEXT`);
-    }
-    if (!columnExists(sqliteInstance, "user", "referral_code")) {
-      console.log("[SQLite] Adding referral_code column to user table...");
-      sqliteInstance.exec(
-        `ALTER TABLE user ADD COLUMN referral_code TEXT UNIQUE`,
-      );
-    }
-    if (!columnExists(sqliteInstance, "user", "referred_by_id")) {
-      console.log("[SQLite] Adding referred_by_id column to user table...");
-      sqliteInstance.exec(`ALTER TABLE user ADD COLUMN referred_by_id TEXT`);
-    }
-    if (!columnExists(sqliteInstance, "user", "total_referrals")) {
-      console.log("[SQLite] Adding total_referrals column to user table...");
-      sqliteInstance.exec(
-        `ALTER TABLE user ADD COLUMN total_referrals INTEGER NOT NULL DEFAULT 0`,
-      );
-    }
-    if (!columnExists(sqliteInstance, "user", "total_referral_bonus")) {
-      console.log(
-        "[SQLite] Adding total_referral_bonus column to user table...",
-      );
-      sqliteInstance.exec(
-        `ALTER TABLE user ADD COLUMN total_referral_bonus TEXT NOT NULL DEFAULT '0'`,
-      );
     }
   }
 
@@ -317,7 +302,7 @@ const runMigrations = (sqliteInstance: Database.Database) => {
 };
 
 // Create all tables if they don't exist
-const createTablesIfNotExist = (sqliteInstance: Database.Database) => {
+const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
   console.log("[SQLite] Checking and creating tables if needed...");
 
   try {
@@ -338,11 +323,7 @@ const createTablesIfNotExist = (sqliteInstance: Database.Database) => {
         banned INTEGER DEFAULT 0,
         ban_reason TEXT,
         ban_expires INTEGER,
-        role TEXT NOT NULL DEFAULT 'user',
-        referral_code TEXT UNIQUE,
-        referred_by_id TEXT,
-        total_referrals INTEGER NOT NULL DEFAULT 0,
-        total_referral_bonus TEXT NOT NULL DEFAULT '0'
+        role TEXT NOT NULL DEFAULT 'user'
       );
     `);
 
@@ -841,22 +822,9 @@ const createTablesIfNotExist = (sqliteInstance: Database.Database) => {
     `);
 
     // =========================================================================
-    // Level 13: Referral & Vector tables
+    // Level 13: Vector tables
     // =========================================================================
     sqliteInstance.exec(`
-      CREATE TABLE IF NOT EXISTS referral (
-        id TEXT PRIMARY KEY,
-        referrer_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        referee_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        referral_code TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        referrer_bonus TEXT NOT NULL DEFAULT '0',
-        referee_bonus TEXT NOT NULL DEFAULT '0',
-        completed_at INTEGER,
-        created_at INTEGER,
-        UNIQUE(referee_id)
-      );
-
       CREATE TABLE IF NOT EXISTS vector_index (
         id TEXT PRIMARY KEY,
         point_id TEXT NOT NULL UNIQUE,
@@ -962,9 +930,6 @@ const createTablesIfNotExist = (sqliteInstance: Database.Database) => {
       CREATE INDEX IF NOT EXISTS webhook_event_id_idx ON webhook_event(event_id);
       CREATE INDEX IF NOT EXISTS webhook_retry_status_idx ON webhook_retry_queue(status);
       CREATE INDEX IF NOT EXISTS usage_alert_user_id_idx ON usage_alert(user_id);
-      CREATE INDEX IF NOT EXISTS referral_referrer_id_idx ON referral(referrer_id);
-      CREATE INDEX IF NOT EXISTS referral_referee_id_idx ON referral(referee_id);
-      CREATE INDEX IF NOT EXISTS referral_status_idx ON referral(status);
       CREATE INDEX IF NOT EXISTS vector_index_point_idx ON vector_index(point_id);
       CREATE INDEX IF NOT EXISTS vector_index_entity_idx ON vector_index(entity_type, entity_id);
       CREATE INDEX IF NOT EXISTS vector_index_user_idx ON vector_index(user_id);
@@ -990,7 +955,7 @@ const createTablesIfNotExist = (sqliteInstance: Database.Database) => {
 };
 
 // Create default local user if not exists
-const createDefaultUserIfNotExists = (sqliteInstance: Database.Database) => {
+const createDefaultUserIfNotExists = (sqliteInstance: SqliteDatabase) => {
   try {
     const existingUser = sqliteInstance
       .prepare("SELECT id FROM user WHERE email = ?")
@@ -1078,6 +1043,13 @@ export const getSqliteDb = () => {
   console.log(`[SQLite] Initializing database at: ${dbPath}`);
 
   try {
+    // Check that Database constructor is available
+    if (!Database) {
+      throw new Error(
+        "better-sqlite3 Database constructor is not available - Electron mode may be active",
+      );
+    }
+
     // Create SQLite database instance
     sqlite = new Database(dbPath);
     console.log("[SQLite] SQLite database connection created");
@@ -1146,7 +1118,7 @@ export const getSqliteDb = () => {
 
 // Export the database instance (lazy-loaded)
 // This Proxy will throw a clear error if SQLite is not available (Electron mode)
-export const sqliteDb = new Proxy({} as ReturnType<typeof drizzle>, {
+export const sqliteDb = new Proxy({} as DrizzleDb, {
   get(_target, prop) {
     // Check Electron mode FIRST before doing anything
     // ALWAYS check global flag first (it persists across hot reloads)

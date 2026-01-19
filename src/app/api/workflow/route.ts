@@ -1,5 +1,4 @@
 import { getSession } from "auth/server";
-import { canCreateWorkflow, canEditWorkflow } from "lib/auth/permissions";
 import { workflowRepository } from "lib/db/repository";
 
 export async function GET() {
@@ -27,16 +26,9 @@ export async function POST(request: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // Check if user has permission to create/edit workflows
+  // All authenticated users can create/edit workflows (roles/permissions removed)
   if (id) {
-    // Editing existing workflow
-    const canEdit = await canEditWorkflow();
-    if (!canEdit) {
-      return Response.json(
-        { error: "You don't have permission to edit workflows" },
-        { status: 403 },
-      );
-    }
+    // Editing existing workflow - check access
     const hasAccess = await workflowRepository.checkAccess(
       id,
       session.user.id,
@@ -44,15 +36,6 @@ export async function POST(request: Request) {
     );
     if (!hasAccess) {
       return new Response("Unauthorized", { status: 401 });
-    }
-  } else {
-    // Creating new workflow
-    const canCreate = await canCreateWorkflow();
-    if (!canCreate) {
-      return Response.json(
-        { error: "You don't have permission to create workflows" },
-        { status: 403 },
-      );
     }
   }
 

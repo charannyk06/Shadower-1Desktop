@@ -17,7 +17,6 @@ export function AppSidebar({
 }: {
   user?: BasicUser;
 }) {
-  const userRole = user?.role;
   const router = useRouter();
 
   // Handle new chat shortcut (specific to main app)
@@ -50,8 +49,8 @@ export function AppSidebar({
 
       <SidebarContent className="mt-2 overflow-hidden relative">
         <div className="flex flex-col overflow-y-auto">
-          <AppSidebarMenus user={user} />
-          <AppSidebarAgents userRole={userRole} />
+          <AppSidebarMenus />
+          <AppSidebarAgents />
           <AppSidebarThreads />
         </div>
       </SidebarContent>

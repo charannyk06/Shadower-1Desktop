@@ -5,7 +5,6 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Badge } from "ui/badge";
 import { Button } from "ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "ui/card";
 import { Input } from "ui/input";
@@ -14,14 +13,12 @@ import { Label } from "ui/label";
 interface AcceptInviteFormProps {
   token: string;
   email: string;
-  role: string;
   inviterName: string;
 }
 
 export function AcceptInviteForm({
   token,
   email,
-  role,
   inviterName,
 }: AcceptInviteFormProps) {
   const t = useTranslations("Auth.AcceptInvite");
@@ -85,11 +82,8 @@ export function AcceptInviteForm({
       <CardHeader className="text-center">
         <CardTitle className="text-2xl">{t("title")}</CardTitle>
         <p className="text-muted-foreground mt-2">
-          {t("description", { inviterName, role })}
+          {t("descriptionSimple", { inviterName })}
         </p>
-        <Badge variant="secondary" className="mx-auto mt-4">
-          {role}
-        </Badge>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">

@@ -26,14 +26,13 @@ import { AgentDropdown } from "../agent/agent-dropdown";
 
 import { appStore } from "@/app/store";
 import { ChatMention } from "app-types/chat";
-import { canCreateAgent } from "lib/auth/client-permissions";
 import { BACKGROUND_COLORS, EMOJI_DATA } from "lib/const";
 import { cn } from "lib/utils";
 import { useRouter } from "next/navigation";
 
 const DISPLAY_LIMIT = 5; // Number of agents to show when collapsed
 
-export function AppSidebarAgents({ userRole }: { userRole?: string | null }) {
+export function AppSidebarAgents() {
   const mounted = useMounted();
   const t = useTranslations();
   const router = useRouter();
@@ -95,6 +94,9 @@ export function AppSidebarAgents({ userRole }: { userRole?: string | null }) {
     [agents, router],
   );
 
+  // All authenticated users can create agents (roles/permissions removed)
+  const canCreate = true;
+
   return (
     <SidebarGroup>
       <SidebarGroupContent className="group-data-[collapsible=icon]:hidden group/agents">
@@ -105,7 +107,7 @@ export function AppSidebarAgents({ userRole }: { userRole?: string | null }) {
                 {t("Layout.agents")}
               </Link>
             </SidebarMenuButton>
-            {canCreateAgent(userRole) && (
+            {canCreate && (
               <SidebarMenuAction
                 className="group-hover/agents:opacity-100 opacity-0 transition-opacity"
                 onClick={() => router.push("/agent/new")}
@@ -131,7 +133,7 @@ export function AppSidebarAgents({ userRole }: { userRole?: string | null }) {
             </SidebarMenuItem>
           ) : agents.length == 0 ? (
             <div className="px-2 mt-1">
-              {canCreateAgent(userRole) ? (
+              {canCreate ? (
                 <Link
                   href={"/agent/new"}
                   className="bg-input/40 py-8 px-4 hover:bg-input/100 rounded-lg cursor-pointer flex justify-between items-center text-xs overflow-hidden"

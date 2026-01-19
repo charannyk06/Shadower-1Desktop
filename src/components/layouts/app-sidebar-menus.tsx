@@ -12,9 +12,7 @@ import { SidebarGroupContent } from "ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
 import { useArchives } from "@/hooks/queries/use-archives";
-import { BasicUser } from "app-types/user";
 import { Shortcuts, getShortcutKeyList } from "lib/keyboard-shortcuts";
-import { getIsUserAdmin } from "lib/user/utils";
 import {
   FolderOpenIcon,
   FolderSearchIcon,
@@ -33,7 +31,7 @@ import { WriteIcon } from "ui/write-icon";
 import { ArchiveDialog } from "../archive-dialog";
 import { AppSidebarAdmin } from "./app-sidebar-menu-admin";
 
-export function AppSidebarMenus({ user }: { user?: BasicUser }) {
+export function AppSidebarMenus() {
   const router = useRouter();
   const t = useTranslations("");
   const { setOpenMobile } = useSidebar();
@@ -114,7 +112,7 @@ export function AppSidebarMenus({ user }: { user?: BasicUser }) {
             </SidebarMenuItem>
           </Tooltip>
         </SidebarMenu>
-        {getIsUserAdmin(user) && <AppSidebarAdmin />}
+        <AppSidebarAdmin />
         <SidebarMenu className="group/archive">
           <Tooltip>
             <SidebarMenuItem>

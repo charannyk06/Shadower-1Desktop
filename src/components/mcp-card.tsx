@@ -32,7 +32,6 @@ import type { MCPServerInfo, MCPToolInfo } from "app-types/mcp";
 import { appStore } from "@/app/store";
 import { BasicUser } from "app-types/user";
 import { redriectMcpOauth } from "lib/ai/mcp/oauth-redirect";
-import { canChangeVisibilityMCP } from "lib/auth/client-permissions";
 import { isString } from "lib/utils";
 import { useTranslations } from "next-intl";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
@@ -60,10 +59,8 @@ export const MCPCard = memo(function MCPCard({
   const appStoreMutate = appStore((state) => state.mutate);
   const { mutate } = useSWRConfig();
   const isOwner = userId === user?.id;
-  const canChangeVisibility = useMemo(
-    () => canChangeVisibilityMCP(user?.role),
-    [user?.role],
-  );
+  // All authenticated users can change visibility (roles/permissions removed)
+  const canChangeVisibility = true;
 
   const isLoading = useMemo(() => {
     return isProcessing || status === "loading";
@@ -71,8 +68,6 @@ export const MCPCard = memo(function MCPCard({
 
   const needsAuthorization = status === "authorizing";
   const isDisabled = isLoading || needsAuthorization;
-
-  // Check permissions (kept for potential future use)
 
   const errorMessage = useMemo(() => {
     if (error) {

@@ -1,16 +1,10 @@
-import { USER_ROLES, UserRoleNames } from "app-types/roles";
 import { z } from "zod";
 
 import { BasicUserWithLastLogin } from "app-types/user";
 import { ActionState } from "lib/action-utils";
 import { passwordSchema } from "lib/validations/password";
 
-export const UpdateUserRoleSchema = z.object({
-  userId: z.string().uuid("Invalid user ID"),
-  role: z
-    .enum(Object.values(USER_ROLES) as [UserRoleNames, ...UserRoleNames[]])
-    .optional(),
-});
+// Role schema removed - roles/permissions have been removed from the app
 
 export const UpdateUserPasswordError = {
   PASSWORD_MISMATCH: "Passwords do not match",
@@ -53,10 +47,6 @@ export const UpdateUserPasswordSchema = z
       });
     }
   });
-
-export type UpdateUserRoleActionState = ActionState & {
-  user?: BasicUserWithLastLogin | null;
-};
 
 export type DeleteUserActionState = ActionState & {
   redirect?: string;

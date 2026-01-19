@@ -5,7 +5,6 @@ import { ShareableCard } from "@/components/shareable-card";
 import { useMutateAgents } from "@/hooks/queries/use-agents";
 import { useBookmark } from "@/hooks/queries/use-bookmark";
 import { AgentSummary, AgentUpdateSchema } from "app-types/agent";
-import { canCreateAgent } from "lib/auth/client-permissions";
 import { notify } from "lib/notify";
 import { fetcher } from "lib/utils";
 import { ArrowUpRight, Plus, Sparkles } from "lucide-react";
@@ -25,7 +24,6 @@ interface AgentsListProps {
   initialSharedAgents: AgentSummary[];
   systemAgents: AgentSummary[];
   userId: string;
-  userRole?: string | null;
 }
 
 export function AgentsList({
@@ -33,7 +31,6 @@ export function AgentsList({
   initialSharedAgents,
   systemAgents,
   userId,
-  userRole,
 }: AgentsListProps) {
   const t = useTranslations();
   const mutateAgents = useMutateAgents();
@@ -112,8 +109,8 @@ export function AgentsList({
       .watch(() => setDeletingAgentLoading(null));
   };
 
-  // Check if user can create agents using Better Auth permissions
-  const canCreate = canCreateAgent(userRole);
+  // All authenticated users can create agents (roles/permissions removed)
+  const canCreate = true;
 
   return (
     <div className="w-full flex flex-col gap-4 p-8">

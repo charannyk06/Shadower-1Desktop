@@ -9,5 +9,5 @@ export default async function Page() {
   if (!session) {
     redirect("/sign-in");
   }
-  return <WorkflowListPage userRole={session.user.role} />;
+  return <WorkflowListPage />;
 }

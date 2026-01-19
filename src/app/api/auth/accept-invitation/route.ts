@@ -32,7 +32,6 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     email: invitation.email,
-    role: invitation.role,
     inviterName: invitation.inviterName,
     status,
   });
@@ -81,18 +80,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Create user with Better Auth
-    const { user } = await auth.api.signUpEmail({
+    await auth.api.signUpEmail({
       body: {
         email: invitation.email,
         password,
         name,
       },
-      headers: await headers(),
-    });
-
-    // Update user role to the invited role
-    await auth.api.setRole({
-      body: { userId: user.id, role: invitation.role } as any,
       headers: await headers(),
     });
 
