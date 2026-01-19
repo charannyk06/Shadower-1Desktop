@@ -6,7 +6,6 @@ import {
   ThemeProvider,
   ThemeStyleProvider,
 } from "@/components/layouts/theme-provider";
-import { Analytics } from "@vercel/analytics/next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale } from "next-intl/server";
 import { Toaster } from "ui/sonner";
@@ -52,7 +51,6 @@ export default async function RootLayout({
                 {children}
                 <Toaster richColors />
               </div>
-              <Analytics />
             </NextIntlClientProvider>
           </ThemeStyleProvider>
         </ThemeProvider>

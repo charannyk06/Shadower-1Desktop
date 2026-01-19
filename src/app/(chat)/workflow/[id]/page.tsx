@@ -1,11 +1,6 @@
 import Workflow from "@/components/workflow/workflow";
 import { getSession } from "auth/server";
-import {
-  convertDBEdgeToUIEdge,
-  convertDBNodeToUINode,
-} from "lib/ai/workflow/shared.workflow";
-import { workflowRepository } from "lib/db/repository";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 
 export default async function WorkflowPage({
   params,
@@ -19,29 +14,17 @@ export default async function WorkflowPage({
     redirect("/sign-in");
   }
 
-  const hasAccess = await workflowRepository.checkAccess(id, session.user.id);
-  if (!hasAccess) {
-    notFound();
-  }
-
-  const workflow = await workflowRepository.selectStructureById(id);
-  if (!workflow) {
-    notFound();
-  }
-  const hasEditAccess = await workflowRepository.checkAccess(
-    id,
-    session.user.id,
-    false,
-  );
-  const initialNodes = workflow.nodes.map(convertDBNodeToUINode);
-  const initialEdges = workflow.edges.map(convertDBEdgeToUIEdge);
+  // In Electron mode, database access is handled via IPC in the client component
+  // Don't fetch workflow data on the server - let the client component handle it via API route
+  // This avoids the SQLite database access error in Electron dev mode
+  // The Workflow component uses SWR to fetch from /api/workflow/${id} which handles Electron mode gracefully
   return (
     <Workflow
       key={id}
       workflowId={id}
-      initialNodes={initialNodes}
-      initialEdges={initialEdges}
-      hasEditAccess={hasEditAccess}
+      initialNodes={[]}
+      initialEdges={[]}
+      hasEditAccess={true}
     />
   );
 }

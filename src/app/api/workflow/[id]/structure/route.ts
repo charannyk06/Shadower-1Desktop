@@ -1,5 +1,6 @@
 import { getSession } from "auth/server";
 import { workflowRepository } from "lib/db/repository";
+import logger from "logger";
 
 export async function GET(
   _: Request,
@@ -10,12 +11,29 @@ export async function GET(
   if (!session) {
     return new Response("Unauthorized", { status: 401 });
   }
-  const hasAccess = await workflowRepository.checkAccess(id, session.user.id);
-  if (!hasAccess) {
-    return new Response("Unauthorized", { status: 401 });
+
+  try {
+    const hasAccess = await workflowRepository.checkAccess(id, session.user.id);
+    if (!hasAccess) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    const workflow = await workflowRepository.selectStructureById(id);
+    return Response.json(workflow);
+  } catch (error: any) {
+    // In Electron dev mode, database access fails
+    if (
+      error?.isElectronMode ||
+      error?.message?.includes("SQLite") ||
+      error?.message?.includes("Electron")
+    ) {
+      logger.warn(
+        "[Workflow Structure API] Electron mode detected, returning null",
+      );
+      return Response.json(null, { status: 503 });
+    }
+    logger.error("Failed to fetch workflow structure:", error);
+    return new Response("Internal Server Error", { status: 500 });
   }
-  const workflow = await workflowRepository.selectStructureById(id);
-  return Response.json(workflow);
 }
 
 export async function POST(
@@ -54,8 +72,24 @@ export async function POST(
     });
 
     return Response.json({ success: true });
-  } catch (error) {
-    console.error("[Structure API] Error saving structure:", error);
+  } catch (error: any) {
+    // In Electron dev mode, database access fails
+    if (
+      error?.isElectronMode ||
+      error?.message?.includes("SQLite") ||
+      error?.message?.includes("Electron")
+    ) {
+      logger.warn(
+        "[Workflow Structure API] Electron mode detected, workflow operations not available",
+      );
+      return Response.json(
+        {
+          error: "Workflow operations are not available in Electron dev mode",
+        },
+        { status: 503 },
+      );
+    }
+    logger.error("[Structure API] Error saving structure:", error);
     return Response.json(
       {
         error: String(error),
