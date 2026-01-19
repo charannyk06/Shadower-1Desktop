@@ -1,6 +1,7 @@
 import { ArchiveCreateSchema } from "app-types/archive";
 import { getSession } from "auth/server";
 import { archiveRepository } from "lib/db/repository";
+import logger from "logger";
 import { z } from "zod";
 
 export async function GET() {
@@ -15,8 +16,19 @@ export async function GET() {
       session.user.id,
     );
     return Response.json(archives);
-  } catch (error) {
-    console.error("Failed to fetch archives:", error);
+  } catch (error: any) {
+    // In Electron dev mode, database access fails - return empty array
+    if (
+      error?.isElectronMode ||
+      error?.message?.includes("SQLite") ||
+      error?.message?.includes("Electron")
+    ) {
+      logger.warn(
+        "[Archive API] Electron mode detected, returning empty archives array",
+      );
+      return Response.json([]);
+    }
+    logger.error("Failed to fetch archives:", error);
     return new Response("Internal Server Error", { status: 500 });
   }
 }

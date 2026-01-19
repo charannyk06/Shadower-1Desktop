@@ -1,13 +1,31 @@
 import { getSession } from "auth/server";
 import { workflowRepository } from "lib/db/repository";
+import logger from "logger";
 
 export async function GET() {
   const session = await getSession();
   if (!session) {
     return Response.json([]);
   }
-  const workflows = await workflowRepository.selectAll(session.user.id);
-  return Response.json(workflows);
+
+  try {
+    const workflows = await workflowRepository.selectAll(session.user.id);
+    return Response.json(workflows);
+  } catch (error: any) {
+    // In Electron dev mode, database access fails - return empty array
+    if (
+      error?.isElectronMode ||
+      error?.message?.includes("SQLite") ||
+      error?.message?.includes("Electron")
+    ) {
+      logger.warn(
+        "[Workflow API] Electron mode detected, returning empty workflows array",
+      );
+      return Response.json([]);
+    }
+    logger.error("Failed to fetch workflows:", error);
+    return new Response("Internal Server Error", { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
