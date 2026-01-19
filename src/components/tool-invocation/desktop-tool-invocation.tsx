@@ -20,7 +20,7 @@ import { useShallow } from "zustand/shallow";
 
 interface DesktopToolResult {
   success: boolean;
-  sandboxId?: string;
+  sessionId?: string;
   screenshot?: string;
   message?: string;
   error?: string;
@@ -70,11 +70,11 @@ export const DesktopToolInvocation = memo(function DesktopToolInvocation({
   const hasError = !result?.success && result?.error;
   const hasScreenshot = !!result?.screenshot;
 
-  // Auto-populate theater mode state when sandbox is created or stream started
+  // Auto-populate theater mode state when session is created or stream started
   useEffect(() => {
-    if (result?.sandboxId && threadId) {
+    if (result?.sessionId && threadId) {
       console.log("[DesktopToolInvocation] Setting desktop session in store:", {
-        sandboxId: result.sandboxId,
+        sessionId: result.sessionId,
         streamUrl: result.streamUrl,
       });
 
@@ -82,17 +82,17 @@ export const DesktopToolInvocation = memo(function DesktopToolInvocation({
         theaterMode: {
           ...state.theaterMode,
           desktopSession: {
-            sandboxId: result.sandboxId!,
+            sessionId: result.sessionId!,
             streamUrl: result.streamUrl,
             authKey: result.authKey,
           },
         },
       }));
     }
-  }, [result?.sandboxId, result?.streamUrl, result?.authKey, threadId, mutate]);
+  }, [result?.sessionId, result?.streamUrl, result?.authKey, threadId, mutate]);
 
   const openInTheater = useCallback(() => {
-    if (!result?.sandboxId) return;
+    if (!result?.sessionId) return;
 
     mutate((state) => ({
       theaterMode: {
@@ -101,7 +101,7 @@ export const DesktopToolInvocation = memo(function DesktopToolInvocation({
         type: "desktop",
         title: `Desktop Session`,
         desktopSession: {
-          sandboxId: result.sandboxId!,
+          sessionId: result.sessionId!,
           streamUrl: result.streamUrl,
           authKey: result.authKey,
         },
@@ -179,7 +179,7 @@ export const DesktopToolInvocation = memo(function DesktopToolInvocation({
           )}
         </div>
         <div className="flex items-center gap-1">
-          {result.sandboxId && (
+          {result.sessionId && (
             <Button
               variant="ghost"
               size="sm"
@@ -204,11 +204,11 @@ export const DesktopToolInvocation = memo(function DesktopToolInvocation({
         </div>
       </div>
 
-      {/* Sandbox ID display */}
-      {result.sandboxId && (
+      {/* Session ID display */}
+      {result.sessionId && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground bg-background/50 px-2 py-1 rounded">
           <Monitor className="size-3" />
-          <span className="truncate">Sandbox: {result.sandboxId}</span>
+          <span className="truncate">Session: {result.sessionId}</span>
         </div>
       )}
 

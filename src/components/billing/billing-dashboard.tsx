@@ -172,7 +172,7 @@ interface UsageData {
   usage: {
     llm_tokens: number;
     image_generation: number;
-    sandbox_execution: number;
+    local_execution: number;
     voice_minutes: number;
     mcp_tool_call: number;
     workflow_execution: number;

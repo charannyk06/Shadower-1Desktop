@@ -143,14 +143,14 @@ export function TheaterPanel() {
     threadFiles,
     currentThreadId,
     mutate: appStoreMutate,
-    sandboxFilesVersion,
+    filesVersion,
   } = useAppStore(
     useShallow((state) => ({
       theaterMode: state.theaterMode,
       threadFiles: state.threadFiles,
       currentThreadId: state.currentThreadId,
       mutate: state.mutate,
-      sandboxFilesVersion: state.theaterMode.sandboxFilesVersion || 0,
+      filesVersion: state.theaterMode.filesVersion || 0,
     })),
   );
 
@@ -183,7 +183,7 @@ export function TheaterPanel() {
       "[TheaterPanel] Fetching sandbox files for thread:",
       currentThreadId,
       "version:",
-      sandboxFilesVersion,
+      filesVersion,
     );
 
     fetch(`/api/thread/${currentThreadId}/files`)
@@ -212,7 +212,7 @@ export function TheaterPanel() {
     return () => {
       cancelled = true;
     };
-  }, [theaterMode.isOpen, currentThreadId, sandboxFilesVersion]);
+  }, [theaterMode.isOpen, currentThreadId, filesVersion]);
 
   const isUploading = useMemo(() => {
     const files = threadFiles[currentThreadId || ""] || [];
@@ -1156,10 +1156,10 @@ function PreviewContent({
   }
 
   // Desktop preview - uses desktopSession state from local terminal
-  if (type === "desktop" && desktopSession?.sandboxId) {
+  if (type === "desktop" && desktopSession?.sessionId) {
     return (
       <DesktopPreview
-        sandboxId={desktopSession.sandboxId}
+        sessionId={desktopSession.sessionId}
         streamUrl={desktopSession.streamUrl}
         authKey={desktopSession.authKey}
         className="h-full w-full"

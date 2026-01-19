@@ -397,11 +397,7 @@ export function ChatMentionInputSuggestion({
           label = "HTTP";
           description = "Send an http request";
           break;
-        case DefaultToolName.Sandbox:
-          label = "sandbox";
-          description = "Execute code, run shell commands, manage files";
-          break;
-        // Browser automation tools (Browserbase + Stagehand)
+        // Browser automation tools (Local Chrome DevTools)
         case DefaultToolName.BrowserNavigate:
           label = "browser-navigate";
           description = "Navigate browser to a URL";

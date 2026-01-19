@@ -229,11 +229,11 @@ export function FragmentInvocation({
   // Trigger Theater Panel file refresh when fragment completes successfully
   useEffect(() => {
     if (isCompleted && result?.success) {
-      // Increment sandbox files version to trigger Theater Panel refresh
+      // Increment files version to trigger Theater Panel refresh
       mutateStore((state) => ({
         theaterMode: {
           ...state.theaterMode,
-          sandboxFilesVersion: (state.theaterMode.sandboxFilesVersion || 0) + 1,
+          filesVersion: (state.theaterMode.filesVersion || 0) + 1,
         },
       }));
     }
@@ -392,7 +392,7 @@ export function FragmentInvocation({
         return <File className="h-3 w-3" />;
       case "ai-call":
         return <Bot className="h-3 w-3" />;
-      case "sandbox":
+      case "local-exec":
         return <Server className="h-3 w-3" />;
       case "tool-call":
         return <Wrench className="h-3 w-3" />;
