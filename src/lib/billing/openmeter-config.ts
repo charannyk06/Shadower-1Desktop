@@ -38,12 +38,12 @@ export const OPENMETER_METERS = {
   },
 
   /**
-   * Sandbox Execution
-   * Tracks code sandbox/execution usage
+   * Local Execution
+   * Tracks local code execution (free - runs on user's machine)
    */
-  sandbox_execution: {
-    slug: "sandbox_execution",
-    description: "Code sandbox execution count",
+  local_execution: {
+    slug: "local_execution",
+    description: "Local code execution count (free)",
     aggregation: "COUNT",
     groupBy: ["language"],
   },

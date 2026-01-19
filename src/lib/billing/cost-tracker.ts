@@ -71,10 +71,9 @@ const OTHER_COSTS = {
   // Using $0.10 average to account for HD and GPT-image-1 usage
   imagePerUnit: 0.1,
 
-  // E2B sandbox: $0.000028/second for 2 vCPU
-  // ~$0.10/hour, typical execution 10-60 seconds = $0.0003-$0.002
-  // Using $0.002 as conservative estimate for longer executions
-  sandboxPerExec: 0.002,
+  // Local execution: $0 (runs on user's machine, no cloud cost)
+  // Kept for backwards compatibility with cost tracking
+  localExecutionPerExec: 0,
 
   // OpenAI Realtime API - THIS IS CRITICAL:
   // - Audio INPUT: $0.06/minute
@@ -122,7 +121,7 @@ export interface UserCostSummary {
 
   // Other costs
   imageCost: number;
-  sandboxCost: number;
+  localExecutionCost: number; // Always 0 - runs on user's machine
   voiceCost: number;
 
   // Total
@@ -176,13 +175,14 @@ export async function calculateUserCost(
   // Calculate other costs
   const imageCost =
     (usageCounts.image_generation || 0) * OTHER_COSTS.imagePerUnit;
-  const sandboxCost =
-    (usageCounts.sandbox_execution || 0) * OTHER_COSTS.sandboxPerExec;
+  // Local execution is free (runs on user's machine)
+  const localExecutionCost =
+    (usageCounts.local_execution || 0) * OTHER_COSTS.localExecutionPerExec;
   const voiceCost =
     (usageCounts.voice_minutes || 0) * OTHER_COSTS.voicePerMinute;
 
   const totalEstimatedCost =
-    totalTokenCost + imageCost + sandboxCost + voiceCost;
+    totalTokenCost + imageCost + localExecutionCost + voiceCost;
 
   // Calculate revenue (subscription + any token packs)
   const purchasedTokens = Number(subscription?.purchasedTokens || 0);
@@ -205,7 +205,7 @@ export async function calculateUserCost(
     estimatedTokenCost: totalTokenCost,
     modelBreakdown,
     imageCost,
-    sandboxCost,
+    localExecutionCost,
     voiceCost,
     totalEstimatedCost,
     revenue,

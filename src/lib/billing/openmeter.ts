@@ -105,15 +105,15 @@ export async function trackImageGeneration(params: {
   });
 }
 
-export async function trackSandboxExecution(params: {
+export async function trackLocalExecution(params: {
   userId: string;
   executionMs: number;
 }): Promise<void> {
-  // Fixed credit cost per sandbox execution
-  const creditsConsumed = SERVICE_CREDIT_COSTS.sandboxPerExecution;
+  // Local execution is free (runs on user's machine)
+  const creditsConsumed = SERVICE_CREDIT_COSTS.localExecution;
 
   await trackUsageEvent({
-    type: "sandbox_execution",
+    type: "local_execution",
     userId: params.userId,
     data: {
       executionMs: params.executionMs,
@@ -206,7 +206,7 @@ export async function getUserUsage(
     return {
       llm_tokens: 0,
       image_generation: 0,
-      sandbox_execution: 0,
+      local_execution: 0,
       voice_minutes: 0,
       mcp_tool_call: 0,
       workflow_execution: 0,
@@ -217,7 +217,7 @@ export async function getUserUsage(
   const meterTypes: UsageEventType[] = [
     "llm_tokens",
     "image_generation",
-    "sandbox_execution",
+    "local_execution",
     "voice_minutes",
     "mcp_tool_call",
     "workflow_execution",
@@ -227,7 +227,7 @@ export async function getUserUsage(
   const results: Record<UsageEventType, number> = {
     llm_tokens: 0,
     image_generation: 0,
-    sandbox_execution: 0,
+    local_execution: 0,
     voice_minutes: 0,
     mcp_tool_call: 0,
     workflow_execution: 0,
@@ -261,7 +261,7 @@ export const openmeter = {
   trackUsageEvent,
   trackLLMUsage,
   trackImageGeneration,
-  trackSandboxExecution,
+  trackLocalExecution,
   trackVoiceMinutes,
   trackMcpToolCall,
   trackWorkflowExecution,

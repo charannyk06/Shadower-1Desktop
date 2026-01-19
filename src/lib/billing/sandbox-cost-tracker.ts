@@ -1,119 +1,39 @@
 /**
  * Local Sandbox Cost Tracker
  *
- * For the local-first desktop app, sandbox execution is free (runs locally).
- * This module provides a compatible API with the cloud E2B cost tracker
- * but doesn't actually track or enforce costs.
+ * This is a no-op tracker since local execution runs on the user's machine
+ * and doesn't incur any cloud costs. Kept for backwards compatibility.
  */
 
-import logger from "logger";
-
-/**
- * Error thrown when quota is exceeded
- * (Not applicable for local execution, but kept for API compatibility)
- */
-export class QuotaExceededError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "QuotaExceededError";
-  }
-}
-
-/**
- * Session tracking data (for local analytics only)
- */
-interface SessionData {
+export interface SessionTrackingParams {
   userId: string;
   sessionId: string;
-  template?: string;
+  template: string;
   durationMs: number;
-  operationType: "create" | "edit" | "execute";
+  operationType: "execute" | "deploy";
 }
 
 /**
- * Local sandbox cost tracker
- * Provides API compatibility but doesn't enforce quotas for local execution
+ * Local sandbox cost tracker - all operations are free
+ * since they run on the user's machine
  */
-class LocalSandboxCostTracker {
-  private sessionLog: SessionData[] = [];
+export const localSandboxCostTracker = {
+  /**
+   * Track a session (no-op - local execution is free)
+   */
+  async trackSession(_params: SessionTrackingParams): Promise<void> {
+    // Local execution runs on user's machine - no cost to track
+  },
 
   /**
-   * Enforce quota (always passes for local execution)
+   * Get usage for a user (always returns 0 - local execution is free)
    */
-  async enforceQuota(_userId: string): Promise<void> {
-    // Local execution is free - no quota enforcement
-    logger.debug(
-      "[LocalSandboxCostTracker] Local execution - no quota check needed",
-    );
-  }
+  async getUserUsage(
+    _userId: string,
+  ): Promise<{ executionCount: number; totalDurationMs: number }> {
+    return { executionCount: 0, totalDurationMs: 0 };
+  },
+};
 
-  /**
-   * Track a session for analytics (local only, no cloud reporting)
-   */
-  async trackSession(data: SessionData): Promise<void> {
-    this.sessionLog.push({
-      ...data,
-      // @ts-ignore
-      timestamp: Date.now(),
-    });
-
-    logger.debug(
-      `[LocalSandboxCostTracker] Tracked session: ${data.sessionId} (${data.operationType}) - ${data.durationMs}ms`,
-    );
-
-    // Keep only last 100 sessions in memory
-    if (this.sessionLog.length > 100) {
-      this.sessionLog = this.sessionLog.slice(-100);
-    }
-  }
-
-  /**
-   * Get session statistics (for local analytics)
-   */
-  getStats(): {
-    totalSessions: number;
-    totalDurationMs: number;
-    averageDurationMs: number;
-    byTemplate: Record<string, number>;
-    byOperation: Record<string, number>;
-  } {
-    const totalSessions = this.sessionLog.length;
-    const totalDurationMs = this.sessionLog.reduce(
-      (sum, s) => sum + s.durationMs,
-      0,
-    );
-    const averageDurationMs =
-      totalSessions > 0 ? totalDurationMs / totalSessions : 0;
-
-    const byTemplate: Record<string, number> = {};
-    const byOperation: Record<string, number> = {};
-
-    for (const session of this.sessionLog) {
-      const template = session.template || "unknown";
-      byTemplate[template] = (byTemplate[template] || 0) + 1;
-      byOperation[session.operationType] =
-        (byOperation[session.operationType] || 0) + 1;
-    }
-
-    return {
-      totalSessions,
-      totalDurationMs,
-      averageDurationMs,
-      byTemplate,
-      byOperation,
-    };
-  }
-
-  /**
-   * Clear session log
-   */
-  clearLog(): void {
-    this.sessionLog = [];
-  }
-}
-
-// Export singleton instance
-export const sandboxCostTracker = new LocalSandboxCostTracker();
-
-// Alias for backwards compatibility with code expecting e2bCostTracker
-export const e2bCostTracker = sandboxCostTracker;
+// Legacy alias for backwards compatibility
+export const sandboxCostTracker = localSandboxCostTracker;

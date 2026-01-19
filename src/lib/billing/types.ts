@@ -1,7 +1,7 @@
 export type UsageEventType =
   | "llm_tokens"
   | "image_generation"
-  | "sandbox_execution"
+  | "local_execution"
   | "voice_minutes"
   | "mcp_tool_call"
   | "workflow_execution"
@@ -50,9 +50,10 @@ export interface TokenPack {
 }
 
 // Credit costs per service (1 credit = $0.000004)
+// Note: Local execution is free (runs on user's machine)
 export const SERVICE_CREDIT_COSTS = {
   voicePerMinute: 75_000,
-  sandboxPerExecution: 425,
+  localExecution: 0, // Free - runs locally
   mcpPerCall: 250,
   workflowPerRun: 1_250,
   webSearchPerQuery: 1_500,
@@ -138,13 +139,13 @@ export interface UserUsage {
   tokenCredits: number;
   imageCredits: number;
   voiceCredits: number;
-  sandboxCredits: number;
+  localExecutionCredits: number;
   mcpCredits: number;
   workflowCredits: number;
   rawTokens: number;
   rawImages: number;
   rawVoiceMinutes: number;
-  rawSandboxExecutions: number;
+  rawLocalExecutions: number;
   rawMcpCalls: number;
   rawWorkflowRuns: number;
 }
@@ -162,7 +163,7 @@ export interface UsageSummary {
 export interface LegacyTierLimits {
   monthlyTokens: number;
   monthlyImages: number;
-  monthlySandboxExecutions: number;
+  monthlyLocalExecutions: number;
   monthlyVoiceMinutes: number;
   monthlyMcpCalls: number;
   monthlyWorkflowRuns: number;
@@ -174,7 +175,7 @@ export interface LegacyTierLimits {
 export interface LegacyUserUsage {
   tokens: number;
   images: number;
-  sandboxExecutions: number;
+  localExecutions: number;
   voiceMinutes: number;
   mcpCalls: number;
   workflowRuns: number;

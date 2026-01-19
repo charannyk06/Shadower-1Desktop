@@ -90,9 +90,9 @@ export async function GET(request: Request) {
             actualUsageCounts.image_generation ||
             usageSummary.image_generation ||
             0,
-          sandbox_execution:
-            actualUsageCounts.sandbox_execution ||
-            usageSummary.sandbox_execution ||
+          local_execution:
+            actualUsageCounts.local_execution ||
+            usageSummary.local_execution ||
             0,
           voice_minutes:
             actualUsageCounts.voice_minutes || usageSummary.voice_minutes || 0,

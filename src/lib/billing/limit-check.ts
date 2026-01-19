@@ -52,7 +52,7 @@ async function getCreditsUsedForPeriod(
  * UNIFIED CREDITS CHECK
  *
  * This is the primary function for checking if a user can consume credits.
- * All services (LLM tokens, images, voice, sandbox, etc.) use this function.
+ * All services (LLM tokens, images, voice, local execution, etc.) use this function.
  *
  * @param userId - User ID
  * @param creditsRequired - Number of credits to consume
@@ -168,12 +168,13 @@ export async function checkImageLimit(
 }
 
 /**
- * Check sandbox execution limit using credits system
+ * Check local execution limit using credits system
+ * Note: Local execution is free (runs on user's machine), always allowed
  */
-export async function checkSandboxLimit(
+export async function checkLocalExecutionLimit(
   userId: string,
 ): Promise<CreditLimitCheckResult> {
-  return checkCreditsLimit(userId, SERVICE_CREDIT_COSTS.sandboxPerExecution);
+  return checkCreditsLimit(userId, SERVICE_CREDIT_COSTS.localExecution);
 }
 
 /**
@@ -286,7 +287,7 @@ export type CreditsWarningsResult = {
     tokenCredits: number;
     imageCredits: number;
     voiceCredits: number;
-    sandboxCredits: number;
+    localExecutionCredits: number;
     mcpCredits: number;
     workflowCredits: number;
     webSearchCredits: number;
@@ -347,7 +348,7 @@ export async function getCreditsWarnings(
       tokenCredits: usageSummary.token_credits || 0,
       imageCredits: usageSummary.image_credits || 0,
       voiceCredits: usageSummary.voice_credits || 0,
-      sandboxCredits: usageSummary.sandbox_credits || 0,
+      localExecutionCredits: usageSummary.local_execution_credits || 0,
       mcpCredits: usageSummary.mcp_credits || 0,
       workflowCredits: usageSummary.workflow_credits || 0,
       webSearchCredits: usageSummary.web_search_credits || 0,
