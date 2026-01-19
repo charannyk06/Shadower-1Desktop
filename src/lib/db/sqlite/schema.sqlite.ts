@@ -461,7 +461,7 @@ export const AgentToolExecutionTable = sqliteTable(
       .references(() => UserTable.id, { onDelete: "cascade" }),
     toolName: text("tool_name").notNull(),
     toolSource: text("tool_source", {
-      enum: ["built_in", "mcp", "workflow", "composio", "agent_context"],
+      enum: ["built_in", "mcp", "workflow", "agent_context"],
     }).notNull(),
     mcpServerId: text("mcp_server_id").references(() => McpServerTable.id, {
       onDelete: "set null",
@@ -784,29 +784,6 @@ export const BookmarkTable = sqliteTable(
 );
 
 // ============================================================================
-// Composio Connection Table
-// ============================================================================
-
-export const ComposioConnectionTable = sqliteTable("composio_connection", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => randomUUID()),
-  userId: text("user_id")
-    .notNull()
-    .unique()
-    .references(() => UserTable.id, { onDelete: "cascade" }),
-  entityId: text("entity_id").notNull(),
-  connectedApps: text("connected_apps", { mode: "json" })
-    .$type<string[]>()
-    .default([]),
-  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-});
-
 // ============================================================================
 // Subscription & Billing Tables
 // ============================================================================
@@ -874,7 +851,6 @@ export const UsageEventTable = sqliteTable(
         "voice_minutes",
         "mcp_tool_call",
         "workflow_execution",
-        "composio_action",
         "web_search",
       ],
     }).notNull(),
@@ -1531,8 +1507,6 @@ export type WorkflowEdgeEntity = typeof WorkflowEdgeTable.$inferSelect;
 export type ArchiveEntity = typeof ArchiveTable.$inferSelect;
 export type ArchiveItemEntity = typeof ArchiveItemTable.$inferSelect;
 export type BookmarkEntity = typeof BookmarkTable.$inferSelect;
-export type ComposioConnectionEntity =
-  typeof ComposioConnectionTable.$inferSelect;
 export type SubscriptionEntity = typeof SubscriptionTable.$inferSelect;
 export type UsageEventEntity = typeof UsageEventTable.$inferSelect;
 export type PromoCodeEntity = typeof PromoCodeTable.$inferSelect;
@@ -1588,9 +1562,6 @@ export type WorkflowEdgeInsert = typeof WorkflowEdgeTable.$inferInsert;
 export type ArchiveInsert = typeof ArchiveTable.$inferInsert;
 export type ArchiveItemInsert = typeof ArchiveItemTable.$inferInsert;
 export type BookmarkInsert = typeof BookmarkTable.$inferInsert;
-export type ComposioConnectionInsert =
-  typeof ComposioConnectionTable.$inferInsert;
-export type SubscriptionInsert = typeof SubscriptionTable.$inferInsert;
 export type UsageEventInsert = typeof UsageEventTable.$inferInsert;
 export type PromoCodeInsert = typeof PromoCodeTable.$inferInsert;
 export type PromoCodeRedemptionInsert =
