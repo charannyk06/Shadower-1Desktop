@@ -1,5 +1,26 @@
-import { app, BrowserWindow, protocol } from "electron";
+import {
+  app,
+  BrowserWindow,
+  protocol,
+  globalShortcut,
+  Tray,
+  Menu,
+  nativeImage,
+  ipcMain,
+} from "electron";
 import path from "path";
+import log from "electron-log/main";
+
+// Configure electron-log
+log.initialize({ preload: true });
+log.transports.file.level = "info";
+log.transports.file.maxSize = 10 * 1024 * 1024; // 10MB
+log.transports.console.level = "debug";
+
+// Override console methods to use electron-log
+Object.assign(console, log.functions);
+
+log.info("[Main] Starting Shadower Desktop...");
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 if (require("electron-squirrel-startup")) {
@@ -7,6 +28,7 @@ if (require("electron-squirrel-startup")) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
 
 // Check if we're in development mode
 // In Electron dev mode, NODE_ENV might not be set, so check for dev server
@@ -182,6 +204,7 @@ app.whenReady().then(async () => {
     const { registerUserHandlers } = require("./ipc/user");
     const { registerFileHandlers } = require("./ipc/files");
     const { registerAuthHandlers } = require("./ipc/auth");
+    const { registerTerminalHandlers } = require("./ipc/terminal");
 
     registerChatHandlers();
     registerAgentHandlers();
@@ -190,24 +213,41 @@ app.whenReady().then(async () => {
     registerUserHandlers();
     registerFileHandlers();
     registerAuthHandlers();
+    registerTerminalHandlers();
 
     // Register vector handlers (optional - may fail if DuckDB not available)
     try {
       const { registerVectorHandlers } = require("./ipc/vector");
       registerVectorHandlers();
     } catch (vectorError) {
-      console.warn(
+      log.warn(
         "[Main] Vector handlers not available (non-critical):",
         vectorError instanceof Error ? vectorError.message : vectorError,
       );
     }
 
-    console.log("[Main] IPC handlers registered successfully");
+    log.info("[Main] IPC handlers registered successfully");
   } catch (error) {
     console.error("[Main] Failed to register IPC handlers:", error);
   }
 
   createWindow();
+
+  // Initialize system tray
+  try {
+    initializeSystemTray();
+    log.info("[Main] System tray initialized successfully");
+  } catch (error) {
+    log.error("[Main] Failed to initialize system tray:", error);
+  }
+
+  // Register global keyboard shortcuts
+  try {
+    registerGlobalShortcuts();
+    log.info("[Main] Global shortcuts registered successfully");
+  } catch (error) {
+    log.error("[Main] Failed to register global shortcuts:", error);
+  }
 
   // On macOS, re-create window when dock icon is clicked and no windows are open
   app.on("activate", () => {
@@ -217,11 +257,179 @@ app.whenReady().then(async () => {
   });
 });
 
+/**
+ * Initialize system tray with context menu
+ */
+function initializeSystemTray() {
+  // Create tray icon (use template for macOS dark mode support)
+  const iconPath = isDev
+    ? path.join(__dirname, "../resources/tray-icon.png")
+    : path.join(process.resourcesPath, "resources/tray-icon.png");
+
+  // Create a simple 16x16 icon if the file doesn't exist
+  let trayIcon: Electron.NativeImage;
+  try {
+    trayIcon = nativeImage.createFromPath(iconPath);
+    if (trayIcon.isEmpty()) {
+      throw new Error("Icon is empty");
+    }
+  } catch {
+    // Create a simple colored square as fallback
+    trayIcon = nativeImage.createEmpty();
+    log.warn("[Main] Using fallback tray icon");
+  }
+
+  // Resize for tray (16x16 on most platforms, 22x22 on some Linux)
+  if (!trayIcon.isEmpty()) {
+    trayIcon = trayIcon.resize({ width: 16, height: 16 });
+  }
+
+  tray = new Tray(trayIcon);
+  tray.setToolTip("Shadower - AI Agent Orchestration");
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: "Open Shadower",
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        } else {
+          createWindow();
+        }
+      },
+    },
+    {
+      label: "New Chat",
+      accelerator: "CmdOrCtrl+N",
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.webContents.send("shortcut:newChat");
+        }
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Quick Actions",
+      submenu: [
+        {
+          label: "Take Screenshot",
+          click: async () => {
+            if (mainWindow) {
+              mainWindow.webContents.send("shortcut:screenshot");
+            }
+          },
+        },
+        {
+          label: "Toggle Voice Mode",
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.send("shortcut:voiceMode");
+            }
+          },
+        },
+      ],
+    },
+    { type: "separator" },
+    {
+      label: "Settings",
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.webContents.send("shortcut:settings");
+        }
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Quit Shadower",
+      accelerator: "CmdOrCtrl+Q",
+      click: () => {
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  // On Windows/Linux, clicking the tray icon opens the window
+  tray.on("click", () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
+}
+
+/**
+ * Register global keyboard shortcuts
+ */
+function registerGlobalShortcuts() {
+  // Toggle app visibility: Ctrl/Cmd + Shift + Space
+  globalShortcut.register("CommandOrControl+Shift+Space", () => {
+    log.debug("[Main] Global shortcut: Toggle visibility");
+    if (mainWindow) {
+      if (mainWindow.isVisible() && mainWindow.isFocused()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    } else {
+      createWindow();
+    }
+  });
+
+  // Quick chat: Ctrl/Cmd + Shift + C
+  globalShortcut.register("CommandOrControl+Shift+C", () => {
+    log.debug("[Main] Global shortcut: Quick chat");
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send("shortcut:quickChat");
+    } else {
+      createWindow();
+    }
+  });
+
+  // Screenshot to chat: Ctrl/Cmd + Shift + S
+  globalShortcut.register("CommandOrControl+Shift+S", () => {
+    log.debug("[Main] Global shortcut: Screenshot to chat");
+    if (mainWindow) {
+      mainWindow.webContents.send("shortcut:screenshotToChat");
+    }
+  });
+}
+
+// Handle shortcut-related IPC
+ipcMain.on("app:quit", () => {
+  app.quit();
+});
+
+ipcMain.handle("app:getVersion", () => {
+  return app.getVersion();
+});
+
+ipcMain.handle("app:getPath", (_event, name: string) => {
+  return app.getPath(name as any);
+});
+
 // Quit when all windows are closed (except on macOS)
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+// Unregister shortcuts when app is quitting
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+  log.info("[Main] Global shortcuts unregistered");
 });
 
 // macOS: Quit app when user quits via Cmd+Q
@@ -248,11 +456,12 @@ app.on("before-quit", () => {
 
 // Handle any uncaught exceptions
 process.on("uncaughtException", (error) => {
-  console.error("Uncaught exception:", error);
-  // Log to file in production
-  if (!isDev) {
-    // TODO: Implement proper error logging to file
-  }
+  log.error("Uncaught exception:", error);
+});
+
+// Handle unhandled promise rejections
+process.on("unhandledRejection", (reason, promise) => {
+  log.error("Unhandled rejection at:", promise, "reason:", reason);
 });
 
 // Graceful shutdown
