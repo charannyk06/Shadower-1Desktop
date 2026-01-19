@@ -14,12 +14,6 @@ import {
 import { ChatMention } from "app-types/chat";
 import { colorize } from "consola/utils";
 import { DEFAULT_VOICE_TOOLS } from "lib/ai/speech";
-import {
-  SERVICE_CREDIT_COSTS,
-  checkVoiceLimit,
-  trackVoiceMinutes,
-} from "lib/billing";
-import { subscriptionRepository } from "lib/db/repository";
 import globalLogger from "lib/logger";
 import { getUserPreferences } from "lib/user/server";
 import { safe } from "ts-safe";
@@ -47,24 +41,6 @@ export async function POST(request: NextRequest) {
 
     if (!session?.user.id) {
       return new Response("Unauthorized", { status: 401 });
-    }
-
-    // Check voice limit before creating voice session
-    const voiceLimitCheck = await checkVoiceLimit(session.user.id, 1); // Minimum 1 minute per session
-    if (!voiceLimitCheck.allowed) {
-      logger.warn(
-        `[Billing] Voice limit exceeded for user ${session.user.id}: ${voiceLimitCheck.usage}/${voiceLimitCheck.limit}`,
-      );
-      return new Response(
-        JSON.stringify({
-          error: "limit_exceeded",
-          message: voiceLimitCheck.reason,
-          usage: voiceLimitCheck.usage,
-          limit: voiceLimitCheck.limit,
-          tier: voiceLimitCheck.tier,
-        }),
-        { status: 429 },
-      );
     }
 
     const { voice, mentions, agentId } = (await request.json()) as {
@@ -135,31 +111,6 @@ export async function POST(request: NextRequest) {
         tools: bindingTools,
       }),
     });
-
-    // Track voice session start - charge minimum 1 minute per session
-    // Note: For accurate billing, the client should report actual session duration
-    // when the session ends via a separate API call
-    if (r.ok) {
-      trackVoiceMinutes({
-        userId: session.user.id,
-        minutes: 1, // Minimum charge per session start
-        model: "gpt-4o-realtime-preview",
-      }).catch((err) => logger.error("Failed to track voice session:", err));
-
-      subscriptionRepository
-        .recordUsageEvent({
-          userId: session.user.id,
-          eventType: "voice_minutes",
-          amount: "1",
-          metadata: {
-            model: "gpt-4o-realtime-preview",
-            voice: voice || "alloy",
-            source: "voice_session_start",
-            creditsConsumed: SERVICE_CREDIT_COSTS.voicePerMinute,
-          },
-        })
-        .catch((err) => logger.error("Failed to record voice usage:", err));
-    }
 
     return new Response(r.body, {
       status: 200,

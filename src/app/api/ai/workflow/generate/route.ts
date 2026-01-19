@@ -20,12 +20,6 @@ import {
   convertTextToTiptapWithMentions,
 } from "lib/ai/workflow/convert-tiptap-mentions";
 import { logWorkflowError } from "lib/ai/workflow/workflow-error-handler";
-import { checkTokenLimit } from "lib/billing";
-import {
-  createLimitExceededResponse,
-  createUsageTrackingCallback,
-  getDefaultModelConfig,
-} from "lib/billing/usage-tracking";
 import globalLogger from "lib/logger";
 import { generateUUID } from "lib/utils";
 import { z } from "zod";
@@ -258,8 +252,6 @@ export async function POST(req: Request) {
       `[Workflow Generation] Request received - Model: ${validChatModel.provider}/${validChatModel.model}, Messages: ${messages?.length ?? 0}`,
     );
 
-    const modelConfig = getDefaultModelConfig(validChatModel);
-
     // Unified model capability check using centralized capability system
     // This replaces the previous dual validation (pattern matching + isToolCallUnsupportedModel)
     const modelId = validChatModel.model || "";
@@ -313,19 +305,6 @@ export async function POST(req: Request) {
           headers: { "Content-Type": "application/json" },
         },
       );
-    }
-
-    // Check token limit with model multiplier
-    // Use reasonable minimum estimate to prevent edge cases at exact limit
-    const estimatedMinTokens = 1000; // Workflow generation typically uses more tokens
-    const tokenLimitCheck = await checkTokenLimit(
-      session.user.id,
-      estimatedMinTokens,
-      modelConfig.model,
-      modelConfig.provider,
-    );
-    if (!tokenLimitCheck.allowed) {
-      return createLimitExceededResponse(tokenLimitCheck);
     }
 
     // Validate we have messages
@@ -1929,24 +1908,6 @@ Remember: After your brief explanation, you MUST call update_workflow_graph to c
               );
             }
           },
-          onFinish: createUsageTrackingCallback(
-            {
-              userId: session.user.id,
-              model: modelConfig.model,
-              provider: modelConfig.provider,
-              tier: tokenLimitCheck.tier,
-              source: "workflow_generation",
-              logger,
-            },
-            () =>
-              modelMessages
-                .map((m) =>
-                  typeof m.content === "string"
-                    ? m.content
-                    : JSON.stringify(m.content),
-                )
-                .join(" "),
-          ),
         });
 
         // CRITICAL: Order matters - consumeStream first, then merge
