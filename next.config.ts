@@ -56,6 +56,11 @@ export default () => {
           pino: "commonjs pino",
           "pino-pretty": "commonjs pino-pretty",
         });
+        // Ignore Electron service imports that don't exist in Next.js build
+        config.externals.push({
+          "../../../../electron/services/chrome-devtools":
+            "commonjs electron-services-chrome-devtools",
+        });
       }
       return config;
     },

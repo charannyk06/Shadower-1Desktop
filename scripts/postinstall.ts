@@ -50,6 +50,23 @@ async function main() {
       "pnpm openai-compatiable:init",
       "Initial openAI compatiable config setup",
     );
+
+    // Rebuild native modules for Electron if Electron is installed
+    try {
+      const electronPath = require.resolve("electron/package.json");
+      if (electronPath) {
+        console.log("Rebuilding native modules for Electron...");
+        await runCommand(
+          "npx @electron/rebuild --only=better-sqlite3 --force",
+          "Rebuild better-sqlite3 for Electron",
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "Electron not found, skipping native module rebuild:",
+        error,
+      );
+    }
   }
 }
 
