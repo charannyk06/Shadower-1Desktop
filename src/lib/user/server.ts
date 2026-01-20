@@ -23,9 +23,6 @@ const createLocalUser = (userId: string): BasicUserWithLastLogin => ({
   createdAt: new Date(),
   updatedAt: new Date(),
   lastLogin: null,
-  banned: false,
-  banReason: null,
-  banExpires: null,
 });
 
 /**
