@@ -30,7 +30,6 @@ import { SidebarGroup } from "ui/sidebar";
 import { Skeleton } from "ui/skeleton";
 import { WriteIcon } from "ui/write-icon";
 import { ArchiveDialog } from "../archive-dialog";
-import { AppSidebarAdmin } from "./app-sidebar-menu-admin";
 
 export function AppSidebarMenus() {
   const router = useRouter();
@@ -125,7 +124,6 @@ export function AppSidebarMenus() {
             </SidebarMenuItem>
           </Tooltip>
         </SidebarMenu>
-        <AppSidebarAdmin />
         <SidebarMenu className="group/archive">
           <Tooltip>
             <SidebarMenuItem>

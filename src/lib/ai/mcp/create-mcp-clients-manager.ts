@@ -126,6 +126,7 @@ export class MCPClientsManager {
                     description: tool.description,
                     inputSchema: jsonSchema(
                       toAny({
+                        type: tool.inputSchema?.type ?? "object",
                         ...tool.inputSchema,
                         properties: tool.inputSchema?.properties ?? {},
                         additionalProperties: false,

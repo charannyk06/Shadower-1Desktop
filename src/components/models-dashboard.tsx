@@ -1,6 +1,7 @@
 "use client";
 
 import { modelsFetcher, modelsApi } from "@/lib/electron/models-api";
+import { mutate } from "swr";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -261,6 +262,8 @@ export default function ModelsDashboard() {
         );
         setApiKeyDialogOpen(false);
         mutateApiKeys();
+        // Invalidate models cache to refresh available providers immediately
+        await mutate("/api/chat/models");
       } else {
         toast.error(result.error || "Failed to save API key");
       }

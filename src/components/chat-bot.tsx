@@ -27,16 +27,16 @@ import {
 import type { FragmentProgressEvent } from "@/types/fragment";
 
 import {
-  DefaultChatTransport,
   TextUIPart,
   UIMessage,
   getToolName,
   isToolUIPart,
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
+import { ElectronIPCTransport } from "@/lib/electron/ai-transport";
 import { useShallow } from "zustand/shallow";
 
-import { deleteThreadAction } from "@/app/api/chat/actions";
+import { threadApi } from "@/lib/electron/thread-api";
 import { cleanupThreadState } from "@/app/store";
 import { useGenerateThreadTitle } from "@/hooks/queries/use-generate-thread-title";
 import { useFileDragOverlay } from "@/hooks/use-file-drag-overlay";
@@ -855,7 +855,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   } = useChat({
     id: threadId,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-    transport: new DefaultChatTransport({
+    transport: new ElectronIPCTransport({
       prepareSendMessagesRequest: ({ messages, body, id }) => {
         if (window.location.pathname !== `/chat/${threadId}`) {
           window.history.replaceState({}, "", `/chat/${threadId}`);
@@ -1309,10 +1309,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         const lastMessage = latestMessages.at(-1);
         if (lastMessage?.role === "assistant") {
           // We need to save this message because it now contains the tool result
-          const { upsertMessageAction } = await import(
-            "@/app/api/chat/actions"
-          );
-          await upsertMessageAction(lastMessage, threadId);
+          await threadApi.upsertMessage(lastMessage, threadId);
         }
       }, 0);
     },
@@ -1661,7 +1658,7 @@ function DeleteThreadPopup({
   const router = useRouter();
   const handleDelete = useCallback(() => {
     setIsDeleting(true);
-    safe(() => deleteThreadAction(threadId))
+    safe(() => threadApi.delete(threadId))
       .watch(() => setIsDeleting(false))
       .ifOk(() => {
         // Clean up thread-related state (context usage, plans, files, mentions)

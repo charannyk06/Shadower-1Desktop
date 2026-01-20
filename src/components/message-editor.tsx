@@ -1,6 +1,6 @@
 "use client";
 
-import { deleteMessagesByChatIdAfterTimestampAction } from "@/app/api/chat/actions";
+import { threadApi } from "@/lib/electron/thread-api";
 import type { UseChatHelpers } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { Loader } from "lucide-react";
@@ -54,7 +54,7 @@ export function MessageEditor({
   const handleSubmit = async () => {
     setIsSubmitting(true);
 
-    await deleteMessagesByChatIdAfterTimestampAction(message.id);
+    await threadApi.deleteMessagesAfterTimestamp(message.chatId, message.id);
 
     setMessages((messages) => {
       const index = messages.findIndex((m) => m.id === message.id);

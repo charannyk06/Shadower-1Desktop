@@ -1,19 +1,16 @@
 "use client";
 
 import { appStore } from "@/app/store";
-import { useCompletion } from "@ai-sdk/react";
+import { isElectronWithIPC } from "@/lib/electron/ai-transport";
 import { ChatModel } from "app-types/chat";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { mutate } from "swr";
-import { safe } from "ts-safe";
 
 export function useGenerateThreadTitle(option: {
   threadId: string;
   chatModel?: ChatModel;
 }) {
-  const { complete, completion } = useCompletion({
-    api: "/api/chat/title",
-  });
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   const updateTitle = useCallback(
     (title: string) => {
@@ -39,45 +36,102 @@ export function useGenerateThreadTitle(option: {
         };
       });
     },
-    [option.threadId, option.chatModel?.model, option.chatModel?.provider],
+    [option.threadId],
   );
 
   const generateTitle = useCallback(
-    (message: string) => {
+    async (message: string) => {
       const { threadId, chatModel } = option;
       if (appStore.getState().generatingTitleThreadIds.includes(threadId))
         return;
+
       appStore.setState((prev) => ({
         generatingTitleThreadIds: [...prev.generatingTitleThreadIds, threadId],
       }));
-      safe(() => {
-        updateTitle("");
-        return complete("", {
-          body: {
-            message,
+
+      try {
+        // Use Electron IPC if available (always in Electron app)
+        if (isElectronWithIPC()) {
+          const api = (window as any).electronAPI;
+
+          // Set up listener for title generation
+          cleanupRef.current = api.ai.onTitleGenerated(
+            (data: { threadId: string; title: string }) => {
+              if (data.threadId === threadId && data.title) {
+                updateTitle(data.title);
+              }
+            },
+          );
+
+          // Call the IPC handler
+          const result = await api.ai.generateTitle({
             threadId,
+            message,
             chatModel: chatModel ?? appStore.getState().chatModel,
-          },
-        });
-      })
-        .ifOk(() => mutate("/api/thread"))
-        .watch(() => {
-          appStore.setState((prev) => ({
-            generatingTitleThreadIds: prev.generatingTitleThreadIds.filter(
-              (v) => v !== threadId,
-            ),
-          }));
-        });
+          });
+
+          if (result.title) {
+            updateTitle(result.title);
+          }
+
+          if (result.error) {
+            console.error("[Title Generation] Error:", result.error);
+          }
+        } else {
+          // Fallback to HTTP for web (shouldn't happen in Electron)
+          const response = await fetch("/api/chat/title", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message,
+              threadId,
+              chatModel: chatModel ?? appStore.getState().chatModel,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          // Read the streaming response
+          const reader = response.body?.getReader();
+          if (reader) {
+            let title = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              title += new TextDecoder().decode(value);
+            }
+            if (title.trim()) {
+              updateTitle(title.trim());
+            }
+          }
+        }
+
+        mutate("/api/thread");
+      } catch (error) {
+        console.error("[Title Generation] Error:", error);
+      } finally {
+        // Cleanup listener
+        cleanupRef.current?.();
+        cleanupRef.current = null;
+
+        appStore.setState((prev) => ({
+          generatingTitleThreadIds: prev.generatingTitleThreadIds.filter(
+            (v) => v !== threadId,
+          ),
+        }));
+      }
     },
-    [updateTitle],
+    [option, updateTitle],
   );
 
+  // Cleanup on unmount
   useEffect(() => {
-    const title = completion.trim();
-    if (title) {
-      updateTitle(title);
-    }
-  }, [completion, updateTitle]);
+    return () => {
+      cleanupRef.current?.();
+    };
+  }, []);
 
   return generateTitle;
 }

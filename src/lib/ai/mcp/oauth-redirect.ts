@@ -1,13 +1,10 @@
 "use client";
 
-import {
-  authorizeMcpClientAction,
-  checkTokenMcpClientAction,
-} from "@/app/api/mcp/actions";
+import { mcpApi } from "@/lib/electron/mcp-api";
 import { wait } from "lib/utils";
 
 export function redriectMcpOauth(id: string) {
-  return authorizeMcpClientAction(id).then((authUrl) => {
+  return mcpApi.authorize(id).then((authUrl) => {
     if (!authUrl) throw new Error("Not Authorizing");
     return new Promise((resolve, reject) => {
       // Safely append prompt parameter to authUrl
@@ -25,7 +22,7 @@ export function redriectMcpOauth(id: string) {
 
       const check = async () => {
         await wait(1000); // 1 second
-        const isAuthorized = await checkTokenMcpClientAction(id);
+        const isAuthorized = await mcpApi.checkToken(id);
         if (isAuthorized) return resolve(true);
         return reject(new Error("Authentication failed"));
       };

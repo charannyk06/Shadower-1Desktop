@@ -3,7 +3,6 @@
 import { appStore } from "@/app/store";
 import { useChatModels } from "@/hooks/queries/use-chat-models";
 import { ChatModel } from "app-types/chat";
-import { cn } from "lib/utils";
 import { CheckIcon, ChevronDown } from "lucide-react";
 import { Fragment, PropsWithChildren, memo, useEffect, useState } from "react";
 import { Button } from "ui/button";
@@ -39,7 +38,7 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
     if (!providers || providers.length === 0) {
       // If there's a model but no providers yet, clear it to prevent showing invalid model
       if (modelToUse) {
-        setModel(null);
+        setModel(undefined);
       }
       return;
     }
@@ -71,10 +70,10 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
             appStore.setState({ chatModel: defaultModel });
           }
         } else {
-          setModel(null);
+          setModel(undefined);
           // Clear store if no valid models available
           if (!props.currentModel) {
-            appStore.setState({ chatModel: null });
+            appStore.setState({ chatModel: undefined });
           }
         }
       }
@@ -93,7 +92,7 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
           appStore.setState({ chatModel: defaultModel });
         }
       } else {
-        setModel(null);
+        setModel(undefined);
       }
     }
   }, [props.currentModel, providers]);
@@ -147,16 +146,8 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
               ? providers.map((provider, i) => (
                   <Fragment key={provider.provider}>
                     <CommandGroup
-                      heading={
-                        <ProviderHeader
-                          provider={provider.provider}
-                          hasAPIKey={provider.hasAPIKey}
-                        />
-                      }
-                      className={cn(
-                        "pb-4 group",
-                        !provider.hasAPIKey && "opacity-50",
-                      )}
+                      heading={<ProviderHeader provider={provider.provider} />}
+                      className="pb-4 group"
                       onWheel={(e) => {
                         e.stopPropagation();
                       }}
@@ -165,7 +156,6 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
                       {provider.models.map((item) => (
                         <CommandItem
                           key={item.name}
-                          disabled={!provider.hasAPIKey}
                           className="cursor-pointer"
                           onSelect={() => {
                             setModel({
@@ -217,8 +207,7 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
 
 const ProviderHeader = memo(function ProviderHeader({
   provider,
-  hasAPIKey,
-}: { provider: string; hasAPIKey: boolean }) {
+}: { provider: string }) {
   return (
     <div className="text-sm text-muted-foreground flex items-center gap-1.5 group-hover:text-foreground transition-colors duration-300">
       {provider === "openai" ? (
@@ -230,13 +219,6 @@ const ProviderHeader = memo(function ProviderHeader({
         <ModelProviderIcon provider={provider} className="size-3" />
       )}
       {provider}
-      {!hasAPIKey && (
-        <>
-          <span className="text-xs ml-auto text-muted-foreground">
-            No API Key
-          </span>
-        </>
-      )}
     </div>
   );
 });

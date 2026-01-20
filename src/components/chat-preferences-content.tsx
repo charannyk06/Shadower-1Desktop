@@ -1,7 +1,6 @@
 "use client";
 import { useObjectState } from "@/hooks/use-object-state";
 import { userApi, userFetcher } from "@/lib/electron/user-api";
-import { isElectronMode } from "@/lib/electron/user-api";
 import { UserPreferences } from "app-types/user";
 import { authClient } from "auth/client";
 import {

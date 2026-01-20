@@ -1,4 +1,5 @@
 "use client";
+import { workflowApi } from "@/lib/electron/workflow-api";
 import { DBWorkflow } from "app-types/workflow";
 import { useState } from "react";
 import { safe } from "ts-safe";
@@ -29,13 +30,9 @@ export function WorkflowContextMenu(props: WorkflowContextMenuProps) {
   const t = useTranslations();
   const handleDeleteWorkflow = async () => {
     toast.promise(
-      safe(() =>
-        fetch(`/api/workflow/${props.workflow.id}`, {
-          method: "DELETE",
-        }),
-      )
+      safe(() => workflowApi.delete(props.workflow.id))
         .ifOk(() => {
-          mutate("/api/workflow");
+          mutate("electron:workflows");
           setOpen(false);
         })
         .unwrap(),

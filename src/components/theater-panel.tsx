@@ -186,28 +186,43 @@ export function TheaterPanel() {
       filesVersion,
     );
 
-    fetch(`/api/thread/${currentThreadId}/files`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch sandbox files");
-        return res.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        console.log(
-          "[TheaterPanel] Received sandbox files:",
-          data.files?.length || 0,
-          data.files,
-        );
-        setSandboxFiles(data.files || []);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error("Failed to load sandbox files:", err);
-        setSandboxFiles([]);
-      })
-      .finally(() => {
-        if (!cancelled) setSandboxFilesLoading(false);
-      });
+    // Use Electron IPC if available - this is an Electron desktop app
+    const api =
+      typeof window !== "undefined" ? (window as any).electronAPI : null;
+
+    if (api?.files?.listFiles) {
+      // Use IPC to list sandbox files
+      api.files
+        .listFiles("sandbox")
+        .then((files: any[]) => {
+          if (cancelled) return;
+          // Filter files for this thread (if they have thread metadata)
+          const threadFiles = files.filter(
+            (f: any) => !f.threadId || f.threadId === currentThreadId,
+          );
+          console.log(
+            "[TheaterPanel] Received sandbox files via IPC:",
+            threadFiles.length,
+          );
+          setSandboxFiles(threadFiles);
+        })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          console.error("Failed to load sandbox files via IPC:", err);
+          setSandboxFiles([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSandboxFilesLoading(false);
+        });
+    } else {
+      // No Electron API available - just return empty array
+      // In Electron desktop app, HTTP endpoints require auth that's handled via IPC
+      console.log(
+        "[TheaterPanel] Electron API not available, skipping sandbox files fetch",
+      );
+      setSandboxFiles([]);
+      setSandboxFilesLoading(false);
+    }
 
     return () => {
       cancelled = true;

@@ -1,6 +1,6 @@
 "use client";
-import { addItemToArchiveAction } from "@/app/api/archive/actions";
-import { deleteThreadAction, updateThreadAction } from "@/app/api/chat/actions";
+import { threadApi } from "@/lib/electron/thread-api";
+import { archiveApi } from "@/lib/electron/archive-api";
 import { cleanupThreadState } from "@/app/store";
 import { appStore } from "@/app/store";
 import { useToRef } from "@/hooks/use-latest";
@@ -82,7 +82,7 @@ export function ThreadDropdown({
           throw new Error(t("Chat.Thread.titleRequired"));
         }
       })
-      .ifOk(() => updateThreadAction(threadId, { title }))
+      .ifOk(() => threadApi.update(threadId, { title }))
       .ifOk(() => mutate("/api/thread"))
       .watch(({ isOk, error }) => {
         if (isOk) {
@@ -96,7 +96,7 @@ export function ThreadDropdown({
   const handleDelete = async (_e: React.MouseEvent) => {
     safe()
       .watch(() => setIsDeleting(true))
-      .ifOk(() => deleteThreadAction(threadId))
+      .ifOk(() => threadApi.delete(threadId))
       .watch(() => setIsDeleting(false))
       .watch(() => setOpen(false))
       .watch(({ isOk, error }) => {
@@ -120,7 +120,7 @@ export function ThreadDropdown({
 
   const handleAddToArchive = async (archiveId: string) => {
     safe()
-      .ifOk(() => addItemToArchiveAction(archiveId, threadId))
+      .ifOk(() => archiveApi.archiveThread(threadId, archiveId))
       .watch(({ isOk, error }) => {
         if (isOk) {
           toast.success(t("Archive.itemAddedToArchive"));

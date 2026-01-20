@@ -13,11 +13,9 @@ import { useSidebar } from "ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
 import { appStore } from "@/app/store";
-import { BackButton } from "@/components/layouts/back-button";
-import { buildReturnUrl } from "lib/admin/navigation-utils";
 import { Shortcuts, getShortcutKeyList } from "lib/keyboard-shortcuts";
 import { useTranslations } from "next-intl";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 import { useShallow } from "zustand/shallow";
@@ -30,14 +28,6 @@ export function AppHeader() {
   );
   const { toggleSidebar, open, setOpen } = useSidebar();
   const currentPaths = usePathname();
-  const searchParams = useSearchParams();
-
-  const showActionButtons = useMemo(() => {
-    if (currentPaths.startsWith("/admin")) {
-      return false;
-    }
-    return true;
-  }, [currentPaths]);
 
   const isOnChatPage = useMemo(() => {
     return currentPaths.startsWith("/chat/");
@@ -47,21 +37,7 @@ export function AppHeader() {
     if (currentPaths.startsWith("/chat/")) {
       return <ThreadDropdownComponent />;
     }
-    if (
-      currentPaths.startsWith("/admin/users/") &&
-      currentPaths.split("/").length > 3
-    ) {
-      const searchPageParams = searchParams.get("searchPageParams");
-      const returnUrl = buildReturnUrl("/admin/users", searchPageParams || "");
-      return (
-        <BackButton
-          data-testid="admin-users-back-button"
-          returnUrl={returnUrl}
-          title={t("Admin.Users.backToUsers")}
-        />
-      );
-    }
-  }, [currentPaths, searchParams]);
+  }, [currentPaths]);
 
   return (
     <header className="sticky top-0 z-50 flex items-center px-3 py-2 pt-8">
@@ -111,7 +87,7 @@ export function AppHeader() {
       {componentByPage}
 
       <div className="flex-1" />
-      {showActionButtons && (
+      {
         <div className="flex items-center gap-2">
           {isOnChatPage && (
             <Tooltip>
@@ -212,7 +188,7 @@ export function AppHeader() {
             </TooltipContent>
           </Tooltip>
         </div>
-      )}
+      }
     </header>
   );
 }

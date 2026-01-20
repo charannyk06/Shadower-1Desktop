@@ -19,11 +19,7 @@ import { Card, CardContent, CardHeader } from "ui/card";
 import JsonView from "ui/json-view";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
-import {
-  refreshMcpClientAction,
-  removeMcpClientAction,
-  shareMcpServerAction,
-} from "@/app/api/mcp/actions";
+import { mcpApi } from "@/lib/electron/mcp-api";
 import { handleErrorWithToast } from "ui/shared-toast";
 import { ShareableActions, type Visibility } from "./shareable-actions";
 
@@ -87,12 +83,12 @@ export const MCPCard = memo(function MCPCard({
   );
 
   const handleRefresh = useCallback(
-    () => pipeProcessing(() => refreshMcpClientAction(id)),
+    () => pipeProcessing(() => mcpApi.refreshClient(id)),
     [id],
   );
 
   const handleDelete = useCallback(async () => {
-    await pipeProcessing(() => removeMcpClientAction(id));
+    await pipeProcessing(() => mcpApi.delete(id));
   }, [id]);
 
   const handleAuthorize = useCallback(
@@ -105,7 +101,7 @@ export const MCPCard = memo(function MCPCard({
       // Map visibility for MCP (public becomes featured)
       const mcpVisibility = newVisibility === "public" ? "public" : "private";
       safe(() => setVisibilityChangeLoading(true))
-        .map(async () => shareMcpServerAction(id, mcpVisibility))
+        .map(async () => mcpApi.updateVisibility(id, mcpVisibility))
         .ifOk(() => {
           mutate("/api/mcp/list");
         })

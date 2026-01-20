@@ -1,72 +1,17 @@
-import { cn } from "lib/utils";
-
 export function CerebrasIcon({ className }: { className?: string }) {
   return (
     <svg
-      className={cn("size-4", className)}
-      viewBox="0 0 24 24"
+      className={className}
+      viewBox="0 0 48 48"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
+      aria-label="Cerebras"
     >
-      <rect
-        x="3"
-        y="3"
-        width="7"
-        height="7"
-        rx="1"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <rect
-        x="14"
-        y="3"
-        width="7"
-        height="7"
-        rx="1"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <rect
-        x="3"
-        y="14"
-        width="7"
-        height="7"
-        rx="1"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <rect
-        x="14"
-        y="14"
-        width="7"
-        height="7"
-        rx="1"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
       <path
-        d="M10 6.5H14"
         stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M10 17.5H14"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M6.5 10V14"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M17.5 10V14"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
+        strokeMiterlimit="10"
+        strokeWidth="3.085"
+        d="M24 46C11.85 46 2 36.15 2 24S11.85 2 24 2M12.666 37.596c-7.497-6.29-8.474-17.465-2.184-24.962S27.948 4.16 35.445 10.45m-17.78 25.44c-6.562-3.464-9.074-11.594-5.61-18.156 3.465-6.564 11.593-9.075 18.157-5.61M24 33.157a9.156 9.156 0 0 1 0-18.313"
       />
     </svg>
   );

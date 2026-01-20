@@ -24,10 +24,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 import { Markdown } from "./markdown";
 import { MessageEditor } from "./message-editor";
 
-import {
-  deleteMessageAction,
-  deleteMessagesByChatIdAfterTimestampAction,
-} from "@/app/api/chat/actions";
+import { threadApi } from "@/lib/electron/thread-api";
 import { AnimatePresence, motion } from "framer-motion";
 import { SelectModel } from "./select-model";
 
@@ -143,7 +140,7 @@ export const UserMessagePart = memo(
       });
       if (!ok) return;
       safe(() => setIsDeleting(true))
-        .ifOk(() => deleteMessageAction(message.id))
+        .ifOk(() => threadApi.deleteMessage(message.id))
         .ifOk(() =>
           setMessages((messages) => {
             const index = messages.findIndex((m) => m.id === message.id);
@@ -318,7 +315,7 @@ export const AssistMessagePart = memo(function AssistMessagePart({
     });
     if (!ok) return;
     safe(() => setIsDeleting(true))
-      .ifOk(() => deleteMessageAction(message.id))
+      .ifOk(() => threadApi.deleteMessage(message.id))
       .ifOk(() =>
         setMessages((messages) => {
           const index = messages.findIndex((m) => m.id === message.id);
@@ -338,7 +335,7 @@ export const AssistMessagePart = memo(function AssistMessagePart({
     safe(() => setIsLoading(true))
       .ifOk(() =>
         threadId
-          ? deleteMessagesByChatIdAfterTimestampAction(message.id)
+          ? threadApi.deleteMessagesAfterTimestamp(threadId, message.id)
           : Promise.resolve(),
       )
       .ifOk(() =>
@@ -892,7 +889,7 @@ export const ToolMessagePart = memo(
       });
       if (!ok) return;
       safe(() => setIsDeleting(true))
-        .ifOk(() => deleteMessageAction(messageId))
+        .ifOk(() => threadApi.deleteMessage(messageId))
         .ifOk(() =>
           setMessages?.((messages) => {
             const index = messages.findIndex((m) => m.id === messageId);

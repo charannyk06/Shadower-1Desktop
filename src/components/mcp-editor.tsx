@@ -23,7 +23,6 @@ import JsonView from "./ui/json-view";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 
-import { existMcpClientByServerNameAction } from "@/app/api/mcp/actions";
 import { useTranslations } from "next-intl";
 import { Alert, AlertDescription, AlertTitle } from "ui/alert";
 import { z } from "zod";
@@ -134,7 +133,7 @@ export default function MCPEditor({
     safe(() => setIsLoading(true))
       .map(async () => {
         if (shouldInsert) {
-          const exist = await existMcpClientByServerNameAction(name);
+          const exist = await mcpApi.existsByServerName(name);
           if (exist) {
             throw new Error(t("MCP.nameAlreadyExists"));
           }

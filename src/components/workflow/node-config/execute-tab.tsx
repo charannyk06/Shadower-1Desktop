@@ -1,4 +1,4 @@
-import { generateObjectAction } from "@/app/api/chat/actions";
+import { aiApi } from "@/lib/electron/ai-api";
 import { appStore } from "@/app/store";
 import { useWorkflowStore } from "@/app/store/workflow.store";
 import { SelectModel } from "@/components/select-model";
@@ -125,22 +125,24 @@ export function ExecuteTab({
     });
     if (!result) return;
     toast.promise(
-      generateObjectAction({
-        model,
-        prompt: {
-          system: `You are a parameter generator for tool execution.
+      aiApi
+        .generateObject({
+          model,
+          prompt: {
+            system: `You are a parameter generator for tool execution.
 Analyze the user's request and generate creative JSON data that matches the provided schema.
 If information cannot be inferred from the user's question, use your creativity to generate engaging data.
 Fill all required fields and return only valid JSON without explanations.
 
 tool-name: ${workflow!.name}
 ${workflow!.description ? `tool-description: ${workflow!.description}` : ""}`,
-          user: result,
-        },
-        schema: inputSchema,
-      }).then((res) => {
-        setQuery(res);
-      }),
+            user: result,
+          },
+          schema: inputSchema,
+        })
+        .then((res) => {
+          setQuery(res);
+        }),
       {
         loading: t("Common.generatingInputWithAI"),
         success: t("Common.inputGeneratedSuccessfully"),

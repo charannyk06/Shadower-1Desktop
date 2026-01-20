@@ -49,16 +49,6 @@ const McpCustomizationPopup = dynamic(
   },
 );
 
-const UserSettingsPopup = dynamic(
-  () =>
-    import("@/components/user/user-detail/user-settings-popup").then(
-      (mod) => mod.UserSettingsPopup,
-    ),
-  {
-    ssr: false,
-  },
-);
-
 const KnowledgePopup = dynamic(
   () =>
     import("@/components/knowledge/knowledge-popup").then(
@@ -79,16 +69,11 @@ const KnowledgeContent = dynamic(
   },
 );
 
-export function AppPopupProvider({
-  userSettingsComponent,
-}: {
-  userSettingsComponent: React.ReactNode;
-}) {
+export function AppPopupProvider() {
   return (
     <>
       <KeyboardShortcutsPopup />
       <ChatPreferencesPopup />
-      <UserSettingsPopup userSettingsComponent={userSettingsComponent} />
       <KnowledgePopup knowledgeComponent={<KnowledgeContent />} />
       <ChatBotVoice />
       <ChatBotTemporary />

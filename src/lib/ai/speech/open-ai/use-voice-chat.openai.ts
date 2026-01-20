@@ -14,7 +14,7 @@ import {
   OpenAIRealtimeSession,
 } from "./openai-realtime-event";
 
-import { callMcpToolByServerNameAction } from "@/app/api/mcp/actions";
+import { mcpApi } from "@/lib/electron/mcp-api";
 import { appStore } from "@/app/store";
 import { extractMCPToolId } from "lib/ai/mcp/mcp-tool-id";
 import { useTheme } from "next-themes";
@@ -215,11 +215,12 @@ export function useOpenAIVoiceChat(props?: VoiceChatOptions): VoiceChatSession {
       } else {
         const toolId = extractMCPToolId(toolName);
 
-        toolResult = await callMcpToolByServerNameAction(
+        const mcpResult = await mcpApi.callToolByServerName(
           toolId.serverName,
           toolId.toolName,
           toolArgs,
         );
+        toolResult = mcpResult.result;
       }
       startListening();
       const resultText = JSON.stringify(toolResult).trim();
