@@ -136,9 +136,7 @@ export interface ElectronAPI {
       saveToolCustomization: (data: any) => Promise<any>;
       // New handlers
       existsByServerName: (name: string) => Promise<boolean>;
-      refreshClient: (
-        serverId: string,
-      ) => Promise<{
+      refreshClient: (serverId: string) => Promise<{
         success: boolean;
         status?: string;
         toolInfo?: any[];
@@ -335,7 +333,16 @@ export interface ElectronAPI {
       message: any;
       imageTool?: { model?: string };
       attachments?: any[];
-    }) => Promise<{ success?: boolean; error?: string; threadId?: string }>;
+    }) => Promise<{
+      success?: boolean;
+      error?: string;
+      threadId?: string;
+      status?: string;
+    }>;
+    startStream: (request: { threadId: string }) => Promise<{
+      success?: boolean;
+      error?: string;
+    }>;
     abort: (threadId: string) => Promise<{ success: boolean; error?: string }>;
     generateTitle: (request: {
       threadId: string;
@@ -364,6 +371,13 @@ export interface ElectronAPI {
     ) => () => void;
     onStreamError: (
       callback: (data: { threadId: string; error: string }) => void,
+    ) => () => void;
+    onStreamStep: (
+      callback: (data: {
+        threadId: string;
+        stepType: string;
+        toolCallCount: number;
+      }) => void,
     ) => () => void;
     onTitleGenerated: (
       callback: (data: { threadId: string; title: string }) => void,
@@ -502,7 +516,9 @@ export interface ElectronAPI {
 // Expose protected methods that allow the renderer process to use
 // ipcRenderer without exposing the entire object
 const electronAPI: ElectronAPI = {
-  platform: process.platform,
+  platform:
+    (typeof window !== "undefined" && window.electronPlatform) ||
+    process.platform,
 
   // Authentication operations
   auth: {
@@ -793,6 +809,7 @@ const electronAPI: ElectronAPI = {
   },
 
   // AI streaming (IPC-based, no HTTP server needed)
+  // Uses two-phase approach: stream() prepares, startStream() begins
   ai: {
     stream: (request: {
       threadId: string;
@@ -806,6 +823,8 @@ const electronAPI: ElectronAPI = {
       imageTool?: { model?: string };
       attachments?: any[];
     }) => ipcRenderer.invoke("ai:stream", request),
+    startStream: (request: { threadId: string }) =>
+      ipcRenderer.invoke("ai:stream:start", request),
     abort: (threadId: string) => ipcRenderer.invoke("ai:abort", threadId),
     generateTitle: (request: {
       threadId: string;
@@ -846,6 +865,17 @@ const electronAPI: ElectronAPI = {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("ai:stream:error", handler);
       return () => ipcRenderer.removeListener("ai:stream:error", handler);
+    },
+    onStreamStep: (
+      callback: (data: {
+        threadId: string;
+        stepType: string;
+        toolCallCount: number;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:stream:step", handler);
+      return () => ipcRenderer.removeListener("ai:stream:step", handler);
     },
     onTitleGenerated: (
       callback: (data: { threadId: string; title: string }) => void,
@@ -921,23 +951,13 @@ const electronAPI: ElectronAPI = {
 // Use contextBridge to expose the API to the renderer process
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);
 
-// Also expose Node.js process information (read-only)
-contextBridge.exposeInMainWorld("process", {
-  platform: process.platform,
-  env: {
-    NODE_ENV: process.env.NODE_ENV,
-  },
-});
+// Expose platform info separately (Vite handles process.env in dev mode)
+contextBridge.exposeInMainWorld("electronPlatform", process.platform);
 
 // TypeScript declaration for global window object
 declare global {
   interface Window {
     electronAPI: ElectronAPI;
-    process: {
-      platform: NodeJS.Platform;
-      env: {
-        NODE_ENV: string | undefined;
-      };
-    };
+    electronPlatform: NodeJS.Platform;
   }
 }

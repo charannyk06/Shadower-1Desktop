@@ -11,6 +11,28 @@ import {
 import path from "path";
 import log from "electron-log/main";
 
+// Static imports for IPC handlers (esbuild will bundle these)
+import { registerAuthHandlers } from "./ipc/auth";
+import { registerChatHandlers } from "./ipc/chat";
+import { registerAgentHandlers } from "./ipc/agents";
+import { registerWorkflowHandlers } from "./ipc/workflows";
+import { registerMcpHandlers } from "./ipc/mcp";
+import { registerUserHandlers } from "./ipc/user";
+import { registerFileHandlers } from "./ipc/files";
+import { registerTerminalHandlers } from "./ipc/terminal";
+import { registerModelsHandlers } from "./ipc/models";
+import { registerArchiveHandlers } from "./ipc/archives";
+import { registerAIHandlers } from "./ipc/ai";
+import { registerBookmarkHandlers } from "./ipc/bookmarks";
+import { registerVectorHandlers } from "./ipc/vector";
+
+// Static imports for services
+import { ElectronAuthService } from "./services/auth";
+import { ElectronFileStorage } from "./services/file-storage";
+import { closeVectorStore } from "./services/vector-store";
+import { closeEmbeddingService } from "./services/embedding";
+import { closeDatabase } from "./services/database";
+
 // Configure electron-log
 log.initialize({ preload: true });
 log.transports.file.level = "info";
@@ -33,7 +55,7 @@ let tray: Tray | null = null;
 // Check if we're in development mode
 // In Electron dev mode, NODE_ENV might not be set, so check for dev server
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 5173;
 
 function createWindow() {
   // Create the browser window
@@ -55,15 +77,15 @@ function createWindow() {
 
   // Load the app
   if (isDev) {
-    // In development, load from Next.js dev server
+    // In development, load from Vite dev server
     const devUrl = `http://localhost:${port}`;
     console.log(`[Main] Loading from dev server: ${devUrl}`);
     mainWindow.loadURL(devUrl).catch((error) => {
       console.error("[Main] Failed to load URL:", error);
     });
     // DevTools can be opened manually with Cmd+Option+I (macOS) or Ctrl+Shift+I (Windows/Linux)
-    // Uncomment the line below if you want DevTools to open automatically:
-    // mainWindow.webContents.openDevTools();
+    // Open DevTools automatically in dev mode to debug issues
+    mainWindow.webContents.openDevTools();
 
     // Log when page finishes loading
     mainWindow.webContents.on("did-finish-load", () => {
@@ -184,12 +206,9 @@ app.whenReady().then(async () => {
 
   // Initialize file storage
   try {
-    const { ElectronFileStorage } = require("./services/file-storage");
     console.log("[Main] Initializing file storage...");
-
     const fileStorage = ElectronFileStorage.getInstance();
     await fileStorage.initialize();
-
     console.log("[Main] File storage initialized successfully");
   } catch (error) {
     console.error("[Main] Failed to initialize file storage:", error);
@@ -197,7 +216,6 @@ app.whenReady().then(async () => {
 
   // Initialize auth service (must be done before registering handlers)
   try {
-    const { ElectronAuthService } = require("./services/auth");
     const authService = ElectronAuthService.getInstance();
     await authService.initialize();
     console.log("[Main] Auth service initialized");
@@ -216,95 +234,24 @@ app.whenReady().then(async () => {
     }
   };
 
-  // Auth handlers should be registered first as they're critical
-  try {
-    const { registerAuthHandlers } = require("./ipc/auth");
-    registerHandler("Auth", registerAuthHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load auth handlers:", error);
-  }
+  // Register all IPC handlers using static imports (bundled by esbuild)
+  registerHandler("Auth", registerAuthHandlers);
+  registerHandler("Chat", registerChatHandlers);
+  registerHandler("Agent", registerAgentHandlers);
+  registerHandler("Workflow", registerWorkflowHandlers);
+  registerHandler("MCP", registerMcpHandlers);
+  registerHandler("User", registerUserHandlers);
+  registerHandler("File", registerFileHandlers);
+  registerHandler("Terminal", registerTerminalHandlers);
+  registerHandler("Models", registerModelsHandlers);
+  registerHandler("Archive", registerArchiveHandlers);
+  registerHandler("AI", registerAIHandlers);
+  registerHandler("Bookmark", registerBookmarkHandlers);
 
+  // Vector handlers are optional (may fail if DuckDB not available)
   try {
-    const { registerChatHandlers } = require("./ipc/chat");
-    registerHandler("Chat", registerChatHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load chat handlers:", error);
-  }
-
-  try {
-    const { registerAgentHandlers } = require("./ipc/agents");
-    registerHandler("Agent", registerAgentHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load agent handlers:", error);
-  }
-
-  try {
-    const { registerWorkflowHandlers } = require("./ipc/workflows");
-    registerHandler("Workflow", registerWorkflowHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load workflow handlers:", error);
-  }
-
-  try {
-    const { registerMcpHandlers } = require("./ipc/mcp");
-    registerHandler("MCP", registerMcpHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load MCP handlers:", error);
-  }
-
-  try {
-    const { registerUserHandlers } = require("./ipc/user");
-    registerHandler("User", registerUserHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load user handlers:", error);
-  }
-
-  try {
-    const { registerFileHandlers } = require("./ipc/files");
-    registerHandler("File", registerFileHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load file handlers:", error);
-  }
-
-  try {
-    const { registerTerminalHandlers } = require("./ipc/terminal");
-    registerHandler("Terminal", registerTerminalHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load terminal handlers:", error);
-  }
-
-  try {
-    const { registerModelsHandlers } = require("./ipc/models");
-    registerHandler("Models", registerModelsHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load models handlers:", error);
-  }
-
-  try {
-    const { registerArchiveHandlers } = require("./ipc/archives");
-    registerHandler("Archive", registerArchiveHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load archive handlers:", error);
-  }
-
-  try {
-    const { registerAIHandlers } = require("./ipc/ai");
-    registerHandler("AI", registerAIHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load AI handlers:", error);
-  }
-
-  try {
-    const { registerBookmarkHandlers } = require("./ipc/bookmarks");
-    registerHandler("Bookmark", registerBookmarkHandlers);
-  } catch (error) {
-    console.error("[Main] Failed to load bookmark handlers:", error);
-  }
-
-  // Register vector handlers (optional - may fail if DuckDB not available)
-  try {
-    const { registerVectorHandlers } = require("./ipc/vector");
-    registerHandler("Vector", registerVectorHandlers);
+    registerVectorHandlers();
+    console.log("[Main] Vector handlers registered");
   } catch (vectorError) {
     log.warn(
       "[Main] Vector handlers not available (non-critical):",
@@ -519,9 +466,8 @@ app.on("will-quit", () => {
 app.on("before-quit", async () => {
   // Close vector services
   try {
-    const { VectorStore } = require("./services/vector-store");
-    const vectorStore = VectorStore.getInstance();
-    vectorStore.close();
+    closeVectorStore();
+    closeEmbeddingService();
     console.log("[Main] Vector services closed successfully");
   } catch (error) {
     console.error("[Main] Error closing vector services:", error);
@@ -529,7 +475,6 @@ app.on("before-quit", async () => {
 
   // Close database connection
   try {
-    const { closeDatabase } = require("./services/database");
     closeDatabase();
     console.log("[Main] Database closed successfully");
   } catch (error) {

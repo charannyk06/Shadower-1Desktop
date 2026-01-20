@@ -31,6 +31,7 @@ import {
 } from "ai";
 import { getDatabase, schema } from "../services/database";
 import { eq, inArray } from "drizzle-orm";
+import { randomUUID } from "crypto";
 import { exec, spawn } from "child_process";
 import { promisify } from "util";
 import * as path from "path";
@@ -51,6 +52,98 @@ const activeStreams = new Map<string, AbortController>();
 // Track active MCP clients
 const mcpClients = new Map<string, MCPClient>();
 
+// Track stream contexts for two-phase streaming (prepare + start)
+interface StreamContext {
+  model: any;
+  messages: any[];
+  tools: Record<string, any>;
+  abortController: AbortController;
+  systemPrompt: string;
+  threadId: string;
+  event: Electron.IpcMainInvokeEvent;
+  userMessage?: UIMessage; // Store user message for persistence
+  chatModel?: { provider: string; model: string };
+}
+const preparedStreams = new Map<string, StreamContext>();
+
+// Buffer for chunks sent before listener is ready
+interface StreamBuffer {
+  chunks: any[];
+  listenerReady: boolean;
+  ended: boolean;
+  error?: string;
+}
+const streamBuffers = new Map<string, StreamBuffer>();
+
+/**
+ * Ensure a thread exists in the database, creating it if necessary
+ */
+async function ensureThreadExists(threadId: string): Promise<void> {
+  const db = getDatabase();
+  const existing = await db
+    .select()
+    .from(schema.ChatThreadTable)
+    .where(eq(schema.ChatThreadTable.id, threadId))
+    .limit(1);
+
+  if (existing.length === 0) {
+    // Thread doesn't exist, create it
+    // Get the default user ID (for desktop, there's a local user)
+    const users = await db.select().from(schema.UserTable).limit(1);
+    const userId = users[0]?.id;
+
+    if (userId) {
+      await db.insert(schema.ChatThreadTable).values({
+        id: threadId,
+        userId,
+        title: "New Chat", // Default title, will be updated after first response
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    } else {
+      console.error(`[AI IPC] Cannot create thread - no user found`);
+    }
+  }
+}
+
+/**
+ * Save a message to the database
+ */
+async function saveMessageToDb(
+  threadId: string,
+  messageId: string,
+  role: "user" | "assistant",
+  parts: any[],
+  metadata?: Record<string, any>,
+) {
+  try {
+    const db = getDatabase();
+
+    // Ensure thread exists before saving message
+    await ensureThreadExists(threadId);
+
+    await db
+      .insert(schema.ChatMessageTable)
+      .values({
+        id: messageId,
+        threadId,
+        role,
+        parts: JSON.stringify(parts),
+        metadata: metadata ? JSON.stringify(metadata) : null,
+        createdAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: schema.ChatMessageTable.id,
+        set: {
+          parts: JSON.stringify(parts),
+          metadata: metadata ? JSON.stringify(metadata) : null,
+        },
+      });
+  } catch (error) {
+    console.error(`[AI IPC] Failed to save ${role} message:`, error);
+  }
+}
+
 /**
  * Get or create an MCP client for a server
  */
@@ -70,6 +163,16 @@ async function getMcpClient(
   // Connect if not connected
   if (client.status !== "connected" && client.status !== "loading") {
     await client.connect();
+
+    // Wait for toolInfo to be populated (max 5 seconds)
+    let attempts = 0;
+    while (
+      (!client.toolInfo || client.toolInfo.length === 0) &&
+      attempts < 50
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      attempts++;
+    }
   }
 
   return client;
@@ -116,23 +219,149 @@ async function loadMcpTools(
             allowedTools.includes(toolInfo.name) ||
             allowedTools.includes("*")
           ) {
-            tools[toolId] = createTool({
-              description: toolInfo.description || `MCP tool: ${toolInfo.name}`,
-              parameters: z.object({}).passthrough(), // Accept any parameters
-              execute: async (params) => {
-                console.log(
-                  `[AI MCP] Calling tool ${toolInfo.name} on ${server.name}`,
-                );
-                try {
-                  const result = await client.callTool(toolInfo.name, params);
-                  return result;
-                } catch (error: any) {
-                  console.error(`[AI MCP] Tool call failed:`, error);
-                  return { error: error.message };
+            // Convert MCP tool's inputSchema to a proper JSON schema for the AI SDK
+            // The tool's inputSchema should already be a valid JSON schema from the MCP server
+            let mcpInputSchema = toolInfo.inputSchema || {
+              type: "object",
+              properties: {},
+            };
+
+            // Ensure the schema has a type field (required by Anthropic)
+            if (!mcpInputSchema.type) {
+              mcpInputSchema = { ...mcpInputSchema, type: "object" };
+            }
+
+            // Ensure properties exists and is an object
+            if (!mcpInputSchema.properties) {
+              mcpInputSchema = { ...mcpInputSchema, properties: {} };
+            }
+
+            // Validate that all property schemas have a type field
+            if (
+              mcpInputSchema.properties &&
+              typeof mcpInputSchema.properties === "object"
+            ) {
+              for (const [_propName, propSchema] of Object.entries(
+                mcpInputSchema.properties,
+              )) {
+                if (propSchema && typeof propSchema === "object") {
+                  const prop = propSchema as any;
+                  if (!prop.type) {
+                    prop.type = "string";
+                  }
+                  // Also check nested schemas (for objects/arrays)
+                  if (prop.type === "object" && prop.properties) {
+                    for (const [
+                      nestedPropName,
+                      nestedPropSchema,
+                    ] of Object.entries(prop.properties)) {
+                      if (
+                        nestedPropSchema &&
+                        typeof nestedPropSchema === "object" &&
+                        !("type" in nestedPropSchema)
+                      ) {
+                        (prop.properties as any)[nestedPropName] = {
+                          ...nestedPropSchema,
+                          type: "string",
+                        };
+                      }
+                    }
+                  }
+                  if (
+                    prop.type === "array" &&
+                    prop.items &&
+                    typeof prop.items === "object" &&
+                    !("type" in prop.items)
+                  ) {
+                    prop.items = { ...prop.items, type: "string" };
+                  }
                 }
-              },
-            });
-            console.log(`[AI MCP] Loaded tool: ${toolId}`);
+              }
+            }
+
+            // Recursively ensure all schemas have type fields
+            function ensureSchemaTypes(schema: any): any {
+              if (!schema || typeof schema !== "object") {
+                return schema;
+              }
+
+              // If it's an array, process items
+              if (Array.isArray(schema)) {
+                return schema.map(ensureSchemaTypes);
+              }
+
+              // Ensure type exists
+              if (!schema.type && schema.properties) {
+                schema.type = "object";
+              }
+
+              // Process properties
+              if (schema.properties) {
+                for (const [key, value] of Object.entries(schema.properties)) {
+                  if (value && typeof value === "object") {
+                    schema.properties[key] = ensureSchemaTypes(value);
+                    if (!schema.properties[key].type) {
+                      schema.properties[key].type = "string";
+                    }
+                  }
+                }
+              }
+
+              // Process items (for arrays)
+              if (schema.items) {
+                schema.items = ensureSchemaTypes(schema.items);
+                if (!schema.items.type) {
+                  schema.items.type = "string";
+                }
+              }
+
+              return schema;
+            }
+
+            mcpInputSchema = ensureSchemaTypes(mcpInputSchema);
+
+            try {
+              tools[toolId] = createTool({
+                description:
+                  toolInfo.description || `MCP tool: ${toolInfo.name}`,
+                inputSchema: jsonSchema(mcpInputSchema as any),
+                execute: async (params) => {
+                  console.log(
+                    `[AI MCP] Calling tool ${toolInfo.name} on ${server.name}`,
+                  );
+                  try {
+                    // Add 60-second timeout for tool execution
+                    const timeoutPromise = new Promise((_, reject) =>
+                      setTimeout(
+                        () =>
+                          reject(
+                            new Error(
+                              `Tool '${toolInfo.name}' timed out after 60s`,
+                            ),
+                          ),
+                        60000,
+                      ),
+                    );
+
+                    const result = await Promise.race([
+                      client.callTool(toolInfo.name, params),
+                      timeoutPromise,
+                    ]);
+                    return result;
+                  } catch (error: any) {
+                    console.error(`[AI MCP] Tool call failed:`, error);
+                    return { error: error.message };
+                  }
+                },
+              });
+              // console.log(`[AI MCP] Loaded tool: ${toolId}`);
+            } catch (toolError: any) {
+              console.error(
+                `[AI MCP] Failed to create tool ${toolId}:`,
+                toolError.message,
+              );
+              // Skip this tool but continue with others
+            }
           }
         }
       }
@@ -216,19 +445,21 @@ function createElectronTools(_threadId: string) {
     terminal_execute: createTool({
       description:
         "Execute a shell command in the terminal. Returns stdout, stderr, and exit code.",
-      parameters: z.object({
-        command: z.string().describe("The command to execute"),
-        cwd: z
-          .string()
-          .optional()
-          .describe("Working directory (defaults to home directory)"),
-        timeout: z
-          .number()
-          .optional()
-          .describe("Timeout in milliseconds (default 30000)"),
-      }),
+      inputSchema: z
+        .object({
+          command: z.string().describe("The command to execute"),
+          cwd: z
+            .string()
+            .optional()
+            .describe("Working directory (defaults to home directory)"),
+          timeout: z
+            .number()
+            .optional()
+            .describe("Timeout in milliseconds (default 30000)"),
+        })
+        .describe("Terminal execution parameters"),
       execute: async ({ command, cwd, timeout = 30000 }) => {
-        console.log(`[AI Tools] Executing command: ${command}`);
+        // console.log(`[AI Tools] Executing command: ${command}`);
         try {
           const { stdout, stderr } = await execAsync(command, {
             cwd: cwd || os.homedir(),
@@ -256,7 +487,7 @@ function createElectronTools(_threadId: string) {
     // Read file
     file_read: createTool({
       description: "Read the contents of a file",
-      parameters: z.object({
+      inputSchema: z.object({
         path: z.string().describe("Absolute path to the file"),
         encoding: z
           .string()
@@ -264,7 +495,7 @@ function createElectronTools(_threadId: string) {
           .describe("File encoding (default utf-8)"),
       }),
       execute: async ({ path: filePath, encoding = "utf-8" }) => {
-        console.log(`[AI Tools] Reading file: ${filePath}`);
+        // console.log(`[AI Tools] Reading file: ${filePath}`);
         try {
           const content = fs.readFileSync(filePath, encoding as BufferEncoding);
           return {
@@ -285,7 +516,7 @@ function createElectronTools(_threadId: string) {
     file_write: createTool({
       description:
         "Write content to a file (creates parent directories if needed)",
-      parameters: z.object({
+      inputSchema: z.object({
         path: z.string().describe("Absolute path to the file"),
         content: z.string().describe("Content to write"),
         append: z
@@ -294,7 +525,7 @@ function createElectronTools(_threadId: string) {
           .describe("Append to file instead of overwrite"),
       }),
       execute: async ({ path: filePath, content, append = false }) => {
-        console.log(`[AI Tools] Writing file: ${filePath}`);
+        // console.log(`[AI Tools] Writing file: ${filePath}`);
         try {
           // Create parent directory if needed
           const dir = path.dirname(filePath);
@@ -325,7 +556,7 @@ function createElectronTools(_threadId: string) {
     // List directory
     file_list: createTool({
       description: "List files and directories in a path",
-      parameters: z.object({
+      inputSchema: z.object({
         path: z.string().describe("Directory path to list"),
         recursive: z
           .boolean()
@@ -333,7 +564,7 @@ function createElectronTools(_threadId: string) {
           .describe("List recursively (default false)"),
       }),
       execute: async ({ path: dirPath, recursive = false }) => {
-        console.log(`[AI Tools] Listing directory: ${dirPath}`);
+        // console.log(`[AI Tools] Listing directory: ${dirPath}`);
         try {
           const items: string[] = [];
 
@@ -375,14 +606,14 @@ function createElectronTools(_threadId: string) {
     // Take screenshot
     desktop_screenshot: createTool({
       description: "Take a screenshot of the screen",
-      parameters: z.object({
+      inputSchema: z.object({
         fullScreen: z
           .boolean()
           .optional()
           .describe("Capture full screen (default true)"),
       }),
       execute: async ({ fullScreen = true }) => {
-        console.log(`[AI Tools] Taking screenshot`);
+        // console.log(`[AI Tools] Taking screenshot`);
         try {
           const sources = await desktopCapturer.getSources({
             types: fullScreen ? ["screen"] : ["window"],
@@ -414,11 +645,10 @@ function createElectronTools(_threadId: string) {
     // Open URL in browser
     browser_open: createTool({
       description: "Open a URL in the default browser",
-      parameters: z.object({
+      inputSchema: z.object({
         url: z.string().describe("URL to open"),
       }),
       execute: async ({ url }) => {
-        console.log(`[AI Tools] Opening URL: ${url}`);
         try {
           await shell.openExternal(url);
           return { success: true, url };
@@ -431,11 +661,9 @@ function createElectronTools(_threadId: string) {
     // Clipboard operations
     clipboard_read: createTool({
       description: "Read text from the clipboard",
-      parameters: z.object({
-        _placeholder: z.string().optional().describe("Not used, leave empty"),
-      }),
+      inputSchema: z.object({}).describe("No parameters required"),
       execute: async () => {
-        console.log(`[AI Tools] Reading clipboard`);
+        // console.log(`[AI Tools] Reading clipboard`);
         try {
           const text = clipboard.readText();
           return { success: true, content: text.slice(0, 50000) };
@@ -447,11 +675,10 @@ function createElectronTools(_threadId: string) {
 
     clipboard_write: createTool({
       description: "Write text to the clipboard",
-      parameters: z.object({
+      inputSchema: z.object({
         text: z.string().describe("Text to write to clipboard"),
       }),
       execute: async ({ text }) => {
-        console.log(`[AI Tools] Writing to clipboard`);
         try {
           clipboard.writeText(text);
           return { success: true, bytesWritten: text.length };
@@ -464,9 +691,7 @@ function createElectronTools(_threadId: string) {
     // Get system info
     system_info: createTool({
       description: "Get system information (OS, memory, CPU, etc.)",
-      parameters: z.object({
-        _placeholder: z.string().optional().describe("Not used, leave empty"),
-      }),
+      inputSchema: z.object({}).describe("No parameters required"),
       execute: async () => {
         return {
           success: true,
@@ -487,7 +712,7 @@ function createElectronTools(_threadId: string) {
     // Search files
     file_search: createTool({
       description: "Search for files matching a pattern",
-      parameters: z.object({
+      inputSchema: z.object({
         directory: z.string().describe("Directory to search in"),
         pattern: z.string().describe("Glob pattern or filename to search for"),
         maxResults: z
@@ -496,7 +721,7 @@ function createElectronTools(_threadId: string) {
           .describe("Maximum results (default 50)"),
       }),
       execute: async ({ directory, pattern, maxResults = 50 }) => {
-        console.log(`[AI Tools] Searching files: ${pattern} in ${directory}`);
+        // console.log(`[AI Tools] Searching files: ${pattern} in ${directory}`);
         try {
           // Use find command on Unix, dir on Windows
           const isWindows = os.platform() === "win32";
@@ -521,59 +746,223 @@ function createElectronTools(_threadId: string) {
         }
       },
     }),
+
+    // Web search using DuckDuckGo (free, no API key needed)
+    web_search: createTool({
+      description:
+        "Search the web for information using DuckDuckGo. Returns search results with titles, URLs, and snippets.",
+      inputSchema: z.object({
+        query: z.string().describe("The search query"),
+        numResults: z
+          .number()
+          .optional()
+          .describe("Maximum number of results to return (default 5)"),
+      }),
+      execute: async ({ query, numResults = 5 }) => {
+        console.log(`[AI Tools] Web search: ${query}`);
+        try {
+          // Use DuckDuckGo HTML search and parse results
+          const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+          const response = await fetch(searchUrl, {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`Search failed: ${response.status}`);
+          }
+
+          const html = await response.text();
+
+          // Parse search results from HTML
+          const results: Array<{
+            title: string;
+            url: string;
+            snippet: string;
+          }> = [];
+          const resultRegex =
+            /<a class="result__a" href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+
+          let match;
+          while (
+            (match = resultRegex.exec(html)) !== null &&
+            results.length < numResults
+          ) {
+            const url = match[1];
+            const title = match[2].trim();
+            const snippet = match[3].replace(/<[^>]+>/g, "").trim();
+
+            // Skip DuckDuckGo internal links
+            if (!url.startsWith("//duckduckgo.com")) {
+              results.push({ title, url, snippet });
+            }
+          }
+
+          // Fallback: Try DuckDuckGo instant answer API
+          if (results.length === 0) {
+            const instantUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`;
+            const instantResponse = await fetch(instantUrl);
+            const instantData = await instantResponse.json();
+
+            if (instantData.AbstractText) {
+              results.push({
+                title: instantData.Heading || "DuckDuckGo Answer",
+                url: instantData.AbstractURL || "",
+                snippet: instantData.AbstractText,
+              });
+            }
+
+            // Add related topics
+            if (instantData.RelatedTopics) {
+              for (const topic of instantData.RelatedTopics.slice(
+                0,
+                numResults - results.length,
+              )) {
+                if (topic.Text && topic.FirstURL) {
+                  results.push({
+                    title: topic.Text.split(" - ")[0] || "Related",
+                    url: topic.FirstURL,
+                    snippet: topic.Text,
+                  });
+                }
+              }
+            }
+          }
+
+          return {
+            success: true,
+            query,
+            results,
+            count: results.length,
+          };
+        } catch (error: any) {
+          console.error("[AI Tools] Web search error:", error);
+          return {
+            success: false,
+            error: error.message,
+            results: [],
+          };
+        }
+      },
+    }),
+
+    // Fetch URL content
+    web_fetch: createTool({
+      description:
+        "Fetch the content of a web page and extract its text. Useful for reading articles, documentation, etc.",
+      inputSchema: z.object({
+        url: z.string().describe("The URL to fetch"),
+        maxLength: z
+          .number()
+          .optional()
+          .describe("Maximum content length to return (default 10000)"),
+      }),
+      execute: async ({ url, maxLength = 10000 }) => {
+        // console.log(`[AI Tools] Web fetch: ${url}`);
+        try {
+          const response = await fetch(url, {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`Fetch failed: ${response.status}`);
+          }
+
+          const html = await response.text();
+
+          // Simple HTML to text conversion
+          let text = html
+            // Remove scripts and styles
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+            // Remove HTML tags
+            .replace(/<[^>]+>/g, " ")
+            // Decode HTML entities
+            .replace(/&nbsp;/g, " ")
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            // Clean up whitespace
+            .replace(/\s+/g, " ")
+            .trim();
+
+          // Truncate if too long
+          if (text.length > maxLength) {
+            text = text.slice(0, maxLength) + "... [truncated]";
+          }
+
+          return {
+            success: true,
+            url,
+            content: text,
+            length: text.length,
+          };
+        } catch (error: any) {
+          console.error("[AI Tools] Web fetch error:", error);
+          return {
+            success: false,
+            error: error.message,
+          };
+        }
+      },
+    }),
   };
 }
 
 export function registerAIHandlers() {
   /**
-   * Main streaming handler with FULL TOOL SUPPORT
-   * Receives chat request, streams response back via IPC events
+   * Phase 1: Prepare the stream (setup model, tools, etc.)
+   * Returns immediately so renderer can set up listeners
+   * Actual streaming starts when renderer calls ai:stream:start
    */
   ipcMain.handle("ai:stream", async (event, request: StreamRequest) => {
-    const {
-      threadId,
-      messages,
-      chatModel,
-      message,
-      allowedAppDefaultToolkit,
-      allowedMcpServers,
-    } = request;
+    const { threadId, messages, chatModel, message, allowedMcpServers } =
+      request;
 
     console.log(
-      `[AI IPC] Stream request for thread: ${threadId}, model: ${chatModel?.provider}/${chatModel?.model}`,
+      `[AI IPC] Stream PREPARE for thread: ${threadId}, model: ${chatModel?.provider}/${chatModel?.model}`,
     );
-    console.log(
-      `[AI IPC] Allowed toolkits: ${allowedAppDefaultToolkit?.join(", ") || "all"}`,
-    );
-    console.log(
-      `[AI IPC] Allowed MCP servers: ${allowedMcpServers ? Object.keys(allowedMcpServers).join(", ") : "none"}`,
-    );
+    // console.log(
+    //   `[AI IPC] Allowed toolkits: ${allowedAppDefaultToolkit?.join(", ") || "all"}`,
+    // );
+    // console.log(
+    //   `[AI IPC] Allowed MCP servers: ${allowedMcpServers ? Object.keys(allowedMcpServers).join(", ") : "none"}`,
+    // );
 
     // Create abort controller for this stream
     const abortController = new AbortController();
     activeStreams.set(threadId, abortController);
+
+    // Initialize buffer for this stream
+    streamBuffers.set(threadId, {
+      chunks: [],
+      listenerReady: false,
+      ended: false,
+    });
 
     try {
       // Get the API key for this provider
       const apiKey = await getApiKeyForProvider(chatModel.provider);
 
       if (!apiKey && !isLocalProvider(chatModel.provider)) {
-        event.sender.send("ai:stream:error", {
-          threadId,
-          error: `No API key configured for ${chatModel.provider}. Please add an API key in Settings > Models.`,
-        });
-        return { error: "No API key" };
+        const errorMsg = `No API key configured for ${chatModel.provider}. Please add an API key in Settings > Models.`;
+        streamBuffers.get(threadId)!.error = errorMsg;
+        return { error: errorMsg, threadId };
       }
 
       // Get the model instance
       const model = await getModelInstance(chatModel, apiKey);
 
       if (!model) {
-        event.sender.send("ai:stream:error", {
-          threadId,
-          error: `Could not initialize model ${chatModel.provider}/${chatModel.model}`,
-        });
-        return { error: "Model init failed" };
+        const errorMsg = `Could not initialize model ${chatModel.provider}/${chatModel.model}`;
+        streamBuffers.get(threadId)!.error = errorMsg;
+        return { error: errorMsg, threadId };
       }
 
       // Prepare messages for the model
@@ -587,97 +976,308 @@ export function registerAIHandlers() {
 
       // Create desktop tools for this thread
       const desktopTools = createElectronTools(threadId);
-      console.log(
-        `[AI IPC] Desktop tools loaded: ${Object.keys(desktopTools).join(", ")}`,
-      );
+      // console.log(
+      //   `[AI IPC] Desktop tools loaded: ${Object.keys(desktopTools).join(", ")}`,
+      // );
 
       // Load MCP tools if allowed
       const mcpTools = await loadMcpTools(allowedMcpServers);
-      console.log(
-        `[AI IPC] MCP tools loaded: ${Object.keys(mcpTools).join(", ") || "none"}`,
-      );
+      // console.log(
+      //   `[AI IPC] MCP tools loaded: ${Object.keys(mcpTools).join(", ") || "none"}`,
+      // );
 
       // Merge all tools
       const tools = { ...desktopTools, ...mcpTools };
-      console.log(`[AI IPC] Total tools: ${Object.keys(tools).length}`);
 
-      // Start streaming WITH TOOLS AND MULTI-STEP
-      const result = streamText({
+      // Handle empty tools - pass undefined instead of {} for text-only streaming
+      const toolsToUse = Object.keys(tools).length > 0 ? tools : undefined;
+
+      // Store prepared context - DON'T start streaming yet!
+      preparedStreams.set(threadId, {
         model,
-        system: AGENT_SYSTEM_PROMPT,
         messages: modelMessages,
-        tools,
-        maxSteps: 20, // Allow up to 20 tool calls per request for complex tasks
-        abortSignal: abortController.signal,
-        maxRetries: 2,
-        onStepFinish: ({ stepType, toolCalls }) => {
-          console.log(
-            `[AI IPC] Step finished: ${stepType}, tools: ${toolCalls?.length || 0}`,
-          );
-          if (toolCalls?.length) {
-            for (const tc of toolCalls) {
-              console.log(`[AI IPC]   - Tool: ${tc.toolName}`);
-            }
-          }
-        },
-      });
-
-      // Convert to UI message stream for proper formatting
-      const stream = result.toUIMessageStream({
-        sendUsage: true,
-        messageMetadata: () => ({
-          chatModel,
-        }),
-      });
-
-      // Read the stream and send chunks to renderer
-      const reader = stream.getReader();
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-
-          if (done) {
-            break;
-          }
-
-          // Send each stream part to renderer
-          if (value) {
-            // The value is a UIMessageChunk - serialize it for IPC
-            event.sender.send("ai:stream:chunk", {
-              threadId,
-              chunk: JSON.stringify(value),
-            });
-          }
-        }
-
-        // Stream completed successfully
-        console.log(`[AI IPC] Stream finished for thread: ${threadId}`);
-        event.sender.send("ai:stream:end", {
-          threadId,
-          finishReason: "stop",
-        });
-      } finally {
-        // Clean up
-        activeStreams.delete(threadId);
-      }
-
-      return { success: true, threadId };
-    } catch (error: any) {
-      console.error("[AI IPC] Stream error:", error);
-
-      // Send error to renderer
-      event.sender.send("ai:stream:error", {
+        tools: toolsToUse,
+        abortController,
+        systemPrompt: AGENT_SYSTEM_PROMPT,
         threadId,
-        error: error.message || "Stream failed",
+        event,
+        userMessage: message, // Store user message for saving
+        chatModel,
       });
 
-      // Clean up
-      activeStreams.delete(threadId);
+      // console.log(`[AI IPC] Stream prepared for thread: ${threadId}, waiting for start signal`);
 
-      return { error: error.message };
+      // Return success - renderer should now set up listeners and call ai:stream:start
+      return { success: true, threadId, status: "prepared" };
+    } catch (error: any) {
+      console.error("[AI IPC] Stream prepare error:", error);
+      streamBuffers.get(threadId)!.error = error.message;
+      activeStreams.delete(threadId);
+      return { error: error.message, threadId };
     }
   });
+
+  /**
+   * Phase 2: Actually start streaming after listeners are ready
+   * This is called by the renderer AFTER it has set up all IPC listeners
+   */
+  ipcMain.handle(
+    "ai:stream:start",
+    async (event, request: { threadId: string }) => {
+      const { threadId } = request;
+
+      console.log(`[AI IPC] Stream START received for thread: ${threadId}`);
+
+      const context = preparedStreams.get(threadId);
+      const buffer = streamBuffers.get(threadId);
+
+      if (!context) {
+        console.error(
+          `[AI IPC] No prepared stream found for thread: ${threadId}`,
+        );
+        event.sender.send("ai:stream:error", {
+          threadId,
+          error: "Stream not prepared. Call ai:stream first.",
+        });
+        return { error: "Stream not prepared" };
+      }
+
+      // Check if there was an error during preparation
+      if (buffer?.error) {
+        event.sender.send("ai:stream:error", {
+          threadId,
+          error: buffer.error,
+        });
+        preparedStreams.delete(threadId);
+        streamBuffers.delete(threadId);
+        return { error: buffer.error };
+      }
+
+      // Mark listener as ready
+      if (buffer) {
+        buffer.listenerReady = true;
+      }
+
+      const {
+        model,
+        messages,
+        tools,
+        abortController,
+        systemPrompt,
+        userMessage,
+        chatModel,
+      } = context;
+
+      try {
+        // SAVE USER MESSAGE to database before streaming (non-blocking)
+        if (userMessage) {
+          saveMessageToDb(
+            threadId,
+            userMessage.id,
+            "user",
+            userMessage.parts || [
+              {
+                type: "text",
+                text:
+                  typeof userMessage.content === "string"
+                    ? userMessage.content
+                    : "",
+              },
+            ],
+          ).catch((err) => {
+            // Log but don't block streaming if message save fails
+            console.error(
+              `[AI IPC] Failed to save user message (non-blocking):`,
+              err,
+            );
+          });
+        }
+
+        // NOW actually start streaming - listeners are guaranteed ready
+        const result = streamText({
+          model,
+          system: systemPrompt,
+          messages,
+          tools,
+          maxSteps: tools ? 50 : 1, // Single step for text-only, 50 for agentic tasks
+          abortSignal: abortController.signal,
+          maxRetries: 2,
+          onStepFinish: ({ stepType, toolCalls }) => {
+            // Send step event to renderer
+            event.sender.send("ai:stream:step", {
+              threadId,
+              stepType,
+              toolCallCount: toolCalls?.length || 0,
+            });
+          },
+        });
+
+        // console.log(`[AI IPC] streamText result created, converting to UI stream...`);
+
+        // Convert to UI message stream for proper formatting
+        const stream = result.toUIMessageStream({
+          sendUsage: true,
+          messageMetadata: () => ({}),
+        });
+
+        // console.log(`[AI IPC] UI stream created, getting reader...`);
+
+        // Read the stream and send chunks to renderer
+        const reader = stream.getReader();
+
+        // console.log(`[AI IPC] Reader obtained, starting to read chunks...`);
+
+        // Verify the stream is actually readable
+        if (!reader) {
+          throw new Error("Failed to get stream reader");
+        }
+
+        // console.log(`[AI IPC] Stream reader verified, beginning read loop...`);
+
+        // Track assistant message parts for persistence
+        const assistantMessageId = randomUUID();
+        const assistantParts: any[] = [];
+        let currentTextContent = "";
+        const currentToolCalls: any[] = [];
+        const currentToolResults: any[] = [];
+
+        // console.log(`[AI IPC] Starting to read stream for thread: ${threadId}`);
+        let _chunkCount = 0;
+        const startTime = Date.now();
+        const TIMEOUT_MS = 60000; // 60 second timeout
+
+        // Add a heartbeat to detect if we're stuck (disabled to reduce noise)
+        // const heartbeatInterval = setInterval(() => {
+        //   const elapsed = Date.now() - startTime;
+        //   console.log(`[AI IPC] Stream heartbeat - elapsed: ${elapsed}ms, chunks: ${chunkCount}`);
+        // }, 5000);
+
+        try {
+          while (true) {
+            // Check for timeout
+            if (Date.now() - startTime > TIMEOUT_MS) {
+              console.error(
+                `[AI IPC] Stream timeout after ${TIMEOUT_MS}ms, no chunks received`,
+              );
+              throw new Error("Stream timeout - no chunks received");
+            }
+
+            const readPromise = reader.read();
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("Read timeout")), 10000),
+            );
+
+            let readResult;
+            try {
+              readResult = await Promise.race([readPromise, timeoutPromise]);
+            } catch (readError: any) {
+              console.error(`[AI IPC] Error reading from stream:`, readError);
+              throw readError;
+            }
+
+            const { done, value } = readResult as { done: boolean; value: any };
+
+            if (done) {
+              // console.log(`[AI IPC] Stream reader done, total chunks: ${chunkCount}`);
+              break;
+            }
+
+            _chunkCount++;
+
+            // Send each stream part to renderer
+            if (value) {
+              try {
+                event.sender.send("ai:stream:chunk", {
+                  threadId,
+                  chunk: JSON.stringify(value),
+                });
+              } catch (sendError) {
+                console.error(`[AI IPC] Error sending chunk:`, sendError);
+              }
+
+              // Accumulate content for persistence
+              // Handle different chunk types
+              // Note: AI SDK v6 uses 'delta' not 'textDelta' for text-delta chunks
+              if (
+                value.type === "text-delta" &&
+                (value.delta || value.textDelta)
+              ) {
+                currentTextContent += value.delta || value.textDelta;
+              } else if (value.type === "tool-call") {
+                currentToolCalls.push({
+                  type: "tool-call",
+                  toolCallId: value.toolCallId,
+                  toolName: value.toolName,
+                  args: value.args,
+                });
+              } else if (value.type === "tool-result") {
+                currentToolResults.push({
+                  type: "tool-result",
+                  toolCallId: value.toolCallId,
+                  result: value.result,
+                });
+              }
+            }
+          }
+
+          // Build assistant message parts for saving
+          if (currentTextContent) {
+            assistantParts.push({ type: "text", text: currentTextContent });
+          }
+          assistantParts.push(...currentToolCalls);
+          assistantParts.push(...currentToolResults);
+
+          // SAVE ASSISTANT MESSAGE to database
+          if (assistantParts.length > 0) {
+            await saveMessageToDb(
+              threadId,
+              assistantMessageId,
+              "assistant",
+              assistantParts,
+              { chatModel },
+            );
+          }
+
+          // Stream completed successfully
+          event.sender.send("ai:stream:end", {
+            threadId,
+            finishReason: "stop",
+          });
+        } catch (streamError: any) {
+          console.error(`[AI IPC] Stream error:`, streamError.message);
+          event.sender.send("ai:stream:error", {
+            threadId,
+            error: streamError.message || "Stream reading failed",
+          });
+          throw streamError;
+        } finally {
+          // Clean up
+          // clearInterval(heartbeatInterval);
+          activeStreams.delete(threadId);
+          preparedStreams.delete(threadId);
+          streamBuffers.delete(threadId);
+        }
+
+        return { success: true, threadId };
+      } catch (error: any) {
+        console.error("[AI IPC] Stream error:", error);
+        console.error("[AI IPC] Stream error stack:", error.stack);
+
+        // Send error to renderer
+        event.sender.send("ai:stream:error", {
+          threadId,
+          error: error.message || "Stream failed",
+        });
+
+        // Clean up
+        activeStreams.delete(threadId);
+        preparedStreams.delete(threadId);
+        streamBuffers.delete(threadId);
+
+        return { error: error.message };
+      }
+    },
+  );
 
   /**
    * Abort an active stream
@@ -709,20 +1309,9 @@ export function registerAIHandlers() {
     ) => {
       const { threadId, message, chatModel } = request;
 
-      console.log(
-        `[AI IPC] Title generation for thread: ${threadId}, model: ${chatModel?.provider}/${chatModel?.model}`,
-      );
-      console.log(
-        `[AI IPC] Title generation message: "${message.slice(0, 100)}..."`,
-      );
-
       try {
         // Get the API key for this provider
-        console.log(
-          `[AI IPC] Getting API key for provider: ${chatModel.provider}`,
-        );
         const apiKey = await getApiKeyForProvider(chatModel.provider);
-        console.log(`[AI IPC] API key found: ${apiKey ? "YES" : "NO"}`);
 
         if (!apiKey && !isLocalProvider(chatModel.provider)) {
           return { error: `No API key configured for ${chatModel.provider}` };
@@ -738,7 +1327,6 @@ export function registerAIHandlers() {
         }
 
         // Generate title using the AI SDK
-        console.log(`[AI IPC] Calling generateText for title...`);
         const { generateText } = await import("ai");
         const result = await generateText({
           model,
@@ -756,31 +1344,24 @@ export function registerAIHandlers() {
           maxTokens: 30,
         });
 
-        console.log(`[AI IPC] Title generation result:`, result.text);
         const title = result.text.trim().replace(/^["']|["']$/g, ""); // Remove quotes if any
-        console.log(`[AI IPC] Generated title: "${title}"`);
 
         // Update thread title in database
-        console.log(`[AI IPC] Updating thread title in database...`);
         const db = getDatabase();
         await db
           .update(schema.ChatThreadTable)
           .set({ title })
           .where(eq(schema.ChatThreadTable.id, threadId));
-        console.log(`[AI IPC] Database updated successfully`);
 
         // Send title to renderer
-        console.log(`[AI IPC] Sending title to renderer via IPC event...`);
         event.sender.send("ai:title:generated", {
           threadId,
           title,
         });
 
-        console.log(`[AI IPC] Title generation complete: "${title}"`);
         return { success: true, title };
       } catch (error: any) {
-        console.error("[AI IPC] Title generation error:", error);
-        console.error("[AI IPC] Error stack:", error.stack);
+        console.error("[AI IPC] Title generation error:", error.message);
         return { error: error.message };
       }
     },
@@ -839,7 +1420,6 @@ export function registerAIHandlers() {
           schema: zodSchema,
         });
 
-        console.log(`[AI IPC] Object generated successfully`);
         return { success: true, object: result.object };
       } catch (error: any) {
         console.error("[AI IPC] Generate object error:", error);
