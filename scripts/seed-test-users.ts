@@ -135,8 +135,6 @@ async function createUser(userData: {
   email: string;
   password: string;
   name: string;
-  banned?: boolean;
-  banReason?: string;
 }) {
   try {
     // First, check if user already exists
@@ -164,9 +162,6 @@ async function createUser(userData: {
         emailVerified: true,
         createdAt: now,
         updatedAt: now,
-        banned: userData.banned || false,
-        banReason: userData.banReason || null,
-        banExpires: null,
       })
       .returning();
 
@@ -243,15 +238,12 @@ async function seedTestUsers() {
 
     for (let i = 4; i <= 21; i++) {
       try {
-        const isBanned = i === 21;
         const email = `testuser${i}@test-seed.local`;
 
         await createUser({
           email,
           password: `TestPass${i}!`,
           name: `Test User ${i}`,
-          banned: isBanned,
-          banReason: isBanned ? "Test ban for E2E testing" : undefined,
         });
         createdCount++;
         console.log(`✅ Created user ${i}`);

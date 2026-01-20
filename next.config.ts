@@ -6,18 +6,23 @@ import createNextIntlPlugin from "next-intl/plugin";
  *
  * This application is Electron-only. We always export static files.
  * No web server mode is supported.
+ *
+ * IMPORTANT: This is a native desktop app - all API calls go through Electron IPC,
+ * not HTTP. The /api/* routes are legacy and not used in production.
  */
 export default () => {
+  const isProduction = process.env.NODE_ENV === "production";
+
   const nextConfig: NextConfig = {
-    // Only use static export in production builds
-    // In development, we need dynamic rendering for pages with force-dynamic
-    ...(process.env.NODE_ENV === "production" && { output: "export" }),
+    // Static export for production builds
+    // In development, we need dynamic rendering for hot reload
+    ...(isProduction && { output: "export" }),
     cleanDistDir: true,
-    // Always use Electron-optimized settings
+    // Electron-optimized settings
     images: {
-      unoptimized: true,
+      unoptimized: true, // No image optimization server in Electron
     },
-    trailingSlash: true,
+    trailingSlash: true, // Required for static export file-based routing
     devIndicators: {
       position: "bottom-right",
     },
@@ -89,7 +94,8 @@ export default () => {
                 "base-uri 'self'", // Prevent base tag hijacking
                 "form-action 'self'", // Restrict form submissions
                 "worker-src 'self' blob:", // Allow web workers
-                "upgrade-insecure-requests", // Force HTTPS
+                // NOTE: Do NOT use upgrade-insecure-requests in Electron mode
+                // It causes ERR_SSL_PROTOCOL_ERROR when fetching from localhost
               ].join("; "),
             },
             {
