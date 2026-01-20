@@ -60,10 +60,8 @@ export const workflowToolsApi = {
           )
           .map((w: any) => ({
             id: w.id,
-            name: w.name,
-            description: w.description || "",
-            type: "workflow" as const,
-            icon: w.icon,
+            description: w.description || w.name || "",
+            type: "app-tool" as const,
           }));
 
         // For MCP tools, in Electron desktop mode we need to get tool info

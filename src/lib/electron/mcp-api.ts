@@ -77,6 +77,9 @@ export const mcpApi = {
           toolInfo: [],
           error: null,
           config: server.config,
+          visibility: server.visibility || "private",
+          enabled: server.enabled ?? true,
+          userId: server.userId || "local-user",
         }));
       } catch (error) {
         console.error("[mcpApi] Error getting MCP servers:", error);
@@ -312,6 +315,215 @@ export const mcpApi = {
     if (!res.ok) {
       throw new Error(`Failed to delete tool customization: ${res.status}`);
     }
+  },
+
+  /**
+   * Check if an MCP server exists by name
+   */
+  async existsByServerName(name: string): Promise<boolean> {
+    if (isElectronMode()) {
+      try {
+        return await window.electronAPI.db.mcp.existsByServerName(name);
+      } catch (error) {
+        console.error("[mcpApi] Error checking if server exists:", error);
+        return false;
+      }
+    }
+    // For web mode, check via list
+    const servers = await this.getList();
+    return servers.some((s) => s.name === name);
+  },
+
+  /**
+   * Refresh an MCP client (reconnect)
+   */
+  async refreshClient(serverId: string): Promise<{
+    success: boolean;
+    status?: string;
+    toolInfo?: any[];
+    error?: string;
+  }> {
+    if (isElectronMode()) {
+      try {
+        return await window.electronAPI.db.mcp.refreshClient(serverId);
+      } catch (error: any) {
+        console.error("[mcpApi] Error refreshing MCP client:", error);
+        return { success: false, error: error.message };
+      }
+    }
+    // Web mode - POST to refresh endpoint
+    const res = await fetch(`/api/mcp/${serverId}/refresh`, { method: "POST" });
+    if (!res.ok) {
+      throw new Error(`Failed to refresh MCP client: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Call an MCP tool directly
+   */
+  async callTool(
+    serverId: string,
+    toolName: string,
+    args: any,
+  ): Promise<{ success: boolean; result?: any; error?: string }> {
+    if (isElectronMode()) {
+      try {
+        return await window.electronAPI.db.mcp.callTool({
+          serverId,
+          toolName,
+          args,
+        });
+      } catch (error: any) {
+        console.error("[mcpApi] Error calling MCP tool:", error);
+        return { success: false, error: error.message };
+      }
+    }
+    // Web mode - POST to tool call endpoint
+    const res = await fetch(`/api/mcp/${serverId}/tools/${toolName}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to call MCP tool: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Call an MCP tool by server name
+   */
+  async callToolByServerName(
+    serverName: string,
+    toolName: string,
+    args: any,
+  ): Promise<{ success: boolean; result?: any; error?: string }> {
+    if (isElectronMode()) {
+      try {
+        return await window.electronAPI.db.mcp.callToolByServerName({
+          serverName,
+          toolName,
+          args,
+        });
+      } catch (error: any) {
+        console.error("[mcpApi] Error calling MCP tool by server name:", error);
+        return { success: false, error: error.message };
+      }
+    }
+    // For web mode, find server by name first
+    const servers = await this.getList();
+    const server = servers.find((s) => s.name === serverName);
+    if (!server) {
+      return { success: false, error: `Server "${serverName}" not found` };
+    }
+    return this.callTool(server.id, toolName, args);
+  },
+
+  /**
+   * Get MCP server status with tool info
+   */
+  async getServerStatus(serverId: string): Promise<any | null> {
+    if (isElectronMode()) {
+      try {
+        return await window.electronAPI.db.mcp.getServerStatus(serverId);
+      } catch (error) {
+        console.error("[mcpApi] Error getting server status:", error);
+        return null;
+      }
+    }
+    return this.getById(serverId);
+  },
+
+  /**
+   * Update MCP server visibility
+   */
+  async updateVisibility(
+    serverId: string,
+    visibility: "public" | "private",
+  ): Promise<any> {
+    if (isElectronMode()) {
+      try {
+        return await window.electronAPI.db.mcp.updateVisibility({
+          serverId,
+          visibility,
+        });
+      } catch (error) {
+        console.error("[mcpApi] Error updating visibility:", error);
+        throw error;
+      }
+    }
+    const res = await fetch(`/api/mcp/${serverId}/visibility`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility }),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to update visibility: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Get all MCP servers with their connection status
+   */
+  async getServersWithStatus(): Promise<MCPServerInfo[]> {
+    if (isElectronMode()) {
+      try {
+        return await window.electronAPI.db.mcp.getServersWithStatus();
+      } catch (error) {
+        console.error("[mcpApi] Error getting servers with status:", error);
+        return [];
+      }
+    }
+    return this.getList();
+  },
+
+  /**
+   * Authorize an MCP client (OAuth flow)
+   * Returns the authorization URL to redirect to
+   */
+  async authorize(serverId: string): Promise<string | null> {
+    if (isElectronMode()) {
+      try {
+        const result = await window.electronAPI.db.mcp.authorize(serverId);
+        return result.authUrl || null;
+      } catch (error: any) {
+        console.error("[mcpApi] Error authorizing MCP client:", error);
+        return null;
+      }
+    }
+    // Web mode - POST to authorize endpoint
+    const res = await fetch(`/api/mcp/${serverId}/authorize`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to authorize MCP client: ${res.status}`);
+    }
+    const data = await res.json();
+    return data.authUrl || null;
+  },
+
+  /**
+   * Check if an MCP client has a valid token
+   */
+  async checkToken(serverId: string): Promise<boolean> {
+    if (isElectronMode()) {
+      try {
+        const result = await window.electronAPI.db.mcp.checkToken(serverId);
+        return result.valid || false;
+      } catch (error: any) {
+        console.error("[mcpApi] Error checking MCP token:", error);
+        return false;
+      }
+    }
+    // Web mode - GET to check-token endpoint
+    const res = await fetch(`/api/mcp/${serverId}/check-token`);
+    if (!res.ok) {
+      return false;
+    }
+    const data = await res.json();
+    return data.valid || false;
   },
 };
 

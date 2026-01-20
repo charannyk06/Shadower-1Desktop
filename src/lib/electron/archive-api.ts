@@ -116,7 +116,12 @@ export const archiveApi = {
    */
   async archiveThread(threadId: string, archiveId: string): Promise<void> {
     if (isElectronMode()) {
-      await window.electronAPI.db.archives.archiveThread(threadId, archiveId);
+      const userId = await getElectronUserId();
+      await window.electronAPI.db.archives.archiveThread(
+        threadId,
+        archiveId,
+        userId,
+      );
       return;
     }
     const res = await fetch(`/api/archive/${archiveId}/threads/${threadId}`, {
@@ -128,15 +133,39 @@ export const archiveApi = {
   /**
    * Unarchive a thread
    */
-  async unarchiveThread(threadId: string): Promise<void> {
+  async unarchiveThread(threadId: string, archiveId?: string): Promise<void> {
     if (isElectronMode()) {
-      await window.electronAPI.db.archives.unarchiveThread(threadId);
+      await window.electronAPI.db.archives.unarchiveThread(threadId, archiveId);
       return;
     }
     const res = await fetch(`/api/thread/${threadId}/unarchive`, {
       method: "POST",
     });
     if (!res.ok) throw new Error(`Failed to unarchive thread: ${res.status}`);
+  },
+
+  /**
+   * Get items in an archive
+   */
+  async getItems(archiveId: string): Promise<any[]> {
+    if (isElectronMode()) {
+      return window.electronAPI.db.archives.getItems(archiveId);
+    }
+    const res = await fetch(`/api/archive/${archiveId}/items`);
+    if (!res.ok) throw new Error(`Failed to get archive items: ${res.status}`);
+    return res.json();
+  },
+
+  /**
+   * Get archives containing a specific item (e.g., thread)
+   */
+  async getItemArchives(itemId: string): Promise<any[]> {
+    if (isElectronMode()) {
+      return window.electronAPI.db.archives.getItemArchives(itemId);
+    }
+    const res = await fetch(`/api/item/${itemId}/archives`);
+    if (!res.ok) throw new Error(`Failed to get item archives: ${res.status}`);
+    return res.json();
   },
 };
 

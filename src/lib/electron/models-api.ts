@@ -44,225 +44,9 @@ export function isElectronMode(): boolean {
   );
 }
 
-// Define available models for each provider
-const PROVIDER_MODELS: Record<string, ChatModelInfo[]> = {
-  openai: [
-    {
-      name: "gpt-4o",
-      displayName: "GPT-4o",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-    },
-    {
-      name: "gpt-4o-mini",
-      displayName: "GPT-4o Mini",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-    },
-    {
-      name: "o1",
-      displayName: "o1",
-      isToolCallUnsupported: true,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: true,
-      workflowGenerationSupport: "limited",
-      toolCallUnsupportedReason: "reasoning-model",
-      reasoningEffort: ["low", "medium", "high"],
-    },
-    {
-      name: "o1-mini",
-      displayName: "o1 Mini",
-      isToolCallUnsupported: true,
-      isImageInputUnsupported: true,
-      supportedFileMimeTypes: [],
-      isReasoningModel: true,
-      workflowGenerationSupport: "limited",
-      toolCallUnsupportedReason: "reasoning-model",
-      reasoningEffort: ["low", "medium", "high"],
-    },
-  ],
-  anthropic: [
-    {
-      name: "claude-sonnet-4-20250514",
-      displayName: "Claude Sonnet 4",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-      thinkingLevel: ["none", "low", "medium", "high"],
-    },
-    {
-      name: "claude-3-5-sonnet-20241022",
-      displayName: "Claude 3.5 Sonnet",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-    },
-    {
-      name: "claude-3-5-haiku-20241022",
-      displayName: "Claude 3.5 Haiku",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-    },
-  ],
-  google: [
-    {
-      name: "gemini-3-flash-preview",
-      displayName: "Gemini 3 Flash Preview",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-      thinkingLevel: ["none", "low", "medium", "high"],
-    },
-    {
-      name: "gemini-2.0-flash",
-      displayName: "Gemini 2.0 Flash",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-    },
-    {
-      name: "gemini-2.5-flash-preview-05-20",
-      displayName: "Gemini 2.5 Flash Preview",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-      thinkingLevel: ["none", "low", "medium", "high"],
-    },
-    {
-      name: "gemini-2.5-pro-preview-05-06",
-      displayName: "Gemini 2.5 Pro Preview",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-      thinkingLevel: ["none", "low", "medium", "high"],
-    },
-  ],
-  xai: [
-    {
-      name: "grok-3",
-      displayName: "Grok 3",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-    },
-    {
-      name: "grok-3-fast",
-      displayName: "Grok 3 Fast",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: false,
-      supportedFileMimeTypes: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-      ],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-    },
-  ],
-  groq: [
-    {
-      name: "llama-3.3-70b-versatile",
-      displayName: "Llama 3.3 70B",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: true,
-      supportedFileMimeTypes: [],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-    },
-    {
-      name: "mixtral-8x7b-32768",
-      displayName: "Mixtral 8x7B",
-      isToolCallUnsupported: false,
-      isImageInputUnsupported: true,
-      supportedFileMimeTypes: [],
-      isReasoningModel: false,
-      workflowGenerationSupport: "full",
-    },
-  ],
-};
-
 /**
  * Unified Models API
+ * Models are now fetched dynamically from provider APIs instead of using hard-coded lists
  */
 export const modelsApi = {
   /**
@@ -272,21 +56,75 @@ export const modelsApi = {
     if (isElectronMode()) {
       // Get API keys to determine which providers are available
       const apiKeys = await window.electronAPI.models.getApiKeys();
-      const validProviders = new Set(
-        apiKeys.filter((k) => k.isValid).map((k) => k.providerId),
-      );
+      // Include providers that have API keys (even if not validated yet)
+      const providersWithKeys = new Set(apiKeys.map((k) => k.providerId));
 
-      // Build the response with static model definitions
+      // Build the response by dynamically fetching models from APIs
       const result: ProviderModels[] = [];
 
-      for (const [provider, models] of Object.entries(PROVIDER_MODELS)) {
-        const hasAPIKey = validProviders.has(provider);
-        result.push({
-          provider,
-          hasAPIKey,
-          models,
-        });
-      }
+      // List of cloud providers that support dynamic fetching
+      const cloudProviders = [
+        "anthropic",
+        "openai",
+        "google",
+        "groq",
+        "xai",
+        "cerebras",
+        "openRouter",
+      ];
+
+      // Fetch models for providers with API keys using IPC (main process)
+      await Promise.all(
+        cloudProviders.map(async (provider) => {
+          if (providersWithKeys.has(provider)) {
+            try {
+              const apiKey =
+                await window.electronAPI.models.getDecryptedApiKey(provider);
+              if (apiKey) {
+                const fetchResult =
+                  await window.electronAPI.models.fetchProviderModels({
+                    providerId: provider,
+                    apiKey,
+                  });
+
+                if (fetchResult.success && fetchResult.models) {
+                  // Transform to ChatModelInfo format
+                  const chatModels: ChatModelInfo[] = fetchResult.models.map(
+                    (m) => ({
+                      name: m.id,
+                      displayName: m.displayName,
+                      isToolCallUnsupported: !m.isToolCallSupported,
+                      isImageInputUnsupported: !m.isImageInputSupported,
+                      supportedFileMimeTypes: m.supportedFileMimeTypes,
+                      isReasoningModel: m.isReasoningModel,
+                      workflowGenerationSupport: m.workflowGenerationSupport,
+                      toolCallUnsupportedReason: m.toolCallUnsupportedReason,
+                      reasoningEffort: m.reasoningEffort,
+                      thinkingLevel: m.thinkingLevel,
+                    }),
+                  );
+                  result.push({
+                    provider,
+                    hasAPIKey: true,
+                    models: chatModels,
+                  });
+                } else {
+                  console.warn(
+                    `[modelsApi] Failed to fetch models for ${provider}:`,
+                    fetchResult.error,
+                  );
+                }
+              }
+            } catch (error) {
+              console.warn(
+                `[modelsApi] Failed to fetch models for ${provider}:`,
+                error,
+              );
+              // Don't add provider if fetch fails
+            }
+          }
+        }),
+      );
 
       // Also check for local models (Ollama, LM Studio)
       try {
@@ -340,7 +178,15 @@ export const modelsApi = {
         console.warn("[modelsApi] Failed to get local models:", e);
       }
 
-      return result;
+      // Filter to only include providers with API keys (or local providers with models)
+      return result.filter((p) => {
+        // Local providers (ollama, lmstudio) don't need API keys - include if they have models
+        if (p.provider === "ollama" || p.provider === "lmstudio") {
+          return p.models && p.models.length > 0;
+        }
+        // Cloud providers must have API keys
+        return p.hasAPIKey === true;
+      });
     }
 
     // Web fallback
@@ -351,11 +197,17 @@ export const modelsApi = {
 
   /**
    * Get API keys (returns keys array in a wrapper object for dashboard compatibility)
+   * Transforms the response to include hasKey field for UI compatibility
    */
   async getApiKeys() {
     if (isElectronMode()) {
       const keys = await window.electronAPI.models.getApiKeys();
-      return { keys };
+      // Transform keys to include hasKey field - if a record exists, the key exists
+      const transformedKeys = keys.map((key) => ({
+        ...key,
+        hasKey: true, // If a record exists in the database, the key exists
+      }));
+      return { keys: transformedKeys };
     }
     const res = await fetch("/api/models/api-keys");
     if (!res.ok) throw new Error(`Failed to get API keys: ${res.status}`);
@@ -364,11 +216,17 @@ export const modelsApi = {
 
   /**
    * Get API keys info (for /api/models/keys endpoint)
+   * Transforms the response to include hasKey field for UI compatibility
    */
   async getKeysInfo() {
     if (isElectronMode()) {
       const keys = await window.electronAPI.models.getApiKeys();
-      return { keys };
+      // Transform keys to include hasKey field - if a record exists, the key exists
+      const transformedKeys = keys.map((key) => ({
+        ...key,
+        hasKey: true, // If a record exists in the database, the key exists
+      }));
+      return { keys: transformedKeys };
     }
     const res = await fetch("/api/models/keys");
     if (!res.ok) throw new Error(`Failed to get keys info: ${res.status}`);
@@ -419,7 +277,8 @@ export const modelsApi = {
    */
   async testApiKey(data: { providerId: string; apiKey: string }) {
     if (isElectronMode()) {
-      return window.electronAPI.models.testApiKey(data);
+      // Use validateApiKey which tests without saving
+      return window.electronAPI.models.validateApiKey(data);
     }
     const res = await fetch("/api/models/keys", {
       method: "POST",
@@ -435,11 +294,13 @@ export const modelsApi = {
   async saveKey(data: { providerId: string; apiKey: string }) {
     if (isElectronMode()) {
       const result = await window.electronAPI.models.saveApiKey(data);
-      // Invalidate model cache after save
+      // Refresh local models after save to update status
       try {
-        await window.electronAPI.models.invalidateCache(data.providerId);
+        await window.electronAPI.models.refreshLocalModels({
+          providerId: data.providerId,
+        });
       } catch (e) {
-        console.warn("[modelsApi] Failed to invalidate cache:", e);
+        console.warn("[modelsApi] Failed to refresh models:", e);
       }
       return result;
     }
@@ -466,10 +327,12 @@ export const modelsApi = {
 
   /**
    * Invalidate model cache for a provider
+   * In Electron mode, this refreshes local models to update the cache
    */
   async invalidateCache(providerId: string) {
     if (isElectronMode()) {
-      return window.electronAPI.models.invalidateCache(providerId);
+      // Use refreshLocalModels to invalidate/refresh the cache
+      return window.electronAPI.models.refreshLocalModels({ providerId });
     }
     const res = await fetch("/api/models/invalidate", {
       method: "POST",

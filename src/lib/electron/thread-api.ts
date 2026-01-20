@@ -156,6 +156,65 @@ export const threadApi = {
     if (!res.ok)
       throw new Error(`Failed to delete unarchived threads: ${res.status}`);
   },
+
+  /**
+   * Upsert a message (create or update)
+   */
+  async upsertMessage(message: any, threadId: string): Promise<any> {
+    if (isElectronMode()) {
+      return window.electronAPI.db.chat.upsertMessage({ message, threadId });
+    }
+    throw new Error("Not in Electron mode");
+  },
+
+  /**
+   * Delete a single message
+   */
+  async deleteMessage(messageId: string): Promise<{ success: boolean }> {
+    if (isElectronMode()) {
+      return window.electronAPI.db.chat.deleteMessage(messageId);
+    }
+    throw new Error("Not in Electron mode");
+  },
+
+  /**
+   * Delete messages after a specific message (by timestamp)
+   */
+  async deleteMessagesAfterTimestamp(
+    threadId: string,
+    messageId: string,
+  ): Promise<{ success: boolean }> {
+    if (isElectronMode()) {
+      return window.electronAPI.db.chat.deleteMessagesAfterTimestamp({
+        threadId,
+        messageId,
+      });
+    }
+    throw new Error("Not in Electron mode");
+  },
+
+  /**
+   * Update message parts
+   */
+  async updateMessageParts(messageId: string, parts: any[]): Promise<any> {
+    if (isElectronMode()) {
+      return window.electronAPI.db.chat.updateMessageParts({
+        messageId,
+        parts,
+      });
+    }
+    throw new Error("Not in Electron mode");
+  },
+
+  /**
+   * Get messages for a thread
+   */
+  async getMessages(threadId: string): Promise<any[]> {
+    if (isElectronMode()) {
+      return window.electronAPI.db.chat.getMessages(threadId);
+    }
+    throw new Error("Not in Electron mode");
+  },
 };
 
 /**

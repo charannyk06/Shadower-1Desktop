@@ -2,11 +2,11 @@
  * Unified Export API for Desktop (Electron)
  *
  * This module provides a unified API for export operations.
- * Note: Exports functionality may be limited in desktop mode as it's primarily
- * designed for web sharing. This provides a fallback that returns empty data.
+ * In desktop mode, exports save locally to files instead of creating shareable web links.
  */
 
 import { ChatExportSummary } from "app-types/chat-export";
+import { threadApi } from "./thread-api";
 
 /**
  * Check if we're running in Electron mode
@@ -46,6 +46,104 @@ export const exportApi = {
       method: "DELETE",
     });
     if (!res.ok) throw new Error(`Failed to delete export: ${res.status}`);
+  },
+
+  /**
+   * Export chat to a local file (desktop mode)
+   * Returns true if export was successful
+   */
+  async exportChatToFile(
+    threadId: string,
+    format: "json" | "markdown" = "json",
+  ): Promise<boolean> {
+    if (!isElectronMode()) {
+      throw new Error("Local file export only available in desktop mode");
+    }
+
+    // Get thread with messages
+    const threadWithMessages = await threadApi.getThreadWithMessages(threadId);
+    if (!threadWithMessages) {
+      throw new Error("Thread not found");
+    }
+
+    const { title, messages, createdAt } = threadWithMessages;
+
+    let content: string;
+    let filename: string;
+    let mimeType: string;
+
+    if (format === "markdown") {
+      // Format as Markdown
+      const lines: string[] = [
+        `# ${title || "Chat Export"}`,
+        "",
+        `*Exported on ${new Date().toLocaleString()}*`,
+        "",
+        "---",
+        "",
+      ];
+
+      for (const msg of messages) {
+        const role = msg.role === "user" ? "**You**" : "**Assistant**";
+        lines.push(`## ${role}`);
+        lines.push("");
+
+        // Extract text from message parts
+        if (Array.isArray(msg.parts)) {
+          for (const part of msg.parts) {
+            if (part.type === "text" && part.text) {
+              lines.push(part.text);
+              lines.push("");
+            }
+          }
+        }
+        lines.push("---");
+        lines.push("");
+      }
+
+      content = lines.join("\n");
+      filename = `chat-export-${threadId.slice(0, 8)}.md`;
+      mimeType = "text/markdown";
+    } else {
+      // Format as JSON
+      content = JSON.stringify(
+        {
+          id: threadId,
+          title,
+          createdAt,
+          exportedAt: new Date().toISOString(),
+          messages: messages.map((msg) => ({
+            id: msg.id,
+            role: msg.role,
+            createdAt: msg.createdAt,
+            parts: msg.parts,
+          })),
+        },
+        null,
+        2,
+      );
+      filename = `chat-export-${threadId.slice(0, 8)}.json`;
+      mimeType = "application/json";
+    }
+
+    // Use Electron's file dialog to save
+    if (window.electronAPI?.files?.saveFile) {
+      await window.electronAPI.files.saveFile(filename, content, mimeType);
+      return true;
+    }
+
+    // Fallback: Create a download via blob
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    return true;
   },
 };
 
