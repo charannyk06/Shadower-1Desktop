@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 
 export default function ExportError({ message }: { message: string }) {
   return (
@@ -8,7 +8,7 @@ export default function ExportError({ message }: { message: string }) {
           {message}
         </div>
         <Link
-          href="/"
+          to="/"
           className="hover:underline text-sm text-muted-foreground text-center"
         >
           Go to home

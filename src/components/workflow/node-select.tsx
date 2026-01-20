@@ -1,7 +1,7 @@
 "use client";
 
 import { NodeKind } from "lib/ai/workflow/workflow.interface";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { ReactNode, useMemo } from "react";
 import {
   DropdownMenu,
@@ -38,9 +38,9 @@ export function NodeSelect({
 function NodeSelectContent({
   onChange,
 }: { onChange: (nodeKind: NodeKind) => void }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const descriptions = useMemo(() => {
-    return t.raw("Workflow.kindsDescription") ?? {};
+    return t("Workflow.kindsDescription", { returnObjects: true }) ?? {};
   }, [t]);
   return Object.keys(NodeKind)
     .filter((key) => NodeKind[key] !== NodeKind.Input)

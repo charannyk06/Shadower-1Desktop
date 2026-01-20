@@ -15,7 +15,7 @@ import { useWorkflowStore } from "@/app/store/workflow.store";
 import { SelectModel } from "@/components/select-model";
 import { useWorkflowToolList } from "@/hooks/queries/use-workflow-tool-list";
 import { isString, toAny } from "lib/utils";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { MCPIcon } from "ui/mcp-icon";
 import { Separator } from "ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
@@ -27,7 +27,7 @@ export const ToolNodeDataConfig = memo(function ({
 }: {
   data: ToolNodeData;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const { updateNodeData } = useReactFlow();
   const nodes = useNodes() as UINode[];
   const edges = useEdges();
@@ -158,7 +158,7 @@ export const ToolNodeDataConfig = memo(function ({
 ToolNodeDataConfig.displayName = "ToolNodeDataConfig";
 
 export const ToolNodeStack = memo(function ({ data }: { data: ToolNodeData }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const selectedToolLabel = useMemo(() => {
     if (!data.tool)
       return (

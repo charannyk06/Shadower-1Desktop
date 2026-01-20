@@ -9,6 +9,7 @@ import clsx from "clsx";
 import { clientLogger } from "lib/client-logger";
 import { cn, createDebounce, generateUUID, truncateString } from "lib/utils";
 import React, {
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -52,9 +53,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { getStorageManager } from "lib/browser-stroage";
 import { Shortcuts, isShortcutEvent } from "lib/keyboard-shortcuts";
 import { ArrowDown, FilePlus, Loader } from "lucide-react";
-import { useTranslations } from "next-intl";
-import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "@tanstack/react-router";
 import { mutate } from "swr";
 import { safe } from "ts-safe";
 import { Button } from "ui/button";
@@ -81,13 +81,9 @@ type Props = {
   selectedChatModel?: string;
 };
 
-const LightRays = dynamic(() => import("ui/light-rays"), {
-  ssr: false,
-});
+const LightRays = React.lazy(() => import("ui/light-rays"));
 
-const Particles = dynamic(() => import("ui/particles"), {
-  ssr: false,
-});
+const Particles = React.lazy(() => import("ui/particles"));
 
 const debounce = createDebounce();
 
@@ -836,7 +832,15 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     } else if (latestRef.current.threadList[0]?.id !== threadId) {
       mutate("/api/thread");
     }
-  }, []);
+
+    // DON'T navigate here - it causes a remount and loses the streaming messages.
+    // The URL will remain at "/" but that's OK - the messages are saved to DB
+    // by the main process, and when the user clicks on the thread in sidebar
+    // or refreshes, they'll see the saved conversation.
+    //
+    // The thread title will be generated and the thread will appear in sidebar
+    // automatically via the IPC event.
+  }, [threadId]);
 
   const [input, setInput] = useState("");
 
@@ -855,11 +859,22 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   } = useChat({
     id: threadId,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    onError: (error) => {
+      console.error("[ChatBot] useChat error:", error);
+      console.error("[ChatBot] useChat error stack:", error?.stack);
+    },
+    onData: (data) => {
+      console.log("[ChatBot] useChat onData callback triggered:", data);
+    },
+    onFinish: (message) => {
+      console.log("[ChatBot] useChat onFinish:", message);
+      onFinish();
+    },
     transport: new ElectronIPCTransport({
       prepareSendMessagesRequest: ({ messages, body, id }) => {
-        if (window.location.pathname !== `/chat/${threadId}`) {
-          window.history.replaceState({}, "", `/chat/${threadId}`);
-        }
+        // NOTE: Do NOT update URL here with replaceState!
+        // TanStack Router detects URL changes and re-routes, causing the component
+        // to remount and lose the streaming state. URL is updated in onFinish instead.
         const lastMessage = messages.at(-1)!;
         // Filter out UI-only parts (e.g., source-url) so the model doesn't receive unknown parts
         const attachments: ChatAttachment[] = lastMessage.parts.reduce(
@@ -888,7 +903,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           ...lastMessage,
           parts: lastMessage.parts.filter((p: any) => p?.type !== "source-url"),
         } as typeof lastMessage;
-        const hasFilePart = lastMessage.parts?.some(
+        const _hasFilePart = lastMessage.parts?.some(
           (p) => (p as any)?.type === "file",
         );
 
@@ -898,10 +913,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           chatModel:
             (body as { model: ChatModel })?.model ?? latestRef.current.model,
           toolChoice: latestRef.current.toolChoice,
-          allowedAppDefaultToolkit:
-            latestRef.current.mentions?.length || hasFilePart
-              ? []
-              : latestRef.current.allowedAppDefaultToolkit,
+          allowedAppDefaultToolkit: latestRef.current.allowedAppDefaultToolkit,
           allowedMcpServers: latestRef.current.mentions?.length
             ? {}
             : latestRef.current.allowedMcpServers,
@@ -970,6 +982,22 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       }
     },
   });
+
+  // DEBUG: Track when messages and status change
+  useEffect(() => {
+    const lastMsg = messages.at(-1);
+    console.log("[ChatBot] DEBUG messages changed:", {
+      count: messages.length,
+      status,
+      lastMsgRole: lastMsg?.role,
+      lastMsgId: lastMsg?.id,
+      lastMsgPartsCount: lastMsg?.parts.length,
+      lastMsgParts: lastMsg?.parts.slice(0, 3).map((p: any) => ({
+        type: p.type,
+        textLength: p.type === "text" ? p.text?.length : undefined,
+      })),
+    });
+  }, [messages, status]);
 
   // Set currentThreadId synchronously on mount/thread change
   // Using useLayoutEffect ensures child components (like sandbox executors) have access
@@ -1384,10 +1412,14 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             transition={{ duration: 5 }}
           >
             <div className="absolute top-0 left-0 w-full h-full z-10">
-              <LightRays />
+              <Suspense fallback={null}>
+                <LightRays />
+              </Suspense>
             </div>
             <div className="absolute top-0 left-0 w-full h-full z-10">
-              <Particles particleCount={400} particleBaseSize={10} />
+              <Suspense fallback={null}>
+                <Particles particleCount={400} particleBaseSize={10} />
+              </Suspense>
             </div>
 
             <div className="absolute top-0 left-0 w-full h-full z-10">
@@ -1653,9 +1685,9 @@ function DeleteThreadPopup({
   readonly onClose: () => void;
   readonly open: boolean;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [isDeleting, setIsDeleting] = useState(false);
-  const router = useRouter();
+  const navigate = useNavigate();
   const handleDelete = useCallback(() => {
     setIsDeleting(true);
     safe(() => threadApi.delete(threadId))
@@ -1664,11 +1696,11 @@ function DeleteThreadPopup({
         // Clean up thread-related state (context usage, plans, files, mentions)
         cleanupThreadState(threadId);
         toast.success(t("Chat.Thread.threadDeleted"));
-        router.push("/");
+        navigate({ to: "/" });
       })
       .ifFail(() => toast.error(t("Chat.Thread.failedToDeleteThread")))
       .watch(() => onClose());
-  }, [threadId, router]);
+  }, [threadId, navigate]);
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent>

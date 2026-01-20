@@ -1,4 +1,4 @@
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 
 /**
  * Hook for profile translations
@@ -6,13 +6,12 @@ import { useTranslations } from "next-intl";
  * @returns Translation functions for user profile
  */
 export function useProfileTranslations() {
-  const t = useTranslations("User.Profile.user");
-  const tCommon = useTranslations("User.Profile.common");
+  const { t } = useTranslation();
 
   return {
     /** User translations */
     t,
     /** Common translations */
-    tCommon,
+    tCommon: t,
   };
 }

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { BrainIcon, FileTextIcon, PlusIcon } from "lucide-react";
 import { Button } from "ui/button";
 import {
@@ -34,20 +34,20 @@ const KNOWLEDGE_TABS = [
 type TabId = (typeof KNOWLEDGE_TABS)[number]["id"];
 
 export function KnowledgeContent() {
-  const t = useTranslations();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const searchParams = useSearch({ strict: false }) as Record<string, string>;
   const { data: session } = authClient.useSession();
 
   // Sync tab state with URL
-  const tabFromUrl = (searchParams.get("tab") as TabId) || "memories";
+  const tabFromUrl = (searchParams?.tab as TabId) || "memories";
   const [activeTab, setActiveTab] = useState<TabId>(tabFromUrl);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Update activeTab when URL changes
   useEffect(() => {
-    const urlTab = (searchParams.get("tab") as TabId) || "memories";
+    const urlTab = (searchParams?.tab as TabId) || "memories";
     if (urlTab !== activeTab) {
       setActiveTab(urlTab);
     }
@@ -57,7 +57,12 @@ export function KnowledgeContent() {
     (tab: TabId) => {
       setActiveTab(tab);
       // Update URL with tab param, preserving other params
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams();
+      if (searchParams) {
+        Object.entries(searchParams).forEach(([key, value]) => {
+          if (value) params.set(key, value);
+        });
+      }
       if (tab !== "memories") {
         params.set("tab", tab);
       } else {
@@ -68,9 +73,11 @@ export function KnowledgeContent() {
       params.delete("search");
       params.delete("role");
       const queryString = params.toString();
-      router.push(queryString ? `?${queryString}` : window.location.pathname);
+      navigate({
+        to: queryString ? `?${queryString}` : window.location.pathname,
+      });
     },
-    [router, searchParams],
+    [navigate, searchParams],
   );
 
   const handleKnowledgeBaseCreated = useCallback(() => {

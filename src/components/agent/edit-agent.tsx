@@ -21,8 +21,8 @@ import { notify } from "lib/notify";
 import { agentApi } from "@/lib/electron/agent-api";
 import { cn, objectFlow } from "lib/utils";
 import { Loader, WandSparklesIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { safe } from "ts-safe";
@@ -80,9 +80,9 @@ export default function EditAgent({
   hasEditAccess = true,
   isSystemAgent = false,
 }: EditAgentProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const mutateAgents = useMutateAgents();
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const [openGenerateAgentDialog, setOpenGenerateAgentDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -195,7 +195,7 @@ export default function EditAgent({
         .ifOk((updatedAgent) => {
           mutateAgents(updatedAgent);
           toast.success(t("Agent.updated"));
-          router.push(`/agents`);
+          navigate({ to: "/agents" });
         })
         .ifFail(handleErrorWithToast)
         .watch(() => setIsSaving(false));
@@ -206,7 +206,7 @@ export default function EditAgent({
         .ifOk((updatedAgent) => {
           mutateAgents(updatedAgent);
           toast.success(t("Agent.created"));
-          router.push(`/agents`);
+          navigate({ to: "/agents" });
         })
         .ifFail(handleErrorWithToast)
         .watch(() => setIsSaving(false));
@@ -244,7 +244,7 @@ export default function EditAgent({
       .ifOk(() => {
         mutateAgents({ id: initialAgent.id }, true);
         toast.success(t("Agent.deleted"));
-        router.push("/agents");
+        navigate({ to: "/agents" });
       })
       .ifFail(handleErrorWithToast)
       .watch(() => setIsSaving(false));

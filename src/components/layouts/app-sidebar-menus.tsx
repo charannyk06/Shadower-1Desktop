@@ -21,9 +21,8 @@ import {
   BrainIcon,
   Box,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { MCPIcon } from "ui/mcp-icon";
 import { SidebarGroup } from "ui/sidebar";
@@ -32,8 +31,8 @@ import { WriteIcon } from "ui/write-icon";
 import { ArchiveDialog } from "../archive-dialog";
 
 export function AppSidebarMenus() {
-  const router = useRouter();
-  const t = useTranslations("");
+  const navigate = useNavigate();
+  const { t } = useTranslation();
   const { setOpenMobile } = useSidebar();
   const [expandedArchive, setExpandedArchive] = useState(false);
   const [addArchiveDialogOpen, setAddArchiveDialogOpen] = useState(false);
@@ -50,12 +49,11 @@ export function AppSidebarMenus() {
           <Tooltip>
             <SidebarMenuItem className="mb-1">
               <Link
-                href="/"
+                to="/"
                 onClick={(e) => {
                   e.preventDefault();
                   setOpenMobile(false);
-                  router.push(`/`);
-                  router.refresh();
+                  navigate({ to: `/` });
                 }}
               >
                 <SidebarMenuButton className="flex font-semibold group/new-chat bg-input/20 border border-border/40">
@@ -79,7 +77,7 @@ export function AppSidebarMenus() {
         <SidebarMenu>
           <Tooltip>
             <SidebarMenuItem>
-              <Link href="/mcp">
+              <Link to="/mcp">
                 <SidebarMenuButton className="font-semibold">
                   <MCPIcon className="size-4 fill-accent-foreground" />
                   {t("Layout.mcpConfiguration")}
@@ -91,7 +89,7 @@ export function AppSidebarMenus() {
         <SidebarMenu>
           <Tooltip>
             <SidebarMenuItem>
-              <Link href="/models">
+              <Link to="/models">
                 <SidebarMenuButton className="font-semibold">
                   <Box className="size-4" />
                   {t("Layout.models")}
@@ -103,7 +101,7 @@ export function AppSidebarMenus() {
         <SidebarMenu>
           <Tooltip>
             <SidebarMenuItem>
-              <Link href="/workflow">
+              <Link to="/workflow">
                 <SidebarMenuButton className="font-semibold">
                   <GitBranch className="size-4" />
                   {t("Layout.workflow")}
@@ -115,7 +113,7 @@ export function AppSidebarMenus() {
         <SidebarMenu>
           <Tooltip>
             <SidebarMenuItem>
-              <Link href="/knowledge">
+              <Link to="/knowledge">
                 <SidebarMenuButton className="font-semibold">
                   <BrainIcon className="size-4" />
                   {t("Layout.allKnowledge")}
@@ -172,7 +170,7 @@ export function AppSidebarMenus() {
                   archives!.map((archive) => (
                     <SidebarMenuSubItem
                       onClick={() => {
-                        router.push(`/archive/${archive.id}`);
+                        navigate({ to: `/archive/${archive.id}` });
                       }}
                       key={archive.id}
                       className="cursor-pointer"

@@ -12,8 +12,8 @@ import {
   Trash,
   UploadIcon,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "@tanstack/react-router";
 import { type PropsWithChildren, useState } from "react";
 import { toast } from "sonner";
 import { mutate } from "swr";
@@ -63,9 +63,9 @@ export function ThreadDropdown({
   side,
   align,
 }: Props) {
-  const router = useRouter();
-  const t = useTranslations();
-  const push = useToRef(router.push);
+  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const push = useToRef((path: string) => navigate({ to: path }));
 
   const [currentThreadId, archiveList] = appStore(
     useShallow((state) => [state.currentThreadId, state.archiveList]),
@@ -125,7 +125,9 @@ export function ThreadDropdown({
         if (isOk) {
           toast.success(t("Archive.itemAddedToArchive"));
           if (location.pathname.startsWith(`/archive/${archiveId}`)) {
-            router.refresh();
+            // Note: TanStack Router doesn't have a refresh equivalent,
+            // typically you'd use query invalidation or manual refetch
+            window.location.reload();
           }
         } else {
           toast.error(error.message || t("Archive.failedToCreateArchive"));
@@ -240,7 +242,7 @@ function UpdateThreadNameDialog({
   onUpdated: (title: string) => void;
 }>) {
   const [title, setTitle] = useState(initialTitle);
-  const t = useTranslations();
+  const { t } = useTranslation();
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>

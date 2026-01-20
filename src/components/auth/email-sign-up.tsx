@@ -15,8 +15,8 @@ import { authClient } from "@/lib/auth/client";
 import { UserZodSchema } from "app-types/user";
 import { cn } from "lib/utils";
 import { Check, ChevronLeft, Loader, X } from "lucide-react";
-import { useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -25,9 +25,9 @@ export default function EmailSignUp({
 }: {
   isFirstUser: boolean;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [step, setStep] = useState(1);
-  const router = useRouter();
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useObjectState({
     email: "",
@@ -97,7 +97,7 @@ export default function EmailSignUp({
       if (result.success) {
         toast.success("Account created successfully!");
         // Session is already set by authClient, redirect to main app
-        router.push("/");
+        navigate({ to: "/" });
       } else {
         toast.error(result.error || "Registration failed");
       }

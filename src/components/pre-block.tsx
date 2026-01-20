@@ -5,9 +5,8 @@ import { toJsxRuntime } from "hast-util-to-jsx-runtime";
 import { cn } from "lib/utils";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useTheme } from "next-themes";
-import dynamic from "next/dynamic";
 import type { JSX } from "react";
-import { Fragment, useLayoutEffect, useState } from "react";
+import { Fragment, lazy, Suspense, useLayoutEffect, useState } from "react";
 import { jsx, jsxs } from "react/jsx-runtime";
 import {
   type BundledLanguage,
@@ -18,26 +17,15 @@ import { safe } from "ts-safe";
 import { Button } from "ui/button";
 import JsonView from "ui/json-view";
 
-// Dynamically import MermaidDiagram component
-const MermaidDiagram = dynamic(
-  () => import("./mermaid-diagram").then((mod) => mod.MermaidDiagram),
-  {
-    loading: () => (
-      <div className="text-sm flex bg-accent/30 flex-col rounded-2xl relative my-4 overflow-hidden border">
-        <div className="w-full flex z-20 py-2 px-4 items-center">
-          <span className="text-sm text-muted-foreground">mermaid</span>
-        </div>
-        <div className="relative overflow-x-auto px-6 pb-6">
-          <div className="h-20 w-full flex items-center justify-center">
-            <span className="text-muted-foreground">
-              Loading Mermaid renderer...
-            </span>
-          </div>
-        </div>
-      </div>
-    ),
-    ssr: false,
-  },
+// Lazy load MermaidDiagram component
+const MermaidDiagram = lazy(() =>
+  import("./mermaid-diagram").then((mod) => ({ default: mod.MermaidDiagram })),
+);
+
+const MermaidLoadingFallback = () => (
+  <div className="h-20 w-full flex items-center justify-center">
+    <span className="text-muted-foreground">Loading Mermaid renderer...</span>
+  </div>
 );
 
 const PurePre = ({
@@ -96,7 +84,9 @@ export async function Highlight(
   if (lang === "mermaid") {
     return (
       <PurePre code={code} lang={lang}>
-        <MermaidDiagram chart={code} />
+        <Suspense fallback={<MermaidLoadingFallback />}>
+          <MermaidDiagram chart={code} />
+        </Suspense>
       </PurePre>
     );
   }

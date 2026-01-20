@@ -11,7 +11,7 @@ import {
   Share2,
   Trash2,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
@@ -32,7 +32,7 @@ import { Textarea } from "ui/textarea";
 import { McpServerCustomizationContent } from "./mcp-customization-popup";
 
 export function UserInstructionsContent() {
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   const responseStyleExamples = useMemo(
     () => [
@@ -218,7 +218,7 @@ export function UserInstructionsContent() {
 }
 
 export function MCPInstructionsContent() {
-  const t = useTranslations("");
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [mcpServer, setMcpServer] = useState<
     (MCPServerInfo & { id: string }) | null
@@ -302,7 +302,7 @@ export function MCPInstructionsContent() {
 }
 
 export function ExportsManagementContent() {
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   const {
     data: exports,

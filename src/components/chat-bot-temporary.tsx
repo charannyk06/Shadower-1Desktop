@@ -19,7 +19,7 @@ import { DialogTitle } from "@radix-ui/react-dialog";
 import { DefaultChatTransport, UIMessage } from "ai";
 import { Shortcuts, isShortcutEvent } from "lib/keyboard-shortcuts";
 import { Settings2, X } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -36,7 +36,7 @@ import { ErrorMessage, PreviewMessage } from "./message";
 import PromptInput from "./prompt-input";
 
 export function ChatBotTemporary() {
-  const t = useTranslations("Chat.TemporaryChat");
+  const { t } = useTranslation();
 
   const [temporaryChat, appStoreMutate] = appStore(
     useShallow((state) => [state.temporaryChat, state.mutate]),
@@ -152,7 +152,9 @@ export function ChatBotTemporary() {
       >
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2">
-            <p className="hidden sm:flex">{t("temporaryChat")}</p>
+            <p className="hidden sm:flex">
+              {t("Chat.TemporaryChat.temporaryChat")}
+            </p>
 
             <div className="flex-1" />
 
@@ -162,7 +164,7 @@ export function ChatBotTemporary() {
               onClick={reset}
               disabled={isLoading}
             >
-              {t("resetChat")}
+              {t("Chat.TemporaryChat.resetChat")}
               <Separator orientation="vertical" />
               <span className="text-xs text-muted-foreground ml-1">⌘E</span>
             </Button>
@@ -232,7 +234,7 @@ function DrawerTemporaryContent({
   setMessages: UseChatHelpers<UIMessage>["setMessages"];
   stop: UseChatHelpers<UIMessage>["stop"];
 }) {
-  const t = useTranslations("Chat");
+  const { t } = useTranslation();
 
   const [temporaryChat, appStoreMutate] = appStore(
     useShallow((state) => [state.temporaryChat, state.mutate]),
@@ -285,7 +287,7 @@ function DrawerTemporaryContent({
             {" "}
             <div className="rounded-xl p-6 flex flex-col gap-2 leading-relaxed text-center">
               <h1 className="text-4xl font-semibold ">
-                {t("TemporaryChat.thisChatWontBeSaved")}
+                {t("Chat.TemporaryChat.thisChatWontBeSaved")}
               </h1>
             </div>
           </div>
@@ -328,7 +330,7 @@ function DrawerTemporaryContent({
           model={temporaryChat.chatModel}
           setModel={setModel}
           toolDisabled
-          placeholder={t("TemporaryChat.feelFreeToAskAnythingTemporarily")}
+          placeholder={t("Chat.TemporaryChat.feelFreeToAskAnythingTemporarily")}
           setInput={setInput}
           voiceDisabled
           isLoading={isLoading}
@@ -353,7 +355,7 @@ function TemporaryChatInstructions({
   children: ReactNode;
 }) {
   const [input, setInput] = useState(instructions);
-  const t = useTranslations();
+  const { t } = useTranslation();
   useEffect(() => {
     if (isOpen) {
       setInput(instructions);

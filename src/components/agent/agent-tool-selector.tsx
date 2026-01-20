@@ -7,7 +7,7 @@ import { DefaultToolName } from "lib/ai/tools";
 import equal from "lib/equal";
 import { cn, noop } from "lib/utils";
 import { ChevronDownIcon, HammerIcon, Loader, XIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { MCPIcon } from "ui/mcp-icon";
@@ -27,7 +27,7 @@ export function AgentToolSelector({
   hasEditAccess = true,
   onChange,
 }: AgentToolSelectorProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const triggerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 

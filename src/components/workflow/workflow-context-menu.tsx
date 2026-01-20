@@ -12,7 +12,7 @@ import {
 import { EditWorkflowPopup } from "./edit-workflow-popup";
 
 import { PencilIcon, Trash2Icon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { mutate } from "swr";
 
@@ -27,7 +27,7 @@ interface WorkflowContextMenuProps {
 export function WorkflowContextMenu(props: WorkflowContextMenuProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [open, setOpen] = useState(false);
-  const t = useTranslations();
+  const { t } = useTranslation();
   const handleDeleteWorkflow = async () => {
     toast.promise(
       safe(() => workflowApi.delete(props.workflow.id))

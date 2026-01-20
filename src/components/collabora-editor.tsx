@@ -45,7 +45,7 @@ export function CollaboraEditor({
   const handleMessage = useCallback(
     (event: MessageEvent) => {
       // Verify origin EXACTLY matches Collabora server (security: prevent origin spoofing)
-      const collaboraUrl = process.env.NEXT_PUBLIC_COLLABORA_URL;
+      const collaboraUrl = import.meta.env.VITE_COLLABORA_URL;
       if (collaboraUrl) {
         const expectedOrigin = new URL(collaboraUrl).origin;
         if (event.origin !== expectedOrigin) {
@@ -136,7 +136,7 @@ export function CollaboraEditor({
   // Send PostMessage to Collabora (use specific origin, not wildcard)
   const postMessage = (message: Record<string, unknown>) => {
     if (iframeRef.current?.contentWindow) {
-      const collaboraUrl = process.env.NEXT_PUBLIC_COLLABORA_URL;
+      const collaboraUrl = import.meta.env.VITE_COLLABORA_URL;
       const targetOrigin = collaboraUrl ? new URL(collaboraUrl).origin : "*";
       iframeRef.current.contentWindow.postMessage(
         JSON.stringify(message),

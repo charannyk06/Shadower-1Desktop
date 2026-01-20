@@ -12,8 +12,8 @@ import { SocialAuthenticationProvider } from "app-types/authentication";
 import { authClient } from "auth/client";
 import { cn } from "lib/utils";
 import { Mail } from "lucide-react";
-import { useTranslations } from "next-intl";
-import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { Link } from "@tanstack/react-router";
 import { startTransition } from "react";
 import { toast } from "sonner";
 import SocialProviders from "./social-providers";
@@ -27,7 +27,7 @@ export default function SignUpPage({
   socialAuthenticationProviders: SocialAuthenticationProvider[];
   isFirstUser: boolean;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const handleSocialSignIn = (provider: SocialAuthenticationProvider) => {
     startTransition(async () => {
       try {
@@ -56,7 +56,7 @@ export default function SignUpPage({
       <CardContent className="flex flex-col gap-2">
         {emailAndPasswordEnabled && (
           <Link
-            href="/sign-up/email"
+            to="/sign-up/email"
             data-testid="email-signup-button"
             className={cn(buttonVariants({ variant: "default" }), "w-full")}
           >

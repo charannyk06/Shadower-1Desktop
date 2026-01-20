@@ -3,7 +3,7 @@
 import { userFetcher } from "@/lib/electron/user-api";
 import { BasicUser } from "app-types/user";
 import { motion } from "framer-motion";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useMemo } from "react";
 import useSWR from "swr";
 import { FlipWords } from "ui/flip-words";
@@ -19,18 +19,18 @@ export const ChatGreeting = () => {
   const { data: user } = useSWR<BasicUser>(`/api/user/details`, userFetcher, {
     revalidateOnMount: false,
   });
-  const t = useTranslations("Chat.Greeting");
+  const { t } = useTranslation();
 
   const word = useMemo(() => {
     if (!user?.name) return "";
     const words = [
-      t(getGreetingByTime(), { name: user.name }),
-      t("niceToSeeYouAgain", { name: user.name }),
-      t("whatAreYouWorkingOnToday", { name: user.name }),
-      t("letMeKnowWhenYoureReadyToBegin"),
-      t("whatAreYourThoughtsToday"),
-      t("whereWouldYouLikeToStart"),
-      t("whatAreYouThinking", { name: user.name }),
+      t("Chat.Greeting." + getGreetingByTime(), { name: user.name }),
+      t("Chat.Greeting.niceToSeeYouAgain", { name: user.name }),
+      t("Chat.Greeting.whatAreYouWorkingOnToday", { name: user.name }),
+      t("Chat.Greeting.letMeKnowWhenYoureReadyToBegin"),
+      t("Chat.Greeting.whatAreYourThoughtsToday"),
+      t("Chat.Greeting.whereWouldYouLikeToStart"),
+      t("Chat.Greeting.whatAreYouThinking", { name: user.name }),
     ];
     return words[Math.floor(Math.random() * words.length)];
   }, [user?.name]);

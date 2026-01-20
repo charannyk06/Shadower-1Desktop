@@ -31,7 +31,7 @@ import {
 } from "lib/ai/workflow/condition";
 import { findJsonSchemaByPath } from "lib/ai/workflow/shared.workflow";
 import { cn, generateUUID } from "lib/utils";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useCallback, useMemo, useState } from "react";
 import { Badge } from "ui/badge";
 import { Input } from "ui/input";
@@ -44,7 +44,7 @@ export function ConditionNodeDataConfig({
 }: {
   data: ConditionNodeData;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const { updateNodeData, setEdges, getEdges } = useReactFlow();
 
   const updateIfBranch = useCallback(
@@ -207,7 +207,7 @@ function ConditionBranchItem({
 }: ConditionBranchProps) {
   const { getNode } = useReactFlow<UINode>();
   const nodes = useNodes() as UINode[];
-  const t = useTranslations();
+  const { t } = useTranslation();
   const addCondition = useCallback(
     (source: OutputSchemaSourceKey) => {
       const node = getNode(source.nodeId)!;

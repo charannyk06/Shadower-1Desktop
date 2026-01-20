@@ -9,7 +9,7 @@ import {
   CircleDotIcon,
   XIcon,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { memo, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 
@@ -37,7 +37,7 @@ interface TaskStatusOutput {
 function PureTaskStatusInvocation({
   part,
 }: Readonly<TaskStatusInvocationProps>) {
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   const input = part.input as TaskStatusInput | undefined;
   const result = useMemo(() => {

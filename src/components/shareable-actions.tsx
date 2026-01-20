@@ -9,8 +9,8 @@ import {
   Lock,
   Trash2,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { Button } from "ui/button";
 import {
@@ -101,8 +101,8 @@ export function ShareableActions({
   isDeleteLoading = false,
   disabled = false,
 }: ShareableActionsProps) {
-  const t = useTranslations();
-  const router = useRouter();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
 
   const isAnyLoading = useMemo(
     () =>
@@ -238,7 +238,7 @@ export function ShareableActions({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                router.push(editHref);
+                navigate({ to: editHref });
               }}
             >
               <WriteIcon className="size-4" />

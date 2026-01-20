@@ -47,7 +47,7 @@ import { Textarea } from "ui/textarea";
 import { NodeIcon } from "../node-icon";
 
 import { useCopy } from "@/hooks/use-copy";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { NodeResultPopup } from "../node-result-popup";
 
 const debounce = createDebounce();
@@ -76,7 +76,7 @@ export function ExecuteTab({
   );
 
   const [tab, setTab] = useState<(typeof tabs)[number]["value"]>(tabs[0].value);
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [isRunning, setIsRunning] = useState(false);
   const [histories, setHistories] = useState<NodeRuntimeHistory[]>([]);
   const [result, setResult] = useState<GraphEndEvent | undefined>();

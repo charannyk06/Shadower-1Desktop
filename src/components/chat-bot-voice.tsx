@@ -50,7 +50,7 @@ import { appStore } from "@/app/store";
 import { useAgent } from "@/hooks/queries/use-agent";
 import { ChatMention } from "app-types/chat";
 import { Shortcuts, isShortcutEvent } from "lib/keyboard-shortcuts";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "ui/dialog";
 import JsonView from "ui/json-view";
@@ -68,7 +68,7 @@ const prependTools: EnabledTools[] = [
 ];
 
 export function ChatBotVoice() {
-  const t = useTranslations("Chat");
+  const { t } = useTranslation();
   const [
     agentId,
     appStoreMutate,
@@ -177,26 +177,26 @@ export function ChatBotVoice() {
     if (isLoading) {
       return (
         <p className="fade-in animate-in duration-3000" key="start">
-          {t("VoiceChat.preparing")}
+          {t("Chat.VoiceChat.preparing")}
         </p>
       );
     }
     if (!isActive)
       return (
         <p className="fade-in animate-in duration-3000" key="start">
-          {t("VoiceChat.startVoiceChat")}
+          {t("Chat.VoiceChat.startVoiceChat")}
         </p>
       );
     if (!isListening)
       return (
         <p className="fade-in animate-in duration-3000" key="stop">
-          {t("VoiceChat.yourMicIsOff")}
+          {t("Chat.VoiceChat.yourMicIsOff")}
         </p>
       );
     if (!isAssistantSpeaking && messages.length === 0) {
       return (
         <p className="fade-in animate-in duration-3000" key="ready">
-          {t("VoiceChat.readyWhenYouAreJustStartTalking")}
+          {t("Chat.VoiceChat.readyWhenYouAreJustStartTalking")}
         </p>
       );
     }
@@ -206,7 +206,7 @@ export function ChatBotVoice() {
     if (!isAssistantSpeaking && !isUserSpeaking) {
       return (
         <p className="delayed-fade-in" key="ready">
-          {t("VoiceChat.readyWhenYouAreJustStartTalking")}
+          {t("Chat.VoiceChat.readyWhenYouAreJustStartTalking")}
         </p>
       );
     }
@@ -350,8 +350,8 @@ export function ChatBotVoice() {
                 </TooltipTrigger>
                 <TooltipContent>
                   {useCompactView
-                    ? t("VoiceChat.compactDisplayMode")
-                    : t("VoiceChat.conversationDisplayMode")}
+                    ? t("Chat.VoiceChat.compactDisplayMode")
+                    : t("Chat.VoiceChat.conversationDisplayMode")}
                 </TooltipContent>
               </Tooltip>
 
@@ -445,7 +445,7 @@ export function ChatBotVoice() {
 
                     <AlertDescription className="my-4 ">
                       <p className="text-muted-foreground ">
-                        {t("VoiceChat.pleaseCloseTheVoiceChatAndTryAgain")}
+                        {t("Chat.VoiceChat.pleaseCloseTheVoiceChatAndTryAgain")}
                       </p>
                     </AlertDescription>
                   </Alert>
@@ -515,10 +515,10 @@ export function ChatBotVoice() {
                 </TooltipTrigger>
                 <TooltipContent>
                   {!isActive
-                    ? t("VoiceChat.startConversation")
+                    ? t("Chat.VoiceChat.startConversation")
                     : isListening
-                      ? t("VoiceChat.closeMic")
-                      : t("VoiceChat.openMic")}
+                      ? t("Chat.VoiceChat.closeMic")
+                      : t("Chat.VoiceChat.openMic")}
                 </TooltipContent>
               </Tooltip>
               <Tooltip>
@@ -534,7 +534,7 @@ export function ChatBotVoice() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{t("VoiceChat.endConversation")}</p>
+                  <p>{t("Chat.VoiceChat.endConversation")}</p>
                 </TooltipContent>
               </Tooltip>
             </div>

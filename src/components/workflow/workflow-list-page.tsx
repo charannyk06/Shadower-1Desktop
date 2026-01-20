@@ -14,7 +14,7 @@ import {
   isElectronMode,
 } from "lib/electron/workflow-api";
 import { notify } from "lib/notify";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import useSWR, { mutate } from "swr";
@@ -25,7 +25,7 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "ui/dialog";
 import { Skeleton } from "ui/skeleton";
 
 export default function WorkflowListPage() {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const { data: session } = authClient.useSession();
   // In Electron mode, we need the actual database user ID (UUID), not the hardcoded "local-user"
   const [electronUserId, setElectronUserId] = useState<string | undefined>();

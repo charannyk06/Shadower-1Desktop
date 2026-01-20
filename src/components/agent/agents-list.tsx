@@ -8,8 +8,8 @@ import { agentApi, agentFetcher } from "@/lib/electron/agent-api";
 import { AgentSummary, AgentUpdateSchema } from "app-types/agent";
 import { notify } from "lib/notify";
 import { ArrowUpRight, Plus, Sparkles } from "lucide-react";
-import { useTranslations } from "next-intl";
-import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
@@ -32,7 +32,7 @@ export function AgentsList({
   systemAgents,
   userId,
 }: AgentsListProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const mutateAgents = useMutateAgents();
   const [deletingAgentLoading, setDeletingAgentLoading] = useState<
     string | null
@@ -109,7 +109,7 @@ export function AgentsList({
           {t("Layout.agents")}
         </h1>
         {canCreate && (
-          <Link href="/agent/new">
+          <Link to="/agent/new">
             <Button variant="ghost" data-testid="create-agent-button">
               <Plus />
               {t("Agent.newAgent")}
@@ -152,7 +152,7 @@ export function AgentsList({
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {canCreate && (
-              <Link href="/agent/new">
+              <Link to="/agent/new">
                 <Card
                   className="relative bg-secondary overflow-hidden cursor-pointer hover:bg-input transition-colors h-[196px]"
                   data-testid="create-agent-card"

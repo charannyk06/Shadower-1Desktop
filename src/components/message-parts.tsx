@@ -17,7 +17,16 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Badge } from "ui/badge";
 import { Button } from "ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
@@ -33,7 +42,7 @@ import { toast } from "sonner";
 import { safe } from "ts-safe";
 
 import { useCopy } from "@/hooks/use-copy";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Separator } from "ui/separator";
 
 import {
@@ -53,15 +62,14 @@ import { TextShimmer } from "ui/text-shimmer";
 import { appStore } from "@/app/store";
 import { BACKGROUND_COLORS, EMOJI_DATA } from "lib/const";
 import { notify } from "lib/notify";
-import dynamic from "next/dynamic";
 import { ModelProviderIcon } from "ui/model-provider-icon";
 import type { ToolStatus } from "ui/tool-status-badge";
 import { WorkflowInvocation } from "./tool-invocation/workflow-invocation";
 
-const ToolCallCard = dynamic(
-  () =>
-    import("./tool-invocation/tool-call-card").then((mod) => mod.ToolCallCard),
-  { ssr: false },
+const ToolCallCard = lazy(() =>
+  import("./tool-invocation/tool-call-card").then((mod) => ({
+    default: mod.ToolCallCard,
+  })),
 );
 
 type MessagePart = UIMessage["parts"][number];
@@ -119,7 +127,7 @@ export const UserMessagePart = memo(
     isError,
   }: UserMessagePartProps) {
     const { copied, copy } = useCopy();
-    const t = useTranslations();
+    const { t } = useTranslation();
     const [mode, setMode] = useState<"view" | "edit">("view");
     const [isDeleting, setIsDeleting] = useState(false);
     const [expanded, setExpanded] = useState(false);
@@ -644,7 +652,7 @@ export const ReasoningPart = memo(function ReasoningPart({
               className="pl-6 text-muted-foreground border-l flex flex-col gap-4"
             >
               <Markdown>
-                {reasoningText || (isThinking ? "" : "Hmm, let's see...🤔")}
+                {reasoningText || (isThinking ? "" : "Hmm, let's see...")}
               </Markdown>
             </motion.div>
           )}
@@ -655,7 +663,7 @@ export const ReasoningPart = memo(function ReasoningPart({
 });
 ReasoningPart.displayName = "ReasoningPart";
 
-const loading = memo(function Loading() {
+const LoadingFallback = memo(function LoadingFallback() {
   return (
     <div className="px-6 py-4">
       <div className="h-44 w-full rounded-md opacity-0" />
@@ -663,145 +671,88 @@ const loading = memo(function Loading() {
   );
 });
 
-const PieChart = dynamic(
-  () => import("./tool-invocation/pie-chart").then((mod) => mod.PieChart),
-  {
-    ssr: false,
-    loading,
-  },
+const PieChart = lazy(() =>
+  import("./tool-invocation/pie-chart").then((mod) => ({
+    default: mod.PieChart,
+  })),
 );
 
-const BarChart = dynamic(
-  () => import("./tool-invocation/bar-chart").then((mod) => mod.BarChart),
-  {
-    ssr: false,
-    loading,
-  },
+const BarChart = lazy(() =>
+  import("./tool-invocation/bar-chart").then((mod) => ({
+    default: mod.BarChart,
+  })),
 );
 
-const LineChart = dynamic(
-  () => import("./tool-invocation/line-chart").then((mod) => mod.LineChart),
-  {
-    ssr: false,
-    loading,
-  },
+const LineChart = lazy(() =>
+  import("./tool-invocation/line-chart").then((mod) => ({
+    default: mod.LineChart,
+  })),
 );
 
-const InteractiveTable = dynamic(
-  () =>
-    import("./tool-invocation/interactive-table").then(
-      (mod) => mod.InteractiveTable,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
+const InteractiveTable = lazy(() =>
+  import("./tool-invocation/interactive-table").then((mod) => ({
+    default: mod.InteractiveTable,
+  })),
 );
 
-const WebSearchToolInvocation = dynamic(
-  () =>
-    import("./tool-invocation/web-search").then(
-      (mod) => mod.WebSearchToolInvocation,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
+const WebSearchToolInvocation = lazy(() =>
+  import("./tool-invocation/web-search").then((mod) => ({
+    default: mod.WebSearchToolInvocation,
+  })),
 );
 
-const RememberContextToolInvocation = dynamic(
-  () =>
-    import("./tool-invocation/remember-context").then(
-      (mod) => mod.RememberContextToolInvocation,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
+const RememberContextToolInvocation = lazy(() =>
+  import("./tool-invocation/remember-context").then((mod) => ({
+    default: mod.RememberContextToolInvocation,
+  })),
 );
 
-const ImageGeneratorToolInvocation = dynamic(
-  () =>
-    import("./tool-invocation/image-generator").then(
-      (mod) => mod.ImageGeneratorToolInvocation,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
+const ImageGeneratorToolInvocation = lazy(() =>
+  import("./tool-invocation/image-generator").then((mod) => ({
+    default: mod.ImageGeneratorToolInvocation,
+  })),
 );
 
-const PlanViewInvocation = dynamic(
-  () =>
-    import("./tool-invocation/plan-view").then((mod) => mod.PlanViewInvocation),
-  {
-    ssr: false,
-    loading,
-  },
+const PlanViewInvocation = lazy(() =>
+  import("./tool-invocation/plan-view").then((mod) => ({
+    default: mod.PlanViewInvocation,
+  })),
 );
 
-const TaskStatusInvocation = dynamic(
-  () =>
-    import("./tool-invocation/task-status").then(
-      (mod) => mod.TaskStatusInvocation,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
+const TaskStatusInvocation = lazy(() =>
+  import("./tool-invocation/task-status").then((mod) => ({
+    default: mod.TaskStatusInvocation,
+  })),
 );
 
-const NextTaskInvocation = dynamic(
-  () =>
-    import("./tool-invocation/next-task").then((mod) => mod.NextTaskInvocation),
-  {
-    ssr: false,
-    loading,
-  },
+const NextTaskInvocation = lazy(() =>
+  import("./tool-invocation/next-task").then((mod) => ({
+    default: mod.NextTaskInvocation,
+  })),
 );
 
-const PlanStatusInvocation = dynamic(
-  () =>
-    import("./tool-invocation/plan-status").then(
-      (mod) => mod.PlanStatusInvocation,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
+const PlanStatusInvocation = lazy(() =>
+  import("./tool-invocation/plan-status").then((mod) => ({
+    default: mod.PlanStatusInvocation,
+  })),
 );
 
-const BrowserToolInvocation = dynamic(
-  () =>
-    import("./tool-invocation/browser-tool-invocation").then(
-      (mod) => mod.BrowserToolInvocation,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
+const BrowserToolInvocation = lazy(() =>
+  import("./tool-invocation/browser-tool-invocation").then((mod) => ({
+    default: mod.BrowserToolInvocation,
+  })),
 );
 
-const FragmentInvocation = dynamic(
-  () =>
-    import("./tool-invocation/fragment-invocation").then(
-      (mod) => mod.FragmentInvocation,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
+const FragmentInvocation = lazy(() =>
+  import("./tool-invocation/fragment-invocation").then((mod) => ({
+    default: mod.FragmentInvocation,
+  })),
 );
 
-const DesktopToolInvocation = dynamic(
-  () =>
-    import("./tool-invocation/desktop-tool-invocation").then(
-      (mod) => mod.DesktopToolInvocation,
-    ),
-  {
-    ssr: false,
-    loading,
-  },
+const DesktopToolInvocation = lazy(() =>
+  import("./tool-invocation/desktop-tool-invocation").then((mod) => ({
+    default: mod.DesktopToolInvocation,
+  })),
 );
 
 // Local shortcuts for tool invocation approval/rejection
@@ -833,7 +784,7 @@ export const ToolMessagePart = memo(
     isManualToolInvocation,
     threadId,
   }: ToolMessagePartProps) => {
-    const t = useTranslations("");
+    const { t } = useTranslation();
 
     const { output, toolCallId, state, input, errorText } = part;
 
@@ -950,72 +901,126 @@ export const ToolMessagePart = memo(
         toolName === DefaultToolName.WebSearch ||
         toolName === DefaultToolName.WebContent
       ) {
-        return <WebSearchToolInvocation part={part} />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <WebSearchToolInvocation part={part} />
+          </Suspense>
+        );
       }
 
       if (toolName === DefaultToolName.RememberContext) {
-        return <RememberContextToolInvocation part={part} />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <RememberContextToolInvocation part={part} />
+          </Suspense>
+        );
       }
 
       if (toolName === ImageToolName) {
-        return <ImageGeneratorToolInvocation part={part} />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <ImageGeneratorToolInvocation part={part} />
+          </Suspense>
+        );
       }
 
       // Agent planning tools
       if (toolName === "createPlan") {
-        return <PlanViewInvocation part={part} />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <PlanViewInvocation part={part} />
+          </Suspense>
+        );
       }
 
       if (toolName === "updateTaskStatus") {
-        return <TaskStatusInvocation part={part} />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <TaskStatusInvocation part={part} />
+          </Suspense>
+        );
       }
 
       if (toolName === "getNextTask") {
-        return <NextTaskInvocation part={part} />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <NextTaskInvocation part={part} />
+          </Suspense>
+        );
       }
 
       if (toolName === "getPlanStatus") {
-        return <PlanStatusInvocation part={part} />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <PlanStatusInvocation part={part} />
+          </Suspense>
+        );
       }
 
       // Fragment tools - createFragment and editFragment
       if (toolName === "createFragment" || toolName === "editFragment") {
-        return <FragmentInvocation part={part} />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <FragmentInvocation part={part} />
+          </Suspense>
+        );
       }
 
       // Browser tools (Local Chrome DevTools) - camelCase names like browserNavigate, browserAct
       if (toolName.startsWith("browser") && toolName !== "browser") {
-        return <BrowserToolInvocation part={part} threadId={threadId} />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <BrowserToolInvocation part={part} threadId={threadId} />
+          </Suspense>
+        );
       }
 
       // Desktop tools (Local Terminal) - camelCase names like desktopScreenshot, desktopClick
       if (toolName.startsWith("desktop") && toolName !== "desktop") {
-        return <DesktopToolInvocation part={part} threadId={threadId} />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <DesktopToolInvocation part={part} threadId={threadId} />
+          </Suspense>
+        );
       }
 
       if (state === "output-available") {
         switch (toolName) {
           case DefaultToolName.CreatePieChart:
             return (
-              <PieChart key={`${toolCallId}-${toolName}`} {...(input as any)} />
+              <Suspense fallback={<LoadingFallback />}>
+                <PieChart
+                  key={`${toolCallId}-${toolName}`}
+                  {...(input as any)}
+                />
+              </Suspense>
             );
           case DefaultToolName.CreateBarChart:
             return (
-              <BarChart key={`${toolCallId}-${toolName}`} {...(input as any)} />
+              <Suspense fallback={<LoadingFallback />}>
+                <BarChart
+                  key={`${toolCallId}-${toolName}`}
+                  {...(input as any)}
+                />
+              </Suspense>
             );
           case DefaultToolName.CreateLineChart:
             return (
-              <LineChart
-                key={`${toolCallId}-${toolName}`}
-                {...(input as any)}
-              />
+              <Suspense fallback={<LoadingFallback />}>
+                <LineChart
+                  key={`${toolCallId}-${toolName}`}
+                  {...(input as any)}
+                />
+              </Suspense>
             );
           case DefaultToolName.CreateTable:
             return (
-              <InteractiveTable
-                key={`${toolCallId}-${toolName}`}
-                {...(input as any)}
-              />
+              <Suspense fallback={<LoadingFallback />}>
+                <InteractiveTable
+                  key={`${toolCallId}-${toolName}`}
+                  {...(input as any)}
+                />
+              </Suspense>
             );
         }
       }
@@ -1054,14 +1059,16 @@ export const ToolMessagePart = memo(
       }
       return (
         <div className="space-y-3">
-          <ToolCallCard
-            toolName={toolName}
-            input={input}
-            output={result ?? undefined}
-            status={toolStatus}
-            isExpanded={isExpanded}
-            onToggleExpand={() => setExpanded(!expanded)}
-          />
+          <Suspense fallback={<LoadingFallback />}>
+            <ToolCallCard
+              toolName={toolName}
+              input={input}
+              output={result ?? undefined}
+              status={toolStatus}
+              isExpanded={isExpanded}
+              onToggleExpand={() => setExpanded(!expanded)}
+            />
+          </Suspense>
 
           {isManualToolInvocation && (
             <div className="flex flex-row gap-2 items-center">

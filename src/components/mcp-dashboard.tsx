@@ -4,7 +4,7 @@ import { MCPCard } from "@/components/mcp-card";
 import { MCPOverview, RECOMMENDED_MCPS } from "@/components/mcp-overview";
 import { SmitheryIntegration } from "@/components/smithery-integration";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
+import { Link, useNavigate } from "@tanstack/react-router";
 
 import { Skeleton } from "ui/skeleton";
 
@@ -12,10 +12,8 @@ import { useMcpList } from "@/hooks/queries/use-mcp-list";
 import { BasicUser } from "app-types/user";
 import { cn } from "lib/utils";
 import { InfoIcon, Loader2 } from "lucide-react";
-import { useTranslations } from "next-intl";
-import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -26,9 +24,7 @@ import {
 import { MCPIcon } from "ui/mcp-icon";
 import { ScrollArea } from "ui/scroll-area";
 
-const LightRays = dynamic(() => import("@/components/ui/light-rays"), {
-  ssr: false,
-});
+const LightRays = React.lazy(() => import("@/components/ui/light-rays"));
 
 interface MCPDashboardProps {
   message?: string;
@@ -36,8 +32,8 @@ interface MCPDashboardProps {
 }
 
 export default function MCPDashboard({ message, user }: MCPDashboardProps) {
-  const t = useTranslations("MCP");
-  const router = useRouter();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
 
   // All authenticated users can create MCP connections (roles/permissions removed)
   const canCreate = true;
@@ -80,14 +76,16 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
     const params = new URLSearchParams();
     params.set("name", mcp.name);
     params.set("config", JSON.stringify(mcp.config));
-    router.push(`/mcp/create?${params.toString()}`);
+    navigate({ to: `/mcp/create?${params.toString()}` });
   };
 
   const particle = useMemo(() => {
     return (
       <>
         <div className="absolute opacity-30 pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
-          <LightRays className="bg-transparent" />
+          <Suspense fallback={null}>
+            <LightRays className="bg-transparent" />
+          </Suspense>
         </div>
 
         <div className="absolute pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
@@ -127,7 +125,7 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
         <div className="pt-8 flex-1 relative flex flex-col gap-4 px-8 max-w-3xl h-full mx-auto pb-8">
           <div className={cn("flex items-center  pb-8")}>
             <h1 className="text-2xl font-bold flex items-center gap-2">
-              {canCreate ? t("mcpServers") : t("availableMcpServers")}
+              {canCreate ? t("MCP.mcpServers") : t("MCP.availableMcpServers")}
               {showValidating && isValidating && !isLoading && (
                 <Loader2 className="size-4 animate-spin" />
               )}
@@ -185,14 +183,14 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
                       <InfoIcon className="size-4" />
                     </Button>
                   </SmitheryIntegration>
-                  <Link href="/mcp/create">
+                  <Link to="/mcp/create">
                     <Button
                       className="font-semibold bg-input/20"
                       variant="outline"
                       data-testid="add-mcp-server-button"
                     >
                       <MCPIcon className="fill-foreground size-3.5" />
-                      {t("addMcpServer")}
+                      {t("MCP.addMcpServer")}
                     </Button>
                   </Link>
                 </div>
@@ -213,7 +211,7 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
               {myServers?.length > 0 && (
                 <div className="flex flex-col gap-4">
                   <h2 className="text-lg font-semibold text-muted-foreground">
-                    {t("myMcpServers")}
+                    {t("MCP.myMcpServers")}
                   </h2>
                   <div
                     className="flex flex-col gap-6"
@@ -228,7 +226,7 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
               {featuredServers?.length > 0 && (
                 <div className="flex flex-col gap-4">
                   <h2 className="text-lg font-semibold text-muted-foreground">
-                    {t("featuredMcpServers")}
+                    {t("MCP.featuredMcpServers")}
                   </h2>
                   <div
                     className="flex flex-col gap-6"
@@ -247,10 +245,10 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
           ) : (
             <div className="flex flex-col items-center justify-center space-y-4 my-20 text-center">
               <h3 className="text-2xl md:text-4xl font-semibold">
-                {t("noMcpServersAvailable")}
+                {t("MCP.noMcpServersAvailable")}
               </h3>
               <p className="text-muted-foreground max-w-md">
-                {t("noMcpServersAvailableDescription")}
+                {t("MCP.noMcpServersAvailableDescription")}
               </p>
             </div>
           )}

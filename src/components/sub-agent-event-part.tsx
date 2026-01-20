@@ -4,8 +4,7 @@ import { appStore } from "@/app/store";
 import { ToolUIPart } from "ai";
 import { DefaultToolName } from "lib/ai/tools";
 import { CheckIcon, Globe, Maximize2, Wrench, XIcon } from "lucide-react";
-import dynamic from "next/dynamic";
-import { memo } from "react";
+import { lazy, memo, Suspense } from "react";
 import { Button } from "ui/button";
 import { useShallow } from "zustand/shallow";
 import { Markdown } from "./markdown";
@@ -13,15 +12,19 @@ import { BrowserToolInvocation } from "./tool-invocation/browser-tool-invocation
 import { DesktopToolInvocation } from "./tool-invocation/desktop-tool-invocation";
 import type { SubAgentEvent } from "./tool-invocation/sub-agent-view";
 
-// Dynamically import tool invocation components
-const WebSearchToolInvocation = dynamic(
-  () =>
-    import("./tool-invocation/web-search").then(
-      (mod) => mod.WebSearchToolInvocation,
-    ),
-  {
-    ssr: false,
-  },
+// Lazy load tool invocation components
+const WebSearchToolInvocation = lazy(() =>
+  import("./tool-invocation/web-search").then((mod) => ({
+    default: mod.WebSearchToolInvocation,
+  })),
+);
+
+const WebSearchLoadingFallback = () => (
+  <div className="h-20 w-full flex items-center justify-center rounded-md bg-muted/50">
+    <span className="text-muted-foreground text-sm">
+      Loading search results...
+    </span>
+  </div>
 );
 
 interface SubAgentEventPartProps {
@@ -243,7 +246,9 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
 
         return (
           <div className="w-full my-2">
-            <WebSearchToolInvocation part={mockPart} />
+            <Suspense fallback={<WebSearchLoadingFallback />}>
+              <WebSearchToolInvocation part={mockPart} />
+            </Suspense>
           </div>
         );
       }

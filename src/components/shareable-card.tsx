@@ -6,8 +6,8 @@ import { MCPServerInfo } from "app-types/mcp";
 import { WorkflowSummary } from "app-types/workflow";
 import { format } from "date-fns";
 import { cn } from "lib/utils";
-import { useTranslations } from "next-intl";
-import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import {
@@ -56,7 +56,7 @@ export function ShareableCard({
   actionsDisabled,
   hideActions = false,
 }: ShareableCardProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const isPublished = (item as WorkflowSummary).isPublished;
   const isBookmarked =
     type === "mcp" ? undefined : (item as AgentSummary).isBookmarked;
@@ -77,7 +77,7 @@ export function ShareableCard({
   }, [type, item.id, item.icon]);
 
   return (
-    <Link href={href} title={item.name}>
+    <Link to={href} title={item.name}>
       <Card
         className={cn(
           "w-full min-h-[196px] @container transition-colors group flex flex-col gap-3 cursor-pointer hover:bg-input",

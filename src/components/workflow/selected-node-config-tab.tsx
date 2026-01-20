@@ -2,7 +2,7 @@ import { useReactFlow } from "@xyflow/react";
 import { NodeKind, UINode } from "lib/ai/workflow/workflow.interface";
 import { nextTick } from "lib/utils";
 import { MoreHorizontalIcon, XIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,7 +24,7 @@ import { NodeContextMenuContent } from "./node-context-menu-content";
 import { NodeIcon } from "./node-icon";
 
 export function SelectedNodeConfigTab({ node }: { node: UINode }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const { updateNodeData, updateNode, setNodes } = useReactFlow();
 
   return (

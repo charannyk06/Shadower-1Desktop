@@ -14,20 +14,21 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
 import { appStore } from "@/app/store";
 import { Shortcuts, getShortcutKeyList } from "lib/keyboard-shortcuts";
-import { useTranslations } from "next-intl";
-import { usePathname } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { useLocation } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 import { useShallow } from "zustand/shallow";
 import { ThreadDropdown } from "../thread-dropdown";
 
 export function AppHeader() {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [appStoreMutate, theaterMode] = appStore(
     useShallow((state) => [state.mutate, state.theaterMode]),
   );
   const { toggleSidebar, open, setOpen } = useSidebar();
-  const currentPaths = usePathname();
+  const location = useLocation();
+  const currentPaths = location.pathname;
 
   const isOnChatPage = useMemo(() => {
     return currentPaths.startsWith("/chat/");

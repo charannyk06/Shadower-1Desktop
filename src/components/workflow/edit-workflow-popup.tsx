@@ -33,8 +33,8 @@ import { DBWorkflow, WorkflowIcon } from "app-types/workflow";
 import { workflowApi } from "lib/electron/workflow-api";
 import { BACKGROUND_COLORS } from "lib/const";
 import { cn, createDebounce } from "lib/utils";
-import { useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { mutate } from "swr";
 import { handleErrorWithToast } from "ui/shared-toast";
@@ -88,7 +88,7 @@ export function EditWorkflowPopup({
   onSave?: (workflow: DBWorkflow) => void;
   onOpenChange?: (open: boolean) => void;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const { theme } = useTheme();
 
   const getInitialConfig = () => {
@@ -106,7 +106,7 @@ export function EditWorkflowPopup({
     getInitialConfig(),
   );
 
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
 
@@ -127,7 +127,7 @@ export function EditWorkflowPopup({
           onOpenChange?.(false);
           mutate("/api/workflow");
           if (submitAfterRoute) {
-            router.push(`/workflow/${workflow.id}`);
+            navigate({ to: `/workflow/${workflow.id}` });
           }
           onSave?.(workflow);
         })

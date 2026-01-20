@@ -44,14 +44,11 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import dynamic from "next/dynamic";
-import { useCallback, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
 
-const LightRays = dynamic(() => import("@/components/ui/light-rays"), {
-  ssr: false,
-});
+const LightRays = lazy(() => import("@/components/ui/light-rays"));
 
 // Types
 interface ApiKeyInfo {
@@ -347,7 +344,9 @@ export default function ModelsDashboard() {
     return (
       <>
         <div className="absolute opacity-30 pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
-          <LightRays className="bg-transparent" />
+          <Suspense fallback={null}>
+            <LightRays className="bg-transparent" />
+          </Suspense>
         </div>
         <div className="absolute pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
           <div className="w-full h-full bg-gradient-to-t from-background to-50% to-transparent z-20" />

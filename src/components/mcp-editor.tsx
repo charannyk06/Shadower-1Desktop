@@ -11,7 +11,7 @@ import {
 import { mcpApi } from "@/lib/electron/mcp-api";
 import { createDebounce, isNull, safeJSONParse } from "lib/utils";
 import { Loader } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { mutate } from "swr";
@@ -23,7 +23,7 @@ import JsonView from "./ui/json-view";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription, AlertTitle } from "ui/alert";
 import { z } from "zod";
 
@@ -35,7 +35,7 @@ interface MCPEditorProps {
 
 const STDIO_ARGS_ENV_PLACEHOLDER = `/** STDIO Example */
 {
-  "command": "node", 
+  "command": "node",
   "args": ["index.js"],
   "env": {
     "OPENAI_API_KEY": "sk-...",
@@ -55,7 +55,7 @@ export default function MCPEditor({
   name: initialName,
   id,
 }: MCPEditorProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const shouldInsert = useMemo(() => isNull(id), [id]);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -66,7 +66,7 @@ export default function MCPEditor({
 
   // State for form fields
   const [name, setName] = useState<string>(initialName ?? "");
-  const router = useRouter();
+  const navigate = useNavigate();
   const [config, setConfig] = useState<MCPServerConfig>(
     initialConfig as MCPServerConfig,
   );
@@ -149,7 +149,7 @@ export default function MCPEditor({
       .ifOk(() => {
         toast.success(t("MCP.configurationSavedSuccessfully"));
         mutate("/api/mcp/list");
-        router.push("/mcp");
+        navigate({ to: "/mcp" });
       })
       .ifFail(handleErrorWithToast)
       .watch(() => setIsLoading(false));

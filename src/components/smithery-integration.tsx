@@ -4,8 +4,7 @@ import { MCPServerConfig } from "app-types/mcp";
 import { isMaybeMCPServerConfig } from "lib/ai/mcp/is-mcp-config";
 import { safeJSONParse } from "lib/utils";
 import { Check, Copy, ExternalLink } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
@@ -26,7 +25,7 @@ interface SmitheryIntegrationProps {
 }
 
 export function SmitheryIntegration({ children }: SmitheryIntegrationProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [configJson, setConfigJson] = useState("");
   const [serverName, setServerName] = useState("");
@@ -57,7 +56,7 @@ export function SmitheryIntegration({ children }: SmitheryIntegrationProps) {
     params.set("config", JSON.stringify(config));
 
     setOpen(false);
-    router.push(`/mcp/create?${params.toString()}`);
+    navigate({ to: `/mcp/create?${params.toString()}` });
   };
 
   const handleImport = () => {
@@ -80,7 +79,7 @@ export function SmitheryIntegration({ children }: SmitheryIntegrationProps) {
     params.set("config", JSON.stringify(parsed));
 
     setOpen(false);
-    router.push(`/mcp/create?${params.toString()}`);
+    navigate({ to: `/mcp/create?${params.toString()}` });
   };
 
   const copyExampleConfig = () => {
@@ -106,7 +105,7 @@ export function SmitheryIntegration({ children }: SmitheryIntegrationProps) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span>Import from Smithery</span>
-            <Link
+            <a
               href="https://smithery.ai/"
               target="_blank"
               rel="noopener noreferrer"
@@ -114,7 +113,7 @@ export function SmitheryIntegration({ children }: SmitheryIntegrationProps) {
             >
               <span className="text-sm">Visit Smithery</span>
               <ExternalLink className="size-4" />
-            </Link>
+            </a>
           </DialogTitle>
           <DialogDescription>
             Browse MCP servers on Smithery and import them into your app. Copy
@@ -130,14 +129,14 @@ export function SmitheryIntegration({ children }: SmitheryIntegrationProps) {
             <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
               <li>
                 Click{" "}
-                <Link
+                <a
                   href="https://smithery.ai/"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary hover:underline inline-flex items-center gap-1"
                 >
                   Visit Smithery <ExternalLink className="size-3" />
-                </Link>{" "}
+                </a>{" "}
                 to browse available MCP servers
               </li>
               <li>
@@ -158,7 +157,7 @@ export function SmitheryIntegration({ children }: SmitheryIntegrationProps) {
               <li>Paste it in the "Quick Import" field below</li>
             </ol>
             <div className="mt-3 p-3 bg-background/50 rounded border border-border/50">
-              <p className="text-xs font-medium mb-1">💡 Quick Tip:</p>
+              <p className="text-xs font-medium mb-1">Quick Tip:</p>
               <p className="text-xs text-muted-foreground">
                 Look for the <strong>"Get connection URL"</strong> field in the{" "}
                 <strong>"Connect"</strong> section on the Smithery server page.

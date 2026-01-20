@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth/client";
 
@@ -16,7 +16,7 @@ interface AuthGuardProps {
  * Redirects to sign-in or registration based on first-launch status.
  */
 export function AuthGuard({ children }: AuthGuardProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const hasCheckedAuth = useRef(false);
@@ -44,20 +44,20 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
         if (isFirst) {
           // First time user - redirect to registration
-          router.replace("/sign-up");
+          navigate({ to: "/sign-up", replace: true });
         } else {
           // Returning user - redirect to sign-in
-          router.replace("/sign-in");
+          navigate({ to: "/sign-in", replace: true });
         }
       } catch (error) {
         console.error("[AuthGuard] Error checking auth:", error);
         // On error, try to redirect to registration
-        router.replace("/sign-up");
+        navigate({ to: "/sign-up", replace: true });
       }
     };
 
     checkAuth();
-  }, [router]);
+  }, [navigate]);
 
   if (isLoading) {
     return (

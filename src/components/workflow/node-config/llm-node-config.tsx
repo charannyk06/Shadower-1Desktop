@@ -19,7 +19,7 @@ import { ObjectJsonSchema7 } from "app-types/util";
 import { defaultLLMNodeOutputSchema } from "lib/ai/workflow/create-ui-node";
 import { notify } from "lib/notify";
 import { toAny } from "lib/utils";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Separator } from "ui/separator";
 import { Switch } from "ui/switch";
@@ -33,7 +33,7 @@ export const LLMNodeDataConfig = memo(function ({
 }) {
   const { updateNodeData } = useReactFlow<UINode>();
   const [structuredOutputOpen, setStructuredOutputOpen] = useState(false);
-  const t = useTranslations();
+  const { t } = useTranslation();
   const editable = useWorkflowStore((state) => {
     return (
       state.processIds.length === 0 &&

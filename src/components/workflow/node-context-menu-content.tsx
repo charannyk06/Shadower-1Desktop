@@ -3,7 +3,7 @@
 import { useReactFlow } from "@xyflow/react";
 import { NodeKind, WorkflowNodeData } from "lib/ai/workflow/workflow.interface";
 import { Trash2Icon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
@@ -13,7 +13,7 @@ export function NodeContextMenuContent({
   node: WorkflowNodeData;
 }) {
   const { setEdges, setNodes } = useReactFlow();
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   const handleDeleteNode = useCallback(() => {
     if (node.kind === NodeKind.Input) {

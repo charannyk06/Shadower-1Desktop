@@ -132,19 +132,9 @@ export function ContextIndicator({
     ),
   );
 
-  // Debug: Track re-renders
-  const renderCount = useRef(0);
-  renderCount.current += 1;
-
-  // Log when usage changes to verify reactivity - LOG EVERY TIME to see actual values
-  console.log("[ContextIndicator] Render #" + renderCount.current, {
-    threadId: effectiveThreadId,
-    usedTokens,
-    limit,
-    percentage:
-      percentage !== undefined ? (percentage * 100).toFixed(2) + "%" : "N/A",
-    remaining,
-  });
+  // Debug: Track re-renders (disabled logging to reduce noise)
+  // const renderCount = useRef(0);
+  // renderCount.current += 1;
 
   // Calculate display values - depend on individual primitive values for proper reactivity
   const displayData = useMemo(() => {

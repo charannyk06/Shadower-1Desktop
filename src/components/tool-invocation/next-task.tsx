@@ -4,7 +4,7 @@ import { ToolUIPart } from "ai";
 import equal from "lib/equal";
 import { toAny } from "lib/utils";
 import { CheckIcon, PlayIcon, XIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { memo, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 
@@ -24,7 +24,7 @@ interface NextTaskOutput {
 }
 
 function PureNextTaskInvocation({ part }: Readonly<NextTaskInvocationProps>) {
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   const result = useMemo(() => {
     if (!part.state.startsWith("output")) return null;

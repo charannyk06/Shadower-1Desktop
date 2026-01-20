@@ -6,7 +6,7 @@ import { authClient } from "auth/client";
 import { notify } from "lib/notify";
 import { truncateString } from "lib/utils";
 import { CornerDownRightIcon, MessagesSquareIcon, XIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import useSWR, { mutate } from "swr";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
@@ -44,7 +44,7 @@ export default function Comments({
     null,
   );
 
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const { data, isLoading } = useSWR<ChatExportCommentWithUser[]>(
     isLoggedIn ? `/api/export/${id}/comments` : null,
@@ -89,7 +89,7 @@ export default function Comments({
         })
         .then((answer) => {
           if (answer) {
-            router.push("/sign-in");
+            navigate({ to: "/sign-in" });
           }
         });
     } else {

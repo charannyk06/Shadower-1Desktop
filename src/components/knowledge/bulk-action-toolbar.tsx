@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { TrashIcon, XIcon, UserIcon, BotIcon } from "lucide-react";
 import { Button } from "ui/button";
 import {
@@ -34,7 +34,7 @@ export function BulkActionToolbar({
   onClearSelection,
   className,
 }: BulkActionToolbarProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteRoleDialogOpen, setDeleteRoleDialogOpen] = useState<
     "user" | "assistant" | null

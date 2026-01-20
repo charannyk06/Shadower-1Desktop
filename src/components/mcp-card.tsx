@@ -9,7 +9,7 @@ import {
   ShieldAlertIcon,
   Wrench,
 } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import { memo, useCallback, useMemo, useState } from "react";
 import { useSWRConfig } from "swr";
 import { safe } from "ts-safe";
@@ -29,7 +29,7 @@ import { appStore } from "@/app/store";
 import { BasicUser } from "app-types/user";
 import { redriectMcpOauth } from "lib/ai/mcp/oauth-redirect";
 import { isString } from "lib/utils";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { Separator } from "ui/separator";
 import { ToolDetailPopup } from "./tool-detail-popup";
@@ -51,7 +51,7 @@ export const MCPCard = memo(function MCPCard({
 }: MCPServerInfo & { user: BasicUser }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [visibilityChangeLoading, setVisibilityChangeLoading] = useState(false);
-  const t = useTranslations("MCP");
+  const { t } = useTranslation();
   const appStoreMutate = appStore((state) => state.mutate);
   const { mutate } = useSWRConfig();
   const isOwner = userId === user?.id;
@@ -183,7 +183,7 @@ export const MCPCard = memo(function MCPCard({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{t("mcpServerCustomization")}</p>
+            <p>{t("MCP.mcpServerCustomization")}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -197,7 +197,7 @@ export const MCPCard = memo(function MCPCard({
               </div>
             ) : (
               <Link
-                href={`/mcp/test/${encodeURIComponent(id)}`}
+                to={`/mcp/test/${encodeURIComponent(id)}`}
                 className="cursor-pointer hidden sm:block"
               >
                 <Button variant="ghost" size="icon">
@@ -207,7 +207,7 @@ export const MCPCard = memo(function MCPCard({
             )}
           </TooltipTrigger>
           <TooltipContent>
-            <p>{t("toolsTest")}</p>
+            <p>{t("MCP.toolsTest")}</p>
           </TooltipContent>
         </Tooltip>
         <div className="h-4">
@@ -225,7 +225,7 @@ export const MCPCard = memo(function MCPCard({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{t("refresh")}</p>
+            <p>{t("MCP.refresh")}</p>
           </TooltipContent>
         </Tooltip>
         {/* Add sharing actions for owners or visibility indicator for featured servers */}
@@ -309,7 +309,7 @@ export const MCPCard = memo(function MCPCard({
               <div className="flex items-center gap-2 mb-2 pt-2 pb-1 z-10">
                 <Settings size={14} className="text-muted-foreground" />
                 <h5 className="text-muted-foreground text-sm font-medium">
-                  {t("configuration")}
+                  {t("MCP.configuration")}
                 </h5>
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -324,7 +324,7 @@ export const MCPCard = memo(function MCPCard({
             <div className="flex items-center gap-2 mb-4 pt-2 pb-1 z-10">
               <Wrench size={14} className="text-muted-foreground" />
               <h5 className="text-muted-foreground text-sm font-medium">
-                {t("availableTools")}
+                {t("MCP.availableTools")}
               </h5>
             </div>
 
@@ -334,7 +334,7 @@ export const MCPCard = memo(function MCPCard({
               ) : (
                 <div className="bg-secondary/30 rounded-md p-3 text-center">
                   <p className="text-sm text-muted-foreground">
-                    {t("noToolsAvailable")}
+                    {t("MCP.noToolsAvailable")}
                   </p>
                 </div>
               )}

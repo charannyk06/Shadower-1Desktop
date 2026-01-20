@@ -3,7 +3,7 @@ import { mcpApi, mcpFetcher } from "@/lib/electron/mcp-api";
 import { MCPToolInfo, McpToolCustomization } from "app-types/mcp";
 import { cn } from "lib/utils";
 import { Info, Loader, Pencil, Trash2 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { PropsWithChildren, ReactNode, useState } from "react";
 import useSWR from "swr";
 import { safe } from "ts-safe";
@@ -74,7 +74,7 @@ export function ToolDetailPopupContent({
   title?: ReactNode;
   serverId: string;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState<string>("");

@@ -14,7 +14,7 @@ import { MCPIcon } from "ui/mcp-icon";
 
 import { ChatMention } from "app-types/chat";
 
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Popover, PopoverContent, PopoverTrigger } from "ui/popover";
 import MentionInput from "./mention-input";
 
@@ -159,7 +159,7 @@ export function ChatMentionInputSuggestion({
   style?: React.CSSProperties;
   disabledType?: ("mcp" | "workflow" | "defaultTool" | "agent")[];
 }) {
-  const t = useTranslations("Common");
+  const { t } = useTranslation();
 
   const [mcpList, workflowList, agentList] = appStore(
     useShallow((state) => [
@@ -618,7 +618,7 @@ export function ChatMentionInputSuggestion({
             <SearchIcon className="size-4 shrink-0 opacity-50" />
             <input
               className="flex h-8 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder={t("search")}
+              placeholder={t("Common.search")}
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
               onKeyDown={(e) => {
@@ -694,7 +694,7 @@ export function ChatMentionInputSuggestion({
                 <div className="text-center">
                   <div className="mb-2">
                     {searchValue
-                      ? t("noResults")
+                      ? t("Common.noResults")
                       : "Type @ to see available mentions"}
                   </div>
                   {searchValue && (

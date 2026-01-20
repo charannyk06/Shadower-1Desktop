@@ -11,7 +11,7 @@ import {
 import { UINode } from "lib/ai/workflow/workflow.interface";
 import { cn, exclude } from "lib/utils";
 import { TrashIcon, VariableIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 import { VariableMentionItem } from "./variable-mention-item";
 import { VariableSelect } from "./variable-select";
@@ -36,7 +36,7 @@ export function HttpValueInput({
   className,
 }: HttpValueInputProps) {
   const { getNodes, getEdges } = useReactFlow<UINode>();
-  const t = useTranslations("Workflow");
+  const { t } = useTranslation();
 
   // Check if current value is a variable reference
   const isVariable = value && typeof value === "object" && "nodeId" in value;
@@ -116,7 +116,7 @@ export function HttpValueInput({
           </div>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{t("selectVariable")}</p>
+          <p>{t("Workflow.selectVariable")}</p>
         </TooltipContent>
       </Tooltip>
       {onDelete && (

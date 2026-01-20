@@ -10,7 +10,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { memo, useMemo, useState } from "react";
 import { Button } from "ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "ui/hover-card";
@@ -61,7 +61,7 @@ function truncateText(text: string, maxLength: number): string {
 function PureRememberContextToolInvocation({
   part,
 }: RememberContextToolInvocationProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   // Default to collapsed to reduce chat bloat
   const [isExpanded, setIsExpanded] = useState(false);
   // Also track if the whole component should be minimized

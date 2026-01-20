@@ -12,7 +12,7 @@ import {
   ListTodoIcon,
   XIcon,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { memo, useEffect, useMemo, useState } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 import { useShallow } from "zustand/shallow";
@@ -43,7 +43,7 @@ interface PlanInput {
 }
 
 function PurePlanViewInvocation({ part }: Readonly<PlanViewInvocationProps>) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(true);
 
   // Get real-time plan state from store

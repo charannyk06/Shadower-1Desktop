@@ -8,7 +8,7 @@ import type { UseChatHelpers } from "@ai-sdk/react";
 import { ChatMetadata } from "app-types/chat";
 import { cn, truncateString } from "lib/utils";
 import { ChevronDown, ChevronUp, TriangleAlertIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Button } from "ui/button";
 import {
   AssistMessagePart,
@@ -326,7 +326,7 @@ export const ErrorMessage = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const maxLength = 200;
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   // Default error message
   return (

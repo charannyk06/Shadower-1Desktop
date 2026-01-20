@@ -27,7 +27,7 @@ import { arrangeNodes } from "lib/ai/workflow/arrange-nodes";
 import { allNodeValidate } from "lib/ai/workflow/node-validate";
 import { workflowApi } from "lib/electron/workflow-api";
 import { generateUUID } from "lib/utils";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { mutate } from "swr";
 import { safe } from "ts-safe";
@@ -293,7 +293,7 @@ export const WorkflowPanel = memo(
     const [showBuilderChat, setShowBuilderChat] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
-    const t = useTranslations();
+    const { t } = useTranslation();
 
     const handleArrangeNodes = useCallback(() => {
       const nodes = getNodes() as UINode[];
