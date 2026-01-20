@@ -1,8 +1,13 @@
-import * as ort from "onnxruntime-node";
 import { app } from "electron";
 import path from "path";
 import fs from "fs-extra";
 import https from "https";
+
+// ONNX Runtime types - imported dynamically to avoid crashes if native module is missing
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type OrtModule = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type InferenceSession = any;
 
 /**
  * Local Embedding Service using ONNX Runtime
@@ -12,8 +17,10 @@ import https from "https";
  * Alternative: BAAI/bge-small-en-v1.5 (384 dimensions, better quality)
  */
 export class LocalEmbeddingService {
-  private session: ort.InferenceSession | null = null;
+  private ort: OrtModule | null = null;
+  private session: InferenceSession | null = null;
   private initialized = false;
+  private available = false;
   private readonly modelName = "all-MiniLM-L6-v2";
   private readonly embeddingDim = 384; // or 1536 for larger models
 
@@ -33,18 +40,47 @@ export class LocalEmbeddingService {
 
     console.log("[Embedding] Initializing local embedding service...");
 
-    // Download and load model
-    const modelPath = await this.ensureModel();
+    // Dynamically import ONNX Runtime to avoid crashes if native module is missing
+    try {
+      this.ort = require("onnxruntime-node");
+    } catch (importError) {
+      console.warn(
+        "[Embedding] ONNX Runtime not available:",
+        importError instanceof Error ? importError.message : importError,
+      );
+      this.initialized = true;
+      this.available = false;
+      return;
+    }
 
-    // Create ONNX Runtime session
-    this.session = await ort.InferenceSession.create(modelPath, {
-      executionProviders: ["cpu"], // Use CPU by default, can add 'cuda' if GPU available
-      graphOptimizationLevel: "all",
-      enableMemPattern: true,
-    });
+    try {
+      // Download and load model
+      const modelPath = await this.ensureModel();
 
-    this.initialized = true;
-    console.log("[Embedding] Local embedding service initialized successfully");
+      // Create ONNX Runtime session
+      this.session = await this.ort.InferenceSession.create(modelPath, {
+        executionProviders: ["cpu"], // Use CPU by default, can add 'cuda' if GPU available
+        graphOptimizationLevel: "all",
+        enableMemPattern: true,
+      });
+
+      this.available = true;
+      this.initialized = true;
+      console.log(
+        "[Embedding] Local embedding service initialized successfully",
+      );
+    } catch (error) {
+      console.warn("[Embedding] Failed to initialize:", error);
+      this.initialized = true;
+      this.available = false;
+    }
+  }
+
+  /**
+   * Check if embedding service is available
+   */
+  isAvailable(): boolean {
+    return this.available && this.session !== null;
   }
 
   private async ensureModel(): Promise<string> {
@@ -114,6 +150,10 @@ export class LocalEmbeddingService {
     if (!this.initialized) {
       await this.initialize();
     }
+    if (!this.available) {
+      console.warn("[Embedding] Embed called but ONNX Runtime not available");
+      return [];
+    }
 
     const textsArray = Array.isArray(texts) ? texts : [texts];
 
@@ -162,6 +202,9 @@ export class LocalEmbeddingService {
   ): Promise<number[][]> {
     if (!this.initialized) {
       await this.initialize();
+    }
+    if (!this.available) {
+      return [];
     }
 
     const allEmbeddings: number[][] = [];

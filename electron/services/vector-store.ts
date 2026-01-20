@@ -1,13 +1,17 @@
 import { app } from "electron";
 import path from "path";
-import { Database } from "duckdb";
 import fs from "fs-extra";
+
+// DuckDB is imported dynamically to avoid crashes if native module is missing
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DuckDBDatabase = any;
 
 // DuckDB Vector Store for ultra-fast local vector search
 export class VectorStore {
   private static _instance: VectorStore | null = null;
-  private db: Database | null = null;
+  private db: DuckDBDatabase | null = null;
   private initialized = false;
+  private available = false;
 
   static getInstance(): VectorStore {
     if (!VectorStore._instance) {
@@ -22,6 +26,21 @@ export class VectorStore {
     }
 
     try {
+      // Dynamically import DuckDB to avoid crashes if native module is missing
+      let Database: new (path: string) => DuckDBDatabase;
+      try {
+        const duckdb = require("duckdb");
+        Database = duckdb.Database;
+      } catch (importError) {
+        console.warn(
+          "[VectorStore] DuckDB module not available:",
+          importError instanceof Error ? importError.message : importError,
+        );
+        this.initialized = true;
+        this.available = false;
+        return;
+      }
+
       const userDataDir = app.getPath("userData");
       const dbDir = path.join(userDataDir, "data");
       fs.ensureDirSync(dbDir);
@@ -32,25 +51,38 @@ export class VectorStore {
       // Try to create DuckDB instance - may fail if native module not available
       try {
         this.db = new Database(dbPath);
+        this.available = true;
       } catch (dbError) {
         console.warn(
           "[VectorStore] DuckDB native module not available:",
           dbError,
         );
-        throw dbError;
+        this.initialized = true;
+        this.available = false;
+        return;
       }
     } catch (error) {
       console.warn(
         "[VectorStore] DuckDB not available, vector search will be disabled:",
         error,
       );
-      // Continue without DuckDB - vector search features will be unavailable
+      this.initialized = true;
+      this.available = false;
       return;
     }
 
     // Install and load VSS extension for vector similarity search
-    await this.runQuery("INSTALL vss");
-    await this.runQuery("LOAD vss");
+    try {
+      await this.runStatement("INSTALL vss");
+      await this.runStatement("LOAD vss");
+      console.log("[VectorStore] VSS extension loaded successfully");
+    } catch (vssError) {
+      console.warn(
+        "[VectorStore] VSS extension not available, using basic array operations:",
+        vssError instanceof Error ? vssError.message : vssError,
+      );
+      // Continue without VSS - we'll use array_cosine_similarity which is built-in
+    }
 
     // Create tables for document and message embeddings
     await this.createTables();
@@ -59,9 +91,24 @@ export class VectorStore {
     console.log("[VectorStore] DuckDB Vector Store initialized successfully");
   }
 
+  // Run a statement without parameters (for DDL, INSTALL, LOAD, etc.)
+  private runStatement(sql: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error("Database not initialized"));
+        return;
+      }
+
+      this.db.run(sql, (err: Error | null) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+
   private async createTables() {
     // Documents table with embeddings
-    await this.runQuery(`
+    await this.runStatement(`
       CREATE TABLE IF NOT EXISTS document_embeddings (
         id VARCHAR PRIMARY KEY,
         thread_id VARCHAR,
@@ -73,7 +120,7 @@ export class VectorStore {
     `);
 
     // Message embeddings for conversation context
-    await this.runQuery(`
+    await this.runStatement(`
       CREATE TABLE IF NOT EXISTS message_embeddings (
         id VARCHAR PRIMARY KEY,
         thread_id VARCHAR,
@@ -85,12 +132,7 @@ export class VectorStore {
       )
     `);
 
-    // Create HNSW indexes for fast similarity search
-    console.log("[VectorStore] Creating HNSW indexes...");
-
-    // Note: DuckDB's VSS extension uses a different syntax
-    // We'll use array_cosine_similarity in queries for now
-    // Full HNSW index support may require additional configuration
+    console.log("[VectorStore] Tables created successfully");
   }
 
   private runQuery(sql: string, params: any[] = []): Promise<any> {
@@ -105,6 +147,13 @@ export class VectorStore {
         else resolve(rows);
       });
     });
+  }
+
+  /**
+   * Check if vector store is available
+   */
+  isAvailable(): boolean {
+    return this.available && this.db !== null;
   }
 
   /**
@@ -123,6 +172,10 @@ export class VectorStore {
   ): Promise<any[]> {
     if (!this.initialized) {
       await this.initialize();
+    }
+    if (!this.available) {
+      console.warn("[VectorStore] Search called but DuckDB not available");
+      return [];
     }
 
     const table =
@@ -177,6 +230,10 @@ export class VectorStore {
     if (!this.initialized) {
       await this.initialize();
     }
+    if (!this.available) {
+      console.warn("[VectorStore] Insert called but DuckDB not available");
+      return;
+    }
 
     const table =
       collection === "documents" ? "document_embeddings" : "message_embeddings";
@@ -228,6 +285,9 @@ export class VectorStore {
     if (!this.initialized) {
       await this.initialize();
     }
+    if (!this.available) {
+      return;
+    }
 
     const table =
       collection === "documents" ? "document_embeddings" : "message_embeddings";
@@ -249,6 +309,9 @@ export class VectorStore {
     if (!this.initialized) {
       await this.initialize();
     }
+    if (!this.available) {
+      return;
+    }
 
     await this.runQuery("DELETE FROM document_embeddings WHERE thread_id = ?", [
       threadId,
@@ -266,9 +329,13 @@ export class VectorStore {
   async getStats(): Promise<{
     documents: number;
     messages: number;
+    available: boolean;
   }> {
     if (!this.initialized) {
       await this.initialize();
+    }
+    if (!this.available) {
+      return { documents: 0, messages: 0, available: false };
     }
 
     const [docCount] = await this.runQuery(
@@ -281,6 +348,7 @@ export class VectorStore {
     return {
       documents: docCount.count,
       messages: msgCount.count,
+      available: true,
     };
   }
 
