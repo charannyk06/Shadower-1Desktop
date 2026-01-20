@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "ui/dialog";
 
-import { deleteArchiveAction } from "@/app/api/archive/actions";
+import { archiveApi } from "@/lib/electron/archive-api";
 import { Archive } from "app-types/archive";
 import { toast } from "sonner";
 import { mutate } from "swr";
@@ -34,14 +34,14 @@ export function ArchiveActionsClient({ archive }: ArchiveActionsClientProps) {
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
-      await deleteArchiveAction(archive.id);
+      await archiveApi.delete(archive.id);
       toast.success(t("Archive.archiveDeleted"));
+      mutate("electron:archives");
       router.push("/");
     } catch (error) {
       console.error("Failed to delete archive:", error);
       toast.error(t("Archive.failedToDeleteArchive"));
     } finally {
-      mutate("/api/archive");
       setIsDeleting(false);
       setDeleteDialogOpen(false);
     }

@@ -24,8 +24,6 @@ const STATIC_FILE_EXTENSIONS = [
 ] as const;
 
 const PING_PATH = "/ping";
-const ADMIN_PATH = "/admin";
-const ADMIN_REDIRECT_PATH = "/admin/users";
 const HTTP_OK_STATUS = 200;
 
 /**
@@ -52,10 +50,6 @@ export async function proxy(request: NextRequest) {
   // Allow static files from public folder (images, fonts, etc.)
   if (isStaticFile(pathname)) {
     return NextResponse.next();
-  }
-
-  if (pathname === ADMIN_PATH) {
-    return NextResponse.redirect(new URL(ADMIN_REDIRECT_PATH, request.url));
   }
 
   // In Electron mode, user is always authenticated locally

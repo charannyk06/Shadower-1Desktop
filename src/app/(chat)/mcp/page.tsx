@@ -2,6 +2,7 @@
 
 import MCPDashboard from "@/components/mcp-dashboard";
 import { authClient } from "@/lib/auth/client";
+import { BasicUser } from "@/types/user";
 
 /**
  * MCP Dashboard Page
@@ -14,6 +15,13 @@ export default function Page() {
     return null; // AuthGuard will handle redirect
   }
 
+  // Augment session user with required BasicUser fields
+  const user: BasicUser = {
+    ...session.user,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
   // Note: message prop removed - can be added back if needed via env check on client
-  return <MCPDashboard user={session.user} />;
+  return <MCPDashboard user={user} />;
 }

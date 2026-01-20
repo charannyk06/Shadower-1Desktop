@@ -6,13 +6,11 @@ import { SidebarProvider } from "ui/sidebar";
 
 import { AppPopupProvider } from "@/components/layouts/app-popup-provider";
 import { AuthGuard } from "@/components/auth/auth-guard";
-import { UserDetailContent } from "@/components/user/user-detail/user-detail-content";
-import { UserDetailContentSkeleton } from "@/components/user/user-detail/user-detail-content-skeleton";
 import { authClient } from "@/lib/auth/client";
 import { COOKIE_KEY_SIDEBAR_STATE } from "lib/const";
 import { SWRConfigProvider } from "./swr-config";
 
-import { Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 // Default user for when session is loading
 const DEFAULT_USER = {
@@ -24,9 +22,6 @@ const DEFAULT_USER = {
   createdAt: new Date(),
   updatedAt: new Date(),
   preferences: null,
-  banned: false,
-  banReason: null,
-  banExpires: null,
 };
 
 /**
@@ -65,9 +60,6 @@ export default function ChatLayout({
         createdAt: new Date(),
         updatedAt: new Date(),
         preferences: null,
-        banned: false,
-        banReason: null,
-        banExpires: null,
       }
     : DEFAULT_USER;
 
@@ -75,13 +67,7 @@ export default function ChatLayout({
     <AuthGuard>
       <SidebarProvider defaultOpen={!isCollapsed}>
         <SWRConfigProvider user={user}>
-          <AppPopupProvider
-            userSettingsComponent={
-              <Suspense fallback={<UserDetailContentSkeleton />}>
-                <UserDetailContent view="user" />
-              </Suspense>
-            }
-          />
+          <AppPopupProvider />
           <AppSidebar user={user} />
           <main className="relative bg-background w-full flex flex-col h-screen">
             <AppHeader />

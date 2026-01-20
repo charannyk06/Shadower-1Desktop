@@ -4,7 +4,6 @@ import SignUpPage from "@/components/auth/sign-up";
 import { getAuthConfig } from "auth/config";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { authClient } from "@/lib/auth/client";
 
 export default function SignUp() {
   const router = useRouter();

@@ -1,10 +1,7 @@
 "use client";
 
-import { generateExampleToolSchemaAction } from "@/app/api/chat/actions";
-import {
-  callMcpToolAction,
-  selectMcpClientAction,
-} from "@/app/api/mcp/actions";
+import { aiApi } from "@/lib/electron/ai-api";
+import { mcpApi } from "@/lib/electron/mcp-api";
 import { appStore } from "@/app/store";
 import JsonView from "@/components/ui/json-view";
 import { useChatModels } from "@/hooks/queries/use-chat-models";
@@ -279,28 +276,33 @@ const GenerateExampleInputJsonDialog = ({
     loading: false,
   });
 
-  const generateExampleSchema = useCallback(() => {
-    safe(() => setOption({ loading: true }))
-      .map(() =>
-        generateExampleToolSchemaAction({
-          model: option.model,
-          toolInfo: toolInfo,
-          prompt: option.prompt,
-        }),
-      )
-      .ifOk((result) => {
-        onGenerated(JSON.stringify(result, null, 2));
-      })
-      .watch(() => {
-        setOption({
-          loading: false,
-          prompt: "",
-          model: currentModelName,
-          open: false,
-        });
-      })
-      .ifFail(handleErrorWithToast);
-  }, [option, toolInfo, currentModelName, onGenerated]);
+  const generateExampleSchema = useCallback(async () => {
+    setOption({ loading: true });
+    try {
+      const result = await aiApi.generateObject({
+        model: option.model,
+        prompt: {
+          system: `You are a helpful assistant that generates example input JSON for MCP tools based on their schema.`,
+          user: `Generate example input JSON for the following tool:
+Tool Name: ${toolInfo.name}
+Description: ${toolInfo.description}
+Input Schema: ${JSON.stringify(toolInfo.inputSchema, null, 2)}
+${option.prompt ? `Additional instructions: ${option.prompt}` : ""}`,
+        },
+        schema: toolInfo.inputSchema || { type: "object", properties: {} },
+      });
+      onGenerated(JSON.stringify(result, null, 2));
+    } catch (error) {
+      handleErrorWithToast(error as Error);
+    } finally {
+      setOption({
+        loading: false,
+        prompt: "",
+        model: currentModelName,
+        open: false,
+      });
+    }
+  }, [option, toolInfo, currentModelName, onGenerated, setOption]);
 
   return (
     <Dialog open={option.open} onOpenChange={(open) => setOption({ open })}>
@@ -395,8 +397,8 @@ export default function Page() {
   const [isCallLoading, setIsCallLoading] = useState(false);
   const [showInputSchema, setShowInputSchema] = useState(false);
 
-  const { data: client, isLoading } = useSWR(`/mcp/${id}`, () =>
-    selectMcpClientAction(id as string),
+  const { data: client, isLoading } = useSWR(`electron:mcp:${id}`, () =>
+    mcpApi.getServerStatus(id),
   );
 
   const filteredTools = useMemo(() => {
@@ -449,16 +451,23 @@ export default function Page() {
 
     setIsCallLoading(true);
     try {
-      const result = await callMcpToolAction(
+      const result = await mcpApi.callTool(
         id,
         selectedTool.name,
         parsedInput.value,
       );
 
-      setCallResult({
-        success: true,
-        data: result,
-      });
+      if (result.success) {
+        setCallResult({
+          success: true,
+          data: result.result,
+        });
+      } else {
+        setCallResult({
+          success: false,
+          error: result.error || "Unknown error",
+        });
+      }
     } catch (error) {
       setCallResult({
         success: false,

@@ -1,28 +1,18 @@
-import { getUserId } from "@/app/api/chat/actions";
-import ChatPreview from "@/components/export/chat-preview";
+"use client";
+
 import ExportError from "@/components/export/error";
-import { chatExportRepository } from "lib/db/repository";
 
-export default async function ExportPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const isExpired = await chatExportRepository.isExpired(id);
-  if (isExpired) {
-    return <ExportError message="This export has expired" />;
-  }
-  const thread = await chatExportRepository.selectByIdWithUser(id);
-  if (!thread) {
-    return <ExportError message="This export does not exist" />;
-  }
-
-  const userId = await getUserId().catch(() => undefined);
-
-  const comments = userId
-    ? await chatExportRepository.selectCommentsByExportId(id, userId)
-    : [];
-
-  return <ChatPreview thread={thread} comments={comments} />;
+/**
+ * Export Preview Page - Not Available in Desktop Mode
+ *
+ * In the Electron desktop app, chat exports are saved as local files
+ * (JSON or Markdown) rather than being shared via web links.
+ *
+ * This page is kept for compatibility but shows an error message
+ * indicating the feature is not available in desktop mode.
+ */
+export default function ExportPage() {
+  return (
+    <ExportError message="Web export links are not available in the desktop app. Chats can be exported locally as JSON or Markdown files." />
+  );
 }
