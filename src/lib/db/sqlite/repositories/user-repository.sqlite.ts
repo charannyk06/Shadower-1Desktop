@@ -30,7 +30,6 @@ export const sqliteUserRepository: UserRepository = {
       preferences: r.preferences ?? null,
       createdAt: r.createdAt ?? new Date(),
       updatedAt: r.updatedAt ?? new Date(),
-      banExpires: r.banExpires ?? null,
     }));
   },
 
@@ -62,7 +61,6 @@ export const sqliteUserRepository: UserRepository = {
         preferences: result.preferences ?? null,
         createdAt: result.createdAt ?? new Date(),
         updatedAt: result.updatedAt ?? new Date(),
-        banExpires: result.banExpires ?? null,
       };
     } catch (error) {
       console.error("[UserRepository] Error creating user:", error);
@@ -96,7 +94,6 @@ export const sqliteUserRepository: UserRepository = {
       preferences: result.preferences ?? null,
       createdAt: result.createdAt ?? new Date(),
       updatedAt: result.updatedAt ?? new Date(),
-      banExpires: result.banExpires ?? null,
     };
   },
 
@@ -117,7 +114,6 @@ export const sqliteUserRepository: UserRepository = {
       preferences: result.preferences ?? null,
       createdAt: result.createdAt ?? new Date(),
       updatedAt: result.updatedAt ?? new Date(),
-      banExpires: result.banExpires ?? null,
     };
   },
 
@@ -142,9 +138,6 @@ export const sqliteUserRepository: UserRepository = {
         image: UserTable.image,
         createdAt: UserTable.createdAt,
         updatedAt: UserTable.updatedAt,
-        banned: UserTable.banned,
-        banReason: UserTable.banReason,
-        banExpires: UserTable.banExpires,
       })
       .from(UserTable)
       .where(eq(UserTable.id, userId));

@@ -35,34 +35,44 @@ try {
   // Silently set IS_SQLITE_AVAILABLE = false (already default)
 }
 
-// Get database path - use local data directory for Next.js server
+// Get the Electron userData path for the current platform
+// This must match what Electron main process uses in electron/services/database.ts
+const getElectronUserDataPath = () => {
+  const platform = process.platform;
+  const appName = "shadower"; // Must match Electron app name
+
+  if (platform === "darwin") {
+    // macOS: ~/Library/Application Support/shadower
+    return path.join(
+      process.env.HOME || "",
+      "Library",
+      "Application Support",
+      appName,
+    );
+  } else if (platform === "win32") {
+    // Windows: %APPDATA%/shadower
+    return path.join(process.env.APPDATA || "", appName);
+  } else {
+    // Linux: ~/.config/shadower
+    return path.join(process.env.HOME || "", ".config", appName);
+  }
+};
+
+// Get database path - MUST use same path as Electron main process
 const getDbPath = () => {
-  const isDev = process.env.NODE_ENV === "development";
-
-  if (isDev) {
-    // Development: use ./data directory in project root
-    const dbDir = path.join(process.cwd(), "data");
-    fs.ensureDirSync(dbDir);
-    return path.join(dbDir, "shadower.db");
-  }
-
-  // Production: try to use Electron's userData if available
-  try {
-    const { app } = require("electron");
-    if (app) {
-      const userDataDir = app.getPath("userData");
-      const dbDir = path.join(userDataDir, "data");
-      fs.ensureDirSync(dbDir);
-      return path.join(dbDir, "shadower.db");
-    }
-  } catch {
-    // Not in Electron context
-  }
-
-  // Fallback: use local data directory
-  const dbDir = path.join(process.cwd(), "data");
+  // Always use Electron's userData path for consistency
+  // This ensures Next.js server and Electron main process share the same database
+  const userDataDir = getElectronUserDataPath();
+  const dbDir = path.join(userDataDir, "data");
   fs.ensureDirSync(dbDir);
-  return path.join(dbDir, "shadower.db");
+  const dbPath = path.join(dbDir, "shadower.db");
+
+  // Log the database path for debugging
+  if (process.env.NODE_ENV === "development") {
+    console.log(`[SQLite] Using database at: ${dbPath}`);
+  }
+
+  return dbPath;
 };
 
 // Initialize SQLite database connection
@@ -758,6 +768,63 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       );
     `);
 
+    // Level 15: Provider and model tables
+    sqliteInstance.exec(`
+      CREATE TABLE IF NOT EXISTS provider_config (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'cloud',
+        base_url TEXT,
+        auth_type TEXT NOT NULL DEFAULT 'api-key',
+        enabled INTEGER DEFAULT 1,
+        status TEXT DEFAULT 'disconnected',
+        last_tested_at INTEGER,
+        error_message TEXT,
+        metadata TEXT,
+        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch()),
+        UNIQUE(user_id, provider_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS api_key (
+        id TEXT PRIMARY KEY,
+        provider_id TEXT NOT NULL,
+        encrypted_key TEXT NOT NULL,
+        key_hint TEXT,
+        is_valid INTEGER DEFAULT 0,
+        last_validated_at INTEGER,
+        error_message TEXT,
+        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch()),
+        UNIQUE(user_id, provider_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS local_model (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        display_name TEXT,
+        provider_id TEXT NOT NULL,
+        provider_config_id TEXT REFERENCES provider_config(id) ON DELETE SET NULL,
+        path TEXT,
+        size INTEGER,
+        quantization TEXT,
+        family TEXT,
+        status TEXT DEFAULT 'available',
+        is_vision INTEGER DEFAULT 0,
+        is_tool_call_supported INTEGER DEFAULT 1,
+        download_progress INTEGER,
+        error_message TEXT,
+        metadata TEXT,
+        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch()),
+        UNIQUE(user_id, provider_id, name)
+      );
+    `);
+
     // Create indexes
     sqliteInstance.exec(`
       CREATE INDEX IF NOT EXISTS bookmark_user_id_idx ON bookmark(user_id);
@@ -802,6 +869,13 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       CREATE INDEX IF NOT EXISTS fragment_shares_share_id_idx ON fragment_shares(share_id);
       CREATE INDEX IF NOT EXISTS thread_file_context_thread_idx ON thread_file_context(thread_id);
       CREATE INDEX IF NOT EXISTS thread_file_context_user_idx ON thread_file_context(user_id);
+      CREATE INDEX IF NOT EXISTS idx_provider_config_user ON provider_config(user_id);
+      CREATE INDEX IF NOT EXISTS idx_provider_config_provider ON provider_config(provider_id);
+      CREATE INDEX IF NOT EXISTS idx_api_key_user ON api_key(user_id);
+      CREATE INDEX IF NOT EXISTS idx_api_key_provider ON api_key(provider_id);
+      CREATE INDEX IF NOT EXISTS idx_local_model_user ON local_model(user_id);
+      CREATE INDEX IF NOT EXISTS idx_local_model_provider ON local_model(provider_id);
+      CREATE INDEX IF NOT EXISTS idx_local_model_status ON local_model(status);
     `);
 
     // Run migrations for existing databases (add missing columns)
@@ -830,8 +904,8 @@ const createDefaultUserIfNotExists = (sqliteInstance: SqliteDatabase) => {
       sqliteInstance
         .prepare(
           `
-          INSERT INTO user (id, name, email, email_verified, role, preferences, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO user (id, name, email, email_verified, preferences, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
         `,
         )
         .run(
@@ -839,7 +913,6 @@ const createDefaultUserIfNotExists = (sqliteInstance: SqliteDatabase) => {
           "Local User",
           "local@shadower.app",
           1, // email_verified = true
-          "admin",
           JSON.stringify({ theme: "dark", language: "en" }),
           now,
           now,
@@ -973,4 +1046,26 @@ try {
       (error as Error).message?.substring(0, 100),
     );
   }
+}
+
+// Alias for backward compatibility with auth-instance.ts and other consumers
+export const getDatabase = getSqliteDb;
+
+// Re-export schema for consumers that import from this module
+export { schema };
+
+/**
+ * Check if SQLite is available (server-side)
+ * Returns false in Electron dev mode due to native module version mismatch
+ */
+export function isSqliteAvailable(): boolean {
+  return IS_SQLITE_AVAILABLE;
+}
+
+/**
+ * Check if we're in Electron dev mode (SQLite unavailable)
+ * This is used by API routes to handle database errors gracefully
+ */
+export function isElectronDevMode(): boolean {
+  return !IS_SQLITE_AVAILABLE && process.env.NODE_ENV === "development";
 }

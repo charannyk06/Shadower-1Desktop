@@ -40,9 +40,6 @@ export const UserTable = sqliteTable("user", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
     currentTimestamp,
   ),
-  banned: integer("banned", { mode: "boolean" }).default(false),
-  banReason: text("ban_reason"),
-  banExpires: integer("ban_expires", { mode: "timestamp" }),
 });
 
 // Session Table - For auth sessions
@@ -63,8 +60,6 @@ export const SessionTable = sqliteTable("session", {
   userId: text("user_id")
     .notNull()
     .references(() => UserTable.id, { onDelete: "cascade" }),
-  // Admin plugin field
-  impersonatedBy: text("impersonated_by"),
 });
 
 // Account Table - OAuth accounts
