@@ -1,28 +1,16 @@
 "use server";
 
-import { eq } from "drizzle-orm";
 import logger from "logger";
-import {
-  validatedActionWithAdminPermission,
-  validatedActionWithUserManagePermission,
-} from "lib/action-utils";
+import { validatedActionWithUser } from "lib/action-utils";
 import {
   GeneratedImageResult,
   generateImageWithNanoBanana,
   generateImageWithOpenAI,
   generateImageWithXAI,
 } from "lib/ai/image/generate-image";
-import { sqliteDb as db } from "lib/db/sqlite/db.sqlite";
-import {
-  UserTable,
-  SessionTable,
-  AccountTable,
-} from "lib/db/sqlite/schema.sqlite";
 import { getUser, updateUserDetails } from "lib/user/server";
 import { getTranslations } from "next-intl/server";
 import {
-  DeleteUserActionState,
-  DeleteUserSchema,
   UpdateUserActionState,
   UpdateUserDetailsSchema,
   UpdateUserPasswordActionState,
@@ -36,24 +24,20 @@ import {
  * These actions work with the local SQLite database.
  */
 
-export const updateUserImageAction = validatedActionWithUserManagePermission(
+export const updateUserImageAction = validatedActionWithUser(
   UpdateUserDetailsSchema.pick({ userId: true, image: true }),
-  async (
-    data,
-    userId,
-    _userSession,
-    isOwnResource,
-  ): Promise<UpdateUserActionState> => {
+  async (data, _formData, user): Promise<UpdateUserActionState> => {
     const t = await getTranslations("User.Profile.common");
 
     try {
       const { image } = data;
+      const userId = user.id;
 
       // Update user details in database
       await updateUserDetails(userId, undefined, undefined, image);
 
-      const user = await getUser(userId);
-      if (!user) {
+      const updatedUser = await getUser(userId);
+      if (!updatedUser) {
         return {
           success: false,
           message: t("userNotFound"),
@@ -63,8 +47,8 @@ export const updateUserImageAction = validatedActionWithUserManagePermission(
       return {
         success: true,
         message: "Profile photo updated successfully",
-        user,
-        currentUserUpdated: isOwnResource,
+        user: updatedUser,
+        currentUserUpdated: true,
       };
     } catch (error) {
       logger.error("Failed to update user image:", error);
@@ -76,43 +60,38 @@ export const updateUserImageAction = validatedActionWithUserManagePermission(
   },
 );
 
-export const updateUserDetailsAction = validatedActionWithUserManagePermission(
+export const updateUserDetailsAction = validatedActionWithUser(
   UpdateUserDetailsSchema,
-  async (
-    data,
-    userId,
-    userSession,
-    isOwnResource,
-    _formData,
-  ): Promise<UpdateUserActionState> => {
+  async (data, _formData, sessionUser): Promise<UpdateUserActionState> => {
     const t = await getTranslations("User.Profile.common");
 
     try {
       const { name, email, image } = data;
-      const user = await getUser(userId);
-      if (!user) {
+      const userId = sessionUser.id;
+      const currentUser = await getUser(userId);
+      if (!currentUser) {
         return {
           success: false,
           message: t("userNotFound"),
         };
       }
 
-      const isDifferentEmail = email && email !== userSession.user.email;
-      const isDifferentName = name && name !== userSession.user.name;
-      const isDifferentImage = image && image !== userSession.user.image;
+      const isDifferentEmail = email && email !== sessionUser.email;
+      const isDifferentName = name && name !== sessionUser.name;
+      const isDifferentImage = image && image !== sessionUser.image;
 
       // Update user details in database
       await updateUserDetails(userId, name, email, image);
 
-      if (isDifferentEmail) user.email = email;
-      if (isDifferentName) user.name = name;
-      if (isDifferentImage) user.image = image;
+      if (isDifferentEmail) currentUser.email = email;
+      if (isDifferentName) currentUser.name = name;
+      if (isDifferentImage) currentUser.image = image;
 
       return {
         success: true,
         message: t("userDetailsUpdatedSuccessfully"),
-        user,
-        currentUserUpdated: isOwnResource,
+        user: currentUser,
+        currentUserUpdated: true,
       };
     } catch (error) {
       logger.error("Failed to update user details:", error);
@@ -124,43 +103,9 @@ export const updateUserDetailsAction = validatedActionWithUserManagePermission(
   },
 );
 
-export const deleteUserAction = validatedActionWithAdminPermission(
-  DeleteUserSchema,
-  async (data, _formData, _userSession): Promise<DeleteUserActionState> => {
-    const t = await getTranslations("Admin.UserDelete");
-    const { userId } = data;
-    try {
-      // Delete user sessions first
-      await db.delete(SessionTable).where(eq(SessionTable.userId, userId));
-      // Delete user accounts
-      await db.delete(AccountTable).where(eq(AccountTable.userId, userId));
-      // Delete the user
-      await db.delete(UserTable).where(eq(UserTable.id, userId));
-    } catch (error) {
-      console.error("Failed to delete user:", error);
-      return {
-        success: false,
-        message: t("failedToDeleteUser"),
-      };
-    }
-
-    return {
-      success: true,
-      message: t("userDeletedSuccessfully"),
-      redirect: "/admin",
-    };
-  },
-);
-
-export const updateUserPasswordAction = validatedActionWithUserManagePermission(
+export const updateUserPasswordAction = validatedActionWithUser(
   UpdateUserPasswordSchema,
-  async (
-    _data,
-    _userId,
-    _userSession,
-    _isOwnResource,
-    _formData,
-  ): Promise<UpdateUserPasswordActionState> => {
+  async (_data, _formData, _user): Promise<UpdateUserPasswordActionState> => {
     const t = await getTranslations("User.Profile.common");
 
     // Password management not available in Electron mode

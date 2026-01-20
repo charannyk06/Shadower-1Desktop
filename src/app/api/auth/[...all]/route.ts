@@ -20,7 +20,6 @@ const createLocalUserResponse = async () => {
         name: "Local User",
         image: null,
         emailVerified: true,
-        role: "admin",
       },
       session: session?.session || {
         id: "local-session",

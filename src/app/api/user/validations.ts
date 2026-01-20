@@ -15,14 +15,10 @@ export type UpdateUserPasswordError =
   (typeof UpdateUserPasswordError)[keyof typeof UpdateUserPasswordError];
 
 export const UpdateUserDetailsSchema = z.object({
-  userId: z.uuid("Invalid user ID"),
+  userId: z.uuid("Invalid user ID").optional(),
   name: z.string().min(1, "Name is required").max(100, "Name is too long"),
   email: z.email("Invalid email address").optional(),
   image: z.string().optional(),
-});
-
-export const DeleteUserSchema = z.object({
-  userId: z.uuid("Invalid user ID"),
 });
 
 export const UpdateUserPasswordSchema = z
@@ -47,10 +43,6 @@ export const UpdateUserPasswordSchema = z
       });
     }
   });
-
-export type DeleteUserActionState = ActionState & {
-  redirect?: string;
-};
 
 export type UpdateUserActionState = ActionState & {
   user?: BasicUserWithLastLogin | null;
