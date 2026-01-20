@@ -166,7 +166,6 @@ export class ElectronAuthService {
             email: data.email.toLowerCase(),
             password: hashedPassword,
             emailVerified: true,
-            role: "admin", // First user is admin
             preferences: {
               displayName: data.name,
               botName: "Shadower",
@@ -252,14 +251,6 @@ export class ElectronAuthService {
         return {
           success: false,
           error: "This account doesn't have a password. Please register first.",
-        };
-      }
-
-      // Check if user is banned
-      if (user.banned) {
-        return {
-          success: false,
-          error: user.banReason || "Your account has been suspended",
         };
       }
 
@@ -396,12 +387,6 @@ export class ElectronAuthService {
 
       if (!user) {
         await sessionStore.clearToken();
-        return null;
-      }
-
-      // Check if user is banned
-      if (user.banned) {
-        await this.signOut();
         return null;
       }
 

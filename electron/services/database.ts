@@ -862,6 +862,73 @@ const createTablesFromSchema = () => {
     `);
     console.log("[Database] ✓ Created vector_index and fragment tables");
 
+    // Create provider and model tables
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS provider_config (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'cloud',
+        base_url TEXT,
+        auth_type TEXT NOT NULL DEFAULT 'api-key',
+        enabled INTEGER DEFAULT 1,
+        status TEXT DEFAULT 'disconnected',
+        last_tested_at INTEGER,
+        error_message TEXT,
+        metadata TEXT,
+        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch()),
+        UNIQUE(user_id, provider_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_provider_config_user ON provider_config(user_id);
+      CREATE INDEX IF NOT EXISTS idx_provider_config_provider ON provider_config(provider_id);
+
+      CREATE TABLE IF NOT EXISTS api_key (
+        id TEXT PRIMARY KEY,
+        provider_id TEXT NOT NULL,
+        encrypted_key TEXT NOT NULL,
+        key_hint TEXT,
+        is_valid INTEGER DEFAULT 0,
+        last_validated_at INTEGER,
+        error_message TEXT,
+        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch()),
+        UNIQUE(user_id, provider_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_api_key_user ON api_key(user_id);
+      CREATE INDEX IF NOT EXISTS idx_api_key_provider ON api_key(provider_id);
+
+      CREATE TABLE IF NOT EXISTS local_model (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        display_name TEXT,
+        provider_id TEXT NOT NULL,
+        provider_config_id TEXT REFERENCES provider_config(id) ON DELETE SET NULL,
+        path TEXT,
+        size INTEGER,
+        quantization TEXT,
+        family TEXT,
+        status TEXT DEFAULT 'available',
+        is_vision INTEGER DEFAULT 0,
+        is_tool_call_supported INTEGER DEFAULT 1,
+        download_progress INTEGER,
+        error_message TEXT,
+        metadata TEXT,
+        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch()),
+        UNIQUE(user_id, provider_id, name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_local_model_user ON local_model(user_id);
+      CREATE INDEX IF NOT EXISTS idx_local_model_provider ON local_model(provider_id);
+      CREATE INDEX IF NOT EXISTS idx_local_model_status ON local_model(status);
+    `);
+    console.log(
+      "[Database] ✓ Created provider_config, api_key, and local_model tables",
+    );
+
     console.log("[Database] ✓ All tables created successfully from schema");
 
     // Verify all tables were created
@@ -930,6 +997,10 @@ const verifyTablesCreated = () => {
     "fragment_executions",
     "local_execution_usage",
     "fragment_shares",
+    // Provider and model tables
+    "provider_config",
+    "api_key",
+    "local_model",
   ];
 
   const missingTables: string[] = [];
@@ -1063,15 +1134,83 @@ export const resetDatabase = async () => {
 };
 
 /**
- * Initialize user data (deprecated - users are now created through registration)
- * This function is kept for backwards compatibility but doesn't create users automatically.
- * Users must register through the auth flow.
+ * Initialize default user for Electron desktop app
+ * Creates a default local user if no users exist in the database.
+ * This ensures the app works out of the box for desktop users.
  */
 export const createDefaultUser = async () => {
-  console.log(
-    "[Database] User initialization: Users are created through registration flow",
-  );
-  return null;
+  if (!db || !sqlite) {
+    console.error(
+      "[Database] Cannot create default user - database not initialized",
+    );
+    return null;
+  }
+
+  try {
+    // Check if any user exists
+    const existingUsers = await db.select().from(schema.UserTable).limit(1);
+
+    if (existingUsers.length > 0) {
+      console.log(
+        "[Database] User already exists, skipping default user creation",
+      );
+      return existingUsers[0];
+    }
+
+    // Create default user for desktop app
+    const { randomUUID } = require("crypto");
+    const userId = randomUUID();
+    const now = new Date();
+
+    console.log("[Database] Creating default desktop user...");
+
+    const [user] = await db
+      .insert(schema.UserTable)
+      .values({
+        id: userId,
+        name: "Desktop User",
+        email: "user@desktop.local",
+        emailVerified: true,
+        password: null, // No password for default user - local desktop app
+        image: null,
+        preferences: {
+          displayName: "Desktop User",
+          botName: "Shadower",
+        },
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    if (user) {
+      console.log(
+        `[Database] ✓ Created default user: ${user.email} (${user.id})`,
+      );
+
+      // Also create a session for the user so they're logged in automatically
+      const sessionId = randomUUID();
+      const sessionToken = `desktop-${userId}-${Date.now()}`;
+      const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year
+
+      await db.insert(schema.SessionTable).values({
+        id: sessionId,
+        token: sessionToken,
+        userId: user.id,
+        expiresAt: expiresAt,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      console.log(`[Database] ✓ Created default session for user`);
+
+      return user;
+    }
+
+    return null;
+  } catch (error) {
+    console.error("[Database] Error creating default user:", error);
+    return null;
+  }
 };
 
 // Database health check

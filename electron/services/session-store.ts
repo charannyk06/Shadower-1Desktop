@@ -5,7 +5,69 @@
  * This provides secure, encrypted storage for auth credentials.
  *
  * Note: electron-store v11+ is ESM-only, so we use dynamic import.
+ *
+ * DEV MODE INTEROP:
+ * In dev mode, Next.js runs in a separate process with a different Node version
+ * and cannot access SQLite or the encrypted electron-store. To enable auth
+ * interop, we write an unencrypted sync file that Next.js can read.
  */
+
+import { app } from "electron";
+import * as fs from "fs";
+import * as path from "path";
+
+// Path for the sync file (readable by Next.js in dev mode)
+const getSyncFilePath = (): string => {
+  try {
+    return path.join(app.getPath("userData"), "session-sync.json");
+  } catch {
+    // app not ready yet, use a fallback path
+    const platform = process.platform;
+    const appName = "shadower";
+    let userDataDir: string;
+    if (platform === "darwin") {
+      userDataDir = path.join(
+        process.env.HOME || "",
+        "Library",
+        "Application Support",
+        appName,
+      );
+    } else if (platform === "win32") {
+      userDataDir = path.join(process.env.APPDATA || "", appName);
+    } else {
+      userDataDir = path.join(process.env.HOME || "", ".config", appName);
+    }
+    return path.join(userDataDir, "session-sync.json");
+  }
+};
+
+// Write sync file for dev mode interop with Next.js server
+const writeSyncFile = (data: {
+  userId: string | null;
+  token: string | null;
+  expiresAt: number | null;
+}) => {
+  try {
+    const syncPath = getSyncFilePath();
+    fs.writeFileSync(syncPath, JSON.stringify(data, null, 2), "utf-8");
+    console.log(`[SessionStore] Sync file written: ${syncPath}`);
+  } catch (error) {
+    console.error("[SessionStore] Failed to write sync file:", error);
+  }
+};
+
+// Clear sync file
+const clearSyncFile = () => {
+  try {
+    const syncPath = getSyncFilePath();
+    if (fs.existsSync(syncPath)) {
+      fs.unlinkSync(syncPath);
+      console.log(`[SessionStore] Sync file cleared: ${syncPath}`);
+    }
+  } catch (error) {
+    console.error("[SessionStore] Failed to clear sync file:", error);
+  }
+};
 
 interface SessionStoreSchema {
   sessionToken: string | null;
@@ -170,6 +232,10 @@ class SessionStore {
     store.set("sessionToken", token);
     store.set("userId", userId);
     store.set("expiresAt", expiresAt);
+
+    // Write sync file for dev mode interop with Next.js
+    writeSyncFile({ userId, token, expiresAt });
+
     console.log(
       `[SessionStore] Session token set for user ${userId}, expires: ${new Date(expiresAt).toISOString()}`,
     );
@@ -189,6 +255,10 @@ class SessionStore {
     storeInstance.set("sessionToken", token);
     storeInstance.set("userId", userId);
     storeInstance.set("expiresAt", expiresAt);
+
+    // Write sync file for dev mode interop with Next.js
+    writeSyncFile({ userId, token, expiresAt });
+
     console.log(
       `[SessionStore] Session token set for user ${userId}, expires: ${new Date(expiresAt).toISOString()}`,
     );
@@ -202,6 +272,10 @@ class SessionStore {
     store.set("sessionToken", null);
     store.set("userId", null);
     store.set("expiresAt", null);
+
+    // Clear sync file
+    clearSyncFile();
+
     console.log("[SessionStore] Session cleared");
   }
 
@@ -213,6 +287,10 @@ class SessionStore {
     storeInstance.set("sessionToken", null);
     storeInstance.set("userId", null);
     storeInstance.set("expiresAt", null);
+
+    // Clear sync file
+    clearSyncFile();
+
     console.log("[SessionStore] Session cleared");
   }
 
