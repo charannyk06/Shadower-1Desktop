@@ -205,45 +205,114 @@ app.whenReady().then(async () => {
     console.error("[Main] Failed to initialize auth service:", error);
   }
 
-  // Register IPC handlers
+  // Register IPC handlers - each handler is registered independently to prevent
+  // one failure from blocking all handlers
+  const registerHandler = (name: string, registerFn: () => void) => {
+    try {
+      registerFn();
+      console.log(`[Main] ${name} handlers registered`);
+    } catch (error) {
+      console.error(`[Main] Failed to register ${name} handlers:`, error);
+    }
+  };
+
+  // Auth handlers should be registered first as they're critical
+  try {
+    const { registerAuthHandlers } = require("./ipc/auth");
+    registerHandler("Auth", registerAuthHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load auth handlers:", error);
+  }
+
   try {
     const { registerChatHandlers } = require("./ipc/chat");
-    const { registerAgentHandlers } = require("./ipc/agents");
-    const { registerWorkflowHandlers } = require("./ipc/workflows");
-    const { registerMcpHandlers } = require("./ipc/mcp");
-    const { registerUserHandlers } = require("./ipc/user");
-    const { registerFileHandlers } = require("./ipc/files");
-    const { registerAuthHandlers } = require("./ipc/auth");
-    const { registerTerminalHandlers } = require("./ipc/terminal");
-    const { registerModelsHandlers } = require("./ipc/models");
-    const { registerArchiveHandlers } = require("./ipc/archives");
-
-    registerChatHandlers();
-    registerAgentHandlers();
-    registerWorkflowHandlers();
-    registerMcpHandlers();
-    registerUserHandlers();
-    registerFileHandlers();
-    registerAuthHandlers();
-    registerTerminalHandlers();
-    registerModelsHandlers();
-    registerArchiveHandlers();
-
-    // Register vector handlers (optional - may fail if DuckDB not available)
-    try {
-      const { registerVectorHandlers } = require("./ipc/vector");
-      registerVectorHandlers();
-    } catch (vectorError) {
-      log.warn(
-        "[Main] Vector handlers not available (non-critical):",
-        vectorError instanceof Error ? vectorError.message : vectorError,
-      );
-    }
-
-    log.info("[Main] IPC handlers registered successfully");
+    registerHandler("Chat", registerChatHandlers);
   } catch (error) {
-    console.error("[Main] Failed to register IPC handlers:", error);
+    console.error("[Main] Failed to load chat handlers:", error);
   }
+
+  try {
+    const { registerAgentHandlers } = require("./ipc/agents");
+    registerHandler("Agent", registerAgentHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load agent handlers:", error);
+  }
+
+  try {
+    const { registerWorkflowHandlers } = require("./ipc/workflows");
+    registerHandler("Workflow", registerWorkflowHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load workflow handlers:", error);
+  }
+
+  try {
+    const { registerMcpHandlers } = require("./ipc/mcp");
+    registerHandler("MCP", registerMcpHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load MCP handlers:", error);
+  }
+
+  try {
+    const { registerUserHandlers } = require("./ipc/user");
+    registerHandler("User", registerUserHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load user handlers:", error);
+  }
+
+  try {
+    const { registerFileHandlers } = require("./ipc/files");
+    registerHandler("File", registerFileHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load file handlers:", error);
+  }
+
+  try {
+    const { registerTerminalHandlers } = require("./ipc/terminal");
+    registerHandler("Terminal", registerTerminalHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load terminal handlers:", error);
+  }
+
+  try {
+    const { registerModelsHandlers } = require("./ipc/models");
+    registerHandler("Models", registerModelsHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load models handlers:", error);
+  }
+
+  try {
+    const { registerArchiveHandlers } = require("./ipc/archives");
+    registerHandler("Archive", registerArchiveHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load archive handlers:", error);
+  }
+
+  try {
+    const { registerAIHandlers } = require("./ipc/ai");
+    registerHandler("AI", registerAIHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load AI handlers:", error);
+  }
+
+  try {
+    const { registerBookmarkHandlers } = require("./ipc/bookmarks");
+    registerHandler("Bookmark", registerBookmarkHandlers);
+  } catch (error) {
+    console.error("[Main] Failed to load bookmark handlers:", error);
+  }
+
+  // Register vector handlers (optional - may fail if DuckDB not available)
+  try {
+    const { registerVectorHandlers } = require("./ipc/vector");
+    registerHandler("Vector", registerVectorHandlers);
+  } catch (vectorError) {
+    log.warn(
+      "[Main] Vector handlers not available (non-critical):",
+      vectorError instanceof Error ? vectorError.message : vectorError,
+    );
+  }
+
+  log.info("[Main] IPC handler registration completed");
 
   createWindow();
 
@@ -447,7 +516,7 @@ app.on("will-quit", () => {
 });
 
 // macOS: Quit app when user quits via Cmd+Q
-app.on("before-quit", () => {
+app.on("before-quit", async () => {
   // Close vector services
   try {
     const { VectorStore } = require("./services/vector-store");

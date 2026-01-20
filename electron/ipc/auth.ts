@@ -10,7 +10,15 @@ import {
  * Full authentication support with registration, sign-in, sign-out, and session management
  */
 export function registerAuthHandlers() {
-  const authService = ElectronAuthService.getInstance();
+  console.log("[IPC] Registering auth handlers...");
+
+  let authService: ElectronAuthService;
+  try {
+    authService = ElectronAuthService.getInstance();
+  } catch (error) {
+    console.error("[IPC] Failed to get auth service instance:", error);
+    throw error;
+  }
 
   // Check if this is first launch (no users with passwords)
   ipcMain.handle("auth:isFirstLaunch", async () => {

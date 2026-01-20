@@ -200,5 +200,47 @@ export function registerAgentHandlers() {
     }
   });
 
+  // Toggle bookmark for an item (agent, workflow, or mcp)
+  ipcMain.handle(
+    "db:bookmark:toggle",
+    async (
+      _event,
+      userId: string,
+      itemId: string,
+      itemType: "agent" | "workflow" | "mcp",
+      isCurrentlyBookmarked: boolean,
+    ) => {
+      try {
+        if (isCurrentlyBookmarked) {
+          // Remove bookmark
+          await db
+            .delete(schema.BookmarkTable)
+            .where(
+              and(
+                eq(schema.BookmarkTable.userId, userId),
+                eq(schema.BookmarkTable.itemId, itemId),
+                eq(schema.BookmarkTable.itemType, itemType),
+              ),
+            );
+          return { success: true, isBookmarked: false };
+        } else {
+          // Create bookmark
+          await db
+            .insert(schema.BookmarkTable)
+            .values({
+              userId,
+              itemId,
+              itemType,
+            })
+            .onConflictDoNothing();
+          return { success: true, isBookmarked: true };
+        }
+      } catch (error) {
+        console.error("[IPC] Error toggling bookmark:", error);
+        throw error;
+      }
+    },
+  );
+
   console.log("[IPC] Agent handlers registered");
 }

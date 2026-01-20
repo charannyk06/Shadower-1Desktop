@@ -59,6 +59,17 @@ export interface ElectronAPI {
       deleteUnarchivedThreads: (
         userId: string,
       ) => Promise<{ success: boolean }>;
+      // New handlers
+      upsertMessage: (data: { message: any; threadId: string }) => Promise<any>;
+      deleteMessage: (messageId: string) => Promise<{ success: boolean }>;
+      deleteMessagesAfterTimestamp: (data: {
+        threadId: string;
+        messageId: string;
+      }) => Promise<{ success: boolean }>;
+      updateMessageParts: (data: {
+        messageId: string;
+        parts: any[];
+      }) => Promise<any>;
     };
     archives: {
       getAll: (userId: string) => Promise<any[]>;
@@ -69,8 +80,22 @@ export interface ElectronAPI {
       archiveThread: (
         threadId: string,
         archiveId: string,
+        userId: string,
       ) => Promise<{ success: boolean }>;
-      unarchiveThread: (threadId: string) => Promise<{ success: boolean }>;
+      unarchiveThread: (
+        threadId: string,
+        archiveId?: string,
+      ) => Promise<{ success: boolean }>;
+      getItems: (archiveId: string) => Promise<any[]>;
+      getItemArchives: (itemId: string) => Promise<any[]>;
+    };
+    bookmark: {
+      toggle: (
+        userId: string,
+        itemId: string,
+        itemType: "agent" | "workflow" | "mcp",
+        isCurrentlyBookmarked: boolean,
+      ) => Promise<{ success: boolean; isBookmarked: boolean }>;
     };
     agents: {
       getAll: (userId: string) => Promise<any[]>;
@@ -109,6 +134,32 @@ export interface ElectronAPI {
       deleteServer: (id: string) => Promise<void>;
       getToolCustomizations: (serverId: string) => Promise<any[]>;
       saveToolCustomization: (data: any) => Promise<any>;
+      // New handlers
+      existsByServerName: (name: string) => Promise<boolean>;
+      refreshClient: (
+        serverId: string,
+      ) => Promise<{
+        success: boolean;
+        status?: string;
+        toolInfo?: any[];
+        error?: string;
+      }>;
+      callTool: (data: {
+        serverId: string;
+        toolName: string;
+        args: any;
+      }) => Promise<{ success: boolean; result?: any; error?: string }>;
+      callToolByServerName: (data: {
+        serverName: string;
+        toolName: string;
+        args: any;
+      }) => Promise<{ success: boolean; result?: any; error?: string }>;
+      getServerStatus: (serverId: string) => Promise<any>;
+      updateVisibility: (data: {
+        serverId: string;
+        visibility: "public" | "private";
+      }) => Promise<any>;
+      getServersWithStatus: () => Promise<any[]>;
     };
     user: {
       getPreferences: () => Promise<any>;
@@ -123,6 +174,9 @@ export interface ElectronAPI {
         totalTokens: number;
         period: string;
       }>;
+      // New handlers
+      updateImage: (imageUrl: string) => Promise<any>;
+      updateDetails: (data: { name?: string }) => Promise<any>;
     };
   };
 
@@ -268,6 +322,54 @@ export interface ElectronAPI {
     quit: () => void;
   };
 
+  // AI streaming (IPC-based, no HTTP server needed)
+  ai: {
+    stream: (request: {
+      threadId: string;
+      messages: any[];
+      chatModel: { provider: string; model: string };
+      toolChoice?: string;
+      allowedAppDefaultToolkit?: string[];
+      allowedMcpServers?: Record<string, any>;
+      mentions?: any[];
+      message: any;
+      imageTool?: { model?: string };
+      attachments?: any[];
+    }) => Promise<{ success?: boolean; error?: string; threadId?: string }>;
+    abort: (threadId: string) => Promise<{ success: boolean; error?: string }>;
+    generateTitle: (request: {
+      threadId: string;
+      message: string;
+      chatModel: { provider: string; model: string };
+    }) => Promise<{ success?: boolean; title?: string; error?: string }>;
+    generateObject: (request: {
+      chatModel: { provider: string; model: string };
+      prompt: { system?: string; user?: string };
+      schema: any;
+    }) => Promise<{ success?: boolean; object?: any; error?: string }>;
+    onStreamChunk: (
+      callback: (data: {
+        threadId: string;
+        chunk?: string;
+        type?: string;
+        text?: string;
+      }) => void,
+    ) => () => void;
+    onStreamEnd: (
+      callback: (data: {
+        threadId: string;
+        usage?: any;
+        finishReason?: string;
+      }) => void,
+    ) => () => void;
+    onStreamError: (
+      callback: (data: { threadId: string; error: string }) => void,
+    ) => () => void;
+    onTitleGenerated: (
+      callback: (data: { threadId: string; title: string }) => void,
+    ) => () => void;
+  };
+
   // Models management
   models: {
     // Provider configuration
@@ -332,6 +434,29 @@ export interface ElectronAPI {
       modelCount?: number;
     }>;
     getDecryptedApiKey: (providerId: string) => Promise<string | null>;
+    fetchProviderModels: (data: {
+      providerId: string;
+      apiKey: string;
+    }) => Promise<{
+      success: boolean;
+      models?: Array<{
+        id: string;
+        name: string;
+        displayName: string;
+        isToolCallSupported: boolean;
+        isImageInputSupported: boolean;
+        isReasoningModel: boolean;
+        workflowGenerationSupport: "full" | "limited" | "none";
+        toolCallUnsupportedReason?:
+          | "reasoning-model"
+          | "built-in-tools"
+          | "responses-api-only";
+        reasoningEffort?: string[];
+        thinkingLevel?: string[];
+        supportedFileMimeTypes: string[];
+      }>;
+      error?: string;
+    }>;
 
     // Local models
     getLocalModels: () => Promise<any[]>;
@@ -421,6 +546,17 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.invoke("db:chat:deleteAllThreads", userId),
       deleteUnarchivedThreads: (userId: string) =>
         ipcRenderer.invoke("db:chat:deleteUnarchivedThreads", userId),
+      // New handlers
+      upsertMessage: (data: { message: any; threadId: string }) =>
+        ipcRenderer.invoke("db:chat:upsertMessage", data),
+      deleteMessage: (messageId: string) =>
+        ipcRenderer.invoke("db:chat:deleteMessage", messageId),
+      deleteMessagesAfterTimestamp: (data: {
+        threadId: string;
+        messageId: string;
+      }) => ipcRenderer.invoke("db:chat:deleteMessagesAfterTimestamp", data),
+      updateMessageParts: (data: { messageId: string; parts: any[] }) =>
+        ipcRenderer.invoke("db:chat:updateMessageParts", data),
     },
     agents: {
       getAll: (userId: string) =>
@@ -469,6 +605,26 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.invoke("db:mcp:getToolCustomizations", serverId),
       saveToolCustomization: (data: any) =>
         ipcRenderer.invoke("db:mcp:saveToolCustomization", data),
+      // New handlers
+      existsByServerName: (name: string) =>
+        ipcRenderer.invoke("db:mcp:existsByServerName", name),
+      refreshClient: (serverId: string) =>
+        ipcRenderer.invoke("db:mcp:refreshClient", serverId),
+      callTool: (data: { serverId: string; toolName: string; args: any }) =>
+        ipcRenderer.invoke("db:mcp:callTool", data),
+      callToolByServerName: (data: {
+        serverName: string;
+        toolName: string;
+        args: any;
+      }) => ipcRenderer.invoke("db:mcp:callToolByServerName", data),
+      getServerStatus: (serverId: string) =>
+        ipcRenderer.invoke("db:mcp:getServerStatus", serverId),
+      updateVisibility: (data: {
+        serverId: string;
+        visibility: "public" | "private";
+      }) => ipcRenderer.invoke("db:mcp:updateVisibility", data),
+      getServersWithStatus: () =>
+        ipcRenderer.invoke("db:mcp:getServersWithStatus"),
     },
     user: {
       getPreferences: () => ipcRenderer.invoke("db:user:getPreferences"),
@@ -481,6 +637,11 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.invoke("db:user:getById", userId),
       getStats: (userId: string) =>
         ipcRenderer.invoke("db:user:getStats", userId),
+      // New handlers
+      updateImage: (imageUrl: string) =>
+        ipcRenderer.invoke("db:user:updateImage", imageUrl),
+      updateDetails: (data: { name?: string }) =>
+        ipcRenderer.invoke("db:user:updateDetails", data),
     },
     archives: {
       getAll: (userId: string) =>
@@ -490,10 +651,34 @@ const electronAPI: ElectronAPI = {
       update: (id: string, data: any) =>
         ipcRenderer.invoke("db:archives:update", id, data),
       delete: (id: string) => ipcRenderer.invoke("db:archives:delete", id),
-      archiveThread: (threadId: string, archiveId: string) =>
-        ipcRenderer.invoke("db:archives:archiveThread", threadId, archiveId),
-      unarchiveThread: (threadId: string) =>
-        ipcRenderer.invoke("db:archives:unarchiveThread", threadId),
+      archiveThread: (threadId: string, archiveId: string, userId: string) =>
+        ipcRenderer.invoke(
+          "db:archives:archiveThread",
+          threadId,
+          archiveId,
+          userId,
+        ),
+      unarchiveThread: (threadId: string, archiveId?: string) =>
+        ipcRenderer.invoke("db:archives:unarchiveThread", threadId, archiveId),
+      getItems: (archiveId: string) =>
+        ipcRenderer.invoke("db:archives:getItems", archiveId),
+      getItemArchives: (itemId: string) =>
+        ipcRenderer.invoke("db:archives:getItemArchives", itemId),
+    },
+    bookmark: {
+      toggle: (
+        userId: string,
+        itemId: string,
+        itemType: "agent" | "workflow" | "mcp",
+        isCurrentlyBookmarked: boolean,
+      ) =>
+        ipcRenderer.invoke(
+          "db:bookmark:toggle",
+          userId,
+          itemId,
+          itemType,
+          isCurrentlyBookmarked,
+        ),
     },
   },
 
@@ -607,6 +792,70 @@ const electronAPI: ElectronAPI = {
     quit: () => ipcRenderer.send("app:quit"),
   },
 
+  // AI streaming (IPC-based, no HTTP server needed)
+  ai: {
+    stream: (request: {
+      threadId: string;
+      messages: any[];
+      chatModel: { provider: string; model: string };
+      toolChoice?: string;
+      allowedAppDefaultToolkit?: string[];
+      allowedMcpServers?: Record<string, any>;
+      mentions?: any[];
+      message: any;
+      imageTool?: { model?: string };
+      attachments?: any[];
+    }) => ipcRenderer.invoke("ai:stream", request),
+    abort: (threadId: string) => ipcRenderer.invoke("ai:abort", threadId),
+    generateTitle: (request: {
+      threadId: string;
+      message: string;
+      chatModel: { provider: string; model: string };
+    }) => ipcRenderer.invoke("ai:generateTitle", request),
+    generateObject: (request: {
+      chatModel: { provider: string; model: string };
+      prompt: { system?: string; user?: string };
+      schema: any;
+    }) => ipcRenderer.invoke("ai:generateObject", request),
+    onStreamChunk: (
+      callback: (data: {
+        threadId: string;
+        chunk?: string;
+        type?: string;
+        text?: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:stream:chunk", handler);
+      return () => ipcRenderer.removeListener("ai:stream:chunk", handler);
+    },
+    onStreamEnd: (
+      callback: (data: {
+        threadId: string;
+        usage?: any;
+        finishReason?: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:stream:end", handler);
+      return () => ipcRenderer.removeListener("ai:stream:end", handler);
+    },
+    onStreamError: (
+      callback: (data: { threadId: string; error: string }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:stream:error", handler);
+      return () => ipcRenderer.removeListener("ai:stream:error", handler);
+    },
+    onTitleGenerated: (
+      callback: (data: { threadId: string; title: string }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:title:generated", handler);
+      return () => ipcRenderer.removeListener("ai:title:generated", handler);
+    },
+  },
+
   // Models management
   models: {
     // Provider configuration
@@ -646,6 +895,10 @@ const electronAPI: ElectronAPI = {
     }) => ipcRenderer.invoke("models:validateApiKey", data),
     getDecryptedApiKey: (providerId: string) =>
       ipcRenderer.invoke("models:getDecryptedApiKey", providerId),
+    fetchProviderModels: (data: {
+      providerId: string;
+      apiKey: string;
+    }) => ipcRenderer.invoke("models:fetchProviderModels", data),
 
     // Local models
     getLocalModels: () => ipcRenderer.invoke("models:getLocalModels"),

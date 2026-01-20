@@ -781,6 +781,392 @@ export function registerModelsHandlers() {
     },
   );
 
+  // Fetch models from cloud provider API
+  ipcMain.handle(
+    "models:fetchProviderModels",
+    async (
+      _event,
+      data: { providerId: string; apiKey: string },
+    ): Promise<{
+      success: boolean;
+      models?: Array<{
+        id: string;
+        name: string;
+        displayName: string;
+        isToolCallSupported: boolean;
+        isImageInputSupported: boolean;
+        isReasoningModel: boolean;
+        workflowGenerationSupport: "full" | "limited" | "none";
+        toolCallUnsupportedReason?:
+          | "reasoning-model"
+          | "built-in-tools"
+          | "responses-api-only";
+        reasoningEffort?: string[];
+        thinkingLevel?: string[];
+        supportedFileMimeTypes: string[];
+      }>;
+      error?: string;
+    }> => {
+      try {
+        const { providerId, apiKey } = data;
+
+        let url: string;
+        let headers: Record<string, string>;
+
+        switch (providerId) {
+          case "anthropic":
+            url = "https://api.anthropic.com/v1/models";
+            headers = {
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+              "Content-Type": "application/json",
+            };
+            break;
+          case "openai":
+            url = "https://api.openai.com/v1/models";
+            headers = {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            };
+            break;
+          case "google":
+            url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+            headers = {
+              "Content-Type": "application/json",
+            };
+            break;
+          case "groq":
+            url = "https://api.groq.com/openai/v1/models";
+            headers = {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            };
+            break;
+          case "xai":
+            url = "https://api.x.ai/v1/models";
+            headers = {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            };
+            break;
+          case "cerebras":
+            url = "https://api.cerebras.ai/v1/models";
+            headers = {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            };
+            break;
+          case "openRouter":
+            url = "https://openrouter.ai/api/v1/models";
+            headers = {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            };
+            break;
+          default:
+            return {
+              success: false,
+              error: `Unsupported provider: ${providerId}`,
+            };
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        try {
+          const response = await fetch(url, {
+            headers,
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            return {
+              success: false,
+              error: `API error: ${response.status}`,
+            };
+          }
+
+          const data = (await response.json()) as {
+            data?: Array<{
+              id: string;
+              created?: number;
+              created_at?: string;
+              display_name?: string;
+              context_window?: number;
+            }>;
+            models?: Array<{
+              id: string;
+              created?: number;
+              created_at?: string;
+              display_name?: string;
+              context_window?: number;
+            }>;
+          };
+
+          const rawModels = data.data || data.models || [];
+
+          // Filter and transform models based on provider
+          let filteredModels = rawModels;
+          if (providerId === "anthropic") {
+            filteredModels = rawModels.filter((m) => m.id.includes("claude"));
+          } else if (providerId === "openai") {
+            filteredModels = rawModels.filter(
+              (m) =>
+                m.id.startsWith("gpt-") ||
+                m.id.startsWith("o1") ||
+                m.id.startsWith("o3") ||
+                m.id.startsWith("o4"),
+            );
+          } else if (providerId === "google") {
+            filteredModels = rawModels.filter((m) => m.id.includes("gemini"));
+          } else if (providerId === "xai") {
+            filteredModels = rawModels.filter((m) => m.id.includes("grok"));
+          }
+
+          // Sort by creation date (newest first)
+          filteredModels.sort((a, b) => {
+            const aTime =
+              a.created ??
+              (a.created_at ? new Date(a.created_at).getTime() / 1000 : 0);
+            const bTime =
+              b.created ??
+              (b.created_at ? new Date(b.created_at).getTime() / 1000 : 0);
+            return bTime - aTime;
+          });
+
+          // Transform to our format
+          const models = filteredModels.map((model) => {
+            const modelId = model.id;
+            const displayName = formatModelDisplayName(
+              providerId,
+              modelId,
+              model.display_name,
+            );
+            const capabilities = getModelCapabilities(modelId);
+
+            return {
+              id: modelId,
+              name: displayName,
+              displayName,
+              isToolCallSupported: capabilities.isToolCallSupported,
+              isImageInputSupported: capabilities.isImageInputSupported,
+              isReasoningModel: capabilities.isReasoningModel,
+              workflowGenerationSupport: capabilities.workflowGenerationSupport,
+              toolCallUnsupportedReason: capabilities.toolCallUnsupportedReason,
+              reasoningEffort: capabilities.reasoningEffort,
+              thinkingLevel: capabilities.thinkingLevel,
+              supportedFileMimeTypes: getSupportedFileTypes(providerId),
+            };
+          });
+
+          return {
+            success: true,
+            models,
+          };
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          if (fetchError instanceof Error && fetchError.name === "AbortError") {
+            return {
+              success: false,
+              error: "Request timed out",
+            };
+          }
+          throw fetchError;
+        }
+      } catch (error) {
+        console.error("[IPC] Error fetching provider models:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
+
+  // ========================================================================
+  // Helper Functions for Model Fetching
+  // ========================================================================
+
+  // Format model display name
+  function formatModelDisplayName(
+    providerId: string,
+    modelId: string,
+    displayName?: string,
+  ): string {
+    if (displayName && !displayName.startsWith("models/")) {
+      return displayName;
+    }
+
+    switch (providerId) {
+      case "anthropic": {
+        const name = modelId
+          .replace("claude-", "Claude ")
+          .replace("-3-5-", " 3.5 ")
+          .replace("-4-5-", " 4.5 ")
+          .replace("-4-", " 4 ")
+          .replace("-3-", " 3 ")
+          .replace("-sonnet", " Sonnet")
+          .replace("-opus", " Opus")
+          .replace("-haiku", " Haiku")
+          .replace(/-\d{8}/g, "")
+          .replace(/-latest/g, "");
+        return name.trim();
+      }
+      case "openai": {
+        let name = modelId;
+        if (name.startsWith("gpt-")) {
+          name = name.replace("gpt-", "GPT-");
+        } else if (
+          name.startsWith("o1") ||
+          name.startsWith("o3") ||
+          name.startsWith("o4")
+        ) {
+          name = name.toUpperCase();
+        }
+        name = name
+          .replace(/-preview/g, " Preview")
+          .replace(/-mini/g, " Mini")
+          .replace(/-nano/g, " Nano")
+          .replace(/-turbo/g, " Turbo")
+          .replace(/-chat/g, " Chat")
+          .replace(/-latest/g, "")
+          .replace(/-pro/g, " Pro")
+          .replace(/-\d{4}-\d{2}-\d{2}/g, "");
+        return name;
+      }
+      case "google": {
+        const name = modelId
+          .replace("models/", "")
+          .replace("gemini-", "Gemini ")
+          .replace("-pro", " Pro")
+          .replace("-flash", " Flash")
+          .replace("-lite", " Lite")
+          .replace("-thinking", " Thinking")
+          .replace(/-\d{4}/g, "");
+        return name.trim();
+      }
+      case "groq": {
+        let name = modelId;
+        if (name.includes("/")) {
+          name = name.split("/").pop() || name;
+        }
+        name = name
+          .replace("llama-", "Llama ")
+          .replace("mixtral-", "Mixtral ")
+          .replace(/-/g, " ");
+        return name;
+      }
+      case "xai": {
+        return modelId.replace("grok-", "Grok ").replace(/-/g, " ");
+      }
+      default:
+        return displayName || modelId;
+    }
+  }
+
+  // Get model capabilities
+  function getModelCapabilities(modelId: string): {
+    isToolCallSupported: boolean;
+    isImageInputSupported: boolean;
+    isReasoningModel: boolean;
+    workflowGenerationSupport: "full" | "limited" | "none";
+    toolCallUnsupportedReason?:
+      | "reasoning-model"
+      | "built-in-tools"
+      | "responses-api-only";
+    reasoningEffort?: string[];
+    thinkingLevel?: string[];
+  } {
+    // Reasoning models
+    const isReasoning =
+      /(^|[/:-])o[134]/i.test(modelId) ||
+      /gpt-5/i.test(modelId) ||
+      /codex/i.test(modelId) ||
+      /deepseek-r1/i.test(modelId);
+
+    // Built-in tools
+    const hasBuiltIn = /gpt-oss/i.test(modelId);
+
+    // Requires Responses API
+    const needsResponsesAPI = /computer-use/i.test(modelId);
+
+    // Image support
+    const isImageInputSupported =
+      /4o/i.test(modelId) ||
+      /4\.1/i.test(modelId) ||
+      /gpt-5/i.test(modelId) ||
+      /gemini/i.test(modelId) ||
+      /claude/i.test(modelId) ||
+      /grok/i.test(modelId);
+
+    // Tool call support
+    const isToolCallSupported = !hasBuiltIn && !needsResponsesAPI;
+
+    // Workflow support
+    let workflowGenerationSupport: "full" | "limited" | "none" = "full";
+    let toolCallUnsupportedReason:
+      | "reasoning-model"
+      | "built-in-tools"
+      | "responses-api-only"
+      | undefined;
+
+    if (hasBuiltIn) {
+      workflowGenerationSupport = "none";
+      toolCallUnsupportedReason = "built-in-tools";
+    } else if (needsResponsesAPI) {
+      workflowGenerationSupport = "none";
+      toolCallUnsupportedReason = "responses-api-only";
+    }
+
+    // Reasoning effort levels
+    const reasoningEffort: string[] | undefined = isReasoning
+      ? ["low", "medium", "high"]
+      : undefined;
+
+    // Thinking levels (for specific models)
+    const thinkingLevel: string[] | undefined =
+      /gemini-[23]/i.test(modelId) ||
+      /claude-opus-4-5/i.test(modelId) ||
+      /claude-sonnet-4-5/i.test(modelId)
+        ? ["none", "low", "medium", "high"]
+        : undefined;
+
+    return {
+      isToolCallSupported,
+      isImageInputSupported,
+      isReasoningModel: isReasoning,
+      workflowGenerationSupport,
+      toolCallUnsupportedReason,
+      reasoningEffort,
+      thinkingLevel,
+    };
+  }
+
+  // Get supported file types for provider
+  function getSupportedFileTypes(providerId: string): string[] {
+    switch (providerId) {
+      case "anthropic":
+        return [
+          "application/pdf",
+          "text/plain",
+          "text/csv",
+          "text/html",
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp",
+        ];
+      case "openai":
+      case "google":
+      case "xai":
+        return ["image/jpeg", "image/png", "image/gif", "image/webp"];
+      default:
+        return [];
+    }
+  }
+
   // ========================================================================
   // Local Model Handlers
   // ========================================================================
@@ -853,7 +1239,7 @@ export function registerModelsHandlers() {
 
             await db.insert(schema.LocalModelTable).values({
               name: model.name,
-              displayName: formatModelDisplayName(model.name),
+              displayName: formatModelDisplayName(data.providerId, model.name),
               providerId: data.providerId,
               size: model.size,
               family: model.family,
@@ -900,7 +1286,7 @@ export function registerModelsHandlers() {
           .insert(schema.LocalModelTable)
           .values({
             name: data.modelName,
-            displayName: formatModelDisplayName(data.modelName),
+            displayName: formatModelDisplayName("ollama", data.modelName),
             providerId: "ollama",
             status: "downloading",
             downloadProgress: 0,
@@ -1109,14 +1495,4 @@ export function registerModelsHandlers() {
   });
 
   console.log("[IPC] Models handlers registered");
-}
-
-// Helper function to format model display names
-function formatModelDisplayName(name: string): string {
-  return name
-    .replace(/[_-]/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    .replace(/(\d+)b/gi, "$1B")
-    .replace(/(\d+)k/gi, "$1K")
-    .trim();
 }
