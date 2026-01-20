@@ -1,4 +1,3 @@
-import "server-only";
 import { UserSessionUser } from "app-types/user";
 import { z } from "zod";
 

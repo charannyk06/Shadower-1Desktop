@@ -11,9 +11,9 @@ import { WopiAccessTokenPayload } from "./types";
 
 // Secret key for signing tokens - must be set in environment
 const getSecret = () => {
-  const secret = process.env.WOPI_SECRET;
+  const secret = import.meta.env.VITE_WOPI_SECRET;
   if (!secret) {
-    throw new Error("WOPI_SECRET environment variable is required");
+    throw new Error("VITE_WOPI_SECRET environment variable is required");
   }
   return new TextEncoder().encode(secret);
 };

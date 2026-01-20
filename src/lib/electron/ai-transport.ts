@@ -93,6 +93,10 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
       abortSignal: AbortSignal | undefined;
     } & ChatRequestOptions,
   ): Promise<ReadableStream<UIMessageChunk>> {
+    console.log(
+      "[AI Transport] sendMessages called for chatId:",
+      options.chatId,
+    );
     const { messages, abortSignal, body: optionsBody, chatId } = options;
 
     // Prepare the body using the provided function if available
@@ -112,11 +116,20 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
 
     // In Electron production (static export), use IPC
     if (shouldUseElectronTransport()) {
-      return this.sendViaIPC({ messages, body, id: chatId, abortSignal });
+      const stream = this.sendViaIPC({
+        messages,
+        body,
+        id: chatId,
+        abortSignal,
+      });
+      console.log("[AI Transport] Returning IPC stream for chatId:", chatId);
+      return stream;
     }
 
     // Fall back to HTTP for dev mode
-    return this.sendViaHTTP({ ...options, body });
+    const httpStream = this.sendViaHTTP({ ...options, body });
+    console.log("[AI Transport] Returning HTTP stream");
+    return httpStream;
   }
 
   /**
@@ -173,6 +186,16 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
 
   /**
    * Send via Electron IPC - pure IPC, no HTTP
+   *
+   * CRITICAL: Listeners MUST be registered SYNCHRONOUSLY in start() callback
+   * before any async work begins. This prevents the race condition where
+   * chunks arrive before listeners are attached.
+   *
+   * Flow:
+   * 1. start() is called synchronously when stream is created
+   * 2. Register ALL IPC listeners synchronously (they attach immediately)
+   * 3. THEN call async prepare/start functions (non-blocking)
+   * 4. Chunks arrive via IPC and are enqueued to the stream
    */
   private sendViaIPC({
     messages,
@@ -193,41 +216,186 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
     let cleanupChunk: (() => void) | undefined;
     let cleanupEnd: (() => void) | undefined;
     let cleanupError: (() => void) | undefined;
+    let cleanupStep: (() => void) | undefined;
 
     const cleanup = () => {
       cleanupChunk?.();
       cleanupEnd?.();
       cleanupError?.();
+      cleanupStep?.();
+    };
+
+    let streamController: ReadableStreamDefaultController<UIMessageChunk> | null =
+      null;
+    let streamClosed = false;
+    let chunkCounter = 0;
+
+    // Async function that ONLY handles prepare/start calls
+    // NO listener setup here - that's done synchronously in start()
+    const startStreamingAsync = async (
+      ctrl: ReadableStreamDefaultController<UIMessageChunk>,
+    ) => {
+      try {
+        // Prepare the stream (sets up model, tools, but doesn't start streaming)
+        console.log("[AI Transport] Preparing stream for thread:", id);
+        const prepareResult = await api.ai.stream({
+          threadId: id,
+          messages,
+          chatModel: requestBody.chatModel,
+          toolChoice: requestBody.toolChoice,
+          allowedAppDefaultToolkit: requestBody.allowedAppDefaultToolkit,
+          allowedMcpServers: requestBody.allowedMcpServers,
+          mentions: requestBody.mentions,
+          message: requestBody.message,
+          imageTool: requestBody.imageTool,
+          attachments: requestBody.attachments,
+        });
+
+        if (prepareResult?.error) {
+          console.error("[AI Transport] Prepare failed:", prepareResult.error);
+          cleanup();
+          ctrl.error(new Error(prepareResult.error));
+          return;
+        }
+
+        // Start the actual streaming (listeners are already registered!)
+        console.log("[AI Transport] Starting stream for thread:", id);
+        const startResult = await api.ai.startStream({ threadId: id });
+
+        if (startResult?.error) {
+          console.error("[AI Transport] Start failed:", startResult.error);
+          cleanup();
+          ctrl.error(new Error(startResult.error));
+          return;
+        }
+
+        console.log(
+          "[AI Transport] Stream started successfully for thread:",
+          id,
+        );
+      } catch (error: any) {
+        console.error("[AI Transport] Error in stream setup:", error);
+        cleanup();
+        if (!aborted) {
+          try {
+            ctrl.error(error);
+          } catch {
+            // Controller may already be errored
+          }
+        }
+      }
     };
 
     const stream = new ReadableStream<UIMessageChunk>({
       start(ctrl) {
-        // Set up abort handler
+        console.log(
+          "[AI Transport] ReadableStream start() called for thread:",
+          id,
+        );
+        console.log("[AI Transport] Controller desiredSize:", ctrl.desiredSize);
+        streamController = ctrl;
+
+        // STEP 1: Set up abort handler SYNCHRONOUSLY
         abortSignal?.addEventListener("abort", () => {
           aborted = true;
           api.ai?.abort?.(id);
           cleanup();
           try {
             ctrl.close();
+            streamClosed = true;
           } catch {
             // Controller may already be closed
           }
         });
 
-        // Set up IPC listeners
+        // STEP 2: Register ALL IPC listeners SYNCHRONOUSLY
+        // This is CRITICAL - listeners must be attached before any async work
+        // ipcRenderer.on() is synchronous, so listeners are ready immediately
+        console.log("[AI Transport] Setting up IPC listeners for thread:", id);
+
         cleanupChunk = api.ai.onStreamChunk(
           (data: { threadId: string; chunk?: string }) => {
             if (aborted || data.threadId !== id) return;
 
-            // Parse the JSON chunk and emit as UIMessageChunk
             const chunkData = data.chunk || "";
             if (chunkData) {
               try {
                 const parsed = JSON.parse(chunkData);
-                ctrl.enqueue(parsed as UIMessageChunk);
+                chunkCounter++;
+                // Log ALL chunks to debug the missing text-start issue
+                const chunkType = parsed?.type;
+                const chunkId = parsed?.id;
+                console.log(
+                  `[AI Transport] Chunk #${chunkCounter} type: "${chunkType}" id: "${chunkId}"`,
+                );
+
+                // CRITICAL DEBUG: Track text-start chunks specifically
+                if (chunkType === "text-start") {
+                  console.log(
+                    `[AI Transport] *** TEXT-START CHUNK RECEIVED *** id: ${chunkId}`,
+                  );
+                }
+
+                // Full structure for first 15 chunks and important chunk types
+                if (
+                  chunkCounter <= 15 ||
+                  chunkType === "text-start" ||
+                  chunkType === "text-delta" ||
+                  chunkType === "start" ||
+                  chunkType === "step-start"
+                ) {
+                  console.log(
+                    `[AI Transport] Chunk #${chunkCounter} full structure:`,
+                    JSON.stringify(parsed, null, 2),
+                  );
+                }
+                if (streamController && !streamClosed) {
+                  try {
+                    console.log(
+                      "[AI Transport] Before enqueue - desiredSize:",
+                      streamController.desiredSize,
+                    );
+                    streamController.enqueue(parsed as UIMessageChunk);
+                    console.log(
+                      "[AI Transport] After enqueue - desiredSize:",
+                      streamController.desiredSize,
+                      "chunk type:",
+                      parsed?.type,
+                    );
+                    if (chunkCounter === 1) {
+                      console.log(
+                        "[AI Transport] First chunk enqueued directly",
+                      );
+                    }
+                  } catch (enqueueError: any) {
+                    if (enqueueError.name !== "RangeError") {
+                      console.error(
+                        "[AI Transport] Failed to enqueue chunk:",
+                        enqueueError,
+                      );
+                    }
+                  }
+                } else {
+                  console.warn(
+                    "[AI Transport] Cannot enqueue - controller:",
+                    !!streamController,
+                    "closed:",
+                    streamClosed,
+                  );
+                }
               } catch (e) {
-                console.warn("[AI Transport] Failed to parse chunk:", e);
+                console.error(
+                  "[AI Transport] Failed to parse chunk:",
+                  e,
+                  "chunk:",
+                  chunkData,
+                );
               }
+            } else {
+              console.warn(
+                "[AI Transport] Received empty chunk for thread:",
+                id,
+              );
             }
           },
         );
@@ -235,10 +403,17 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
         cleanupEnd = api.ai.onStreamEnd(
           (data: { threadId: string; usage?: any; finishReason?: string }) => {
             if (data.threadId !== id) return;
+            console.log(
+              "[AI Transport] Stream ended for thread:",
+              id,
+              "finishReason:",
+              data.finishReason,
+            );
             cleanup();
-            if (!aborted) {
+            streamClosed = true;
+            if (!aborted && streamController) {
               try {
-                ctrl.close();
+                streamController.close();
               } catch {
                 // Controller may already be closed
               }
@@ -249,6 +424,11 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
         cleanupError = api.ai.onStreamError(
           (data: { threadId: string; error: string }) => {
             if (data.threadId !== id) return;
+            console.error(
+              "[AI Transport] Stream error for thread:",
+              id,
+              data.error,
+            );
             cleanup();
             try {
               ctrl.error(new Error(data.error));
@@ -258,42 +438,33 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
           },
         );
 
-        // Start the stream request
-        api.ai
-          .stream({
-            threadId: id,
-            messages,
-            chatModel: requestBody.chatModel,
-            toolChoice: requestBody.toolChoice,
-            allowedAppDefaultToolkit: requestBody.allowedAppDefaultToolkit,
-            allowedMcpServers: requestBody.allowedMcpServers,
-            mentions: requestBody.mentions,
-            message: requestBody.message,
-            imageTool: requestBody.imageTool,
-            attachments: requestBody.attachments,
-          })
-          .then((result: { error?: string }) => {
-            if (result?.error) {
-              cleanup();
-              try {
-                ctrl.error(new Error(result.error));
-              } catch {
-                // Controller may already be errored
-              }
-            }
-          })
-          .catch((error: Error) => {
-            cleanup();
-            if (!aborted) {
-              try {
-                ctrl.error(error);
-              } catch {
-                // Controller may already be errored
-              }
-            }
-          });
+        if (api.ai.onStreamStep) {
+          cleanupStep = api.ai.onStreamStep(
+            (data: {
+              threadId: string;
+              stepType: string;
+              toolCallCount: number;
+            }) => {
+              if (data.threadId !== id) return;
+            },
+          );
+        }
+
+        // STEP 3: NOW start async prepare/start (listeners are guaranteed ready!)
+        // This is intentionally non-blocking - the stream is returned immediately
+        // but listeners are already attached to receive chunks
+        startStreamingAsync(ctrl);
       },
+
+      pull(ctrl) {
+        console.log(
+          "[AI Transport] Stream pull() called - consumer is reading, desiredSize:",
+          ctrl.desiredSize,
+        );
+      },
+
       cancel() {
+        console.log("[AI Transport] Stream cancelled for thread:", id);
         aborted = true;
         cleanup();
         api.ai?.abort?.(id);

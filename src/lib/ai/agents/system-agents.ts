@@ -1,4 +1,3 @@
-import "server-only";
 import type { AgentIcon, AgentSummary } from "app-types/agent";
 
 /**

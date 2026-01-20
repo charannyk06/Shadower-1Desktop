@@ -1,5 +1,3 @@
-import "server-only";
-
 import { getModelCapabilities } from "../providers/capabilities";
 import { DynamicModelInfo, ProviderName } from "./types";
 

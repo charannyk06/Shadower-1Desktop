@@ -1,7 +1,8 @@
-import "server-only";
-
 import logger from "logger";
-import { getModelCapabilities } from "../../providers/capabilities";
+import {
+  getModelCapabilities,
+  localModelSupportsTools,
+} from "../../providers/capabilities";
 import { DynamicModelInfo } from "../types";
 
 const DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1";
@@ -108,12 +109,16 @@ export async function fetchLMStudioModels(
       // Use centralized capability detection
       const capabilities = getModelCapabilities(modelId);
 
+      // For LM Studio models, use local model tool support detection
+      // This properly identifies which local models actually support function calling
+      const supportsTools = localModelSupportsTools(modelId);
+
       return {
         id: modelId,
         name: formatLMStudioDisplayName(modelId),
 
-        // Core capabilities from unified system
-        isToolCallSupported: capabilities.isToolCallSupported,
+        // Core capabilities - use local model detection for LM Studio
+        isToolCallSupported: supportsTools,
         isImageInputSupported: isVision || capabilities.isImageInputSupported,
         isReasoningModel: capabilities.isReasoningModel,
 

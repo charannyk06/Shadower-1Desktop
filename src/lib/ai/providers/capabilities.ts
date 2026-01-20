@@ -1,4 +1,4 @@
-import "server-only";
+// Model capabilities detection for tool support
 import type {
   ModelCapabilities,
   ReasoningEffort,
@@ -36,6 +36,70 @@ const BUILT_IN_TOOL_PATTERNS: RegExp[] = [
  * Only computer-use models require this special API - codex models work with standard API
  */
 const RESPONSES_API_PATTERNS: RegExp[] = [/computer-use/i];
+
+/**
+ * Patterns for LOCAL models that ACTUALLY support tool/function calling
+ * NOT ALL LOCAL MODELS SUPPORT TOOL CALLS - this is the whitelist
+ *
+ * Ollama/LM Studio models that support function calling:
+ * - llama3.1, llama3.2, llama3.3 (Meta instruction-tuned)
+ * - deepseek-r1, deepseek-coder, deepseek-v3 (DeepSeek reasoning/coding models)
+ * - qwen2, qwen2.5, qwen-coder (Alibaba models)
+ * - mistral-nemo, mistral-large (Mistral with function calling - NOT base mistral)
+ * - codestral (Mistral coding model)
+ * - command-r, command-r-plus (Cohere)
+ * - phi-4 (Microsoft - phi-3 is limited)
+ * - hermes-3 (NousResearch instruction-tuned)
+ * - nemotron (NVIDIA)
+ *
+ * Models that do NOT support tool calls (even if popular):
+ * - llama2 (not instruction-tuned for function calling)
+ * - mistral (base version without function calling)
+ * - phi-3 (limited/inconsistent tool support)
+ * - gemma (not function-tuned)
+ * - yi (not function-tuned)
+ */
+const LOCAL_TOOL_SUPPORTED_PATTERNS: RegExp[] = [
+  // Meta Llama 3.x series (instruction-tuned)
+  /llama[-_]?3\.[123]/i,
+  /llama3\.[123]/i,
+
+  // DeepSeek models
+  /deepseek[-_]?r1/i,
+  /deepseek[-_]?coder/i,
+  /deepseek[-_]?v[23]/i,
+
+  // Qwen models (Alibaba)
+  /qwen[-_]?2/i,
+  /qwen[-_]?coder/i,
+
+  // Mistral with function calling (specific variants only)
+  /mistral[-_]?nemo/i,
+  /mistral[-_]?large/i,
+  /codestral/i,
+
+  // Cohere command models
+  /command[-_]?r/i,
+
+  // Microsoft phi-4
+  /phi[-_]?4/i,
+
+  // NousResearch Hermes
+  /hermes[-_]?3/i,
+
+  // NVIDIA Nemotron
+  /nemotron/i,
+
+  // Groq hosted models (always support tools)
+  /groq/i,
+];
+
+/**
+ * Check if a local model supports tool calling
+ */
+export function localModelSupportsTools(modelId: string): boolean {
+  return LOCAL_TOOL_SUPPORTED_PATTERNS.some((p) => p.test(modelId));
+}
 
 /**
  * Patterns for image-capable models

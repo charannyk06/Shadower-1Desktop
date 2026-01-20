@@ -1,4 +1,3 @@
-import "server-only";
 import type { LanguageModel } from "ai";
 
 /**

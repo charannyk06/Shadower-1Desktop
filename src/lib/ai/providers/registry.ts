@@ -1,4 +1,3 @@
-import "server-only";
 import { anthropic } from "@ai-sdk/anthropic";
 import { createCerebras } from "@ai-sdk/cerebras";
 import { google } from "@ai-sdk/google";

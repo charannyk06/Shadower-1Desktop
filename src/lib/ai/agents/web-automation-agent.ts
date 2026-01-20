@@ -1,4 +1,3 @@
-import "server-only";
 import { type Tool, tool as createTool } from "ai";
 import type { UIMessageStreamWriter } from "ai";
 import { colorize } from "consola/utils";

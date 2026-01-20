@@ -16,8 +16,8 @@ async function logToServer(
 ): Promise<void> {
   // Only send logs in production or when explicitly enabled
   if (
-    process.env.NODE_ENV === "production" ||
-    process.env.NEXT_PUBLIC_ENABLE_CLIENT_LOGGING === "true"
+    import.meta.env.PROD ||
+    import.meta.env.VITE_ENABLE_CLIENT_LOGGING === "true"
   ) {
     try {
       await fetch("/api/log", {

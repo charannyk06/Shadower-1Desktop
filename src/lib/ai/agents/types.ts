@@ -1,4 +1,3 @@
-import "server-only";
 import type { Tool } from "ai";
 import type { Agent } from "app-types/agent";
 import type { ChatModel } from "app-types/chat";

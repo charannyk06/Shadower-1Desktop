@@ -1,5 +1,3 @@
-import "server-only";
-
 import { serverCache } from "lib/cache";
 import logger from "logger";
 import type { ProviderModelsResult } from "../dynamic-models/types";

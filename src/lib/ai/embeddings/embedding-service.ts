@@ -1,5 +1,3 @@
-import "server-only";
-
 import { openai } from "@ai-sdk/openai";
 import { embed, embedMany } from "ai";
 import { serverCache as cache } from "lib/cache";

@@ -1,5 +1,3 @@
-import "server-only";
-
 import { formatAnthropicDisplayName } from "../display-names";
 import { DynamicModelInfo } from "../types";
 import {

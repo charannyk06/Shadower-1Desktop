@@ -1,5 +1,3 @@
-import "server-only";
-
 import logger from "logger";
 import { formatCerebrasDisplayName } from "../display-names";
 import { DynamicModelInfo } from "../types";

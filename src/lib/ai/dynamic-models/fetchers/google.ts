@@ -1,5 +1,3 @@
-import "server-only";
-
 import logger from "logger";
 import { getModelCapabilities } from "../../providers/capabilities";
 import { formatGoogleDisplayName } from "../display-names";

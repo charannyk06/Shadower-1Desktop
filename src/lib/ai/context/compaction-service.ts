@@ -1,5 +1,3 @@
-import "server-only";
-
 import { LanguageModel, UIMessage, generateText } from "ai";
 import { colorize } from "consola/utils";
 import globalLogger from "logger";

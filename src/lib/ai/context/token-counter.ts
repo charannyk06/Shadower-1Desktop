@@ -1,5 +1,3 @@
-import "server-only";
-
 import { UIMessage } from "ai";
 import logger from "logger";
 import {

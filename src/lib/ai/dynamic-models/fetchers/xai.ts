@@ -1,5 +1,3 @@
-import "server-only";
-
 import logger from "logger";
 import { formatXAIDisplayName } from "../display-names";
 import { DynamicModelInfo } from "../types";

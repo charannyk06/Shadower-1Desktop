@@ -70,9 +70,9 @@ export const workflowToolsApi = {
         // and let the UI handle loading tool details when needed.
         // This is a limitation - MCP tool details require the server to be connected.
 
-        console.log(
-          `[workflowToolsApi] Found ${workflowTools.length} workflow tools`,
-        );
+        // console.log(
+        //   `[workflowToolsApi] Found ${workflowTools.length} workflow tools`,
+        // );
 
         return workflowTools;
       } catch (error) {

@@ -12,25 +12,25 @@ export const DesktopConfig = {
   session: {
     /** Maximum duration for a desktop session in milliseconds (default: 30 minutes) */
     maxDuration: parseInt(
-      process.env.DESKTOP_SESSION_MAX_DURATION_MS || "1800000",
+      import.meta.env.DESKTOP_SESSION_MAX_DURATION_MS || "1800000",
       10,
     ),
 
     /** Session idle timeout in milliseconds (default: 10 minutes) */
     idleTimeout: parseInt(
-      process.env.DESKTOP_SESSION_IDLE_TIMEOUT_MS || "600000",
+      import.meta.env.DESKTOP_SESSION_IDLE_TIMEOUT_MS || "600000",
       10,
     ),
 
     /** Maximum concurrent sessions per user (default: 5 for local) */
     maxConcurrentPerUser: parseInt(
-      process.env.DESKTOP_MAX_CONCURRENT_SESSIONS || "5",
+      import.meta.env.DESKTOP_MAX_CONCURRENT_SESSIONS || "5",
       10,
     ),
 
     /** Session cleanup interval in milliseconds (default: 1 hour) */
     cleanupInterval: parseInt(
-      process.env.DESKTOP_CLEANUP_INTERVAL_MS || "3600000",
+      import.meta.env.DESKTOP_CLEANUP_INTERVAL_MS || "3600000",
       10,
     ),
   },
@@ -39,25 +39,27 @@ export const DesktopConfig = {
   screenshot: {
     /** Maximum screenshots to store per session (default: 100) */
     maxPerSession: parseInt(
-      process.env.DESKTOP_MAX_SCREENSHOTS_PER_SESSION || "100",
+      import.meta.env.DESKTOP_MAX_SCREENSHOTS_PER_SESSION || "100",
       10,
     ),
 
     /** Screenshot format (png or jpeg) */
-    format: (process.env.DESKTOP_SCREENSHOT_FORMAT || "png") as "png" | "jpeg",
+    format: (import.meta.env.DESKTOP_SCREENSHOT_FORMAT || "png") as
+      | "png"
+      | "jpeg",
 
     /** Screenshot quality for JPEG (0-100, default: 85) */
-    quality: parseInt(process.env.DESKTOP_SCREENSHOT_QUALITY || "85", 10),
+    quality: parseInt(import.meta.env.DESKTOP_SCREENSHOT_QUALITY || "85", 10),
 
     /** Thumbnail width for quick preview (default: 400) */
     thumbnailWidth: parseInt(
-      process.env.DESKTOP_SCREENSHOT_THUMBNAIL_WIDTH || "400",
+      import.meta.env.DESKTOP_SCREENSHOT_THUMBNAIL_WIDTH || "400",
       10,
     ),
 
     /** Screenshot retention period in milliseconds (default: 24 hours) */
     retentionPeriod: parseInt(
-      process.env.DESKTOP_SCREENSHOT_RETENTION_MS || "86400000",
+      import.meta.env.DESKTOP_SCREENSHOT_RETENTION_MS || "86400000",
       10,
     ),
   },
@@ -65,29 +67,29 @@ export const DesktopConfig = {
   // Streaming Settings
   streaming: {
     /** Frame rate for live preview (default: 10 fps) */
-    frameRate: parseInt(process.env.DESKTOP_STREAMING_FPS || "10", 10),
+    frameRate: parseInt(import.meta.env.DESKTOP_STREAMING_FPS || "10", 10),
 
     /** Maximum concurrent streaming connections (default: 20) */
     maxConnections: parseInt(
-      process.env.DESKTOP_MAX_STREAMING_CONNECTIONS || "20",
+      import.meta.env.DESKTOP_MAX_STREAMING_CONNECTIONS || "20",
       10,
     ),
 
     /** Stream heartbeat interval in milliseconds (default: 30000) */
     heartbeatInterval: parseInt(
-      process.env.DESKTOP_STREAMING_HEARTBEAT_MS || "30000",
+      import.meta.env.DESKTOP_STREAMING_HEARTBEAT_MS || "30000",
       10,
     ),
 
     /** Connection timeout in milliseconds (default: 60000) */
     connectionTimeout: parseInt(
-      process.env.DESKTOP_STREAMING_TIMEOUT_MS || "60000",
+      import.meta.env.DESKTOP_STREAMING_TIMEOUT_MS || "60000",
       10,
     ),
 
     /** Screenshot polling interval in milliseconds (default: 2000) */
     pollingInterval: parseInt(
-      process.env.DESKTOP_STREAMING_POLL_INTERVAL_MS || "2000",
+      import.meta.env.DESKTOP_STREAMING_POLL_INTERVAL_MS || "2000",
       10,
     ),
   },
@@ -95,41 +97,47 @@ export const DesktopConfig = {
   // Rate Limiting
   rateLimit: {
     /** Rate limit window in milliseconds (default: 1 minute) */
-    windowMs: parseInt(process.env.DESKTOP_RATE_LIMIT_WINDOW_MS || "60000", 10),
+    windowMs: parseInt(
+      import.meta.env.DESKTOP_RATE_LIMIT_WINDOW_MS || "60000",
+      10,
+    ),
 
     /** Maximum requests per window for session creation (default: 10 for local) */
     maxSessionCreations: parseInt(
-      process.env.DESKTOP_RATE_LIMIT_SESSION_CREATIONS || "10",
+      import.meta.env.DESKTOP_RATE_LIMIT_SESSION_CREATIONS || "10",
       10,
     ),
 
     /** Maximum requests per window for screenshots (default: 60) */
     maxScreenshots: parseInt(
-      process.env.DESKTOP_RATE_LIMIT_SCREENSHOTS || "60",
+      import.meta.env.DESKTOP_RATE_LIMIT_SCREENSHOTS || "60",
       10,
     ),
 
     /** Maximum requests per window for actions (default: 120) */
-    maxActions: parseInt(process.env.DESKTOP_RATE_LIMIT_ACTIONS || "120", 10),
+    maxActions: parseInt(
+      import.meta.env.DESKTOP_RATE_LIMIT_ACTIONS || "120",
+      10,
+    ),
   },
 
   // Local Terminal Settings
   provider: {
     /** Default shell (auto-detected if not set) */
-    shell: process.env.DESKTOP_SHELL || "",
+    shell: import.meta.env.DESKTOP_SHELL || "",
 
     /** Default working directory */
-    workingDirectory: process.env.DESKTOP_WORKING_DIR || "",
+    workingDirectory: import.meta.env.DESKTOP_WORKING_DIR || "",
 
     /** Command execution timeout in milliseconds (default: 60 seconds) */
     commandTimeout: parseInt(
-      process.env.DESKTOP_COMMAND_TIMEOUT_MS || "60000",
+      import.meta.env.DESKTOP_COMMAND_TIMEOUT_MS || "60000",
       10,
     ),
 
     /** Action timeout in milliseconds */
     actionTimeout: parseInt(
-      process.env.DESKTOP_ACTION_TIMEOUT_MS || "30000",
+      import.meta.env.DESKTOP_ACTION_TIMEOUT_MS || "30000",
       10,
     ),
   },
@@ -137,20 +145,20 @@ export const DesktopConfig = {
   // Sandbox Settings (for code execution)
   sandbox: {
     /** Sandbox directory (relative to app data) */
-    directory: process.env.DESKTOP_SANDBOX_DIR || "sandbox",
+    directory: import.meta.env.DESKTOP_SANDBOX_DIR || "sandbox",
 
     /** Enable file persistence between sessions (default: true for local) */
-    enablePersistence: process.env.DESKTOP_SANDBOX_PERSISTENCE !== "false",
+    enablePersistence: import.meta.env.DESKTOP_SANDBOX_PERSISTENCE !== "false",
 
     /** Maximum file size in bytes (default: 100MB) */
     maxFileSize: parseInt(
-      process.env.DESKTOP_SANDBOX_MAX_FILE_SIZE || "104857600",
+      import.meta.env.DESKTOP_SANDBOX_MAX_FILE_SIZE || "104857600",
       10,
     ),
 
     /** Allowed languages for code execution */
     allowedLanguages: (
-      process.env.DESKTOP_SANDBOX_LANGUAGES ||
+      import.meta.env.DESKTOP_SANDBOX_LANGUAGES ||
       "python,javascript,typescript,bash"
     ).split(","),
   },
@@ -158,37 +166,37 @@ export const DesktopConfig = {
   // Mouse/Keyboard Settings
   input: {
     /** Default click delay in milliseconds */
-    clickDelay: parseInt(process.env.DESKTOP_CLICK_DELAY_MS || "100", 10),
+    clickDelay: parseInt(import.meta.env.DESKTOP_CLICK_DELAY_MS || "100", 10),
 
     /** Default typing delay between characters in milliseconds */
-    typeDelay: parseInt(process.env.DESKTOP_TYPE_DELAY_MS || "50", 10),
+    typeDelay: parseInt(import.meta.env.DESKTOP_TYPE_DELAY_MS || "50", 10),
 
     /** Double click interval in milliseconds */
     doubleClickInterval: parseInt(
-      process.env.DESKTOP_DOUBLE_CLICK_INTERVAL_MS || "500",
+      import.meta.env.DESKTOP_DOUBLE_CLICK_INTERVAL_MS || "500",
       10,
     ),
 
     /** Drag smoothness (steps between start and end) */
-    dragSteps: parseInt(process.env.DESKTOP_DRAG_STEPS || "10", 10),
+    dragSteps: parseInt(import.meta.env.DESKTOP_DRAG_STEPS || "10", 10),
 
     /** Scroll amount per scroll action */
-    scrollAmount: parseInt(process.env.DESKTOP_SCROLL_AMOUNT || "3", 10),
+    scrollAmount: parseInt(import.meta.env.DESKTOP_SCROLL_AMOUNT || "3", 10),
   },
 
   // Logging
   logging: {
     /** Enable verbose logging */
-    verbose: process.env.DESKTOP_VERBOSE_LOGGING === "true",
+    verbose: import.meta.env.DESKTOP_VERBOSE_LOGGING === "true",
 
     /** Log all input events */
-    logInputs: process.env.DESKTOP_LOG_INPUTS !== "false",
+    logInputs: import.meta.env.DESKTOP_LOG_INPUTS !== "false",
 
     /** Log performance metrics */
-    logPerformance: process.env.DESKTOP_LOG_PERFORMANCE === "true",
+    logPerformance: import.meta.env.DESKTOP_LOG_PERFORMANCE === "true",
 
     /** Log session lifecycle events */
-    logLifecycle: process.env.DESKTOP_LOG_LIFECYCLE !== "false",
+    logLifecycle: import.meta.env.DESKTOP_LOG_LIFECYCLE !== "false",
   },
 } as const;
 

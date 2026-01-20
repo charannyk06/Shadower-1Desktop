@@ -17,11 +17,9 @@ import {
  * Get the Collabora server URL from environment
  */
 export function getCollaboraUrl(): string {
-  let url = process.env.NEXT_PUBLIC_COLLABORA_URL;
+  let url = import.meta.env.VITE_COLLABORA_URL;
   if (!url) {
-    throw new Error(
-      "NEXT_PUBLIC_COLLABORA_URL environment variable is required",
-    );
+    throw new Error("VITE_COLLABORA_URL environment variable is required");
   }
   // Strip any newlines or whitespace that may have been added to env var
   url = url.trim().replace(/[\r\n]/g, "");
@@ -32,9 +30,9 @@ export function getCollaboraUrl(): string {
  * Get the app's base URL for WOPI endpoints
  */
 export function getAppBaseUrl(): string {
-  let url = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
+  let url = import.meta.env.VITE_APP_URL;
   if (!url) {
-    throw new Error("NEXT_PUBLIC_APP_URL environment variable is required");
+    throw new Error("VITE_APP_URL environment variable is required");
   }
   // Strip any newlines or whitespace that may have been added to env var
   url = url.trim().replace(/[\r\n]/g, "");
@@ -203,11 +201,11 @@ export function buildCheckFileInfo(
  */
 export function validateWopiProof(request: Request, wopiSrc: string): boolean {
   // In development/localhost, skip proof validation
-  const collaboraUrl = process.env.NEXT_PUBLIC_COLLABORA_URL || "";
+  const collaboraUrl = import.meta.env.VITE_COLLABORA_URL || "";
   if (
     collaboraUrl.includes("localhost") ||
     collaboraUrl.includes("127.0.0.1") ||
-    process.env.NODE_ENV === "development"
+    import.meta.env.DEV
   ) {
     return true;
   }
@@ -322,5 +320,7 @@ export function getMimeTypeFromExtension(extension: string): string {
  * Check if Collabora is configured and available
  */
 export function isCollaboraConfigured(): boolean {
-  return !!(process.env.NEXT_PUBLIC_COLLABORA_URL && process.env.WOPI_SECRET);
+  return !!(
+    import.meta.env.VITE_COLLABORA_URL && import.meta.env.VITE_WOPI_SECRET
+  );
 }
