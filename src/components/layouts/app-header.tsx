@@ -195,22 +195,28 @@ export function AppHeader() {
 }
 
 function ThreadDropdownComponent() {
-  const [threadList, currentThreadId, generatingTitleThreadIds] = appStore(
-    useShallow((state) => [
-      state.threadList,
-      state.currentThreadId,
-      state.generatingTitleThreadIds,
-    ]),
-  );
+  // Subscribe to each field individually for more reliable updates
+  const threadList = appStore((state) => state.threadList);
+  const currentThreadId = appStore((state) => state.currentThreadId);
+  const generatingTitleThreadIds = appStore((state) => state.generatingTitleThreadIds);
+
+  // Find the current thread - recompute when threadList or currentThreadId changes
   const currentThread = useMemo(() => {
-    return threadList.find((thread) => thread.id === currentThreadId);
+    const found = threadList.find((thread) => thread.id === currentThreadId);
+    console.log("[AppHeader] currentThread lookup:", {
+      currentThreadId,
+      foundTitle: found?.title,
+      threadListLength: threadList.length,
+      threadTitles: threadList.slice(0, 3).map(t => ({ id: t.id.slice(0, 8), title: t.title })),
+    });
+    return found;
   }, [threadList, currentThreadId]);
 
   useEffect(() => {
     if (currentThread?.id) {
       document.title = currentThread.title || "New Chat";
     }
-  }, [currentThread?.id]);
+  }, [currentThread?.id, currentThread?.title]);
 
   if (!currentThread) return null;
 

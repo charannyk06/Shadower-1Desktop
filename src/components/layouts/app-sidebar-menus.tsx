@@ -53,7 +53,10 @@ export function AppSidebarMenus() {
                 onClick={(e) => {
                   e.preventDefault();
                   setOpenMobile(false);
-                  navigate({ to: `/` });
+                  navigate({
+                    to: `/`,
+                    search: { new: Date.now() },
+                  });
                 }}
               >
                 <SidebarMenuButton className="flex font-semibold group/new-chat bg-input/20 border border-border/40">

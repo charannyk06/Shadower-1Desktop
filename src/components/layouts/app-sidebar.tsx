@@ -24,10 +24,10 @@ export function AppSidebar({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isShortcutEvent(e, Shortcuts.openNewChat)) {
         e.preventDefault();
-        navigate({ to: "/" });
-        // Note: TanStack Router doesn't have a refresh equivalent,
-        // typically you'd use query invalidation or manual refetch
-        window.location.reload();
+        navigate({
+          to: "/",
+          search: { new: Date.now() },
+        });
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -44,10 +44,10 @@ export function AppSidebar({
         href="/"
         enableShortcuts={true}
         onLinkClick={() => {
-          navigate({ to: "/" });
-          // Note: TanStack Router doesn't have a refresh equivalent,
-          // typically you'd use query invalidation or manual refetch
-          window.location.reload();
+          navigate({
+            to: "/",
+            search: { new: Date.now() },
+          });
         }}
       />
 

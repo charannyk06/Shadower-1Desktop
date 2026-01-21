@@ -4,8 +4,8 @@ import { threadApi, threadFetcher } from "@/lib/electron/thread-api";
 import { appStore } from "@/app/store";
 import { useMounted } from "@/hooks/use-mounted";
 import { ChevronDown, ChevronUp, MoreHorizontal, Trash } from "lucide-react";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import useSWR, { mutate } from "swr";
 import { Button } from "ui/button";
@@ -32,7 +32,6 @@ import { ChatThread } from "app-types/chat";
 import { deduplicateByKey, groupBy } from "lib/utils";
 import { useTranslation } from "react-i18next";
 import { TextShimmer } from "ui/text-shimmer";
-import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
 type ThreadGroup = {
   label: string;
@@ -55,10 +54,35 @@ export function AppSidebarThreads() {
   // State to track if expanded view is active
   const [isExpanded, setIsExpanded] = useState(false);
 
+  // Listen for new thread creation events to immediately refresh sidebar
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (!api?.ai?.onThreadCreated) return;
+
+    const cleanup = api.ai.onThreadCreated(
+      (data: { threadId: string; title: string }) => {
+        console.log(
+          "[Sidebar] Thread created event received:",
+          data.threadId,
+          data.title,
+        );
+        // Immediately refresh the thread list
+        mutate("/api/thread");
+      },
+    );
+
+    return cleanup;
+  }, []);
+
   const { data: threadList, isLoading } = useSWR("/api/thread", threadFetcher, {
     onError: handleErrorWithToast,
     fallbackData: [],
     onSuccess: (data) => {
+      console.log(
+        "[Sidebar] threadFetcher onSuccess, received threads:",
+        data?.length,
+        data?.map((t: any) => ({ id: t.id?.slice(0, 8), title: t.title })),
+      );
       storeMutate((prev) => {
         const groupById = groupBy(prev.threadList, "id");
 
@@ -297,47 +321,36 @@ export function AppSidebarThreads() {
                       className={"group/thread mr-0"}
                     >
                       <SidebarMenuSubItem>
-                        <ThreadDropdown
-                          side="right"
-                          threadId={thread.id}
-                          beforeTitle={thread.title}
-                        >
-                          <div className="flex items-center data-[state=open]:bg-input! group-hover/thread:bg-input! rounded-lg">
-                            <Tooltip delayDuration={1000}>
-                              <TooltipTrigger asChild>
-                                <SidebarMenuButton
-                                  asChild
-                                  className="group-hover/thread:bg-transparent!"
-                                  isActive={currentThreadId === thread.id}
-                                >
-                                  <Link
-                                    to={`/chat/${thread.id}`}
-                                    className="flex items-center"
-                                  >
-                                    {generatingTitleThreadIds.includes(
-                                      thread.id,
-                                    ) ? (
-                                      <TextShimmer className="truncate min-w-0">
-                                        {thread.title || "New Chat"}
-                                      </TextShimmer>
-                                    ) : (
-                                      <p className="truncate min-w-0">
-                                        {thread.title || "New Chat"}
-                                      </p>
-                                    )}
-                                  </Link>
-                                </SidebarMenuButton>
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-[200px] p-4 break-all overflow-y-auto max-h-[200px]">
+                        <div className="flex items-center group-hover/thread:bg-input! rounded-lg">
+                          <SidebarMenuButton
+                            className="group-hover/thread:bg-transparent!"
+                            isActive={currentThreadId === thread.id}
+                            onClick={() => {
+                              console.log("[Sidebar] Thread clicked:", thread.id, "navigating to:", `/chat/${thread.id}`);
+                              navigate({ to: `/chat/${thread.id}` });
+                            }}
+                          >
+                            {generatingTitleThreadIds.includes(thread.id) ? (
+                              <TextShimmer className="truncate min-w-0">
                                 {thread.title || "New Chat"}
-                              </TooltipContent>
-                            </Tooltip>
+                              </TextShimmer>
+                            ) : (
+                              <span className="truncate min-w-0" title={thread.title || "New Chat"}>
+                                {thread.title || "New Chat"}
+                              </span>
+                            )}
+                          </SidebarMenuButton>
 
+                          <ThreadDropdown
+                            side="right"
+                            threadId={thread.id}
+                            beforeTitle={thread.title}
+                          >
                             <SidebarMenuAction className="data-[state=open]:bg-input data-[state=open]:opacity-100 opacity-0 group-hover/thread:opacity-100">
                               <MoreHorizontal />
                             </SidebarMenuAction>
-                          </div>
-                        </ThreadDropdown>
+                          </ThreadDropdown>
+                        </div>
                       </SidebarMenuSubItem>
                     </SidebarMenuSub>
                   ))}

@@ -36,13 +36,13 @@ export function AppSidebarAgents() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
-  const { bookmarkedAgents, myAgents, isLoading, sharedAgents } = useAgents({
+  const { myAgents, isLoading } = useAgents({
     limit: 50,
   }); // Increase limit since we're not artificially limiting display
 
   const agents = useMemo(() => {
-    return [...myAgents, ...bookmarkedAgents];
-  }, [bookmarkedAgents, myAgents]);
+    return myAgents;
+  }, [myAgents]);
 
   const handleAgentClick = useCallback(
     (id: string) => {
@@ -144,28 +144,11 @@ export function AppSidebarAgents() {
                       <ArrowUpRightIcon className="size-3" />
                     </div>
                     <p className="text-muted-foreground">
-                      {sharedAgents.length > 0
-                        ? t("Layout.createYourOwnAgentOrSelectShared")
-                        : t("Layout.createYourOwnAgent")}
+                      {t("Layout.createYourOwnAgent")}
                     </p>
                   </div>
                 </Link>
-              ) : (
-                <div className="bg-input/40 py-8 px-4 rounded-lg text-xs overflow-hidden">
-                  <div className="gap-1 z-10">
-                    <p className="font-semibold mb-2">
-                      {sharedAgents.length > 0
-                        ? t("Layout.availableAgents")
-                        : t("Layout.noAgentsAvailable")}
-                    </p>
-                    <p className="text-muted-foreground">
-                      {sharedAgents.length > 0
-                        ? t("Layout.browseAgentsToBookmark")
-                        : t("Layout.askAdminToShareAgents")}
-                    </p>
-                  </div>
-                </div>
-              )}
+              ) : null}
             </div>
           ) : (
             <div className="flex flex-col">
