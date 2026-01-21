@@ -7,7 +7,7 @@ import useSWR, { SWRConfiguration, useSWRConfig } from "swr";
 import { handleErrorWithToast } from "ui/shared-toast";
 
 interface UseAgentsOptions extends SWRConfiguration {
-  filters?: ("all" | "mine" | "shared" | "bookmarked")[];
+  filters?: ("all" | "mine")[];
   limit?: number;
 }
 
@@ -51,34 +51,16 @@ export function useAgents(options: UseAgentsOptions = {}) {
   };
 
   return {
-    agents, // All returned agents based on server filters
+    agents, // All returned agents (user's own agents in single-user mode)
     myAgents: filterAgents((agent) => agent.userId === currentUserId),
-    sharedAgents: filterAgents((agent) => agent.userId !== currentUserId),
-    bookmarkedAgents: filterAgents(
-      (agent) => agent.userId !== currentUserId && agent.isBookmarked === true,
-    ),
-    publicAgents: filterAgents((agent) => agent.visibility === "public"),
-    readonlyAgents: filterAgents((agent) => agent.visibility === "readonly"),
     isLoading,
     error,
     mutate,
-    // Helper to check if any agents exist of a certain type
-    hasAgents: (
-      type: "mine" | "shared" | "bookmarked" | "public" | "readonly",
-    ) => {
+    // Helper to check if any agents exist
+    hasAgents: (type: "mine") => {
       switch (type) {
         case "mine":
           return agents.some((agent) => agent.userId === currentUserId);
-        case "shared":
-          return agents.some((agent) => agent.userId !== currentUserId);
-        case "bookmarked":
-          return agents.some(
-            (agent) => agent.userId !== currentUserId && agent.isBookmarked,
-          );
-        case "public":
-          return agents.some((agent) => agent.visibility === "public");
-        case "readonly":
-          return agents.some((agent) => agent.visibility === "readonly");
       }
     },
   };
