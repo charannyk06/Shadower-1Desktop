@@ -15,42 +15,80 @@ export default function ChatThreadPage() {
   const params = useParams({ strict: false });
   const navigate = useNavigate();
   const threadId = params.threadId;
-  const { data: session } = authClient.useSession();
+  const { data: session, isPending: isSessionPending } =
+    authClient.useSession();
 
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadedThreadId, setLoadedThreadId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session?.user?.id || !threadId) return;
+    // Wait for session to load
+    if (isSessionPending) return;
+
+    // If no user after session loads, AuthGuard handles redirect
+    if (!session?.user?.id) {
+      setIsLoading(false);
+      return;
+    }
+
+    if (!threadId) {
+      navigate({ to: "/" });
+      return;
+    }
+
+    // Don't reload if we already loaded this thread
+    if (loadedThreadId === threadId && messages !== null) {
+      setIsLoading(false);
+      return;
+    }
 
     const loadThread = async () => {
       setIsLoading(true);
+      setMessages(null);
       try {
+        console.log("[ChatThreadPage] Loading thread:", threadId);
         const thread = await threadApi.getThreadWithMessages(threadId);
 
         if (!thread) {
-          // Thread not found or unauthorized
+          console.log("[ChatThreadPage] Thread not found, redirecting to home");
           navigate({ to: "/" });
           return;
         }
 
+        console.log(
+          "[ChatThreadPage] Thread loaded with",
+          thread.messages?.length || 0,
+          "messages"
+        );
         setMessages(thread.messages || []);
+        setLoadedThreadId(threadId);
       } catch (error) {
         console.error("[ChatThreadPage] Error loading thread:", error);
         navigate({ to: "/" });
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
 
     loadThread();
-  }, [threadId, session?.user?.id, navigate]);
+  }, [threadId, session?.user?.id, isSessionPending, navigate, loadedThreadId, messages]);
 
+  // Show loading while session is pending
+  if (isSessionPending) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // AuthGuard handles redirect if no session
   if (!session?.user?.id) {
-    return null; // AuthGuard will handle redirect
+    return null;
   }
 
   if (!threadId) {
-    navigate({ to: "/" });
     return null;
   }
 
@@ -63,8 +101,14 @@ export default function ChatThreadPage() {
   }
 
   if (messages === null) {
-    return null; // Loading or error - will redirect
+    return null;
   }
 
-  return <ChatBot threadId={threadId} initialMessages={messages} />;
+  return (
+    <ChatBot
+      threadId={threadId}
+      initialMessages={messages}
+      key={threadId}
+    />
+  );
 }

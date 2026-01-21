@@ -52,6 +52,9 @@ const SignUpEmailPage = lazy(() => import("./routes/auth.sign-up.email"));
 const SetupPage = lazy(() => import("./routes/setup"));
 const ExportPage = lazy(() => import("./routes/export.$exportId"));
 const SharePage = lazy(() => import("./routes/share.$shareId"));
+const McpOAuthCallbackPage = lazy(
+  () => import("./routes/api.mcp.oauth.callback"),
+);
 
 // Root route
 const rootRoute = createRootRoute({
@@ -122,6 +125,11 @@ const homeRoute = createRoute({
   getParentRoute: () => chatLayoutRoute,
   path: "/",
   component: withErrorBoundary(HomePage),
+  validateSearch: (search: Record<string, unknown>) => {
+    return {
+      new: search.new as number | undefined,
+    };
+  },
 });
 
 const chatThreadRoute = createRoute({
@@ -164,6 +172,12 @@ const mcpCreateRoute = createRoute({
   getParentRoute: () => chatLayoutRoute,
   path: "/mcp/create",
   component: withErrorBoundary(McpCreatePage),
+  validateSearch: (search: Record<string, unknown>) => {
+    return {
+      name: search.name as string | undefined,
+      config: search.config as string | undefined,
+    };
+  },
 });
 
 const mcpModifyRoute = createRoute({
@@ -216,6 +230,13 @@ const shareRoute = createRoute({
   component: withErrorBoundary(SharePage),
 });
 
+// MCP OAuth callback route (handles /api/mcp/oauth/callback)
+const mcpOAuthCallbackRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/api/mcp/oauth/callback",
+  component: withErrorBoundary(McpOAuthCallbackPage),
+});
+
 // ==================== BUILD ROUTE TREE ====================
 
 const routeTree = rootRoute.addChildren([
@@ -243,6 +264,7 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   exportRoute,
   shareRoute,
+  mcpOAuthCallbackRoute,
 ]);
 
 // Create router instance

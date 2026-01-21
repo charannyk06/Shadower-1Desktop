@@ -106,27 +106,18 @@ export default function AgentPage() {
         key={id}
         initialAgent={agent}
         userId={session.user.id}
-        isOwner={false}
-        hasEditAccess={false}
-        isBookmarked={false}
         isSystemAgent={true}
       />
     );
   }
 
-  // Regular agent
+  // Regular agent - in single-user mode, user always owns their agents
   if (agent) {
-    const isOwner = agent.userId === session.user.id;
-    const hasEditAccess = isOwner || agent.visibility === "public";
-
     return (
       <EditAgent
         key={id}
         initialAgent={agent}
         userId={session.user.id}
-        isOwner={isOwner}
-        hasEditAccess={hasEditAccess}
-        isBookmarked={agent.isBookmarked || false}
       />
     );
   }
