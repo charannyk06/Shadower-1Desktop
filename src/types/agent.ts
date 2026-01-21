@@ -1,6 +1,5 @@
 import z from "zod";
 import { ChatMentionSchema } from "./chat";
-import { VisibilitySchema } from "./util";
 
 export type AgentIcon = {
   type: "emoji";
@@ -27,7 +26,6 @@ export const AgentCreateSchema = z
       .optional(),
     userId: z.string(),
     instructions: AgentInstructionsSchema,
-    visibility: VisibilitySchema.optional().default("private"),
   })
   .strip();
 export const AgentUpdateSchema = z
@@ -42,17 +40,14 @@ export const AgentUpdateSchema = z
       })
       .optional(),
     instructions: AgentInstructionsSchema.optional(),
-    visibility: VisibilitySchema.optional(),
   })
   .strip();
 
 export const AgentQuerySchema = z.object({
-  type: z.enum(["all", "mine", "shared", "bookmarked"]).default("all"),
+  type: z.enum(["all", "mine"]).default("all"),
   filters: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(50),
 });
-
-export type AgentVisibility = z.infer<typeof VisibilitySchema>;
 
 export type AgentSummary = {
   id: string;
@@ -60,12 +55,8 @@ export type AgentSummary = {
   description?: string;
   icon?: AgentIcon;
   userId: string;
-  visibility: AgentVisibility;
   createdAt: Date;
   updatedAt: Date;
-  userName?: string;
-  userAvatar?: string;
-  isBookmarked?: boolean;
 };
 
 export type Agent = AgentSummary & {
@@ -89,7 +80,7 @@ export type AgentRepository = {
 
   selectAgents(
     currentUserId: string,
-    filters?: ("all" | "mine" | "shared" | "bookmarked")[],
+    filters?: ("all" | "mine")[],
     limit?: number,
   ): Promise<AgentSummary[]>;
 

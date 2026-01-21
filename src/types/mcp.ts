@@ -42,8 +42,7 @@ export type MCPToolInfo = {
 export type MCPServerInfo = {
   id: string;
   name: string;
-  config?: MCPServerConfig; // Optional - hidden from non-owners for security
-  visibility: "public" | "private";
+  config?: MCPServerConfig;
   error?: unknown;
   enabled: boolean;
   userId: string;
@@ -51,9 +50,7 @@ export type MCPServerInfo = {
   toolInfo: MCPToolInfo[];
   createdAt?: Date | string;
   updatedAt?: Date | string;
-  userName?: string | null;
-  userAvatar?: string | null;
-  description?: string; // For ShareableCard compatibility
+  description?: string;
   icon?: {
     value?: string;
     style?: {
@@ -67,14 +64,12 @@ export type McpServerInsert = {
   config: MCPServerConfig;
   id?: string;
   userId: string;
-  visibility?: "public" | "private";
 };
 export type McpServerSelect = {
   name: string;
   config: MCPServerConfig;
   id: string;
   userId: string;
-  visibility: "public" | "private";
 };
 
 export type VercelAIMcpTool = Tool & {
@@ -93,7 +88,6 @@ export interface MCPRepository {
   selectAllForUser(userId: string): Promise<McpServerSelect[]>;
   deleteById(id: string): Promise<void>;
   existsByServerName(name: string): Promise<boolean>;
-  updateVisibility(id: string, visibility: "public" | "private"): Promise<void>;
 }
 
 export const McpToolCustomizationZodSchema = z.object({
