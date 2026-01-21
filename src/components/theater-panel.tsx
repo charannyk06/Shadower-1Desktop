@@ -4,7 +4,6 @@ import { useAppStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useThreadFileUploader } from "@/hooks/use-thread-file-uploader";
-import { isCollaboraSupported } from "@/lib/collabora";
 import {
   type OfficeFileType,
   convertOfficeFileToHtml,
@@ -28,11 +27,9 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { Edit3 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
-import { CollaboraEditor, useCollaboraEditor } from "./collabora-editor";
 import { FileTypeIcon } from "./file-type-icon";
 import { BrowserPreview } from "./theater/browser-preview";
 import { DesktopPreview } from "./theater/desktop-preview";
@@ -783,85 +780,6 @@ function PreviewContent({
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
 
-  // Collabora editing/preview state
-  const [editorUrl, setEditorUrl] = useState<string | null>(null);
-  const [collaboraFailed, setCollaboraFailed] = useState(false);
-  const { getEditorUrl, isLoading: isEditorLoading } = useCollaboraEditor();
-
-  // Check if this file can be edited with Collabora
-  // Note: Collabora requires the WOPI endpoints to be reachable from the Collabora server
-  // In local dev (localhost), the remote Collabora server can't reach our WOPI endpoints
-  const canEditWithCollabora = useMemo(() => {
-    if (!fileMetadata?.storageKey || !threadId) return false;
-    // Skip Collabora in local development - the remote server can't reach localhost WOPI
-    if (
-      typeof window !== "undefined" &&
-      window.location.hostname === "localhost"
-    ) {
-      return false;
-    }
-    const mimeType = fileMetadata.mimeType || "";
-    const fileName = fileMetadata.name || title || "";
-    return isCollaboraSupported(mimeType, fileName);
-  }, [fileMetadata, threadId, title]);
-
-  // Handler to open Collabora editor
-  const handleOpenEditor = useCallback(async () => {
-    if (!fileMetadata?.storageKey || !threadId) return;
-
-    const fileName = fileMetadata.name || title || "document";
-    const mimeType = fileMetadata.mimeType || "";
-
-    const url = await getEditorUrl(
-      fileMetadata.storageKey,
-      fileName,
-      mimeType,
-      threadId,
-    );
-
-    if (url) {
-      setEditorUrl(url);
-      setCollaboraFailed(false);
-    } else {
-      setCollaboraFailed(true);
-      // Don't show toast for auto-load failures, only manual edit clicks
-    }
-  }, [fileMetadata, threadId, title, getEditorUrl]);
-
-  // Handler to close Collabora editor
-  const handleCloseEditor = useCallback(() => {
-    setEditorUrl(null);
-  }, []);
-
-  // Auto-load Collabora for Office file preview
-  // This provides a much better preview experience than client-side HTML conversion
-  useEffect(() => {
-    if (
-      type === "office" &&
-      canEditWithCollabora &&
-      !editorUrl &&
-      !isEditorLoading &&
-      !collaboraFailed && // Don't retry if already failed
-      fileMetadata?.storageKey
-    ) {
-      handleOpenEditor();
-    }
-  }, [
-    type,
-    canEditWithCollabora,
-    editorUrl,
-    isEditorLoading,
-    collaboraFailed,
-    fileMetadata?.storageKey,
-    handleOpenEditor,
-  ]);
-
-  // Reset collaboraFailed when file changes
-  useEffect(() => {
-    setCollaboraFailed(false);
-    setEditorUrl(null);
-  }, [fileMetadata?.storageKey]);
-
   // Robustly extract content string for code/text views
   const textContent = useMemo(() => {
     if (!content) return "";
@@ -985,11 +903,8 @@ function PreviewContent({
       setHtmlLoading(true);
       setHtmlContent(null);
 
-      // Use proxy endpoint to bypass CORS restrictions from Vercel Blob Storage
-      const isVercelBlob = urlContent.includes("blob.vercel-storage.com");
-      const fetchUrl = isVercelBlob
-        ? `/api/proxy/content?url=${encodeURIComponent(urlContent)}`
-        : urlContent;
+      // In desktop mode, we fetch directly - CORS is not an issue
+      const fetchUrl = urlContent;
 
       fetch(fetchUrl)
         .then((res) => {
@@ -1059,14 +974,9 @@ function PreviewContent({
       setTextFileLoading(true);
       setTextFileContent(null);
 
-      // Use proxy for Vercel Blob storage
-      const isVercelBlob = urlContent.includes("blob.vercel-storage.com");
-      const fetchUrl = isVercelBlob
-        ? `/api/proxy/content?url=${encodeURIComponent(urlContent)}`
-        : urlContent;
-
+      // In desktop mode, we fetch directly - CORS is not an issue
       // Fetch the text content
-      fetch(fetchUrl)
+      fetch(urlContent)
         .then((res) => {
           if (cancelled) return;
           if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
@@ -1108,11 +1018,8 @@ function PreviewContent({
       setPdfBlobUrl(null);
       setPdfError(false);
 
-      // Use proxy endpoint to bypass CORS restrictions from Vercel Blob Storage
-      const isVercelBlob = urlContent.includes("blob.vercel-storage.com");
-      const fetchUrl = isVercelBlob
-        ? `/api/proxy/content?url=${encodeURIComponent(urlContent)}`
-        : urlContent;
+      // In desktop mode, we fetch directly - CORS is not an issue
+      const fetchUrl = urlContent;
 
       fetch(fetchUrl)
         .then((res) => {
@@ -1286,34 +1193,6 @@ function PreviewContent({
   }
 
   if (type === "office" && urlContent) {
-    // Use Collabora for preview (it's the best quality viewer)
-    if (editorUrl) {
-      return (
-        <CollaboraEditor
-          editorUrl={editorUrl}
-          fileName={fileMetadata?.name || title || "document"}
-          onClose={handleCloseEditor}
-          onSave={() => {
-            toast.success("Document saved");
-          }}
-          className="h-full w-full"
-        />
-      );
-    }
-
-    // Show loading while Collabora URL is being fetched (but not if it failed)
-    // Don't show Collabora-specific message - just show generic loading
-    if (
-      isEditorLoading ||
-      (canEditWithCollabora && !editorUrl && !collaboraFailed)
-    ) {
-      return (
-        <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-          <Loader2 className="w-12 h-12 animate-spin opacity-50" />
-        </div>
-      );
-    }
-
     const isRemote =
       urlContent.startsWith("http") &&
       !urlContent.startsWith("http://localhost");
@@ -1343,11 +1222,13 @@ function PreviewContent({
             </div>
           </div>
           <div className="flex-1 w-full bg-white relative">
+{/* SECURITY: Using allow-same-origin is required for Google Docs viewer to work */}
             <iframe
               src={`https://docs.google.com/gview?url=${encodeURIComponent(urlContent)}&embedded=true`}
               className="w-full h-full border-none"
               title="Office Preview"
-              sandbox="allow-same-origin allow-scripts"
+              sandbox="allow-scripts allow-forms"
+              referrerPolicy="no-referrer"
               onError={(e) => {
                 console.error("Office preview load error:", e);
               }}
@@ -1412,23 +1293,6 @@ function PreviewContent({
               {officeFileType === "pptx" && "Presentation Preview"}
             </span>
             <div className="flex items-center gap-2">
-              {canEditWithCollabora && (
-                <button
-                  onClick={handleOpenEditor}
-                  disabled={isEditorLoading}
-                  className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 disabled:opacity-50"
-                  title="Edit in browser with Collabora"
-                >
-                  {isEditorLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Edit3 className="w-3.5 h-3.5" />
-                  )}
-                  <span className="text-[10px] font-medium">
-                    {isEditorLoading ? "Loading..." : "Edit"}
-                  </span>
-                </button>
-              )}
               <a
                 href={urlContent}
                 download={title || "file"}
@@ -1820,11 +1684,13 @@ function PreviewContent({
           </a>
         </div>
         <div className="flex-1 w-full bg-white relative">
+          {/* SECURITY: Removed allow-same-origin when allow-scripts is present */}
           <iframe
             src={urlContent}
             className="w-full h-full border-none bg-white"
             title="File Preview"
-            sandbox="allow-same-origin allow-scripts"
+            sandbox="allow-scripts allow-forms allow-popups"
+            referrerPolicy="no-referrer"
             onError={(e) => {
               console.error("File preview load error:", e);
             }}

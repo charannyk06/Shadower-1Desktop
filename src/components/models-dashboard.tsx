@@ -281,6 +281,8 @@ export default function ModelsDashboard() {
             `API key removed for ${PROVIDER_REGISTRY[providerId]?.name}`,
           );
           mutateApiKeys();
+          // Invalidate models cache to remove provider from model dropdown immediately
+          await mutate("/api/chat/models");
         } else {
           toast.error(result.error || "Failed to remove API key");
         }

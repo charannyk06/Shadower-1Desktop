@@ -9,7 +9,6 @@ import { Link } from "@tanstack/react-router";
 import { type PropsWithChildren, useState } from "react";
 import { Command, CommandGroup, CommandItem, CommandList } from "ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "ui/popover";
-import { Separator } from "ui/separator";
 
 type Props = PropsWithChildren<{
   agent: AgentSummary;
@@ -60,16 +59,6 @@ export function AgentDropdown({ agent, children, side, align }: Props) {
                 </CommandItem>
               )}
             </CommandGroup>
-            {!isOwner && agent.userName && (
-              <>
-                <Separator className="my-1" />
-                <div className="px-2 py-1.5">
-                  <p className="text-xs text-muted-foreground">
-                    {t("Common.sharedBy", { userName: agent.userName })}
-                  </p>
-                </div>
-              </>
-            )}
           </CommandList>
         </Command>
       </PopoverContent>

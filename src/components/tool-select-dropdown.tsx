@@ -68,7 +68,8 @@ import { WorkflowGreeting } from "./workflow/workflow-greeting";
 
 import { AgentSummary } from "app-types/agent";
 import { authClient } from "auth/client";
-import { getCurrentUserId, isElectronMode } from "lib/electron/workflow-api";
+import { getCurrentUserId } from "lib/electron/workflow-api";
+import { isElectronMode } from "lib/electron/ai-api";
 import { Separator } from "ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
@@ -571,32 +572,6 @@ function WorkflowToolSelector({
                     ) : null}
                     <div className="flex items-center justify-between flex-1 min-w-0">
                       <span className="truncate min-w-0">{workflow.name}</span>
-                      {workflow.userName && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            {workflow.userName === "Shadower" ? (
-                              <img
-                                src="/shadower-logo-final.png"
-                                alt="Shadower"
-                                className="size-4 ml-2 shrink-0 rounded"
-                                style={{ filter: "var(--logo-filter)" }}
-                              />
-                            ) : (
-                              <Avatar className="size-4 ml-2 shrink-0">
-                                <AvatarImage src={workflow.userAvatar} />
-                                <AvatarFallback className="text-xs text-muted-foreground font-medium">
-                                  {workflow.userName[0]?.toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                            )}
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {t("Common.sharedBy", {
-                              userName: workflow.userName,
-                            })}
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
                     </div>
                   </DropdownMenuItem>
                 ))}
@@ -964,15 +939,15 @@ function AgentSelector({
   onSelectAgent?: (agent: AgentSummary) => void;
 }) {
   const { t } = useTranslation();
-  const { myAgents, bookmarkedAgents } = useAgents({
-    filters: ["mine", "bookmarked"],
+  const { myAgents } = useAgents({
+    filters: ["mine"],
   });
 
   const emptyAgent = useMemo(() => {
-    if (myAgents.length + bookmarkedAgents.length > 0) return null;
+    if (myAgents.length > 0) return null;
     return (
       <Link
-        to={"/agent/new"}
+        to={"/agents"}
         className="py-8 px-4 hover:bg-input/100 rounded-lg cursor-pointer flex justify-between items-center text-xs overflow-hidden"
       >
         <div className="gap-1 z-10">
@@ -981,14 +956,12 @@ function AgentSelector({
             <ArrowUpRightIcon className="size-3" />
           </div>
           <p className="text-muted-foreground">
-            {bookmarkedAgents.length > 0
-              ? t("Layout.createYourOwnAgentOrSelectShared")
-              : t("Layout.createYourOwnAgent")}
+            {t("Layout.createYourOwnAgent")}
           </p>
         </div>
       </Link>
     );
-  }, [myAgents.length, bookmarkedAgents.length, t]);
+  }, [myAgents.length, t]);
 
   return (
     <DropdownMenuGroup>
@@ -1022,59 +995,6 @@ function AgentSelector({
                   </div>
                 ) : null}
                 <span className="truncate min-w-0">{agent.name}</span>
-              </DropdownMenuItem>
-            ))}
-
-            {myAgents.length > 0 && bookmarkedAgents.length > 0 && (
-              <DropdownMenuSeparator />
-            )}
-
-            {bookmarkedAgents.map((agent) => (
-              <DropdownMenuItem
-                key={agent.id}
-                className="cursor-pointer"
-                onClick={() => onSelectAgent?.(agent)}
-              >
-                {agent.icon && agent.icon.type === "emoji" ? (
-                  <div
-                    style={{
-                      backgroundColor: agent.icon?.style?.backgroundColor,
-                    }}
-                    className="p-1 rounded flex items-center justify-center ring ring-background border"
-                  >
-                    <Avatar className="size-3">
-                      <AvatarImage src={agent.icon?.value} />
-                      <AvatarFallback>{agent.name.slice(0, 1)}</AvatarFallback>
-                    </Avatar>
-                  </div>
-                ) : null}
-                <div className="flex items-center justify-between flex-1 min-w-0">
-                  <span className="truncate min-w-0">{agent.name}</span>
-                  {agent.userName && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        {agent.userName === "Shadower" ? (
-                          <img
-                            src="/shadower-logo-final.png"
-                            alt="Shadower"
-                            className="size-4 ml-2 shrink-0 rounded"
-                            style={{ filter: "var(--logo-filter)" }}
-                          />
-                        ) : (
-                          <Avatar className="size-4 ml-2 shrink-0">
-                            <AvatarImage src={agent.userAvatar} />
-                            <AvatarFallback className="text-xs text-muted-foreground font-medium">
-                              {agent.userName[0]?.toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("Common.sharedBy", { userName: agent.userName })}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
               </DropdownMenuItem>
             ))}
           </DropdownMenuSubContent>
