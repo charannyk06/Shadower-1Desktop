@@ -115,6 +115,7 @@ export interface AppState {
   workflowToolList: WorkflowSummary[];
   currentThreadId: ChatThread["id"] | null;
   toolChoice: "auto" | "none" | "manual";
+  chatMode: "regular" | "agent";
   allowedMcpServers?: Record<string, AllowedMCPServer>;
   allowedAppDefaultToolkit?: AppDefaultToolkit[];
   generatingTitleThreadIds: string[];
@@ -232,6 +233,7 @@ const initialState: AppState = {
   workflowToolList: [],
   currentThreadId: null,
   toolChoice: "auto",
+  chatMode: "regular",
   allowedMcpServers: undefined,
   openUserSettings: false,
   openBilling: false,
@@ -324,6 +326,7 @@ export const appStore = create<AppState & AppDispatch>()(
       partialize: (state) => ({
         chatModel: state.chatModel || initialState.chatModel,
         toolChoice: state.toolChoice || initialState.toolChoice,
+        chatMode: state.chatMode || initialState.chatMode,
         allowedMcpServers:
           state.allowedMcpServers || initialState.allowedMcpServers,
         // Ensure all valid toolkits are preserved AND new toolkits are auto-enabled

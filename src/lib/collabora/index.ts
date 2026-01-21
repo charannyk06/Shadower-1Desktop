@@ -1,63 +1,73 @@
 /**
- * Collabora Online Integration
+ * Collabora Stubs for Desktop
  *
- * This module provides integration with Collabora Online (CODE) for
- * in-browser document editing via the WOPI protocol.
- *
- * Setup Requirements:
- * 1. Collabora CODE running on a server (Docker recommended)
- * 2. Environment variables:
- *    - NEXT_PUBLIC_COLLABORA_URL: URL of Collabora server (e.g., https://collabora.yourdomain.com)
- *    - WOPI_SECRET: Secret key for signing access tokens
- *    - NEXT_PUBLIC_APP_URL: Your app's URL (for WOPI callbacks)
- *
- * Usage:
- * ```typescript
- * import { generateEditorConfig, isCollaboraConfigured } from '@/lib/collabora';
- *
- * if (isCollaboraConfigured()) {
- *   const config = await generateEditorConfig(fileId, fileName, mimeType, userId, threadId);
- *   // Use config.collaboraUrl in an iframe
- * }
- * ```
+ * Collabora Online editor is not available in desktop mode.
+ * These stubs allow code that references Collabora to compile and run,
+ * but always return "not available" status.
  */
 
-// Types
-export type {
-  WopiFileInfo,
-  WopiPutFileResponse,
-  WopiAccessTokenPayload,
-  WopiFileMetadata,
-  CollaboraEditorConfig,
-  CollaboraPostMessageEvent,
-  CollaboraFileType,
-} from "./types";
+/**
+ * Check if Collabora is configured (always false in desktop)
+ */
+export function isCollaboraConfigured(): boolean {
+  return false;
+}
 
-export {
-  COLLABORA_SUPPORTED_TYPES,
-  isCollaboraSupported,
-  getCollaboraFileType,
-} from "./types";
+/**
+ * Check if a MIME type is supported by Collabora (always false in desktop)
+ */
+export function isCollaboraSupported(
+  mimeType: string,
+  _fileName?: string
+): boolean {
+  return false;
+}
 
-// Access token management
-export {
-  generateWopiAccessToken,
-  validateWopiAccessToken,
-  extractAccessToken,
-  validateWopiRequest,
-} from "./access-token";
+/**
+ * Get MIME type from file extension
+ */
+export function getMimeTypeFromExtension(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase() || "";
+  const mimeTypes: Record<string, string> = {
+    // Documents
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    doc: "application/msword",
+    odt: "application/vnd.oasis.opendocument.text",
+    rtf: "application/rtf",
+    txt: "text/plain",
+    // Spreadsheets
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    xls: "application/vnd.ms-excel",
+    ods: "application/vnd.oasis.opendocument.spreadsheet",
+    csv: "text/csv",
+    // Presentations
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ppt: "application/vnd.ms-powerpoint",
+    odp: "application/vnd.oasis.opendocument.presentation",
+    // PDF
+    pdf: "application/pdf",
+  };
+  return mimeTypes[ext] || "application/octet-stream";
+}
 
-// WOPI helpers
-export {
-  getCollaboraUrl,
-  getAppBaseUrl,
-  buildWopiSrc,
-  parseWopiFileId,
-  buildCollaboraEditorUrl,
-  generateEditorConfig,
-  buildCheckFileInfo,
-  validateWopiProof,
-  getFileExtension,
-  getMimeTypeFromExtension,
+/**
+ * Generate Collabora editor config (not available in desktop)
+ */
+export async function generateEditorConfig(
+  _storageKey: string,
+  _fileName: string,
+  _mimeType: string,
+  _threadId: string
+): Promise<{ success: false; error: string }> {
+  return {
+    success: false,
+    error: "Collabora Online editor is not available in desktop mode",
+  };
+}
+
+export default {
   isCollaboraConfigured,
-} from "./wopi";
+  isCollaboraSupported,
+  getMimeTypeFromExtension,
+  generateEditorConfig,
+};

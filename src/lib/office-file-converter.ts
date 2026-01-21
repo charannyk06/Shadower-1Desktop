@@ -82,13 +82,8 @@ async function contentToArrayBuffer(
     const timeoutId = setTimeout(() => controller.abort(), options.timeout);
 
     try {
-      // Use proxy endpoint to bypass CORS restrictions from Vercel Blob Storage
-      const isVercelBlob = content.includes("blob.vercel-storage.com");
-      const fetchUrl = isVercelBlob
-        ? `/api/proxy/content?url=${encodeURIComponent(content)}`
-        : content;
-
-      const response = await fetch(fetchUrl, {
+      // In desktop mode, we fetch directly - CORS is not an issue
+      const response = await fetch(content, {
         signal: controller.signal,
         headers: {
           "Cache-Control": "no-cache",

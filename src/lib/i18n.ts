@@ -37,6 +37,9 @@ i18n.use(initReactI18next).init({
   debug: import.meta.env.DEV,
   interpolation: {
     escapeValue: false, // React already escapes
+    // Use single curly braces {name} instead of default {{name}}
+    prefix: "{",
+    suffix: "}",
   },
   // Support nested keys like "Auth.Intro.description"
   keySeparator: ".",
@@ -44,6 +47,11 @@ i18n.use(initReactI18next).init({
   // Return key if translation is missing
   returnNull: false,
   returnEmptyString: false,
+  // Handle missing interpolation values - replace with empty string
+  missingInterpolationHandler: (text, value) => {
+    console.warn(`[i18n] Missing interpolation value: ${value} in "${text}"`);
+    return "";
+  },
 });
 
 // Helper to change language
