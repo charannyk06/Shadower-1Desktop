@@ -17,6 +17,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 // Using native form - Next.js Form not needed in Vite
 import { cn } from "lib/utils";
 import { motion, LayoutGroup } from "framer-motion";
+import { knowledgeApi } from "@/lib/electron/knowledge-api";
 
 interface Memory {
   id: string;
@@ -134,19 +135,13 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
   const loadMemories = useCallback(async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: DEFAULT_LIMIT.toString(),
-        ...(searchQuery ? { search: searchQuery } : {}),
-        ...(roleFilter ? { role: roleFilter } : {}),
-        ...(sourceFilter && sourceFilter !== "all"
-          ? { source: sourceFilter }
-          : {}),
+      const data = await knowledgeApi.getMemories({
+        page,
+        limit: DEFAULT_LIMIT,
+        search: searchQuery || undefined,
+        role: roleFilter,
+        source: sourceFilter,
       });
-
-      const response = await fetch(`/api/knowledge/memories?${params}`);
-      if (!response.ok) throw new Error("Failed to load memories");
-      const data = await response.json();
 
       setMemories(data.memories || []);
       setPagination(
@@ -215,10 +210,8 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
     if (!confirm(t("Knowledge.confirmDeleteMemory"))) return;
 
     try {
-      const response = await fetch(`/api/knowledge/memories/${id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) throw new Error("Failed to delete memory");
+      const result = await knowledgeApi.deleteMemory(id);
+      if (!result.success) throw new Error("Failed to delete memory");
 
       setMemories((prev) => prev.filter((m) => m.id !== id));
       setSelectedIds((prev) => {
@@ -238,15 +231,10 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
   // Bulk delete handlers
   const handleBulkDelete = async (ids: string[]) => {
     try {
-      const response = await fetch("/api/knowledge/memories/bulk", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
-      });
+      const result = await knowledgeApi.bulkDeleteMemories(ids);
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to delete memories");
+      if (!result.success) {
+        throw new Error("Failed to delete memories");
       }
 
       // Reload memories
@@ -262,15 +250,10 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
     ids: string[],
   ) => {
     try {
-      const response = await fetch("/api/knowledge/memories/bulk", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, role }),
-      });
+      const result = await knowledgeApi.bulkDeleteMemories(ids, role);
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to delete memories");
+      if (!result.success) {
+        throw new Error("Failed to delete memories");
       }
 
       // Reload memories
@@ -288,16 +271,11 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
 
   const handleSave = async (id: string, content: string) => {
     try {
-      const response = await fetch(`/api/knowledge/memories/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
-      });
-      if (!response.ok) throw new Error("Failed to update memory");
+      const result = await knowledgeApi.updateMemory(id, content);
+      if (!result.success) throw new Error("Failed to update memory");
 
-      const updated = await response.json();
       setMemories((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, content: updated.content } : m)),
+        prev.map((m) => (m.id === id ? { ...m, content: result.content || content } : m)),
       );
       setEditingMemory(null);
       toast.success(t("Knowledge.memoryUpdated"));

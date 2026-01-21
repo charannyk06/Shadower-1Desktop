@@ -76,52 +76,24 @@ export function CreateKnowledgeBaseDialog({
 
     setCreating(true);
     try {
-      const formData = new FormData();
-      formData.append("name", name);
-      formData.append("description", description);
-      formData.append("minChunkSize", minChunkSize);
-      formData.append("maxChunkSize", maxChunkSize);
-      formData.append("overlap", overlap);
+      // Desktop mode: Knowledge bases with file uploads require IPC implementation
+      // For now, show a message that this feature is coming soon
+      toast.info("Knowledge base creation with file uploads is coming soon to desktop mode");
 
-      // Append all files
-      files.forEach((file) => {
-        formData.append("files", file);
-      });
+      // TODO: Implement file reading via Electron dialog and IPC
+      // const fileContents = await Promise.all(
+      //   files.map(async (file) => ({
+      //     name: file.name,
+      //     content: await file.text(),
+      //   }))
+      // );
+      // await window.electronAPI.knowledge.createBase({
+      //   name,
+      //   description,
+      //   files: fileContents,
+      //   chunkingParams: { minChunkSize, maxChunkSize, overlap },
+      // });
 
-      const response = await fetch("/api/knowledge/bases", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const error = await response
-          .json()
-          .catch(() => ({ error: "Unknown error occurred" }));
-        const errorMessage =
-          error.error || `Failed to create knowledge base (${response.status})`;
-        const lastError = error.lastError || error.details?.lastError;
-        const fullErrorMessage = lastError
-          ? `${errorMessage}\n\nDetails: ${lastError}`
-          : errorMessage;
-
-        logger.error("Knowledge base creation failed:", {
-          status: response.status,
-          error: errorMessage,
-          lastError: lastError,
-          details: error,
-        });
-
-        console.error("[Knowledge Base] Full error details:", error);
-        console.error("[Knowledge Base] Last error:", lastError);
-
-        throw new Error(fullErrorMessage);
-      }
-
-      const result = await response.json();
-      toast.success(
-        t("Knowledge.knowledgeBaseCreated") +
-          ` (${result.totalIndexed} chunks indexed)`,
-      );
       onOpenChange(false);
 
       // Reset form
@@ -129,7 +101,6 @@ export function CreateKnowledgeBaseDialog({
       setDescription("");
       setFiles([]);
 
-      // Trigger refresh callback instead of reloading page
       onCreated?.();
     } catch (error: any) {
       toast.error(error.message || t("Knowledge.failedToCreateKnowledgeBase"));

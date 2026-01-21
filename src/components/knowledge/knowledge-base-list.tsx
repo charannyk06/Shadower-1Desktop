@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { useDebounce } from "@/hooks/use-debounce";
 // Using native form - Next.js Form not needed in Vite
 import { formatDistanceToNow } from "date-fns";
+import { knowledgeApi } from "@/lib/electron/knowledge-api";
 
 interface KnowledgeBaseListProps {
   userId: string;
@@ -119,17 +120,25 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
     try {
       setLoading(true);
       setError(null);
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: DEFAULT_LIMIT.toString(),
-        ...(searchQuery ? { search: searchQuery } : {}),
+
+      // Desktop mode: Knowledge bases feature is limited
+      // Return empty data for now
+      const knowledgeBases = await knowledgeApi.getKnowledgeBases();
+
+      setData({
+        knowledgeBases: knowledgeBases.map((kb: any) => ({
+          ...kb,
+          files: kb.files || [],
+          totalChunks: kb.totalChunks || 0,
+        })),
+        pagination: {
+          page,
+          limit: DEFAULT_LIMIT,
+          total: knowledgeBases.length,
+          totalPages: Math.ceil(knowledgeBases.length / DEFAULT_LIMIT),
+          hasMore: false,
+        },
       });
-
-      const response = await fetch(`/api/knowledge/bases?${params}`);
-      if (!response.ok) throw new Error("Failed to load knowledge bases");
-      const result = await response.json();
-
-      setData(result);
     } catch (err: any) {
       setError(err);
       toast.error(t("Knowledge.failedToLoadMemories"), {
@@ -160,21 +169,11 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
 
     setIsDeleting(true);
     try {
-      const response = await fetch(
-        `/api/knowledge/bases/${deletingKnowledgeBaseId}`,
-        {
-          method: "DELETE",
-        },
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to delete knowledge base");
-      }
+      // Desktop mode: Knowledge bases deletion not fully supported yet
+      toast.info("Knowledge base deletion is coming soon to desktop mode");
 
       setDeleteDialogOpen(false);
       setDeletingKnowledgeBaseId(null);
-      toast.success(t("Knowledge.knowledgeBaseDeleted"));
 
       // Reload knowledge bases list
       await loadKnowledgeBases();
