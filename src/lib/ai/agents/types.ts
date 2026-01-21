@@ -34,6 +34,8 @@ export type OrchestratorConfig = {
   mcpTools: Record<string, Tool>;
   userAgent?: Agent | null;
   maxSteps?: number;
+  /** Continuous mode: don't stop on plan completion, run until maxSteps (for long-running tasks) */
+  continuousMode?: boolean;
 };
 
 /**

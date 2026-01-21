@@ -74,6 +74,11 @@ const updateTaskStatusSchema: JSONSchema7 = {
   type: "object",
   properties: {
     taskId: { type: "string", description: "ID of the task to update" },
+    taskDescription: {
+      type: "string",
+      description:
+        "Human-readable description of the task (ALWAYS include this for better UX)",
+    },
     status: {
       type: "string",
       enum: ["in-progress", "completed", "failed", "blocked"],
@@ -303,11 +308,13 @@ export const AGENT_ORCHESTRATOR_INSTRUCTIONS = `You are an autonomous AI orchest
    - Even simple requests should have at least 2-3 tasks (research, synthesize, respond)
    - Example for "tell me about X": tasks = ["Research X", "Gather key facts", "Synthesize findings"]
 2. **STEP 2 - START FIRST TASK**: Call \`updateTaskStatus\` with status "in-progress" for task 1
+   - **CRITICAL**: ALWAYS include \`taskDescription\` with the human-readable task name (e.g., "Research X online")
 3. **STEP 3 - EXECUTE TASK**:
    - **For research tasks**: Use \`spawnSystemAgent\` with agentType "deep-research" (NOT webSearch)
    - **For other specialized tasks**: Use appropriate \`spawnSystemAgent\` or tools
    - **For simple tasks**: Use direct tools (webSearch, sandbox, etc.)
-4. **STEP 4 - COMPLETE TASK**: Call \`updateTaskStatus\` with status "completed" and results
+4. **STEP 4 - COMPLETE TASK**: Call \`updateTaskStatus\` with status "completed", \`taskDescription\`, and results
+   - **CRITICAL**: ALWAYS include \`taskDescription\` with the human-readable task name
 5. **STEP 5 - REPEAT**: Continue until all tasks are done
 6. **STEP 6 - FINAL SUMMARY**: Provide comprehensive results to the user
 
@@ -489,13 +496,15 @@ For EVERY user request, you MUST follow these steps IN ORDER:
 ## EXAMPLE WORKFLOW
 User asks: "Find information about React hooks"
 1. Call createPlan with tasks: ["Search for React hooks info", "Compile key points"]
-2. Call updateTaskStatus(task1, "in-progress")
+2. Call updateTaskStatus(taskId=task1, taskDescription="Search for React hooks info", status="in-progress")
 3. Call webSearch for React hooks
-4. Call updateTaskStatus(task1, "completed", searchResults)
-5. Call updateTaskStatus(task2, "in-progress")
+4. Call updateTaskStatus(taskId=task1, taskDescription="Search for React hooks info", status="completed", result=searchResults)
+5. Call updateTaskStatus(taskId=task2, taskDescription="Compile key points", status="in-progress")
 6. Summarize the findings
-7. Call updateTaskStatus(task2, "completed", summary)
+7. Call updateTaskStatus(taskId=task2, taskDescription="Compile key points", status="completed", result=summary)
 8. Respond to user with the summary
+
+**IMPORTANT**: ALWAYS include \`taskDescription\` in every updateTaskStatus call for proper UI display!
 
 ## AVAILABLE TOOLS
 - **createPlan**: Create your task plan (ALWAYS call this first!)
@@ -1062,6 +1071,10 @@ function createSubAgentTools(
     );
 
     try {
+      // Track accumulated text and tool results for fallback
+      let accumulatedText = "";
+      let lastToolResults: any[] = [];
+
       const streamResult = streamText({
         model,
         system: systemPrompt,
@@ -1071,6 +1084,7 @@ function createSubAgentTools(
         onChunk: ({ chunk }) => {
           // Forward text deltas to parent stream
           if (dataStream && chunk.type === "text-delta") {
+            accumulatedText += chunk.text;
             dataStream.write({
               type: "data-sub-agent-text",
               data: { agentId, text: chunk.text },
@@ -1078,6 +1092,11 @@ function createSubAgentTools(
           }
         },
         onStepFinish: async ({ toolCalls, toolResults }) => {
+          // Store tool results for fallback if no text is generated
+          if (toolResults && toolResults.length > 0) {
+            lastToolResults = toolResults;
+          }
+
           // Forward tool calls with full details
           if (dataStream && toolCalls && toolCalls.length > 0) {
             for (let i = 0; i < toolCalls.length; i++) {
@@ -1141,9 +1160,85 @@ function createSubAgentTools(
         },
       });
 
-      // Consume the stream and get final result
-      const finalResult = await streamResult.text;
-      const steps = (await streamResult.steps).length;
+      // Consume the stream properly - wait for both text and steps
+      let finalResult: string;
+      let steps: number;
+
+      try {
+        // Wait for stream to complete
+        const [textResult, stepsResult] = await Promise.all([
+          streamResult.text,
+          streamResult.steps,
+        ]);
+
+        finalResult = textResult || "";
+        steps = stepsResult.length;
+
+        // If no text was generated but we have tool results, extract result from them
+        if (!finalResult && lastToolResults.length > 0) {
+          // Try to extract meaningful result from tool results
+          const resultStrings = lastToolResults
+            .map((tr: any) => {
+              if (typeof tr === "string") {
+                return tr;
+              }
+              if (tr && typeof tr === "object") {
+                // Try to extract a result field or stringify
+                if (tr.result !== undefined) {
+                  return typeof tr.result === "string"
+                    ? tr.result
+                    : JSON.stringify(tr.result);
+                }
+                if (tr.error) {
+                  return `Error: ${tr.error}`;
+                }
+                return JSON.stringify(tr).slice(0, 500);
+              }
+              return String(tr);
+            })
+            .filter(Boolean);
+
+          if (resultStrings.length > 0) {
+            finalResult =
+              resultStrings.join("\n\n") ||
+              "Sub-agent completed successfully with tool calls.";
+          } else {
+            finalResult =
+              accumulatedText ||
+              `Sub-agent completed ${steps} step(s) successfully.`;
+          }
+        } else if (!finalResult) {
+          // Fallback: use accumulated text or a default message
+          finalResult =
+            accumulatedText ||
+            `Sub-agent completed ${steps} step(s) successfully.`;
+        }
+      } catch (streamError: any) {
+        // Handle stream consumption errors
+        logger.warn(
+          `[Sub-Agent ${agentName}] Stream consumption error:`,
+          streamError,
+        );
+
+        // Try to get steps even if text failed
+        try {
+          const stepsResult = await streamResult.steps;
+          steps = stepsResult.length;
+        } catch {
+          steps = 0;
+        }
+
+        // Use fallback result
+        if (lastToolResults.length > 0) {
+          finalResult = `Sub-agent executed ${steps} step(s) with tool calls. ${
+            streamError?.message || "Stream completed."
+          }`;
+        } else {
+          finalResult =
+            accumulatedText ||
+            `Sub-agent completed. ${streamError?.message || ""}`;
+        }
+      }
 
       // Emit completion event
       if (dataStream) {
@@ -1153,29 +1248,40 @@ function createSubAgentTools(
         });
       }
 
-      logger.info(`Agent ${agentName} completed with ${steps} steps`);
+      logger.info(
+        `Agent ${agentName} completed with ${steps} steps, result length: ${finalResult.length}`,
+      );
 
       return {
         result: finalResult,
         steps,
         success: true,
       };
-    } catch (err) {
+    } catch (err: any) {
       // Emit error event
       if (dataStream) {
         dataStream.write({
           type: "data-sub-agent-error",
-          data: { agentId, error: String(err) },
+          data: {
+            agentId,
+            error: err?.message || String(err),
+          },
         });
       }
 
       logger.error(`Agent ${agentName} failed:`, err);
 
+      // Provide more detailed error message
+      const errorMessage =
+        err?.message ||
+        err?.toString() ||
+        "Unknown error occurred during sub-agent execution";
+
       return {
-        result: "",
+        result: `Sub-agent failed: ${errorMessage}`,
         steps: 0,
         success: false,
-        error: String(err),
+        error: errorMessage,
       };
     }
   }
@@ -1312,6 +1418,17 @@ function createSubAgentTools(
       const systemPrompt =
         buildAgentSystemPrompt(agent.instructions) + contextPrompt;
 
+      // Build tools for user agent - combine mcpTools with availableTools
+      // This ensures user agents have access to webSearch, fragments, browser, desktop, etc.
+      const userAgentTools: Record<string, Tool> = { ...mcpTools };
+      if (availableTools) {
+        Object.assign(userAgentTools, availableTools);
+      }
+
+      logger.info(
+        `[User Agent ${agent.name}] Built ${Object.keys(userAgentTools).length} tools for execution`,
+      );
+
       const { result, steps, success, error } =
         await executeSubAgentWithStreaming(
           agentId,
@@ -1319,6 +1436,7 @@ function createSubAgentTools(
           task,
           systemPrompt,
           15,
+          userAgentTools, // Pass the full toolset!
         );
 
       return {
@@ -1371,6 +1489,12 @@ function createSubAgentTools(
           const systemPrompt =
             buildAgentSystemPrompt(agent.instructions) + contextPrompt;
 
+          // Build tools for parallel user agent - combine mcpTools with availableTools
+          const userAgentTools: Record<string, Tool> = { ...mcpTools };
+          if (availableTools) {
+            Object.assign(userAgentTools, availableTools);
+          }
+
           const { result, steps, success, error } =
             await executeSubAgentWithStreaming(
               agentId,
@@ -1378,6 +1502,7 @@ function createSubAgentTools(
               task,
               systemPrompt,
               10,
+              userAgentTools, // Pass the full toolset!
             );
 
           return {
@@ -1671,7 +1796,6 @@ function createWorkflowTool(
             name: workflowName,
             description: description.substring(0, 200), // Limit description length
             userId,
-            visibility: "private",
             isPublished: false,
           },
           true, // noGenerateInputNode - we'll let the generation API create nodes
@@ -1786,79 +1910,136 @@ function createWorkflowTool(
           edges: [],
         };
 
-        // Step 5: Get base URL for internal API call
-        // In server-side code, we can use relative URLs or construct from env
-        const baseUrl =
-          process.env.NEXT_PUBLIC_BASE_URL ||
-          (process.env.VERCEL_URL
-            ? `https://${process.env.VERCEL_URL}`
-            : "http://localhost:3000");
-
         logger.info(
-          `[CreateWorkflow] Calling generation API for workflow ${newWorkflow.id}`,
+          `[CreateWorkflow] Generating workflow ${newWorkflow.id} with AI`,
         );
 
-        // Step 6: Make internal API call to workflow generation endpoint
-        // Note: This requires proper authentication. In a real implementation,
-        // you'd need to pass session cookies or use an internal service call.
-        // For now, we'll make the HTTP call and handle errors gracefully.
-        const response = await fetch(`${baseUrl}/api/ai/workflow/generate`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            // In production, you'd need to pass auth headers here
-            // For internal calls, you might use a service token or session
-          },
-          body: JSON.stringify({
-            messages,
-            availableTools: toolList,
-            currentWorkflowState,
-            chatModel: chatModel || {
-              provider: "openai",
-              model: "gpt-4o",
-            },
-          }),
-        });
+        // Step 5: Generate workflow directly using AI
+        // Build the system prompt with available tools
+        const toolListText =
+          toolList.length > 0
+            ? toolList
+                .map((t) => `- ${t.id}: ${t.description || "No description"}`)
+                .join("\n")
+            : "No MCP tools available. Create workflow using LLM, HTTP, Template, and Condition nodes.";
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          logger.error(`[CreateWorkflow] Generation API failed: ${errorText}`);
+        const workflowSystemPrompt = `You are a workflow designer. Create a visual workflow based on the user's description.
 
-          // Even if generation fails, return the workflow ID so user can edit manually
+## NODE TYPES
+- input: Entry point (one per workflow)
+- output: Exit point (one per workflow)
+- llm: AI/LLM processing with model and messages
+- tool: MCP tool execution
+- condition: Conditional branching
+- http: HTTP requests
+- template: Text templates with variables
+
+## AVAILABLE TOOLS
+${toolListText}
+
+## RULES
+1. Always include exactly one input and one output node
+2. Position nodes left-to-right (x: 0, 300, 600, etc.)
+3. Connect all nodes with edges
+4. Use descriptive names
+
+Respond with a JSON object containing:
+- nodes: array of workflow nodes
+- edges: array of edges connecting nodes
+
+Each node needs: id, type: "default", position: {x, y}, data: {id, name, kind, outputSchema, ...}
+Each edge needs: id, source, target`;
+
+        // Use generateText to create the workflow
+        const { generateText: genText } = await import("ai");
+
+        // Get the model for generation
+        const genModel = chatModel || { provider: "openai", model: "gpt-4o" };
+
+        // Import the model creation function based on provider
+        let aiModel;
+        try {
+          if (genModel.provider === "openai") {
+            const { openai } = await import("@ai-sdk/openai");
+            aiModel = openai(genModel.model);
+          } else if (genModel.provider === "anthropic") {
+            const { anthropic } = await import("@ai-sdk/anthropic");
+            aiModel = anthropic(genModel.model);
+          } else if (genModel.provider === "google") {
+            const { google } = await import("@ai-sdk/google");
+            aiModel = google(genModel.model);
+          } else {
+            // Default to OpenAI if provider not recognized
+            const { openai } = await import("@ai-sdk/openai");
+            aiModel = openai("gpt-4o");
+          }
+        } catch (modelError) {
+          logger.error(
+            `[CreateWorkflow] Failed to create model: ${modelError}`,
+          );
+          // Return workflow without nodes
           return {
             success: true,
             workflowId: newWorkflow.id,
             workflowName: workflowName,
-            message: `Workflow "${workflowName}" created but generation failed. You can edit it manually at /workflow/${newWorkflow.id}. Error: ${errorText.substring(0, 200)}`,
-            warning:
-              "Workflow generation partially failed - workflow created but may need manual editing",
+            message: `Workflow "${workflowName}" created but AI model initialization failed. Edit it manually at /workflow/${newWorkflow.id}.`,
+            warning: "AI generation failed - manual editing required",
           };
         }
 
-        // Step 7: Process the streaming response
-        // The workflow generation API returns a stream with workflow updates
-        // We need to consume it to trigger the workflow creation
-        // Note: The generation API requires authentication, so this may fail in some environments
-        // In that case, the workflow will be created but empty, and the user can generate it via the UI
-        const reader = response.body?.getReader();
-        if (reader) {
+        // Generate the workflow
+        const genResult = await genText({
+          model: aiModel,
+          system: workflowSystemPrompt,
+          prompt: description,
+          temperature: 0.7,
+        });
+
+        // Parse the generated workflow
+        let generatedWorkflow: { nodes: any[]; edges: any[] } | null = null;
+        try {
+          // Try to extract JSON from the response
+          const responseText = genResult.text;
+          // Look for JSON in the response (might be wrapped in markdown code blocks)
+          const jsonMatch =
+            responseText.match(/```(?:json)?\s*([\s\S]*?)```/) ||
+            responseText.match(/\{[\s\S]*"nodes"[\s\S]*"edges"[\s\S]*\}/);
+
+          if (jsonMatch) {
+            const jsonStr = jsonMatch[1] || jsonMatch[0];
+            generatedWorkflow = JSON.parse(jsonStr.trim());
+          } else {
+            // Try parsing the whole response as JSON
+            generatedWorkflow = JSON.parse(responseText);
+          }
+        } catch (parseError) {
+          logger.warn(
+            `[CreateWorkflow] Failed to parse generated workflow: ${parseError}`,
+          );
+        }
+
+        // Step 6: Save the generated workflow structure
+        if (
+          generatedWorkflow &&
+          generatedWorkflow.nodes &&
+          generatedWorkflow.nodes.length > 0
+        ) {
           try {
-            // Consume the stream to completion
-            // The stream contains the workflow generation result which gets saved automatically
-            while (true) {
-              const { done } = await reader.read();
-              if (done) break;
-            }
-          } catch (streamError) {
-            logger.warn(
-              `[CreateWorkflow] Error consuming stream: ${streamError}`,
+            await workflowRepository.saveStructure(newWorkflow.id, {
+              nodes: generatedWorkflow.nodes,
+              edges: generatedWorkflow.edges || [],
+            });
+            logger.info(
+              `[CreateWorkflow] Saved ${generatedWorkflow.nodes.length} nodes to workflow ${newWorkflow.id}`,
             );
-          } finally {
-            reader.releaseLock();
+          } catch (saveError) {
+            logger.error(
+              `[CreateWorkflow] Failed to save workflow structure: ${saveError}`,
+            );
           }
         }
 
-        // Step 8: Verify workflow was updated by checking if it has nodes
+        // Step 7: Verify workflow was updated by checking if it has nodes
         const updatedWorkflow = await workflowRepository.selectStructureById(
           newWorkflow.id,
         );
@@ -1955,6 +2136,8 @@ export interface AutonomousAgentConfig extends OrchestratorConfig {
   onPersistState?: (state: AgentStateUpdate) => Promise<void>;
   /** DataStream for forwarding sub-agent events to the UI */
   dataStream?: UIMessageStreamWriter;
+  /** Continuous mode: don't stop on plan completion, run until maxSteps */
+  continuousMode?: boolean;
 }
 
 /**
@@ -2542,6 +2725,7 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     userAgent,
     maxSteps = 50,
     dataStream,
+    continuousMode = false,
   } = config;
 
   const { agent, contextManager, agentStateId } = createAutonomousAgent(config);
@@ -2571,10 +2755,84 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
   // Wrap ALL tools with call tracking to prevent infinite loops
   const allTools = wrapToolsWithCallTracking(combinedTools, contextManager);
 
+  // Create comprehensive stop conditions for proper agent loop control
+  // These conditions are evaluated after each step with tool results
+  // The loop stops when ANY condition returns true
+  const stopConditions = [
+    // 1. Maximum steps limit (backup safety)
+    stepCountIs(maxSteps),
+
+    // 2. Plan completion check - stop when plan is done or failed (unless in continuous mode)
+    () => {
+      // In continuous mode, don't stop on plan completion - allow re-planning
+      if (continuousMode) {
+        return false;
+      }
+      const plan = contextManager.getPlan();
+      if (plan && (plan.status === "completed" || plan.status === "failed")) {
+        logger.info(
+          `[Streaming Agent] Plan ${plan.status} - stopping agent loop`,
+        );
+        return true;
+      }
+      return false;
+    },
+
+    // 3. No plan after threshold - enforce planning requirement (relaxed in continuous mode)
+    (options: { steps: StepResult<any>[] }) => {
+      // In continuous mode, allow more steps without a plan
+      const threshold = continuousMode ? 20 : 5;
+      if (options.steps.length >= threshold && !contextManager.getPlan()) {
+        logger.warn(
+          `[Streaming Agent] No plan created after ${options.steps.length} steps - stopping`,
+        );
+        return true;
+      }
+      return false;
+    },
+
+    // 4. STOP signal detection - check tool results for explicit stop signals
+    (options: { steps: StepResult<any>[] }) => {
+      const lastStep = options.steps.at(-1);
+      if (lastStep?.toolResults) {
+        const hasStopSignal = lastStep.toolResults.some((r: any) => {
+          const result = r.result;
+          return result?.STOP === true || result?.COMPLETED === true;
+        });
+        if (hasStopSignal) {
+          logger.info(
+            `[Streaming Agent] STOP/COMPLETED signal received from tool - stopping`,
+          );
+          return true;
+        }
+      }
+      return false;
+    },
+
+    // 5. Infinite loop detection - same tool called too many times consecutively
+    (options: { steps: StepResult<any>[] }) => {
+      const recentSteps = options.steps.slice(-5);
+      if (recentSteps.length >= 5) {
+        const toolNames = recentSteps
+          .flatMap((s) => s.toolCalls?.map((tc: any) => tc.toolName) || [])
+          .filter(Boolean);
+        const uniqueTools = new Set(toolNames);
+        // If same single tool called 5+ times in a row, likely stuck
+        if (uniqueTools.size === 1 && toolNames.length >= 5) {
+          logger.warn(
+            `[Streaming Agent] Potential infinite loop detected - same tool "${toolNames[0]}" called ${toolNames.length} times`,
+          );
+          return true;
+        }
+      }
+      return false;
+    },
+  ];
+
   return {
     system: systemPrompt,
     tools: allTools,
-    stopWhen: stepCountIs(maxSteps),
+    stopWhen: stopConditions,
     toolChoice: "auto" as const,
     // Additional fields for state management
     agent,

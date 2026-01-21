@@ -578,12 +578,8 @@ export function systemAgentToSummary(
     description: agent.description,
     icon: agent.icon,
     userId: "system",
-    visibility: "public",
     createdAt: new Date("2024-01-01"),
     updatedAt: new Date("2024-01-01"),
-    userName: "Shadower",
-    userAvatar: "/shadower-logo-final.png",
-    isBookmarked: false,
   };
 }
 
