@@ -158,6 +158,24 @@ export interface ElectronAPI {
         visibility: "public" | "private";
       }) => Promise<any>;
       getServersWithStatus: () => Promise<any[]>;
+      authorize: (serverId: string) => Promise<{
+        success: boolean;
+        authUrl?: string;
+        needsAuth?: boolean;
+        error?: string;
+      }>;
+      checkToken: (serverId: string) => Promise<{
+        valid: boolean;
+        reason?: string;
+      }>;
+      finishOAuth: (data: { code: string; state: string }) => Promise<{
+        success: boolean;
+        serverId?: string;
+        serverName?: string;
+        status?: string;
+        toolInfo?: any[];
+        error?: string;
+      }>;
     };
     user: {
       getPreferences: () => Promise<any>;
@@ -221,6 +239,58 @@ export interface ElectronAPI {
     ) => Promise<number>;
   };
 
+  // Memory (semantic search over past conversations)
+  memory: {
+    search: (
+      query: string,
+      options?: {
+        collections?: Array<"messages" | "documents" | "knowledge">;
+        limit?: number;
+        scoreThreshold?: number;
+        userId?: string;
+        threadId?: string;
+      },
+    ) => Promise<{
+      results: Array<{
+        id: string;
+        content: string;
+        score: number;
+        source: "messages" | "documents" | "knowledge";
+        threadId?: string;
+        messageId?: string;
+        role?: string;
+        createdAt?: string;
+        metadata?: Record<string, unknown>;
+      }>;
+      elapsedMs: number;
+    }>;
+    index: (
+      items: Array<{
+        id?: string;
+        content: string;
+        threadId?: string;
+        messageId?: string;
+        userId: string;
+        role?: string;
+        collection?: "messages" | "documents" | "knowledge";
+        metadata?: Record<string, unknown>;
+      }>,
+    ) => Promise<{ indexed: number; errors: string[] }>;
+    delete: (
+      ids: string[],
+      collection?: "messages" | "documents",
+    ) => Promise<{ success: boolean; deleted: number }>;
+    deleteByThread: (threadId: string) => Promise<{ success: boolean }>;
+    getStats: () => Promise<{
+      messages: number;
+      documents: number;
+      available: boolean;
+      embeddingCacheSize: number;
+    }>;
+    clearCache: () => Promise<{ success: boolean }>;
+    generateEmbedding: (text: string) => Promise<number[]>;
+  };
+
   // RAG operations (to be implemented in Phase 4.5)
   rag: {
     query: (query: string, options: any) => Promise<any>;
@@ -239,12 +309,98 @@ export interface ElectronAPI {
     getFiles: (threadId: string) => Promise<string[]>;
   };
 
-  // Chrome automation (to be implemented in Phase 5)
+  // Chrome automation via DevTools Protocol
   chrome: {
-    connect: (port: number) => Promise<boolean>;
-    navigate: (url: string) => Promise<void>;
-    screenshot: () => Promise<Buffer>;
-    evaluate: (script: string) => Promise<any>;
+    connect: (options: { port?: number }) => Promise<{
+      success: boolean;
+      tabs?: Array<{ id: string; title: string; url: string; type: string }>;
+      error?: string;
+    }>;
+    listTabs: (options: { port?: number }) => Promise<{
+      success: boolean;
+      tabs?: Array<{ id: string; title: string; url: string; type: string }>;
+      error?: string;
+    }>;
+    attachTab: (options: { tabId: string; port?: number }) => Promise<{
+      success: boolean;
+      title?: string;
+      url?: string;
+      error?: string;
+    }>;
+    navigate: (options: {
+      url: string;
+      waitUntil?: "load" | "domcontentloaded" | "networkIdle";
+    }) => Promise<{
+      success: boolean;
+      title?: string;
+      url?: string;
+      error?: string;
+    }>;
+    screenshot: (options: {
+      fullPage?: boolean;
+      format?: "png" | "jpeg" | "webp";
+      quality?: number;
+    }) => Promise<{
+      success: boolean;
+      screenshot?: string;
+      error?: string;
+    }>;
+    click: (options: { selector: string }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    type: (options: {
+      selector: string;
+      text: string;
+      clear?: boolean;
+    }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    extract: (options: {
+      selector: string;
+      attribute?: string;
+      all?: boolean;
+    }) => Promise<{
+      success: boolean;
+      data?: string | string[];
+      error?: string;
+    }>;
+    wait: (options: { selector: string; timeout?: number }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    evaluate: (options: { script: string }) => Promise<{
+      success: boolean;
+      result?: any;
+      error?: string;
+    }>;
+    scroll: (options: {
+      direction?: "up" | "down";
+      amount?: number;
+      selector?: string;
+    }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    getHtml: (options: { selector?: string }) => Promise<{
+      success: boolean;
+      html?: string;
+      error?: string;
+    }>;
+    pressKey: (options: { key: string }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    newTab: (options: { url?: string; port?: number }) => Promise<{
+      success: boolean;
+      tabId?: string;
+      error?: string;
+    }>;
+    closeTab: (options: { port?: number }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
   };
 
   // Terminal operations (for computer use agent)
@@ -320,6 +476,23 @@ export interface ElectronAPI {
     quit: () => void;
   };
 
+  // Workflow execution (streaming events)
+  workflow: {
+    execute: (
+      workflowId: string,
+      input: Record<string, any>,
+    ) => Promise<{ success: boolean; error?: string }>;
+    cancel: (
+      workflowId: string,
+    ) => Promise<{ success: boolean; cancelled: boolean }>;
+    onEvent: (
+      callback: (data: {
+        workflowId: string;
+        event: { type: string; [key: string]: any };
+      }) => void,
+    ) => () => void;
+  };
+
   // AI streaming (IPC-based, no HTTP server needed)
   ai: {
     stream: (request: {
@@ -381,6 +554,40 @@ export interface ElectronAPI {
     ) => () => void;
     onTitleGenerated: (
       callback: (data: { threadId: string; title: string }) => void,
+    ) => () => void;
+    onStreamWarning: (
+      callback: (data: {
+        threadId: string;
+        message: string;
+        type?: string;
+      }) => void,
+    ) => () => void;
+    onThreadCreated: (
+      callback: (data: { threadId: string; title: string }) => void,
+    ) => () => void;
+    // Workflow generation
+    workflowGenerate: (request: {
+      messages: any[];
+      availableTools: any[];
+      currentWorkflowState: { nodes: any[]; edges: any[] };
+      chatModel: { provider: string; model: string };
+    }) => Promise<{ success?: boolean; error?: string; sessionId?: string }>;
+    workflowAbort: (sessionId: string) => Promise<{ success: boolean }>;
+    onWorkflowChunk: (
+      callback: (data: { sessionId: string; chunk: string }) => void,
+    ) => () => void;
+    onWorkflowEnd: (
+      callback: (data: { sessionId: string; finishReason?: string }) => void,
+    ) => () => void;
+    onWorkflowError: (
+      callback: (data: { sessionId: string; error: string }) => void,
+    ) => () => void;
+    onWorkflowStep: (
+      callback: (data: {
+        sessionId: string;
+        stepType: string;
+        toolCallCount: number;
+      }) => void,
     ) => () => void;
   };
 
@@ -482,10 +689,7 @@ export interface ElectronAPI {
       models?: any[];
       error?: string;
     }>;
-    downloadModel: (data: {
-      modelName: string;
-      baseUrl?: string;
-    }) => Promise<{
+    downloadModel: (data: { modelName: string; baseUrl?: string }) => Promise<{
       success: boolean;
       modelId?: string;
       error?: string;
@@ -641,6 +845,12 @@ const electronAPI: ElectronAPI = {
       }) => ipcRenderer.invoke("db:mcp:updateVisibility", data),
       getServersWithStatus: () =>
         ipcRenderer.invoke("db:mcp:getServersWithStatus"),
+      authorize: (serverId: string) =>
+        ipcRenderer.invoke("db:mcp:authorize", serverId),
+      checkToken: (serverId: string) =>
+        ipcRenderer.invoke("db:mcp:checkToken", serverId),
+      finishOAuth: (data: { code: string; state: string }) =>
+        ipcRenderer.invoke("db:mcp:finishOAuth", data),
     },
     user: {
       getPreferences: () => ipcRenderer.invoke("db:user:getPreferences"),
@@ -698,6 +908,32 @@ const electronAPI: ElectronAPI = {
     },
   },
 
+  // Workflow execution (streaming events via IPC)
+  workflow: {
+    execute: (workflowId: string, input: Record<string, any>) =>
+      ipcRenderer.invoke("workflow:execute", workflowId, input),
+    cancel: (workflowId: string) =>
+      ipcRenderer.invoke("workflow:cancel", workflowId),
+    onEvent: (
+      callback: (data: {
+        workflowId: string;
+        event: { type: string; [key: string]: any };
+      }) => void,
+    ) => {
+      const handler = (
+        _event: any,
+        data: {
+          workflowId: string;
+          event: { type: string; [key: string]: any };
+        },
+      ) => callback(data);
+      ipcRenderer.on("workflow:event", handler);
+      return () => {
+        ipcRenderer.removeListener("workflow:event", handler);
+      };
+    },
+  },
+
   // File operations
   files: {
     upload: (data: {
@@ -745,6 +981,40 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("embeddings:cosineSimilarity", embedding1, embedding2),
   },
 
+  // Memory (semantic search over past conversations)
+  memory: {
+    search: (
+      query: string,
+      options?: {
+        collections?: Array<"messages" | "documents" | "knowledge">;
+        limit?: number;
+        scoreThreshold?: number;
+        userId?: string;
+        threadId?: string;
+      },
+    ) => ipcRenderer.invoke("memory:search", query, options),
+    index: (
+      items: Array<{
+        id?: string;
+        content: string;
+        threadId?: string;
+        messageId?: string;
+        userId: string;
+        role?: string;
+        collection?: "messages" | "documents" | "knowledge";
+        metadata?: Record<string, unknown>;
+      }>,
+    ) => ipcRenderer.invoke("memory:index", items),
+    delete: (ids: string[], collection?: "messages" | "documents") =>
+      ipcRenderer.invoke("memory:delete", ids, collection),
+    deleteByThread: (threadId: string) =>
+      ipcRenderer.invoke("memory:deleteByThread", threadId),
+    getStats: () => ipcRenderer.invoke("memory:getStats"),
+    clearCache: () => ipcRenderer.invoke("memory:clearCache"),
+    generateEmbedding: (text: string) =>
+      ipcRenderer.invoke("memory:generateEmbedding", text),
+  },
+
   // RAG
   rag: {
     query: (query: string, options: any) =>
@@ -769,12 +1039,49 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("sandbox:getFiles", threadId),
   },
 
-  // Chrome automation
+  // Chrome automation via DevTools Protocol
   chrome: {
-    connect: (port: number) => ipcRenderer.invoke("chrome:connect", port),
-    navigate: (url: string) => ipcRenderer.invoke("chrome:navigate", url),
-    screenshot: () => ipcRenderer.invoke("chrome:screenshot"),
-    evaluate: (script: string) => ipcRenderer.invoke("chrome:evaluate", script),
+    connect: (options: { port?: number }) =>
+      ipcRenderer.invoke("chrome:connect", options),
+    listTabs: (options: { port?: number }) =>
+      ipcRenderer.invoke("chrome:listTabs", options),
+    attachTab: (options: { tabId: string; port?: number }) =>
+      ipcRenderer.invoke("chrome:attachTab", options),
+    navigate: (options: {
+      url: string;
+      waitUntil?: "load" | "domcontentloaded" | "networkIdle";
+    }) => ipcRenderer.invoke("chrome:navigate", options),
+    screenshot: (options: {
+      fullPage?: boolean;
+      format?: "png" | "jpeg" | "webp";
+      quality?: number;
+    }) => ipcRenderer.invoke("chrome:screenshot", options),
+    click: (options: { selector: string }) =>
+      ipcRenderer.invoke("chrome:click", options),
+    type: (options: { selector: string; text: string; clear?: boolean }) =>
+      ipcRenderer.invoke("chrome:type", options),
+    extract: (options: {
+      selector: string;
+      attribute?: string;
+      all?: boolean;
+    }) => ipcRenderer.invoke("chrome:extract", options),
+    wait: (options: { selector: string; timeout?: number }) =>
+      ipcRenderer.invoke("chrome:wait", options),
+    evaluate: (options: { script: string }) =>
+      ipcRenderer.invoke("chrome:evaluate", options),
+    scroll: (options: {
+      direction?: "up" | "down";
+      amount?: number;
+      selector?: string;
+    }) => ipcRenderer.invoke("chrome:scroll", options),
+    getHtml: (options: { selector?: string }) =>
+      ipcRenderer.invoke("chrome:getHtml", options),
+    pressKey: (options: { key: string }) =>
+      ipcRenderer.invoke("chrome:pressKey", options),
+    newTab: (options: { url?: string; port?: number }) =>
+      ipcRenderer.invoke("chrome:newTab", options),
+    closeTab: (options: { port?: number }) =>
+      ipcRenderer.invoke("chrome:closeTab", options),
   },
 
   // Terminal operations
@@ -884,6 +1191,65 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on("ai:title:generated", handler);
       return () => ipcRenderer.removeListener("ai:title:generated", handler);
     },
+    onStreamWarning: (
+      callback: (data: {
+        threadId: string;
+        message: string;
+        type?: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:stream:warning", handler);
+      return () => ipcRenderer.removeListener("ai:stream:warning", handler);
+    },
+    onThreadCreated: (
+      callback: (data: { threadId: string; title: string }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:thread:created", handler);
+      return () => ipcRenderer.removeListener("ai:thread:created", handler);
+    },
+    // Workflow generation
+    workflowGenerate: (request: {
+      messages: any[];
+      availableTools: any[];
+      currentWorkflowState: { nodes: any[]; edges: any[] };
+      chatModel: { provider: string; model: string };
+    }) => ipcRenderer.invoke("ai:workflow:generate", request),
+    workflowAbort: (sessionId: string) =>
+      ipcRenderer.invoke("ai:workflow:abort", sessionId),
+    onWorkflowChunk: (
+      callback: (data: { sessionId: string; chunk: string }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:workflow:chunk", handler);
+      return () => ipcRenderer.removeListener("ai:workflow:chunk", handler);
+    },
+    onWorkflowEnd: (
+      callback: (data: { sessionId: string; finishReason?: string }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:workflow:end", handler);
+      return () => ipcRenderer.removeListener("ai:workflow:end", handler);
+    },
+    onWorkflowError: (
+      callback: (data: { sessionId: string; error: string }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:workflow:error", handler);
+      return () => ipcRenderer.removeListener("ai:workflow:error", handler);
+    },
+    onWorkflowStep: (
+      callback: (data: {
+        sessionId: string;
+        stepType: string;
+        toolCallCount: number;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:workflow:step", handler);
+      return () => ipcRenderer.removeListener("ai:workflow:step", handler);
+    },
   },
 
   // Models management
@@ -925,10 +1291,8 @@ const electronAPI: ElectronAPI = {
     }) => ipcRenderer.invoke("models:validateApiKey", data),
     getDecryptedApiKey: (providerId: string) =>
       ipcRenderer.invoke("models:getDecryptedApiKey", providerId),
-    fetchProviderModels: (data: {
-      providerId: string;
-      apiKey: string;
-    }) => ipcRenderer.invoke("models:fetchProviderModels", data),
+    fetchProviderModels: (data: { providerId: string; apiKey: string }) =>
+      ipcRenderer.invoke("models:fetchProviderModels", data),
 
     // Local models
     getLocalModels: () => ipcRenderer.invoke("models:getLocalModels"),

@@ -39,23 +39,29 @@ const PROVIDER_VALIDATION_ENDPOINTS: Record<
 };
 
 // Encrypt API key using Electron's safeStorage
+// SECURITY: Encryption is REQUIRED - no insecure fallback
 function encryptApiKey(key: string): string {
-  if (safeStorage.isEncryptionAvailable()) {
-    const encrypted = safeStorage.encryptString(key);
-    return encrypted.toString("base64");
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error(
+      "Secure storage is not available. Cannot store API keys safely. " +
+        "Please ensure your system keychain is unlocked and try again.",
+    );
   }
-  // Fallback: base64 encode (less secure but works when encryption unavailable)
-  return Buffer.from(key).toString("base64");
+  const encrypted = safeStorage.encryptString(key);
+  return encrypted.toString("base64");
 }
 
 // Decrypt API key
+// SECURITY: Encryption is REQUIRED - no insecure fallback
 function decryptApiKey(encryptedKey: string): string {
-  if (safeStorage.isEncryptionAvailable()) {
-    const buffer = Buffer.from(encryptedKey, "base64");
-    return safeStorage.decryptString(buffer);
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error(
+      "Secure storage is not available. Cannot decrypt API keys. " +
+        "Please ensure your system keychain is unlocked and try again.",
+    );
   }
-  // Fallback: base64 decode
-  return Buffer.from(encryptedKey, "base64").toString("utf-8");
+  const buffer = Buffer.from(encryptedKey, "base64");
+  return safeStorage.decryptString(buffer);
 }
 
 // Get last 4 characters for display hint
@@ -377,8 +383,27 @@ export function registerModelsHandlers() {
   );
 
   // Delete provider
+  // SECURITY: Requires authentication and ownership verification
   ipcMain.handle("models:deleteProvider", async (_event, id: string) => {
     try {
+      const user = await requireAuth(authService);
+
+      // Verify user owns this provider before deleting
+      const [provider] = await db
+        .select()
+        .from(schema.ProviderConfigTable)
+        .where(
+          and(
+            eq(schema.ProviderConfigTable.id, id),
+            eq(schema.ProviderConfigTable.userId, user.id),
+          ),
+        )
+        .limit(1);
+
+      if (!provider) {
+        throw new Error("Provider not found or access denied");
+      }
+
       await db
         .delete(schema.ProviderConfigTable)
         .where(eq(schema.ProviderConfigTable.id, id));

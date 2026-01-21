@@ -2,31 +2,13 @@ import { ipcMain } from "electron";
 import { getDatabase, schema } from "../services/database";
 import { eq } from "drizzle-orm";
 import {
-  createMCPClient,
-  MCPClient,
-} from "../../src/lib/ai/mcp/create-mcp-client";
+  getMcpClient,
+  getExistingClient,
+  refreshClient,
+  callTool,
+  ensureClientConnected,
+} from "../services/mcp-client-service";
 import type { MCPServerConfig } from "../../src/types/mcp";
-
-// Track active MCP clients
-const mcpClients = new Map<string, MCPClient>();
-
-/**
- * Get or create an MCP client for a server
- */
-async function getMcpClient(
-  serverId: string,
-  serverName: string,
-  config: MCPServerConfig,
-): Promise<MCPClient> {
-  let client = mcpClients.get(serverId);
-  if (!client) {
-    client = createMCPClient(serverId, serverName, config, {
-      autoDisconnectSeconds: 60 * 30,
-    });
-    mcpClients.set(serverId, client);
-  }
-  return client;
-}
 
 export function registerMcpHandlers() {
   const db = getDatabase();
@@ -35,7 +17,6 @@ export function registerMcpHandlers() {
   ipcMain.handle("db:mcp:getServers", async () => {
     try {
       const servers = await db.select().from(schema.McpServerTable);
-
       return servers;
     } catch (error) {
       console.error("[IPC] Error getting MCP servers:", error);
@@ -70,7 +51,6 @@ export function registerMcpHandlers() {
             name: data.name,
             config: data.config,
             enabled: data.enabled,
-            visibility: data.visibility,
             updatedAt: new Date(),
           } as Partial<typeof schema.McpServerTable.$inferInsert>)
           .where(eq(schema.McpServerTable.id, data.id))
@@ -86,7 +66,6 @@ export function registerMcpHandlers() {
             config: data.config,
             enabled: data.enabled !== undefined ? data.enabled : true,
             userId: data.userId,
-            visibility: data.visibility || "private",
           } as typeof schema.McpServerTable.$inferInsert)
           .returning();
 
@@ -194,22 +173,12 @@ export function registerMcpHandlers() {
         return { success: false, error: "Server not found" };
       }
 
-      // Get or create client
-      const client = await getMcpClient(
+      // Use shared service to refresh client
+      return await refreshClient(
         serverId,
         server.name,
         server.config as MCPServerConfig,
       );
-
-      // Disconnect and reconnect
-      await client.disconnect();
-      await client.connect();
-
-      return {
-        success: true,
-        status: client.status,
-        toolInfo: client.toolInfo,
-      };
     } catch (error: any) {
       console.error("[IPC] Error refreshing MCP client:", error);
       return { success: false, error: error.message };
@@ -233,19 +202,14 @@ export function registerMcpHandlers() {
           return { success: false, error: "Server not found" };
         }
 
-        const client = await getMcpClient(
+        // Use shared service to call tool
+        return await callTool(
           serverId,
           server.name,
           server.config as MCPServerConfig,
+          toolName,
+          args,
         );
-
-        // Connect if not connected
-        if (client.status !== "connected") {
-          await client.connect();
-        }
-
-        const result = await client.callTool(toolName, args);
-        return { success: true, result };
       } catch (error: any) {
         console.error("[IPC] Error calling MCP tool:", error);
         return { success: false, error: error.message };
@@ -273,18 +237,14 @@ export function registerMcpHandlers() {
           return { success: false, error: `Server "${serverName}" not found` };
         }
 
-        const client = await getMcpClient(
+        // Use shared service to call tool
+        return await callTool(
           server.id,
           server.name,
           server.config as MCPServerConfig,
+          toolName,
+          args,
         );
-
-        if (client.status !== "connected") {
-          await client.connect();
-        }
-
-        const result = await client.callTool(toolName, args);
-        return { success: true, result };
       } catch (error: any) {
         console.error("[IPC] Error calling MCP tool by server name:", error);
         return { success: false, error: error.message };
@@ -305,7 +265,8 @@ export function registerMcpHandlers() {
         return null;
       }
 
-      const client = mcpClients.get(serverId);
+      // Use shared service to get client status
+      const client = getExistingClient(serverId);
 
       return {
         ...server,
@@ -318,38 +279,80 @@ export function registerMcpHandlers() {
     }
   });
 
-  // Update MCP server visibility
-  ipcMain.handle(
-    "db:mcp:updateVisibility",
-    async (
-      _event,
-      data: { serverId: string; visibility: "public" | "private" },
-    ) => {
-      try {
-        const [server] = await db
-          .update(schema.McpServerTable)
-          .set({ visibility: data.visibility })
-          .where(eq(schema.McpServerTable.id, data.serverId))
-          .returning();
-
-        return server;
-      } catch (error) {
-        console.error("[IPC] Error updating MCP visibility:", error);
-        throw error;
-      }
-    },
-  );
-
   // Get all MCP servers with status
   ipcMain.handle("db:mcp:getServersWithStatus", async () => {
     try {
       const servers = await db.select().from(schema.McpServerTable);
 
+      // Auto-connect enabled servers that aren't already connected
+      const connectPromises = servers
+        .filter((server: any) => server.enabled)
+        .map(async (server: any) => {
+          const client = getExistingClient(server.id);
+          // If no client exists or it's disconnected, try to connect
+          if (!client || client.status === "disconnected") {
+            try {
+              const connectedClient = await ensureClientConnected(
+                server.id,
+                server.name,
+                server.config as MCPServerConfig,
+              );
+              // Log the final status after connection attempt
+              console.log(
+                `[IPC] Auto-connect for ${server.name}: status = ${connectedClient.status}`,
+              );
+            } catch (error: any) {
+              // Check status after error - OAuth errors set status to "authorizing"
+              const clientAfterError = getExistingClient(server.id);
+              const statusAfterError = clientAfterError?.status;
+
+              if (statusAfterError === "authorizing") {
+                console.log(
+                  `[IPC] OAuth authorization required for ${server.name} - status set to authorizing`,
+                );
+                return;
+              }
+
+              // OAuth errors are expected - they set status to "authorizing"
+              if (
+                error?.name === "OAuthAuthorizationRequiredError" ||
+                error?.message?.includes("OAuth")
+              ) {
+                console.log(
+                  `[IPC] OAuth authorization required for ${server.name}`,
+                );
+                // Status should now be "authorizing" - this is correct
+                return;
+              }
+              // For other errors, log but don't fail - status will remain "disconnected"
+              console.log(
+                `[IPC] Auto-connect failed for ${server.name}:`,
+                error?.message || error,
+              );
+            }
+          }
+        });
+
+      // Wait for all connection attempts (with timeout)
+      await Promise.allSettled(connectPromises);
+
       return servers.map((server: any) => {
-        const client = mcpClients.get(server.id);
+        // Use shared service to get client status
+        // The MCPClient.status getter now properly handles "authorizing" state
+        // via the needsOAuthAuthorization flag, so we can trust client.status directly
+        const client = getExistingClient(server.id);
+        const finalStatus = client?.status || "disconnected";
+
+        // Log status for debugging (only for known OAuth servers)
+        if (server.name === "github" || server.name === "GitHub") {
+          console.log(
+            `[IPC] Server ${server.name} status: ${finalStatus}, has client: ${!!client}, toolInfo: ${client?.toolInfo?.length || 0}`,
+          );
+        }
+
         return {
           ...server,
-          status: client?.status || "disconnected",
+          status: finalStatus,
           toolInfo: client?.toolInfo || [],
         };
       });
@@ -358,6 +361,209 @@ export function registerMcpHandlers() {
       return [];
     }
   });
+
+  // Authorize MCP client (get OAuth authorization URL)
+  ipcMain.handle("db:mcp:authorize", async (_event, serverId: string) => {
+    try {
+      const [server] = await db
+        .select()
+        .from(schema.McpServerTable)
+        .where(eq(schema.McpServerTable.id, serverId))
+        .limit(1);
+
+      if (!server) {
+        return { success: false, error: "Server not found" };
+      }
+
+      const client = await getMcpClient(
+        serverId,
+        server.name,
+        server.config as MCPServerConfig,
+      );
+
+      // If client already has an authorization URL, return it
+      if (client.status === "authorizing") {
+        const authUrl = client.getAuthorizationUrl?.();
+        if (authUrl) {
+          return {
+            success: true,
+            authUrl: authUrl.toString(),
+            needsAuth: true,
+          };
+        }
+
+        // Status is authorizing but no URL - this happens with servers that don't support dynamic registration
+        // Try to force OAuth provider creation to get the URL
+        console.log(
+          `[IPC] Client is authorizing but no URL - attempting to get OAuth URL for ${server.name}`,
+        );
+      }
+
+      // Try to connect which will trigger OAuth flow if needed
+      // This is necessary because some servers require connecting to discover OAuth endpoints
+      try {
+        await client.connect();
+
+        // Check if connection succeeded
+        if (client.status === "connected") {
+          return { success: true, needsAuth: false };
+        }
+
+        // Check if OAuth is now required
+        if (client.status === "authorizing") {
+          const authUrl = client.getAuthorizationUrl?.();
+          if (authUrl) {
+            return {
+              success: true,
+              authUrl: authUrl.toString(),
+              needsAuth: true,
+            };
+          }
+          // Status is authorizing but no URL - OAuth is required but URL not available
+          // This happens with servers that don't support dynamic registration
+          return {
+            success: false,
+            error:
+              "OAuth authorization required but authorization URL not available. This server doesn't support automatic client registration. Please check the server documentation for manual OAuth setup instructions.",
+          };
+        }
+
+        return { success: true, needsAuth: false };
+      } catch (error: any) {
+        // Re-check status after connect attempt (may have changed to authorizing)
+        const statusAfterConnect = client.status as
+          | "loading"
+          | "authorizing"
+          | "connected"
+          | "disconnected";
+        if (statusAfterConnect === "authorizing") {
+          const authUrl = client.getAuthorizationUrl?.();
+          if (authUrl) {
+            return {
+              success: true,
+              authUrl: authUrl.toString(),
+              needsAuth: true,
+            };
+          }
+          // Status is authorizing but no URL
+          return {
+            success: false,
+            error:
+              "OAuth authorization required but authorization URL not available. This server doesn't support automatic client registration.",
+          };
+        }
+
+        // If error is about incompatible auth server, return helpful message
+        if (
+          error?.message?.includes("Incompatible auth server") ||
+          error?.message?.includes(
+            "does not support dynamic client registration",
+          )
+        ) {
+          return {
+            success: false,
+            error:
+              "This MCP server requires OAuth but doesn't support automatic client registration. Please check the server documentation for manual OAuth setup instructions.",
+          };
+        }
+
+        throw error;
+      }
+    } catch (error: any) {
+      console.error("[IPC] Error authorizing MCP client:", error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Check if MCP client has valid OAuth token
+  ipcMain.handle("db:mcp:checkToken", async (_event, serverId: string) => {
+    try {
+      const client = getExistingClient(serverId);
+      if (!client) {
+        return { valid: false, reason: "Client not initialized" };
+      }
+
+      // Check if client is connected (implies valid token)
+      if (client.status === "connected") {
+        return { valid: true };
+      }
+
+      if (client.status === "authorizing") {
+        return { valid: false, reason: "Authorization required" };
+      }
+
+      return { valid: false, reason: "Not connected" };
+    } catch (error: any) {
+      console.error("[IPC] Error checking MCP token:", error);
+      return { valid: false, reason: error.message };
+    }
+  });
+
+  // Finish OAuth flow with authorization code
+  ipcMain.handle(
+    "db:mcp:finishOAuth",
+    async (_event, data: { code: string; state: string }) => {
+      try {
+        const { code, state } = data;
+
+        if (!code || !state) {
+          return { success: false, error: "Missing code or state parameter" };
+        }
+
+        // Find the server that has this OAuth state
+        // We need to check all clients to find which one has this state
+        const servers = await db.select().from(schema.McpServerTable);
+
+        for (const server of servers) {
+          const client = getExistingClient(server.id);
+          if (client && client.status === "authorizing") {
+            try {
+              // Try to finish auth with this client
+              // The client will validate the state internally
+              await client.finishAuth(code, state);
+
+              console.log(
+                `[IPC] OAuth completed for ${server.name}, new status: ${client.status}`,
+              );
+
+              // Refresh to get tools
+              if (client.status === "connected") {
+                await client.updateToolInfo?.();
+              }
+
+              return {
+                success: true,
+                serverId: server.id,
+                serverName: server.name,
+                status: client.status,
+                toolInfo: client.toolInfo || [],
+              };
+            } catch (authError: any) {
+              // State mismatch or other error - try next server
+              if (authError?.message?.includes("state")) {
+                continue;
+              }
+              // Other error - report it
+              console.error(
+                `[IPC] OAuth finish error for ${server.name}:`,
+                authError,
+              );
+              return { success: false, error: authError.message };
+            }
+          }
+        }
+
+        return {
+          success: false,
+          error:
+            "No MCP server found awaiting OAuth authorization with matching state",
+        };
+      } catch (error: any) {
+        console.error("[IPC] Error finishing OAuth:", error);
+        return { success: false, error: error.message };
+      }
+    },
+  );
 
   console.log("[IPC] MCP handlers registered");
 }

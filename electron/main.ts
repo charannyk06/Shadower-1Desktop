@@ -23,8 +23,9 @@ import { registerTerminalHandlers } from "./ipc/terminal";
 import { registerModelsHandlers } from "./ipc/models";
 import { registerArchiveHandlers } from "./ipc/archives";
 import { registerAIHandlers } from "./ipc/ai";
-import { registerBookmarkHandlers } from "./ipc/bookmarks";
 import { registerVectorHandlers } from "./ipc/vector";
+import { registerMemoryHandlers } from "./ipc/memory";
+import { registerChromeHandlers } from "./ipc/chrome";
 
 // Static imports for services
 import { ElectronAuthService } from "./services/auth";
@@ -162,6 +163,14 @@ app.whenReady().then(async () => {
     console.log("[Main] Database initialized successfully");
   } catch (error) {
     console.error("[Main] Failed to initialize database:", error);
+    // Database is critical - show error dialog and quit
+    const { dialog } = require("electron");
+    dialog.showErrorBox(
+      "Database Error",
+      `Failed to initialize database. The app cannot continue.\n\nError: ${error instanceof Error ? error.message : String(error)}`
+    );
+    app.quit();
+    return;
   }
 
   // Initialize vector services (optional - may not be available)
@@ -246,7 +255,7 @@ app.whenReady().then(async () => {
   registerHandler("Models", registerModelsHandlers);
   registerHandler("Archive", registerArchiveHandlers);
   registerHandler("AI", registerAIHandlers);
-  registerHandler("Bookmark", registerBookmarkHandlers);
+  registerHandler("Chrome", registerChromeHandlers);
 
   // Vector handlers are optional (may fail if DuckDB not available)
   try {
@@ -256,6 +265,17 @@ app.whenReady().then(async () => {
     log.warn(
       "[Main] Vector handlers not available (non-critical):",
       vectorError instanceof Error ? vectorError.message : vectorError,
+    );
+  }
+
+  // Memory handlers (semantic search over past conversations)
+  try {
+    registerMemoryHandlers();
+    console.log("[Main] Memory handlers registered");
+  } catch (memoryError) {
+    log.warn(
+      "[Main] Memory handlers not available (non-critical):",
+      memoryError instanceof Error ? memoryError.message : memoryError,
     );
   }
 
