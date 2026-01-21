@@ -60,23 +60,27 @@ const RESPONSES_API_PATTERNS: RegExp[] = [/computer-use/i];
  * - yi (not function-tuned)
  */
 const LOCAL_TOOL_SUPPORTED_PATTERNS: RegExp[] = [
-  // Meta Llama 3.x series (instruction-tuned)
-  /llama[-_]?3\.[123]/i,
-  /llama3\.[123]/i,
+  // Meta Llama 3.x/4.x series - permissive patterns for various naming conventions
+  // Matches: llama3, llama-3, llama_3, llama3.1, llama3.2, llama3.3, llama-3.3-70b-instruct, etc.
+  /llama[-_]?3/i,
+  /llama[-_]?4/i,
 
-  // DeepSeek models
-  /deepseek[-_]?r1/i,
-  /deepseek[-_]?coder/i,
-  /deepseek[-_]?v[23]/i,
+  // DeepSeek models (all variants including reasoning models)
+  // Matches: deepseek-r1, deepseek-coder, deepseek-v3, deepseek-r1-0528, etc.
+  /deepseek/i,
 
-  // Qwen models (Alibaba)
-  /qwen[-_]?2/i,
-  /qwen[-_]?coder/i,
+  // Qwen models (Alibaba) - all versions support tools
+  // Matches: qwen2, qwen2.5, qwen3, qwen-coder, qwq, etc.
+  /qwen/i,
+  /qwq/i,
 
-  // Mistral with function calling (specific variants only)
+  // Mistral with function calling
+  // Matches: mistral-nemo, mistral-large, mistral-small, codestral, devstral
   /mistral[-_]?nemo/i,
   /mistral[-_]?large/i,
+  /mistral[-_]?small/i,
   /codestral/i,
+  /devstral/i,
 
   // Cohere command models
   /command[-_]?r/i,
@@ -90,8 +94,17 @@ const LOCAL_TOOL_SUPPORTED_PATTERNS: RegExp[] = [
   // NVIDIA Nemotron
   /nemotron/i,
 
+  // IBM Granite models
+  /granite/i,
+
   // Groq hosted models (always support tools)
   /groq/i,
+
+  // Fireworks hosted models with tool support
+  /fireworks/i,
+
+  // Together AI hosted models with tool support
+  /together/i,
 ];
 
 /**

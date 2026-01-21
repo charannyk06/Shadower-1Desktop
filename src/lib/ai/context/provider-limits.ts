@@ -567,7 +567,7 @@ export async function getMaxOutputTokensAsync(
  * Compaction threshold as a fraction of effective context limit
  * When usage exceeds this threshold, compaction will be triggered
  */
-export const COMPACTION_THRESHOLD = 0.95; // 95% - Compact when near limit
+export const COMPACTION_THRESHOLD = 0.98; // 98% - Compact when near limit
 
 /**
  * Number of recent messages to preserve during compaction
