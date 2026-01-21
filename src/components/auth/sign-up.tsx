@@ -21,11 +21,10 @@ import SocialProviders from "./social-providers";
 export default function SignUpPage({
   emailAndPasswordEnabled,
   socialAuthenticationProviders,
-  isFirstUser,
 }: {
   emailAndPasswordEnabled: boolean;
   socialAuthenticationProviders: SocialAuthenticationProvider[];
-  isFirstUser: boolean;
+  isFirstUser?: boolean;
 }) {
   const { t } = useTranslation();
   const handleSocialSignIn = (provider: SocialAuthenticationProvider) => {
@@ -45,12 +44,10 @@ export default function SignUpPage({
     <Card className="w-full md:max-w-md bg-background border-none mx-auto shadow-none">
       <CardHeader>
         <CardTitle className="text-2xl text-center ">
-          {isFirstUser ? t("Auth.SignUp.titleAdmin") : t("Auth.SignUp.title")}
+          {t("Auth.SignUp.title")}
         </CardTitle>
         <CardDescription className="text-center">
-          {isFirstUser
-            ? t("Auth.SignUp.signUpDescriptionAdmin")
-            : t("Auth.SignUp.signUpDescription")}
+          {t("Auth.SignUp.signUpDescription")}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">

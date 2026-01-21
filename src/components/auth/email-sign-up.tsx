@@ -23,7 +23,7 @@ import { toast } from "sonner";
 export default function EmailSignUp({
   isFirstUser,
 }: {
-  isFirstUser: boolean;
+  isFirstUser?: boolean;
 }) {
   const { t } = useTranslation();
   const [step, setStep] = useState(1);
@@ -115,7 +115,7 @@ export default function EmailSignUp({
     <Card className="w-full md:max-w-md bg-background border-none mx-auto gap-0 shadow-none animate-in fade-in duration-1000">
       <CardHeader>
         <CardTitle className="text-2xl text-center ">
-          {isFirstUser ? t("Auth.SignUp.titleAdmin") : t("Auth.SignUp.title")}
+          {t("Auth.SignUp.title")}
         </CardTitle>
         <CardDescription className="py-12">
           <div className="flex flex-col gap-2">
