@@ -131,6 +131,16 @@ interface ContextUsageUpdateEvent {
   };
 }
 
+interface ContextCompactionStartEvent {
+  type: "data-context-compaction-start";
+  data: {
+    oldUsage: {
+      usedTokens: number;
+      percentage: number;
+    };
+  };
+}
+
 interface ContextCompactionEvent {
   type: "data-context-compaction";
   data: {
@@ -149,7 +159,10 @@ interface ContextCompactionEvent {
   };
 }
 
-type ContextEvent = ContextUsageUpdateEvent | ContextCompactionEvent;
+type ContextEvent =
+  | ContextUsageUpdateEvent
+  | ContextCompactionStartEvent
+  | ContextCompactionEvent;
 
 function isCollaboraOpenEvent(event: {
   type: string;
@@ -169,8 +182,82 @@ function isCollaboraOpenEvent(event: {
 function isContextEvent(event: { type: string }): event is ContextEvent {
   return (
     event.type === "data-context-usage-update" ||
+    event.type === "data-context-compaction-start" ||
     event.type === "data-context-compaction"
   );
+}
+
+// Screenshot event - image sent to UI, only metadata to AI
+interface ScreenshotEvent {
+  type: "data-screenshot";
+  data: {
+    id: string;
+    screenshot: string; // base64 image data
+    width: number;
+    height: number;
+    timestamp: string;
+    description?: string;
+  };
+}
+
+function isScreenshotEvent(event: { type: string }): event is ScreenshotEvent {
+  return event.type === "data-screenshot";
+}
+
+function handleScreenshotEvent(
+  event: ScreenshotEvent,
+  setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>,
+): void {
+  // Add screenshot as a visible message part in the chat
+  // This shows the user what the AI captured without consuming AI context
+  const { id, screenshot, width, height, description } = event.data;
+
+  setMessages((prev) => {
+    // Find the last assistant message to append to, or create indication
+    const lastMsg = prev[prev.length - 1];
+
+    if (lastMsg?.role === "assistant") {
+      // Append screenshot part to the last assistant message
+      return prev.map((msg, idx) => {
+        if (idx === prev.length - 1) {
+          return {
+            ...msg,
+            parts: [
+              ...msg.parts,
+              {
+                type: "screenshot-display" as const,
+                id,
+                screenshot,
+                width,
+                height,
+                description: description || "Screenshot captured",
+              },
+            ],
+          };
+        }
+        return msg;
+      });
+    }
+
+    // If no assistant message, create a new one with the screenshot
+    return [
+      ...prev,
+      {
+        id: `screenshot-msg-${id}`,
+        role: "assistant" as const,
+        parts: [
+          {
+            type: "screenshot-display" as const,
+            id,
+            screenshot,
+            width,
+            height,
+            description: description || "Screenshot captured",
+          },
+        ],
+      },
+    ];
+  });
 }
 
 function isFragmentProgressEvent(event: {
@@ -642,6 +729,36 @@ function handleContextUsageUpdate(
   });
 }
 
+// Handler for compression START - shows loading tool block
+function handleContextCompactionStart(
+  event: ContextCompactionStartEvent,
+  threadId: string,
+  setMessages?: React.Dispatch<React.SetStateAction<UIMessage[]>>,
+): void {
+  console.log("[Context] Compaction START - showing loading tool block", {
+    threadId,
+    oldPercentage: (event.data.oldUsage.percentage * 100).toFixed(1) + "%",
+  });
+
+  // Add compression "loading" tool block to messages
+  if (setMessages) {
+    const compressionMessage: UIMessage = {
+      id: `compression-${Date.now()}`,
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-context-compression",
+          state: "loading",
+          oldUsage: event.data.oldUsage,
+        } as any,
+      ],
+    };
+
+    setMessages((prev) => [...prev, compressionMessage]);
+  }
+}
+
+// Handler for compression COMPLETE - updates tool block to show results
 function handleContextCompaction(
   event: ContextCompactionEvent,
   threadId: string,
@@ -659,7 +776,7 @@ function handleContextCompaction(
       event.data.newUsage.limit - event.data.newUsage.usedTokens,
   };
 
-  console.log("[Context] Compaction event received - RESETTING INDICATOR", {
+  console.log("[Context] Compaction COMPLETE - updating tool block", {
     threadId,
     compactedCount: event.data.compactedCount,
     tokensSaved: event.data.tokensSaved,
@@ -667,44 +784,31 @@ function handleContextCompaction(
     newPercentage: (newUsage.percentage * 100).toFixed(1) + "%",
   });
 
-  // Add visible compaction status message to chat
+  // Update the compression tool block from "loading" to "complete"
   if (setMessages) {
-    const tokensSavedFormatted =
-      event.data.tokensSaved >= 1000
-        ? `${(event.data.tokensSaved / 1000).toFixed(1)}k`
-        : String(event.data.tokensSaved);
-
-    const compactionMessage: UIMessage = {
-      id: `compaction-${Date.now()}`,
-      role: "assistant",
-      parts: [
-        {
-          type: "text",
-          text:
-            `🔄 **Context Compressed**\n\n` +
-            `- Compacted **${event.data.compactedCount}** messages\n` +
-            `- Saved **${tokensSavedFormatted}** tokens\n` +
-            `- Context usage: **${(oldPercentage * 100).toFixed(1)}%** → **${(newUsage.percentage * 100).toFixed(1)}%**\n\n` +
-            `*Context indicator has been reset with the new compressed context.*`,
-        },
-      ],
-    };
-
     setMessages((prev) => {
-      // Add compaction message before the last assistant message (if exists) or at the end
-      const lastIndex = prev.length - 1;
-      if (lastIndex >= 0 && prev[lastIndex].role === "assistant") {
-        return [
-          ...prev.slice(0, lastIndex),
-          compactionMessage,
-          prev[lastIndex],
-        ];
-      }
-      return [...prev, compactionMessage];
+      return prev.map((msg) => {
+        if (msg.id.startsWith("compression-")) {
+          return {
+            ...msg,
+            parts: [
+              {
+                type: "tool-context-compression",
+                state: "complete",
+                compactedCount: event.data.compactedCount,
+                tokensSaved: event.data.tokensSaved,
+                oldPercentage: event.data.oldUsage?.percentage ?? oldPercentage,
+                newPercentage: newUsage.percentage,
+              } as any,
+            ],
+          };
+        }
+        return msg;
+      });
     });
   }
 
-  // CRITICAL: Force update by creating completely new object references
+  // CRITICAL: Update store to reset context indicator
   appStore.setState((state) => {
     const newThreadContextUsage = {
       ...state.threadContextUsage,
@@ -740,13 +844,8 @@ function handleContextCompaction(
   });
 
   // Show toast notification to user
-  const tokensSavedFormatted =
-    event.data.tokensSaved >= 1000
-      ? `${(event.data.tokensSaved / 1000).toFixed(1)}k`
-      : String(event.data.tokensSaved);
-
   toast.success("Context Compressed", {
-    description: `Compressed ${event.data.compactedCount} messages, saved ${tokensSavedFormatted} tokens. Context usage reset to ${(newUsage.percentage * 100).toFixed(1)}%`,
+    description: `${event.data.compactedCount} messages compressed, context reset to ${(newUsage.percentage * 100).toFixed(0)}%`,
     duration: 5000,
   });
 }
@@ -758,6 +857,8 @@ function handleContextEvent(
 ): void {
   if (dataPart.type === "data-context-usage-update") {
     handleContextUsageUpdate(dataPart, threadId);
+  } else if (dataPart.type === "data-context-compaction-start") {
+    handleContextCompactionStart(dataPart, threadId, setMessages);
   } else if (dataPart.type === "data-context-compaction") {
     handleContextCompaction(dataPart, threadId, setMessages);
   }
@@ -780,6 +881,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     appStoreMutate,
     model,
     toolChoice,
+    chatMode,
     allowedAppDefaultToolkit,
     allowedMcpServers,
     threadList,
@@ -791,6 +893,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       state.mutate,
       state.chatModel,
       state.toolChoice,
+      state.chatMode,
       state.allowedAppDefaultToolkit,
       state.allowedMcpServers,
       state.threadList,
@@ -802,45 +905,86 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
   const generateTitle = useGenerateThreadTitle({
     threadId,
+    chatModel: model,
   });
 
   const [showParticles, setShowParticles] = useState(isFirstTime);
 
-  const onFinish = useCallback(() => {
-    const messages = latestRef.current.messages;
-    const prevThread = latestRef.current.threadList.find(
-      (v) => v.id === threadId,
-    );
-    const isNewThread =
-      !prevThread?.title &&
-      messages.filter((v) => v.role === "user" || v.role === "assistant")
-        .length < 3;
-    if (isNewThread) {
-      const part = messages
-        .slice(0, 2)
-        .flatMap((m) =>
-          m.parts
-            .filter((v) => v.type === "text")
-            .map(
-              (p) =>
-                `${m.role}: ${truncateString((p as TextUIPart).text, 500)}`,
-            ),
-        );
-      if (part.length > 0) {
-        generateTitle(part.join("\n\n"));
-      }
-    } else if (latestRef.current.threadList[0]?.id !== threadId) {
-      mutate("/api/thread");
-    }
+  const onFinish = useCallback(
+    (options: {
+      message: UIMessage;
+      messages: UIMessage[];
+      isAbort: boolean;
+      isDisconnect: boolean;
+      isError: boolean;
+      finishReason?: string;
+    }) => {
+      console.log("[ChatBot] onFinish called for thread:", threadId, {
+        isAbort: options.isAbort,
+        isDisconnect: options.isDisconnect,
+        isError: options.isError,
+        finishReason: options.finishReason,
+        messageCount: options.messages.length,
+      });
 
-    // DON'T navigate here - it causes a remount and loses the streaming messages.
-    // The URL will remain at "/" but that's OK - the messages are saved to DB
-    // by the main process, and when the user clicks on the thread in sidebar
-    // or refreshes, they'll see the saved conversation.
-    //
-    // The thread title will be generated and the thread will appear in sidebar
-    // automatically via the IPC event.
-  }, [threadId]);
+      // Don't generate title on abort, disconnect, or error
+      if (options.isAbort || options.isDisconnect || options.isError) {
+        console.log("[ChatBot] onFinish - skipping title generation due to abort/disconnect/error");
+        return;
+      }
+
+      const messages = options.messages;
+      const prevThread = latestRef.current.threadList.find(
+        (v) => v.id === threadId,
+      );
+      console.log(
+        "[ChatBot] onFinish - prevThread:",
+        prevThread?.title,
+        "messages count:",
+        messages.length,
+      );
+
+      const isNewThread =
+        (!prevThread?.title || prevThread?.title === "New Chat") &&
+        messages.filter((v) => v.role === "user" || v.role === "assistant")
+          .length < 3;
+      console.log("[ChatBot] onFinish - isNewThread:", isNewThread);
+
+      if (isNewThread) {
+        const part = messages
+          .slice(0, 2)
+          .flatMap((m) =>
+            m.parts
+              .filter((v) => v.type === "text")
+              .map(
+                (p) =>
+                  `${m.role}: ${truncateString((p as TextUIPart).text, 500)}`,
+              ),
+          );
+        console.log("[ChatBot] onFinish - text parts for title:", part.length);
+        if (part.length > 0) {
+          console.log("[ChatBot] onFinish - calling generateTitle");
+          generateTitle(part.join("\n\n"));
+        } else {
+          console.log(
+            "[ChatBot] onFinish - no text parts found for title generation",
+          );
+        }
+      } else if (latestRef.current.threadList[0]?.id !== threadId) {
+        console.log("[ChatBot] onFinish - mutating thread list");
+        mutate("/api/thread");
+      }
+
+      // DON'T navigate here - it causes a remount and loses the streaming messages.
+      // The URL will remain at "/" but that's OK - the messages are saved to DB
+      // by the main process, and when the user clicks on the thread in sidebar
+      // or refreshes, they'll see the saved conversation.
+      //
+      // The thread title will be generated and the thread will appear in sidebar
+      // automatically via the IPC event.
+    },
+    [threadId, generateTitle],
+  );
 
   const [input, setInput] = useState("");
 
@@ -862,13 +1006,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     onError: (error) => {
       console.error("[ChatBot] useChat error:", error);
       console.error("[ChatBot] useChat error stack:", error?.stack);
-    },
-    onData: (data) => {
-      console.log("[ChatBot] useChat onData callback triggered:", data);
-    },
-    onFinish: (message) => {
-      console.log("[ChatBot] useChat onFinish:", message);
-      onFinish();
     },
     transport: new ElectronIPCTransport({
       prepareSendMessagesRequest: ({ messages, body, id }) => {
@@ -899,9 +1036,12 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           [],
         );
 
+        // Filter out source-url parts, but ensure at least one part remains
+        const filteredParts = lastMessage.parts.filter((p: any) => p?.type !== "source-url");
+
         const sanitizedLastMessage = {
           ...lastMessage,
-          parts: lastMessage.parts.filter((p: any) => p?.type !== "source-url"),
+          parts: filteredParts.length > 0 ? filteredParts : [{ type: "text" as const, text: "" }],
         } as typeof lastMessage;
         const _hasFilePart = lastMessage.parts?.some(
           (p) => (p as any)?.type === "file",
@@ -913,6 +1053,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           chatModel:
             (body as { model: ChatModel })?.model ?? latestRef.current.model,
           toolChoice: latestRef.current.toolChoice,
+          chatMode: latestRef.current.chatMode,
           allowedAppDefaultToolkit: latestRef.current.allowedAppDefaultToolkit,
           allowedMcpServers: latestRef.current.mentions?.length
             ? {}
@@ -939,6 +1080,8 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         handlePlanEvent(dataPart, threadId);
       } else if (isContextEvent(dataPart)) {
         handleContextEvent(dataPart, threadId, setMessages);
+      } else if (isScreenshotEvent(dataPart)) {
+        handleScreenshotEvent(dataPart, setMessages);
       } else if (isFragmentProgressEvent(dataPart)) {
         handleFragmentProgressEvent(dataPart, setMessages);
       } else if (
@@ -992,9 +1135,18 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       lastMsgRole: lastMsg?.role,
       lastMsgId: lastMsg?.id,
       lastMsgPartsCount: lastMsg?.parts.length,
-      lastMsgParts: lastMsg?.parts.slice(0, 3).map((p: any) => ({
+      // Show ALL parts with their types
+      allPartTypes: lastMsg?.parts.map((p: any) => ({
         type: p.type,
-        textLength: p.type === "text" ? p.text?.length : undefined,
+        ...(p.type === "text"
+          ? { textLength: p.text?.length, textPreview: p.text?.slice(0, 100) }
+          : {}),
+        ...(p.type === "tool-invocation"
+          ? {
+              toolName: p.toolInvocation?.toolName,
+              state: p.toolInvocation?.state,
+            }
+          : {}),
       })),
     });
   }, [messages, status]);
@@ -1008,6 +1160,21 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       const prevThreadId = state.currentThreadId;
       const threadChanged = prevThreadId && prevThreadId !== threadId;
 
+      // If thread doesn't exist in list, add it with "New Chat" title
+      // This ensures the header can display the thread immediately
+      const threadExists = state.threadList.some((t) => t.id === threadId);
+      const newThreadList = threadExists
+        ? state.threadList
+        : [
+            {
+              id: threadId,
+              title: "New Chat",
+              userId: "",
+              createdAt: new Date(),
+            },
+            ...state.threadList,
+          ];
+
       // When switching threads, reset non-thread-scoped theater mode state
       // This prevents showing content from a different thread
       if (threadChanged) {
@@ -1020,6 +1187,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         );
         return {
           currentThreadId: threadId,
+          threadList: newThreadList,
           theaterMode: {
             ...state.theaterMode,
             // Reset non-thread-scoped content when switching threads
@@ -1033,7 +1201,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         };
       }
 
-      return { currentThreadId: threadId };
+      return { currentThreadId: threadId, threadList: newThreadList };
     });
   }, [threadId]);
 
@@ -1348,6 +1516,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
   const latestRef = useToRef({
     toolChoice,
+    chatMode,
     model,
     allowedAppDefaultToolkit,
     allowedMcpServers,

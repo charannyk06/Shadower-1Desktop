@@ -102,22 +102,29 @@ export function FragmentPreview({
   const handleDeploy = async () => {
     setIsDeploying(true);
     try {
-      const response = await fetch(`/api/fragments/${fragmentId}/deploy`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ duration: deployDuration }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setDeployedUrl(data.url);
-        toast.success("Fragment deployed successfully!", {
-          description: "Share the link with anyone to view your fragment.",
+      // Use Electron IPC for sandbox deployment if available
+      if (window.electronAPI?.sandbox?.deploy) {
+        const result = await window.electronAPI.sandbox.deploy(fragmentId, {
+          duration: deployDuration,
+          code,
+          template,
         });
+
+        if (result.success && result.url) {
+          setDeployedUrl(result.url);
+          toast.success("Fragment deployed locally!", {
+            description: "Your fragment is running in a local sandbox.",
+          });
+        } else {
+          toast.error("Deployment failed", {
+            description: result.error || "Please try again later.",
+          });
+        }
       } else {
-        toast.error("Deployment failed", {
-          description: data.error || "Please try again later.",
+        // Desktop mode - sandbox deployment not available yet
+        toast.info("Sandbox deployment coming soon", {
+          description:
+            "Fragment deployment to sandbox is being developed for desktop.",
         });
       }
     } catch (error) {
@@ -151,19 +158,24 @@ export function FragmentPreview({
 
     setIsLoadingStream(true);
     try {
-      const response = await fetch(`/api/fragments/${fragmentId}/stream`, {
-        method: "POST",
-      });
+      // Use Electron IPC for sandbox streaming if available
+      if (window.electronAPI?.sandbox?.stream) {
+        const result = await window.electronAPI.sandbox.stream(fragmentId);
 
-      const data = await response.json();
-
-      if (data.success) {
-        setStreamUrl(data.streamUrl);
-        setShowLiveView(true);
-        toast.success("Live view started!");
+        if (result.success && result.streamUrl) {
+          setStreamUrl(result.streamUrl);
+          setShowLiveView(true);
+          toast.success("Live view started!");
+        } else {
+          toast.error("Failed to start live view", {
+            description: result.error || "Please try again later.",
+          });
+        }
       } else {
-        toast.error("Failed to start live view", {
-          description: data.error || "Please try again later.",
+        // Desktop mode - sandbox streaming not available yet
+        toast.info("Live view coming soon", {
+          description:
+            "Fragment live view is being developed for desktop.",
         });
       }
     } catch (err) {

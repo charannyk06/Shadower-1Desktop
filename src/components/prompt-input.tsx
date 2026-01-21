@@ -29,6 +29,7 @@ import { Button } from "ui/button";
 import { useShallow } from "zustand/shallow";
 import { SelectModel } from "./select-model";
 import { ToolModeDropdown } from "./tool-mode-dropdown";
+import { ChatModeDropdown } from "./chat-mode-dropdown";
 
 import { useThreadFileUploader } from "@/hooks/use-thread-file-uploader";
 import { cn } from "@/lib/utils";
@@ -588,6 +589,7 @@ export default function PromptInput({
                     </Button>
                   ) : (
                     <>
+                      <ChatModeDropdown />
                       <ToolModeDropdown />
                       <ToolSelectDropdown
                         className="mx-1"

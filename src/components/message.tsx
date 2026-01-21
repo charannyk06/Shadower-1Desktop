@@ -18,6 +18,7 @@ import {
   ToolMessagePart,
   UserMessagePart,
 } from "./message-parts";
+import { ContextCompressionToolBlock } from "./tool-invocation/context-compression";
 import { SubAgentTile } from "./sub-agent-tile";
 import type { SubAgentEvent } from "./tool-invocation/sub-agent-view";
 
@@ -248,6 +249,20 @@ const PurePreviewMessage = ({
                   part={toolPart}
                   setMessages={setMessages}
                   threadId={threadId}
+                />
+              );
+            }
+
+            // Handle context compression tool block
+            if (part.type === "tool-context-compression") {
+              return (
+                <ContextCompressionToolBlock
+                  key={key}
+                  state={(part as any).state}
+                  compactedCount={(part as any).compactedCount}
+                  tokensSaved={(part as any).tokensSaved}
+                  oldPercentage={(part as any).oldPercentage}
+                  newPercentage={(part as any).newPercentage}
                 />
               );
             }
