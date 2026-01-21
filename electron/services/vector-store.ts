@@ -157,18 +157,28 @@ export class VectorStore {
   }
 
   /**
+   * Validate thread_id to prevent SQL injection
+   * Only allows alphanumeric characters, hyphens, and underscores (valid UUIDs)
+   */
+  private validateThreadId(threadId: string): boolean {
+    // UUID format: alphanumeric with hyphens
+    const validPattern = /^[a-zA-Z0-9-_]+$/;
+    return validPattern.test(threadId) && threadId.length <= 64;
+  }
+
+  /**
    * Search for similar documents or messages
    * @param queryEmbedding - The query embedding vector
    * @param collection - 'documents' or 'messages'
    * @param limit - Number of results to return
-   * @param filter - Optional filters (e.g., thread_id)
+   * @param filter - Optional filters (e.g., thread_id, user_id)
    * @returns Array of similar items with similarity scores
    */
   async search(
     queryEmbedding: number[],
     collection: "documents" | "messages",
     limit: number = 10,
-    filter?: { thread_id?: string },
+    filter?: { thread_id?: string; user_id?: string },
   ): Promise<any[]> {
     if (!this.initialized) {
       await this.initialize();
@@ -181,28 +191,76 @@ export class VectorStore {
     const table =
       collection === "documents" ? "document_embeddings" : "message_embeddings";
 
-    const whereClause = filter?.thread_id
-      ? `WHERE thread_id = '${filter.thread_id}'`
-      : "";
+    // SECURITY: Validate and sanitize inputs
+    const params: any[] = [];
+    let paramIndex = 0;
+
+    // Build WHERE clause with parameterized queries
+    const conditions: string[] = [];
+    if (filter?.thread_id) {
+      // SECURITY: Validate thread_id format before use
+      if (!this.validateThreadId(filter.thread_id)) {
+        console.error(
+          "[VectorStore] Invalid thread_id format:",
+          filter.thread_id,
+        );
+        throw new Error("Invalid thread_id format");
+      }
+      conditions.push(`thread_id = ?`);
+      params.push(filter.thread_id);
+    }
+    // Note: userId is stored in metadata JSON for security filtering
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     // Convert embedding array to DuckDB array format
+    // SECURITY: Validate embedding is array of numbers only
+    if (
+      !Array.isArray(queryEmbedding) ||
+      !queryEmbedding.every((n) => typeof n === "number" && Number.isFinite(n))
+    ) {
+      throw new Error("Invalid embedding format");
+    }
     const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
-    const query = `
+    // SECURITY: Validate limit is a positive integer
+    const safeLimit = Math.min(Math.max(1, Math.floor(Number(limit))), 1000);
+
+    // Query with all relevant fields for messages
+    const query =
+      collection === "messages"
+        ? `
       SELECT
         id,
         content,
         metadata,
         thread_id,
+        message_id,
+        role,
+        created_at,
         array_cosine_similarity(embedding, ${embeddingStr}::FLOAT[1536]) as similarity
       FROM ${table}
       ${whereClause}
       ORDER BY similarity DESC
-      LIMIT ${limit}
+      LIMIT ${safeLimit}
+    `
+        : `
+      SELECT
+        id,
+        content,
+        metadata,
+        thread_id,
+        created_at,
+        array_cosine_similarity(embedding, ${embeddingStr}::FLOAT[1536]) as similarity
+      FROM ${table}
+      ${whereClause}
+      ORDER BY similarity DESC
+      LIMIT ${safeLimit}
     `;
 
     try {
-      const results = await this.runQuery(query);
+      const results = await this.runQuery(query, params);
       return results;
     } catch (error) {
       console.error("[VectorStore] Search error:", error);
@@ -240,18 +298,26 @@ export class VectorStore {
 
     // Batch insert for performance
     for (const item of items) {
+      // SECURITY: Validate embedding is array of numbers only
+      if (
+        !Array.isArray(item.embedding) ||
+        !item.embedding.every((n) => typeof n === "number" && Number.isFinite(n))
+      ) {
+        console.error("[VectorStore] Invalid embedding format for item:", item.id);
+        continue;
+      }
       const embeddingStr = `[${item.embedding.join(",")}]`;
-      const metadataStr = item.metadata
-        ? `'${JSON.stringify(item.metadata)}'`
-        : "NULL";
+
+      // SECURITY: Safely serialize metadata as JSON string for parameterized query
+      const metadataJson = item.metadata ? JSON.stringify(item.metadata) : null;
 
       if (collection === "documents") {
         await this.runQuery(
           `
           INSERT INTO ${table} (id, content, embedding, metadata, thread_id)
-          VALUES (?, ?, ${embeddingStr}::FLOAT[1536], ${metadataStr}::JSON, ?)
+          VALUES (?, ?, ${embeddingStr}::FLOAT[1536], ?::JSON, ?)
         `,
-          [item.id, item.content, item.thread_id || null],
+          [item.id, item.content, metadataJson, item.thread_id || null],
         );
       } else {
         await this.runQuery(

@@ -229,8 +229,7 @@ const createTablesFromSchema = () => {
         updated_at INTEGER,
         banned INTEGER DEFAULT 0,
         ban_reason TEXT,
-        ban_expires INTEGER,
-        role TEXT NOT NULL DEFAULT 'user'
+        ban_expires INTEGER
       );
     `);
     console.log("[Database] ✓ Created table: user");
@@ -294,21 +293,9 @@ const createTablesFromSchema = () => {
         icon TEXT,
         user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
         instructions TEXT,
-        visibility TEXT NOT NULL DEFAULT 'private',
         created_at INTEGER,
         updated_at INTEGER
       );
-
-      CREATE TABLE IF NOT EXISTS bookmark (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        item_id TEXT NOT NULL,
-        item_type TEXT NOT NULL,
-        created_at INTEGER,
-        UNIQUE(user_id, item_id, item_type)
-      );
-      CREATE INDEX IF NOT EXISTS bookmark_user_id_idx ON bookmark(user_id);
-      CREATE INDEX IF NOT EXISTS bookmark_item_idx ON bookmark(item_id, item_type);
 
       CREATE TABLE IF NOT EXISTS mcp_server (
         id TEXT PRIMARY KEY,
@@ -316,7 +303,6 @@ const createTablesFromSchema = () => {
         config TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
         user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        visibility TEXT NOT NULL DEFAULT 'private',
         created_at INTEGER,
         updated_at INTEGER
       );
@@ -328,7 +314,6 @@ const createTablesFromSchema = () => {
         icon TEXT,
         description TEXT,
         is_published INTEGER NOT NULL DEFAULT 0,
-        visibility TEXT NOT NULL DEFAULT 'private',
         user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
         created_at INTEGER,
         updated_at INTEGER
@@ -342,20 +327,6 @@ const createTablesFromSchema = () => {
         created_at INTEGER,
         updated_at INTEGER
       );
-
-      CREATE TABLE IF NOT EXISTS user_invitation (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL,
-        token TEXT NOT NULL UNIQUE,
-        role TEXT NOT NULL DEFAULT 'editor',
-        invited_by TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        expires_at INTEGER NOT NULL,
-        accepted_at INTEGER,
-        revoked_at INTEGER,
-        created_at INTEGER
-      );
-      CREATE INDEX IF NOT EXISTS user_invitation_email_idx ON user_invitation(email);
-      CREATE INDEX IF NOT EXISTS user_invitation_token_idx ON user_invitation(token);
 
       CREATE TABLE IF NOT EXISTS subscription (
         id TEXT PRIMARY KEY,
@@ -1057,8 +1028,7 @@ const createBasicTables = () => {
           updated_at INTEGER,
           banned INTEGER DEFAULT 0,
           ban_reason TEXT,
-          ban_expires INTEGER,
-          role TEXT NOT NULL DEFAULT 'user'
+          ban_expires INTEGER
         )
       `);
       console.log("[Database] Created minimal user table as last resort");
