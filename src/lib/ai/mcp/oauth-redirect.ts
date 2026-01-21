@@ -5,7 +5,9 @@ import { wait } from "lib/utils";
 
 export function redriectMcpOauth(id: string) {
   return mcpApi.authorize(id).then((authUrl) => {
-    if (!authUrl) throw new Error("Not Authorizing");
+    if (!authUrl) {
+      throw new Error("Authorization URL not available. This server may require manual OAuth setup.");
+    }
     return new Promise((resolve, reject) => {
       // Safely append prompt parameter to authUrl
 

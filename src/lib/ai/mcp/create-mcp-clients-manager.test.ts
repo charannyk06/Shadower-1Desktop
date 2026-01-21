@@ -64,7 +64,6 @@ describe("MCPClientsManager", () => {
     config: mockServerConfig,
     enabled: true,
     userId: "test-user-id",
-    visibility: "private" as const,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -215,7 +214,6 @@ describe("MCPClientsManager", () => {
       vi.mocked(mockStorage.save).mockResolvedValue({
         ...serverToSave,
         id: "new-server-id",
-        visibility: "private" as const,
       });
 
       await manager.persistClient(serverToSave);
@@ -299,7 +297,6 @@ describe("MCPClientsManager", () => {
         ...mockServer,
         config: updatedConfig,
         userId: "test-user-id",
-        visibility: "private" as const,
       };
 
       vi.mocked(mockStorage.get).mockResolvedValue(updatedServer);
