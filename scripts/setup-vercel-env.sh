@@ -16,9 +16,19 @@ if ! command -v vercel &> /dev/null; then
     exit 1
 fi
 
-# Qdrant credentials
-QDRANT_URL="https://6c01be2b-0005-404a-b0ff-eb2cc603fabf.us-east4-0.gcp.cloud.qdrant.io:6333"
-QDRANT_API_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.bWTn2BEuSbGz-VShAwM4lURXm_HgyXdlHyGgUHkAtsE"
+# Qdrant credentials - MUST be set via environment variables
+# DO NOT hardcode credentials in this file!
+if [ -z "$QDRANT_URL" ]; then
+    echo "❌ Error: QDRANT_URL environment variable is not set"
+    echo "   Please set QDRANT_URL before running this script"
+    exit 1
+fi
+
+if [ -z "$QDRANT_API_KEY" ]; then
+    echo "❌ Error: QDRANT_API_KEY environment variable is not set"
+    echo "   Please set QDRANT_API_KEY before running this script"
+    exit 1
+fi
 
 echo "📝 Adding QDRANT_URL to Vercel production..."
 echo "$QDRANT_URL" | vercel env add QDRANT_URL production 2>&1 | grep -v "Already exists" || echo "   (already exists)"
