@@ -3,20 +3,14 @@
  *
  * This module provides a unified API for export operations.
  * In desktop mode, exports save locally to files instead of creating shareable web links.
+ * Desktop-only - no HTTP fallbacks.
  */
 
 import { ChatExportSummary } from "app-types/chat-export";
 import { threadApi } from "./thread-api";
 
 /**
- * Check if we're running in Electron mode
- */
-export function isElectronMode(): boolean {
-  return typeof window !== "undefined" && window.electronAPI !== undefined;
-}
-
-/**
- * Unified Export API
+ * Unified Export API - Desktop Only
  */
 export const exportApi = {
   /**
@@ -24,28 +18,16 @@ export const exportApi = {
    * Note: Exports are primarily a web feature, returns empty in desktop mode
    */
   async getAll(): Promise<ChatExportSummary[]> {
-    if (isElectronMode()) {
-      // Exports are a web-sharing feature, not fully supported in desktop
-      console.log("[exportApi] Exports feature is limited in desktop mode");
-      return [];
-    }
-    const res = await fetch("/api/export");
-    if (!res.ok) throw new Error(`Failed to get exports: ${res.status}`);
-    return res.json();
+    // Exports are a web-sharing feature, not fully supported in desktop
+    console.log("[exportApi] Exports feature is limited in desktop mode");
+    return [];
   },
 
   /**
    * Delete an export
    */
   async delete(id: string): Promise<void> {
-    if (isElectronMode()) {
-      console.log("[exportApi] Delete export not supported in desktop mode");
-      return;
-    }
-    const res = await fetch(`/api/export/${id}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error(`Failed to delete export: ${res.status}`);
+    console.log("[exportApi] Delete export not supported in desktop mode");
   },
 
   /**
@@ -56,10 +38,6 @@ export const exportApi = {
     threadId: string,
     format: "json" | "markdown" = "json",
   ): Promise<boolean> {
-    if (!isElectronMode()) {
-      throw new Error("Local file export only available in desktop mode");
-    }
-
     // Get thread with messages
     const threadWithMessages = await threadApi.getThreadWithMessages(threadId);
     if (!threadWithMessages) {
@@ -126,9 +104,9 @@ export const exportApi = {
       mimeType = "application/json";
     }
 
-    // Use Electron's file dialog to save
+    // Use Electron's file dialog to save if available
     if (window.electronAPI?.files?.saveFile) {
-      await window.electronAPI.files.saveFile(filename, content, mimeType);
+      await (window.electronAPI.files as any).saveFile(filename, content, mimeType);
       return true;
     }
 
@@ -159,29 +137,18 @@ export async function exportFetcher(url: string): Promise<any> {
   // Handle comments endpoint: /api/export/{id}/comments
   const commentsMatch = url.match(/^\/api\/export\/([^/]+)\/comments\/?$/);
   if (commentsMatch) {
-    if (isElectronMode()) {
-      // Comments are a web-sharing feature, not supported in desktop mode
-      console.log(
-        "[exportFetcher] Comments feature is limited in desktop mode",
-      );
-      return [];
-    }
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Failed to get comments: ${res.status}`);
-    return res.json();
-  }
-
-  // Fallback - log warning and try to handle gracefully
-  if (isElectronMode()) {
-    console.warn(
-      `[exportFetcher] Unrecognized URL pattern: ${url}, returning empty array`,
+    // Comments are a web-sharing feature, not supported in desktop mode
+    console.log(
+      "[exportFetcher] Comments feature is limited in desktop mode",
     );
     return [];
   }
 
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-  return res.json();
+  // Unrecognized pattern - return empty array
+  console.warn(
+    `[exportFetcher] Unrecognized URL pattern: ${url}, returning empty array`,
+  );
+  return [];
 }
 
 export default exportApi;

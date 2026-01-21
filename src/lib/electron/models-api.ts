@@ -1,8 +1,8 @@
 /**
  * Unified Models API for Desktop (Electron)
  *
- * This module provides a unified API for model operations that automatically
- * uses Electron IPC for all database operations.
+ * This module provides a unified API for model operations using Electron IPC.
+ * Desktop-only - no HTTP fallbacks.
  */
 
 /**
@@ -34,18 +34,7 @@ interface ProviderModels {
 }
 
 /**
- * Check if we're running in Electron mode
- */
-export function isElectronMode(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.electronAPI !== undefined &&
-    window.electronAPI.models !== undefined
-  );
-}
-
-/**
- * Unified Models API
+ * Unified Models API - Desktop Only (IPC)
  * Models are now fetched dynamically from provider APIs instead of using hard-coded lists
  */
 export const modelsApi = {
@@ -53,146 +42,138 @@ export const modelsApi = {
    * Get available chat models
    */
   async getChatModels(): Promise<ProviderModels[]> {
-    if (isElectronMode()) {
-      // Get API keys to determine which providers are available
-      const apiKeys = await window.electronAPI.models.getApiKeys();
-      // Include providers that have API keys (even if not validated yet)
-      const providersWithKeys = new Set(apiKeys.map((k) => k.providerId));
+    // Get API keys to determine which providers are available
+    const apiKeys = await window.electronAPI.models.getApiKeys();
+    // Include providers that have API keys (even if not validated yet)
+    const providersWithKeys = new Set(apiKeys.map((k) => k.providerId));
 
-      // Build the response by dynamically fetching models from APIs
-      const result: ProviderModels[] = [];
+    // Build the response by dynamically fetching models from APIs
+    const result: ProviderModels[] = [];
 
-      // List of cloud providers that support dynamic fetching
-      const cloudProviders = [
-        "anthropic",
-        "openai",
-        "google",
-        "groq",
-        "xai",
-        "cerebras",
-        "openRouter",
-      ];
+    // List of cloud providers that support dynamic fetching
+    const cloudProviders = [
+      "anthropic",
+      "openai",
+      "google",
+      "groq",
+      "xai",
+      "cerebras",
+      "openRouter",
+    ];
 
-      // Fetch models for providers with API keys using IPC (main process)
-      await Promise.all(
-        cloudProviders.map(async (provider) => {
-          if (providersWithKeys.has(provider)) {
-            try {
-              const apiKey =
-                await window.electronAPI.models.getDecryptedApiKey(provider);
-              if (apiKey) {
-                const fetchResult =
-                  await window.electronAPI.models.fetchProviderModels({
-                    providerId: provider,
-                    apiKey,
-                  });
+    // Fetch models for providers with API keys using IPC (main process)
+    await Promise.all(
+      cloudProviders.map(async (provider) => {
+        if (providersWithKeys.has(provider)) {
+          try {
+            const apiKey =
+              await window.electronAPI.models.getDecryptedApiKey(provider);
+            if (apiKey) {
+              const fetchResult =
+                await window.electronAPI.models.fetchProviderModels({
+                  providerId: provider,
+                  apiKey,
+                });
 
-                if (fetchResult.success && fetchResult.models) {
-                  // Transform to ChatModelInfo format
-                  const chatModels: ChatModelInfo[] = fetchResult.models.map(
-                    (m) => ({
-                      name: m.id,
-                      displayName: m.displayName,
-                      isToolCallUnsupported: !m.isToolCallSupported,
-                      isImageInputUnsupported: !m.isImageInputSupported,
-                      supportedFileMimeTypes: m.supportedFileMimeTypes,
-                      isReasoningModel: m.isReasoningModel,
-                      workflowGenerationSupport: m.workflowGenerationSupport,
-                      toolCallUnsupportedReason: m.toolCallUnsupportedReason,
-                      reasoningEffort: m.reasoningEffort,
-                      thinkingLevel: m.thinkingLevel,
-                    }),
-                  );
-                  result.push({
-                    provider,
-                    hasAPIKey: true,
-                    models: chatModels,
-                  });
-                } else {
-                  console.warn(
-                    `[modelsApi] Failed to fetch models for ${provider}:`,
-                    fetchResult.error,
-                  );
-                }
+              if (fetchResult.success && fetchResult.models) {
+                // Transform to ChatModelInfo format
+                const chatModels: ChatModelInfo[] = fetchResult.models.map(
+                  (m) => ({
+                    name: m.id,
+                    displayName: m.displayName,
+                    isToolCallUnsupported: !m.isToolCallSupported,
+                    isImageInputUnsupported: !m.isImageInputSupported,
+                    supportedFileMimeTypes: m.supportedFileMimeTypes,
+                    isReasoningModel: m.isReasoningModel,
+                    workflowGenerationSupport: m.workflowGenerationSupport,
+                    toolCallUnsupportedReason: m.toolCallUnsupportedReason,
+                    reasoningEffort: m.reasoningEffort,
+                    thinkingLevel: m.thinkingLevel,
+                  }),
+                );
+                result.push({
+                  provider,
+                  hasAPIKey: true,
+                  models: chatModels,
+                });
+              } else {
+                console.warn(
+                  `[modelsApi] Failed to fetch models for ${provider}:`,
+                  fetchResult.error,
+                );
               }
-            } catch (error) {
-              console.warn(
-                `[modelsApi] Failed to fetch models for ${provider}:`,
-                error,
-              );
-              // Don't add provider if fetch fails
             }
-          }
-        }),
-      );
-
-      // Also check for local models (Ollama, LM Studio)
-      try {
-        const { localModels } =
-          await window.electronAPI.models.getAvailableModels();
-        if (localModels && localModels.length > 0) {
-          const ollamaModels = localModels.filter(
-            (m: any) => m.providerId === "ollama",
-          );
-          const lmstudioModels = localModels.filter(
-            (m: any) => m.providerId === "lmstudio",
-          );
-
-          if (ollamaModels.length > 0) {
-            result.push({
-              provider: "ollama",
-              hasAPIKey: true,
-              models: ollamaModels.map((m: any) => ({
-                name: m.name,
-                displayName: m.displayName || m.name,
-                isToolCallUnsupported: !m.isToolCallSupported,
-                isImageInputUnsupported: !m.isVision,
-                supportedFileMimeTypes: m.isVision
-                  ? ["image/jpeg", "image/png", "image/gif", "image/webp"]
-                  : [],
-                isReasoningModel: false,
-                workflowGenerationSupport: "full" as const,
-              })),
-            });
-          }
-
-          if (lmstudioModels.length > 0) {
-            result.push({
-              provider: "lmstudio",
-              hasAPIKey: true,
-              models: lmstudioModels.map((m: any) => ({
-                name: m.name,
-                displayName: m.displayName || m.name,
-                isToolCallUnsupported: !m.isToolCallSupported,
-                isImageInputUnsupported: !m.isVision,
-                supportedFileMimeTypes: m.isVision
-                  ? ["image/jpeg", "image/png", "image/gif", "image/webp"]
-                  : [],
-                isReasoningModel: false,
-                workflowGenerationSupport: "full" as const,
-              })),
-            });
+          } catch (error) {
+            console.warn(
+              `[modelsApi] Failed to fetch models for ${provider}:`,
+              error,
+            );
           }
         }
-      } catch (e) {
-        console.warn("[modelsApi] Failed to get local models:", e);
+      }),
+    );
+
+    // Also check for local models (Ollama, LM Studio)
+    try {
+      const { localModels } =
+        await window.electronAPI.models.getAvailableModels();
+      if (localModels && localModels.length > 0) {
+        const ollamaModels = localModels.filter(
+          (m: any) => m.providerId === "ollama",
+        );
+        const lmstudioModels = localModels.filter(
+          (m: any) => m.providerId === "lmstudio",
+        );
+
+        if (ollamaModels.length > 0) {
+          result.push({
+            provider: "ollama",
+            hasAPIKey: true,
+            models: ollamaModels.map((m: any) => ({
+              name: m.name,
+              displayName: m.displayName || m.name,
+              isToolCallUnsupported: !m.isToolCallSupported,
+              isImageInputUnsupported: !m.isVision,
+              supportedFileMimeTypes: m.isVision
+                ? ["image/jpeg", "image/png", "image/gif", "image/webp"]
+                : [],
+              isReasoningModel: false,
+              workflowGenerationSupport: "full" as const,
+            })),
+          });
+        }
+
+        if (lmstudioModels.length > 0) {
+          result.push({
+            provider: "lmstudio",
+            hasAPIKey: true,
+            models: lmstudioModels.map((m: any) => ({
+              name: m.name,
+              displayName: m.displayName || m.name,
+              isToolCallUnsupported: !m.isToolCallSupported,
+              isImageInputUnsupported: !m.isVision,
+              supportedFileMimeTypes: m.isVision
+                ? ["image/jpeg", "image/png", "image/gif", "image/webp"]
+                : [],
+              isReasoningModel: false,
+              workflowGenerationSupport: "full" as const,
+            })),
+          });
+        }
       }
-
-      // Filter to only include providers with API keys (or local providers with models)
-      return result.filter((p) => {
-        // Local providers (ollama, lmstudio) don't need API keys - include if they have models
-        if (p.provider === "ollama" || p.provider === "lmstudio") {
-          return p.models && p.models.length > 0;
-        }
-        // Cloud providers must have API keys
-        return p.hasAPIKey === true;
-      });
+    } catch (e) {
+      console.warn("[modelsApi] Failed to get local models:", e);
     }
 
-    // Web fallback
-    const res = await fetch("/api/chat/models");
-    if (!res.ok) throw new Error(`Failed to get models: ${res.status}`);
-    return res.json();
+    // Filter to only include providers with API keys (or local providers with models)
+    return result.filter((p) => {
+      // Local providers (ollama, lmstudio) don't need API keys - include if they have models
+      if (p.provider === "ollama" || p.provider === "lmstudio") {
+        return p.models && p.models.length > 0;
+      }
+      // Cloud providers must have API keys
+      return p.hasAPIKey === true;
+    });
   },
 
   /**
@@ -200,18 +181,13 @@ export const modelsApi = {
    * Transforms the response to include hasKey field for UI compatibility
    */
   async getApiKeys() {
-    if (isElectronMode()) {
-      const keys = await window.electronAPI.models.getApiKeys();
-      // Transform keys to include hasKey field - if a record exists, the key exists
-      const transformedKeys = keys.map((key) => ({
-        ...key,
-        hasKey: true, // If a record exists in the database, the key exists
-      }));
-      return { keys: transformedKeys };
-    }
-    const res = await fetch("/api/models/api-keys");
-    if (!res.ok) throw new Error(`Failed to get API keys: ${res.status}`);
-    return res.json();
+    const keys = await window.electronAPI.models.getApiKeys();
+    // Transform keys to include hasKey field - if a record exists, the key exists
+    const transformedKeys = keys.map((key) => ({
+      ...key,
+      hasKey: true,
+    }));
+    return { keys: transformedKeys };
   },
 
   /**
@@ -219,37 +195,27 @@ export const modelsApi = {
    * Transforms the response to include hasKey field for UI compatibility
    */
   async getKeysInfo() {
-    if (isElectronMode()) {
-      const keys = await window.electronAPI.models.getApiKeys();
-      // Transform keys to include hasKey field - if a record exists, the key exists
-      const transformedKeys = keys.map((key) => ({
-        ...key,
-        hasKey: true, // If a record exists in the database, the key exists
-      }));
-      return { keys: transformedKeys };
-    }
-    const res = await fetch("/api/models/keys");
-    if (!res.ok) throw new Error(`Failed to get keys info: ${res.status}`);
-    return res.json();
+    const keys = await window.electronAPI.models.getApiKeys();
+    // Transform keys to include hasKey field - if a record exists, the key exists
+    const transformedKeys = keys.map((key) => ({
+      ...key,
+      hasKey: true,
+    }));
+    return { keys: transformedKeys };
   },
 
   /**
    * Get local models (Ollama, LM Studio)
    */
   async getLocalModels() {
-    if (isElectronMode()) {
-      try {
-        const { localModels } =
-          await window.electronAPI.models.getAvailableModels();
-        return { models: localModels || [] };
-      } catch (e) {
-        console.warn("[modelsApi] Failed to get local models:", e);
-        return { models: [] };
-      }
+    try {
+      const { localModels } =
+        await window.electronAPI.models.getAvailableModels();
+      return { models: localModels || [] };
+    } catch (e) {
+      console.warn("[modelsApi] Failed to get local models:", e);
+      return { models: [] };
     }
-    const res = await fetch("/api/models/local");
-    if (!res.ok) throw new Error(`Failed to get local models: ${res.status}`);
-    return res.json();
   },
 
   /**
@@ -260,69 +226,37 @@ export const modelsApi = {
     apiKey: string;
     validate?: boolean;
   }) {
-    if (isElectronMode()) {
-      return window.electronAPI.models.saveApiKey(data);
-    }
-    const res = await fetch("/api/models/api-keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(`Failed to save API key: ${res.status}`);
-    return res.json();
+    return window.electronAPI.models.saveApiKey(data);
   },
 
   /**
    * Test API key (validates without saving)
    */
   async testApiKey(data: { providerId: string; apiKey: string }) {
-    if (isElectronMode()) {
-      // Use validateApiKey which tests without saving
-      return window.electronAPI.models.validateApiKey(data);
-    }
-    const res = await fetch("/api/models/keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...data, testOnly: true }),
-    });
-    return res.json();
+    return window.electronAPI.models.validateApiKey(data);
   },
 
   /**
    * Save API key via /api/models/keys endpoint
    */
   async saveKey(data: { providerId: string; apiKey: string }) {
-    if (isElectronMode()) {
-      const result = await window.electronAPI.models.saveApiKey(data);
-      // Refresh local models after save to update status
-      try {
-        await window.electronAPI.models.refreshLocalModels({
-          providerId: data.providerId,
-        });
-      } catch (e) {
-        console.warn("[modelsApi] Failed to refresh models:", e);
-      }
-      return result;
+    const result = await window.electronAPI.models.saveApiKey(data);
+    // Refresh local models after save to update status
+    try {
+      await window.electronAPI.models.refreshLocalModels({
+        providerId: data.providerId,
+      });
+    } catch (e) {
+      console.warn("[modelsApi] Failed to refresh models:", e);
     }
-    const res = await fetch("/api/models/keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    return res.json();
+    return result;
   },
 
   /**
    * Delete API key
    */
   async deleteKey(providerId: string) {
-    if (isElectronMode()) {
-      return window.electronAPI.models.deleteApiKey(providerId);
-    }
-    const res = await fetch(`/api/models/keys?providerId=${providerId}`, {
-      method: "DELETE",
-    });
-    return res.json();
+    return window.electronAPI.models.deleteApiKey(providerId);
   },
 
   /**
@@ -330,63 +264,35 @@ export const modelsApi = {
    * In Electron mode, this refreshes local models to update the cache
    */
   async invalidateCache(providerId: string) {
-    if (isElectronMode()) {
-      // Use refreshLocalModels to invalidate/refresh the cache
-      return window.electronAPI.models.refreshLocalModels({ providerId });
-    }
-    const res = await fetch("/api/models/invalidate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ providerId }),
-    });
-    return res.json();
+    return window.electronAPI.models.refreshLocalModels({ providerId });
   },
 
   /**
    * Refresh local models (Ollama, LM Studio) for a provider
    */
   async refreshLocalModels(providerId: string) {
-    if (isElectronMode()) {
-      try {
-        // In Electron mode, refresh by re-fetching available models
-        const { localModels } =
-          await window.electronAPI.models.getAvailableModels();
-        return { success: true, models: localModels || [] };
-      } catch (e) {
-        console.warn("[modelsApi] Failed to refresh local models:", e);
-        return { success: false, error: String(e) };
-      }
+    try {
+      const { localModels } =
+        await window.electronAPI.models.getAvailableModels();
+      return { success: true, models: localModels || [] };
+    } catch (e) {
+      console.warn("[modelsApi] Failed to refresh local models:", e);
+      return { success: false, error: String(e) };
     }
-    const res = await fetch("/api/models/local", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ providerId }),
-    });
-    return res.json();
   },
 
   /**
    * Get providers
    */
   async getProviders() {
-    if (isElectronMode()) {
-      return window.electronAPI.models.getProviders();
-    }
-    const res = await fetch("/api/models/providers");
-    if (!res.ok) throw new Error(`Failed to get providers: ${res.status}`);
-    return res.json();
+    return window.electronAPI.models.getProviders();
   },
 
   /**
    * Get available models status
    */
   async getStatus() {
-    if (isElectronMode()) {
-      return window.electronAPI.models.getStatus();
-    }
-    const res = await fetch("/api/models/status");
-    if (!res.ok) throw new Error(`Failed to get status: ${res.status}`);
-    return res.json();
+    return window.electronAPI.models.getStatus();
   },
 };
 
@@ -421,17 +327,11 @@ export async function modelsFetcher(url: string): Promise<any> {
     return modelsApi.getStatus();
   }
 
-  // Fallback - log warning and try to handle gracefully
-  if (isElectronMode()) {
-    console.warn(
-      `[modelsFetcher] Unrecognized URL pattern: ${url}, returning empty array`,
-    );
-    return [];
-  }
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-  return res.json();
+  // Unrecognized pattern - return empty array
+  console.warn(
+    `[modelsFetcher] Unrecognized URL pattern: ${url}, returning empty array`,
+  );
+  return [];
 }
 
 export default modelsApi;

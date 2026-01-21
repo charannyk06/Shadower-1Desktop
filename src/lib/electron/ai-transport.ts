@@ -217,12 +217,14 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
     let cleanupEnd: (() => void) | undefined;
     let cleanupError: (() => void) | undefined;
     let cleanupStep: (() => void) | undefined;
+    let cleanupWarning: (() => void) | undefined;
 
     const cleanup = () => {
       cleanupChunk?.();
       cleanupEnd?.();
       cleanupError?.();
       cleanupStep?.();
+      cleanupWarning?.();
     };
 
     let streamController: ReadableStreamDefaultController<UIMessageChunk> | null =
@@ -243,6 +245,7 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
           messages,
           chatModel: requestBody.chatModel,
           toolChoice: requestBody.toolChoice,
+          chatMode: requestBody.chatMode,
           allowedAppDefaultToolkit: requestBody.allowedAppDefaultToolkit,
           allowedMcpServers: requestBody.allowedMcpServers,
           mentions: requestBody.mentions,
@@ -446,6 +449,23 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
               toolCallCount: number;
             }) => {
               if (data.threadId !== id) return;
+            },
+          );
+        }
+
+        // Listen for warnings (e.g., tool format not supported)
+        if (api.ai.onStreamWarning) {
+          cleanupWarning = api.ai.onStreamWarning(
+            (data: { threadId: string; message: string; type?: string }) => {
+              if (data.threadId !== id) return;
+              console.warn("[AI Transport] Stream warning:", data.message);
+              // Import toast dynamically to avoid circular deps
+              import("sonner").then(({ toast }) => {
+                toast.warning("Model Limitation", {
+                  description: data.message,
+                  duration: 8000,
+                });
+              });
             },
           );
         }

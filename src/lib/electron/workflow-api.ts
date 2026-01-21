@@ -1,12 +1,8 @@
 /**
- * Unified Workflow API for Desktop (Electron) and Web
+ * Unified Workflow API for Desktop (Electron)
  *
- * This module provides a unified API for workflow operations that automatically
- * detects if we're running in Electron mode and uses IPC, or falls back to
- * fetch calls for web mode.
- *
- * In Electron desktop mode, all operations go through window.electronAPI.db.workflows
- * In web mode, operations use the standard fetch API
+ * This module provides a unified API for workflow operations using Electron IPC.
+ * Desktop-only - no HTTP fallbacks.
  */
 
 import {
@@ -17,55 +13,30 @@ import {
 } from "app-types/workflow";
 
 /**
- * Check if we're running in Electron mode with workflow IPC available
- */
-export function isElectronMode(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.electronAPI !== undefined &&
-    window.electronAPI.db?.workflows !== undefined
-  );
-}
-
-/**
  * Get current user ID from Electron auth
- * This returns the actual database user ID (UUID), not the hardcoded "local-user" string
  */
 async function getElectronUserId(): Promise<string> {
-  if (!isElectronMode()) {
-    throw new Error("Not in Electron mode");
-  }
   const user = await window.electronAPI.auth.getCurrentUser();
   return user?.id || "local-user";
 }
 
 /**
  * Get current user ID - exposed for components that need the correct user ID
- * In Electron mode, this returns the actual database UUID
- * In web mode, this returns undefined (use session instead)
  */
 export async function getCurrentUserId(): Promise<string | undefined> {
-  if (!isElectronMode()) {
-    return undefined;
-  }
   return getElectronUserId();
 }
 
 /**
- * Unified Workflow API
+ * Unified Workflow API - Desktop Only (IPC)
  */
 export const workflowApi = {
   /**
    * Get all workflows for the current user
    */
   async getAll(): Promise<WorkflowSummary[]> {
-    if (isElectronMode()) {
-      const userId = await getElectronUserId();
-      return window.electronAPI.db.workflows.getAll(userId);
-    }
-    const res = await fetch("/api/workflow");
-    if (!res.ok) throw new Error(`Failed to get workflows: ${res.status}`);
-    return res.json();
+    const userId = await getElectronUserId();
+    return window.electronAPI.db.workflows.getAll(userId);
   },
 
   /**
@@ -74,12 +45,7 @@ export const workflowApi = {
   async getById(
     id: string,
   ): Promise<(DBWorkflow & { nodes: DBNode[]; edges: DBEdge[] }) | null> {
-    if (isElectronMode()) {
-      return window.electronAPI.db.workflows.getById(id);
-    }
-    const res = await fetch(`/api/workflow/${id}`);
-    if (!res.ok) throw new Error(`Failed to get workflow: ${res.status}`);
-    return res.json();
+    return window.electronAPI.db.workflows.getById(id);
   },
 
   /**
@@ -92,20 +58,11 @@ export const workflowApi = {
     visibility?: "private" | "public" | "readonly";
     isPublished?: boolean;
   }): Promise<DBWorkflow> {
-    if (isElectronMode()) {
-      const userId = await getElectronUserId();
-      return window.electronAPI.db.workflows.create({
-        ...data,
-        userId,
-      });
-    }
-    const res = await fetch("/api/workflow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+    const userId = await getElectronUserId();
+    return window.electronAPI.db.workflows.create({
+      ...data,
+      userId,
     });
-    if (!res.ok) throw new Error(`Failed to create workflow: ${res.status}`);
-    return res.json();
   },
 
   /**
@@ -121,30 +78,14 @@ export const workflowApi = {
       isPublished: boolean;
     }>,
   ): Promise<DBWorkflow> {
-    if (isElectronMode()) {
-      return window.electronAPI.db.workflows.update(id, data);
-    }
-    const res = await fetch(`/api/workflow/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(`Failed to update workflow: ${res.status}`);
-    return res.json();
+    return window.electronAPI.db.workflows.update(id, data);
   },
 
   /**
    * Delete a workflow
    */
   async delete(id: string): Promise<void> {
-    if (isElectronMode()) {
-      await window.electronAPI.db.workflows.delete(id);
-      return;
-    }
-    const res = await fetch(`/api/workflow/${id}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error(`Failed to delete workflow: ${res.status}`);
+    await window.electronAPI.db.workflows.delete(id);
   },
 
   /**
@@ -161,67 +102,128 @@ export const workflowApi = {
       deleteEdges?: string[];
     },
   ): Promise<void> {
-    if (isElectronMode()) {
-      // Use the new saveStructure IPC handler that properly handles diffs
-      await window.electronAPI.db.workflows.saveStructure(workflowId, data);
-      return;
-    }
-    const res = await fetch(`/api/workflow/${workflowId}/structure`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok)
-      throw new Error(`Failed to save workflow structure: ${res.status}`);
+    await window.electronAPI.db.workflows.saveStructure(workflowId, data);
   },
 
   /**
-   * Execute a workflow
-   * Returns a ReadableStream for streaming execution events
+   * Execute a workflow with callback-based event streaming
+   * This is the primary method for desktop workflow execution
+   */
+  async executeWithCallback(
+    workflowId: string,
+    input: Record<string, any>,
+    onEvent: (event: { type: string; [key: string]: any }) => void,
+  ): Promise<{ success: boolean }> {
+    // Set up event listener
+    const cleanup = window.electronAPI.workflow.onEvent((data) => {
+      if (data.workflowId === workflowId) {
+        onEvent(data.event);
+      }
+    });
+
+    try {
+      // Execute the workflow
+      const result = await window.electronAPI.workflow.execute(workflowId, input);
+      return result;
+    } finally {
+      // Clean up event listener
+      cleanup();
+    }
+  },
+
+  /**
+   * Cancel a running workflow execution
+   */
+  async cancel(workflowId: string): Promise<{ success: boolean; cancelled: boolean }> {
+    return window.electronAPI.workflow.cancel(workflowId);
+  },
+
+  /**
+   * Execute a workflow - returns a ReadableStream for compatibility
+   * Wraps the IPC streaming in a ReadableStream interface
    */
   async execute(
     workflowId: string,
     query: Record<string, any>,
   ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
-    if (isElectronMode()) {
-      // For Electron, we need to create a mock stream from IPC events
-      // This will be handled by a custom IPC handler that streams events
-      throw new Error(
-        "Workflow execution in Electron mode requires streaming IPC - use executeWithCallback instead",
-      );
-    }
-    const res = await fetch(`/api/workflow/${workflowId}/execute`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
+    const encoder = new TextEncoder();
+
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        // Set up event listener
+        const cleanup = window.electronAPI.workflow.onEvent((data) => {
+          if (data.workflowId === workflowId) {
+            // Encode event as JSON line
+            const chunk = encoder.encode(JSON.stringify(data.event) + "\n");
+            controller.enqueue(chunk);
+
+            // Close stream on completion or error
+            if (data.event.type === "complete" || data.event.type === "error") {
+              cleanup();
+              controller.close();
+            }
+          }
+        });
+
+        // Start execution
+        window.electronAPI.workflow.execute(workflowId, query).catch((error) => {
+          cleanup();
+          controller.error(error);
+        });
+      },
     });
-    if (!res.ok) throw new Error(`Failed to execute workflow: ${res.status}`);
-    const reader = res.body?.getReader();
-    if (!reader) throw new Error("No readable stream available");
-    return reader;
+
+    return stream.getReader();
   },
 
   /**
-   * Execute a workflow with callbacks (for both Electron and Web)
-   * This provides a unified interface for handling streaming events
+   * Execute a workflow with stream - returns a Response for fetch-like interface
    */
   async executeWithStream(
     workflowId: string,
     query: Record<string, any>,
     signal?: AbortSignal,
   ): Promise<Response> {
-    // Both Electron and Web use the same fetch-based approach
-    // The API route will handle the execution appropriately
-    const res = await fetch(`/api/workflow/${workflowId}/execute`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
-      signal,
-    });
-    if (!res.ok) {
-      throw new Error(`Failed to execute workflow: ${res.status}`);
+    const encoder = new TextEncoder();
+
+    // Handle abort signal
+    if (signal) {
+      signal.addEventListener("abort", () => {
+        this.cancel(workflowId);
+      });
     }
-    return res;
+
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        // Set up event listener
+        const cleanup = window.electronAPI.workflow.onEvent((data) => {
+          if (data.workflowId === workflowId) {
+            // Encode event as JSON line
+            const chunk = encoder.encode(JSON.stringify(data.event) + "\n");
+            controller.enqueue(chunk);
+
+            // Close stream on completion or error
+            if (data.event.type === "complete" || data.event.type === "error") {
+              cleanup();
+              controller.close();
+            }
+          }
+        });
+
+        // Start execution
+        window.electronAPI.workflow.execute(workflowId, query).catch((error) => {
+          cleanup();
+          controller.error(error);
+        });
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+      },
+    });
   },
 };
 
@@ -239,15 +241,11 @@ export async function workflowFetcher(url: string): Promise<any> {
     return workflowApi.getById(workflowMatch[1]);
   }
 
-  // Fallback to regular fetch for unrecognized patterns
-  if (isElectronMode()) {
-    console.warn(
-      `[workflowFetcher] Unrecognized URL pattern: ${url}, using fetch fallback`,
-    );
-  }
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-  return res.json();
+  // Unrecognized pattern
+  console.warn(
+    `[workflowFetcher] Unrecognized URL pattern: ${url}, returning empty array`,
+  );
+  return [];
 }
 
 export default workflowApi;

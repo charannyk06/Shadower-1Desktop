@@ -1,37 +1,21 @@
 /**
  * Unified User API for Desktop (Electron)
  *
- * This module provides a unified API for user operations that automatically
- * uses Electron IPC for all database operations.
+ * This module provides a unified API for user operations using Electron IPC.
+ * Desktop-only - no HTTP fallbacks.
  */
 
 import { UserPreferences, BasicUser } from "app-types/user";
 
 /**
- * Check if we're running in Electron mode
- */
-export function isElectronMode(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.electronAPI !== undefined &&
-    window.electronAPI.auth !== undefined
-  );
-}
-
-/**
- * Unified User API
+ * Unified User API - Desktop Only (IPC)
  */
 export const userApi = {
   /**
    * Get user preferences
    */
   async getPreferences(): Promise<UserPreferences> {
-    if (isElectronMode()) {
-      return window.electronAPI.auth.getPreferences();
-    }
-    const res = await fetch("/api/user/preferences");
-    if (!res.ok) throw new Error(`Failed to get preferences: ${res.status}`);
-    return res.json();
+    return window.electronAPI.auth.getPreferences();
   },
 
   /**
@@ -40,16 +24,7 @@ export const userApi = {
   async updatePreferences(
     preferences: Partial<UserPreferences>,
   ): Promise<void> {
-    if (isElectronMode()) {
-      await window.electronAPI.auth.updatePreferences(preferences);
-      return;
-    }
-    const res = await fetch("/api/user/preferences", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(preferences),
-    });
-    if (!res.ok) throw new Error(`Failed to update preferences: ${res.status}`);
+    await window.electronAPI.auth.updatePreferences(preferences);
   },
 
   /**
@@ -57,18 +32,12 @@ export const userApi = {
    * @param userId - Optional user ID. If not provided, returns current user
    */
   async getDetails(userId?: string): Promise<BasicUser | null> {
-    if (isElectronMode()) {
-      if (userId) {
-        // Get specific user by ID
-        return window.electronAPI.db.user.getById(userId);
-      }
-      // Get current user
-      return window.electronAPI.auth.getCurrentUser();
+    if (userId) {
+      // Get specific user by ID
+      return window.electronAPI.db.user.getById(userId);
     }
-    const url = userId ? `/api/user/details/${userId}` : "/api/user/details";
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Failed to get user details: ${res.status}`);
-    return res.json();
+    // Get current user
+    return window.electronAPI.auth.getCurrentUser();
   },
 
   /**
@@ -81,11 +50,9 @@ export const userApi = {
     totalTokens: number;
     period: string;
   }> {
-    if (isElectronMode()) {
-      return window.electronAPI.db.user.getStats(userId);
-    }
-    const res = await fetch(`/api/user/stats/${userId}`);
-    if (!res.ok) {
+    try {
+      return await window.electronAPI.db.user.getStats(userId);
+    } catch {
       // Return default stats on error
       return {
         threadCount: 0,
@@ -95,7 +62,6 @@ export const userApi = {
         period: "Last 30 Days",
       };
     }
-    return res.json();
   },
 
   /**
@@ -112,16 +78,7 @@ export const userApi = {
     name?: string;
     image?: string | null;
   }): Promise<any> {
-    if (isElectronMode()) {
-      return window.electronAPI.auth.updateProfile(data);
-    }
-    const res = await fetch("/api/user/profile", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(`Failed to update profile: ${res.status}`);
-    return res.json();
+    return window.electronAPI.auth.updateProfile(data);
   },
 };
 
@@ -138,17 +95,11 @@ export async function userFetcher(url: string): Promise<any> {
     return userApi.getDetails();
   }
 
-  // Fallback - log warning and try to handle gracefully
-  if (isElectronMode()) {
-    console.warn(
-      `[userFetcher] Unrecognized URL pattern: ${url}, returning null`,
-    );
-    return null;
-  }
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-  return res.json();
+  // Unrecognized pattern - return null
+  console.warn(
+    `[userFetcher] Unrecognized URL pattern: ${url}, returning null`,
+  );
+  return null;
 }
 
 export default userApi;
