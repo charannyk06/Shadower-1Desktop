@@ -20,7 +20,7 @@ interface WorkflowContextMenuProps {
   children: React.ReactNode;
   workflow: Pick<
     DBWorkflow,
-    "id" | "name" | "description" | "icon" | "isPublished" | "visibility"
+    "id" | "name" | "description" | "icon" | "isPublished"
   >;
 }
 

@@ -42,8 +42,6 @@ export default function WorkflowListPage() {
 
   // Use Electron user ID if available, otherwise fall back to session
   const currentUserId = electronUserId || session?.user?.id;
-  const [isVisibilityChangeLoading, setIsVisibilityChangeLoading] =
-    useState(false);
   const [isDeleteLoading, setIsDeleteLoading] = useState(false);
 
   const { data: workflows, isLoading: isWorkflowsLoading } = useSWR<
@@ -55,29 +53,8 @@ export default function WorkflowListPage() {
   // Combined loading state - wait for both user ID and workflows
   const isLoading = isWorkflowsLoading || isUserIdLoading;
 
-  // Separate workflows into user's own and shared
-  const myWorkflows =
-    workflows?.filter((w) => w.userId === currentUserId) || [];
-  const sharedWorkflows =
-    workflows?.filter((w) => w.userId !== currentUserId) || [];
-
-  const updateVisibility = async (
-    workflowId: string,
-    visibility: "private" | "public" | "readonly",
-  ) => {
-    try {
-      setIsVisibilityChangeLoading(true);
-      await workflowApi.update(workflowId, { visibility });
-
-      // Refresh the workflows data
-      mutate("/api/workflow");
-      toast.success(t("Workflow.visibilityUpdated"));
-    } catch {
-      toast.error(t("Common.error"));
-    } finally {
-      setIsVisibilityChangeLoading(false);
-    }
-  };
+  // In single-user mode, all workflows belong to the user
+  const myWorkflows = workflows || [];
 
   const deleteWorkflow = async (workflowId: string) => {
     const ok = await notify.confirm({
@@ -98,14 +75,6 @@ export default function WorkflowListPage() {
     }
   };
 
-  // All authenticated users can create workflows (roles/permissions removed)
-  const canCreate = true;
-
-  // For regular users, combine all workflows into one list
-  const displayWorkflows = canCreate
-    ? myWorkflows
-    : [...myWorkflows, ...sharedWorkflows];
-
   return (
     <div className="w-full flex flex-col gap-4 p-8">
       <div className="flex flex-row gap-2 items-center">
@@ -123,135 +92,66 @@ export default function WorkflowListPage() {
             <WorkflowGreeting />
           </DialogContent>
         </Dialog>
-
-        {/* Hidden: Create With Example dropdown
-        {canCreate && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="secondary"
-                className="min-w-54 justify-between data-[state=open]:bg-input"
-                data-testid="create-workflow-with-example-button"
-              >
-                {t("Common.createWithExample")}
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-54">
-              <DropdownMenuItem onClick={() => createExample(BabyResearch())}>
-                👨🏻‍🔬 {t("Workflow.example.babyResearch")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => createExample(GetWeather())}>
-                🌤️ {t("Workflow.example.getWeather")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        */}
       </div>
 
-      {/* My Workflows / Available Workflows Section */}
-      {(canCreate || displayWorkflows.length > 0) && (
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold">
-              {canCreate
-                ? t("Workflow.myWorkflows")
-                : t("Workflow.availableWorkflows")}
-            </h2>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {canCreate && (
-              <EditWorkflowPopup>
-                <Card className="relative bg-secondary overflow-hidden w-full hover:bg-input transition-colors h-[196px] cursor-pointer">
-                  <div className="absolute inset-0 w-full h-full opacity-50">
-                    <BackgroundPaths />
-                  </div>
-                  <CardHeader>
-                    <CardTitle>
-                      <h1 className="text-lg font-bold">
-                        {t("Workflow.createWorkflow")}
-                      </h1>
-                    </CardTitle>
-                    <CardDescription className="mt-2">
-                      <p className="">
-                        {t("Workflow.createWorkflowDescription")}
-                      </p>
-                    </CardDescription>
-                    <div className="mt-auto ml-auto flex-1">
-                      <Button variant="ghost" size="lg">
-                        {t("Common.create")}
-                        <ArrowUpRight className="size-3.5" />
-                      </Button>
-                    </div>
-                  </CardHeader>
-                </Card>
-              </EditWorkflowPopup>
-            )}
-            {isLoading
-              ? Array(6)
-                  .fill(null)
-                  .map((_, index) => (
-                    <Skeleton key={index} className="w-full h-[196px]" />
-                  ))
-              : displayWorkflows?.map((workflow) => (
-                  <ShareableCard
-                    key={workflow.id}
-                    type="workflow"
-                    item={workflow}
-                    href={`/workflow/${workflow.id}`}
-                    onVisibilityChange={
-                      canCreate && workflow.userId === currentUserId
-                        ? updateVisibility
-                        : undefined
-                    }
-                    onDelete={
-                      canCreate && workflow.userId === currentUserId
-                        ? deleteWorkflow
-                        : undefined
-                    }
-                    isVisibilityChangeLoading={isVisibilityChangeLoading}
-                    isDeleteLoading={isDeleteLoading}
-                    isOwner={workflow.userId === currentUserId}
-                  />
-                ))}
-          </div>
+      {/* My Workflows Section */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold">{t("Workflow.myWorkflows")}</h2>
+          <div className="flex-1 h-px bg-border" />
         </div>
-      )}
 
-      {/* Only show Shared Workflows section for users who can create (to differentiate between owned and shared) */}
-      {canCreate && sharedWorkflows.length > 0 && (
-        <div className="flex flex-col gap-4 mt-8">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold">
-              {t("Workflow.sharedWorkflows")}
-            </h2>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {sharedWorkflows?.map((workflow) => (
-              <ShareableCard
-                key={workflow.id}
-                type="workflow"
-                item={workflow}
-                isOwner={false}
-                href={`/workflow/${workflow.id}`}
-              />
-            ))}
-          </div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <EditWorkflowPopup>
+            <Card className="relative bg-secondary overflow-hidden w-full hover:bg-input transition-colors h-[196px] cursor-pointer">
+              <div className="absolute inset-0 w-full h-full opacity-50">
+                <BackgroundPaths />
+              </div>
+              <CardHeader>
+                <CardTitle>
+                  <h1 className="text-lg font-bold">
+                    {t("Workflow.createWorkflow")}
+                  </h1>
+                </CardTitle>
+                <CardDescription className="mt-2">
+                  <p className="">{t("Workflow.createWorkflowDescription")}</p>
+                </CardDescription>
+                <div className="mt-auto ml-auto flex-1">
+                  <Button variant="ghost" size="lg">
+                    {t("Common.create")}
+                    <ArrowUpRight className="size-3.5" />
+                  </Button>
+                </div>
+              </CardHeader>
+            </Card>
+          </EditWorkflowPopup>
+          {isLoading
+            ? Array(6)
+                .fill(null)
+                .map((_, index) => (
+                  <Skeleton key={index} className="w-full h-[196px]" />
+                ))
+            : myWorkflows?.map((workflow) => (
+                <ShareableCard
+                  key={workflow.id}
+                  type="workflow"
+                  item={workflow}
+                  href={`/workflow/${workflow.id}`}
+                  onDelete={deleteWorkflow}
+                  isDeleteLoading={isDeleteLoading}
+                  isOwner={true}
+                />
+              ))}
         </div>
-      )}
+      </div>
 
-      {/* Empty state for users without create permission and no available workflows */}
-      {!canCreate && displayWorkflows.length === 0 && !isLoading && (
+      {/* Empty state */}
+      {myWorkflows.length === 0 && !isLoading && (
         <Card className="col-span-full bg-transparent border-none">
           <CardHeader className="text-center py-12">
-            <CardTitle>{t("Workflow.noAvailableWorkflows")}</CardTitle>
+            <CardTitle>{t("Workflow.noWorkflows")}</CardTitle>
             <CardDescription>
-              {t("Workflow.noAvailableWorkflowsDescription")}
+              {t("Workflow.noWorkflowsDescription")}
             </CardDescription>
           </CardHeader>
         </Card>

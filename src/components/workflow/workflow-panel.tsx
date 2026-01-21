@@ -305,21 +305,6 @@ export const WorkflowPanel = memo(
       toast.success(t("Workflow.nodesArranged"));
     }, [getNodes, getEdges, setNodes, t]);
 
-    const updateVisibility = useCallback(
-      (visibility: DBWorkflow["visibility"]) => {
-        setIsSaving(true);
-        const close = addProcess();
-        safe(() => workflowApi.update(workflow.id, { visibility }))
-          .ifOk(() => mutate(`/api/workflow/${workflow.id}`))
-          .ifFail((e) => handleErrorWithToast(e))
-          .watch(() => {
-            setIsSaving(false);
-            close();
-          });
-      },
-      [workflow, addProcess],
-    );
-
     const updatePublished = useCallback(
       (isPublished: boolean) => {
         if (isPublished) {
@@ -639,10 +624,8 @@ export const WorkflowPanel = memo(
           </Tooltip>
           <ShareableActions
             type="workflow"
-            visibility={workflow.visibility}
-            isOwner={hasEditAccess || false}
-            onVisibilityChange={hasEditAccess ? updateVisibility : undefined}
-            isVisibilityChangeLoading={isSaving}
+            isOwner={true}
+            disabled={isSaving}
           />
         </div>
         <div className="flex gap-2">

@@ -6,7 +6,7 @@ import { useChatModels } from "@/hooks/queries/use-chat-models";
 import { useWorkflowToolList } from "@/hooks/queries/use-workflow-tool-list";
 import { UIMessage, useChat } from "@ai-sdk/react";
 import { Edge } from "@xyflow/react";
-import { DefaultChatTransport } from "ai";
+import { ElectronWorkflowTransport } from "@/lib/electron/workflow-transport";
 import { ChatModel } from "app-types/chat";
 import { motion } from "framer-motion";
 import { getWorkflowErrorMessage } from "lib/ai/workflow/workflow-error-handler";
@@ -471,31 +471,16 @@ function WorkflowBuilderChatInner({
     });
   }, []);
 
-  // Create a custom transport that intercepts and cleans stream responses
+  // Create an IPC-based transport for Electron workflow generation
+  // This uses the main process AI handler for full agentic streaming with tool calls
   const transport = useMemo(
     () =>
-      new DefaultChatTransport({
-        api: "/api/ai/workflow/generate",
-        body: {
-          availableTools: tools,
-          currentWorkflowState,
-          chatModel: generateModel,
-        },
-        // CRITICAL: Clean messages before sending to prevent reasoning errors
-        prepareSendMessagesRequest: ({ messages }) => {
-          // Clean all messages before sending to API
-          const cleanedMessages = cleanMessages(messages);
-          return {
-            body: {
-              availableTools: tools,
-              currentWorkflowState,
-              chatModel: generateModel,
-              messages: cleanedMessages,
-            },
-          };
-        },
+      new ElectronWorkflowTransport({
+        availableTools: tools,
+        currentWorkflowState,
+        chatModel: generateModel,
       }),
-    [tools, currentWorkflowState, generateModel, cleanMessages],
+    [tools, currentWorkflowState, generateModel],
   );
 
   // CRITICAL: Clean localStorage messages BEFORE useChat loads them
