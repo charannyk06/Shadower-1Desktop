@@ -212,7 +212,6 @@ export const chatRepository: ChatRepository = new Proxy({} as ChatRepository, {
 export { sqliteAgentRepository as agentRepository } from "./sqlite/repositories/agent-repository.sqlite";
 export { sqliteAgentStateRepository as agentStateRepository } from "./sqlite/repositories/agent-state-repository.sqlite";
 export { sqliteMcpRepository as mcpRepository } from "./sqlite/repositories/mcp-repository.sqlite";
-export { sqliteBookmarkRepository as bookmarkRepository } from "./sqlite/repositories/bookmark-repository.sqlite";
 export { sqliteWorkflowRepository as workflowRepository } from "./sqlite/repositories/workflow-repository.sqlite";
 export { sqliteArchiveRepository as archiveRepository } from "./sqlite/repositories/archive-repository.sqlite";
 export { sqliteBrowserSessionRepository as browserSessionRepository } from "./sqlite/repositories/browser-session-repository.sqlite";
@@ -239,46 +238,6 @@ export type { SqliteLocalExecutionRepository as LocalExecutionRepository } from 
 export type { SqliteFragmentSharesRepository as FragmentSharesRepository } from "./sqlite/repositories/fragment-repository.sqlite";
 
 // Stub exports for repositories not needed in local-first single-user mode
-
-// Invitation - stub (not needed for local-first single-user)
-type InvitationWithInviter = {
-  id: string;
-  email: string;
-  token: string;
-  invitedBy: string;
-  expiresAt: Date;
-  acceptedAt: Date | null;
-  revokedAt: Date | null;
-  createdAt: Date;
-  inviterName: string;
-  inviterEmail: string;
-};
-
-export const invitationRepository = {
-  async create(_data: any): Promise<InvitationWithInviter | null> {
-    return null;
-  },
-  async getByToken(_token: string): Promise<InvitationWithInviter | null> {
-    return null;
-  },
-  async updateStatus(
-    _token: string,
-    _status: string,
-  ): Promise<InvitationWithInviter | null> {
-    return null;
-  },
-  async getByEmail(_email: string): Promise<InvitationWithInviter[]> {
-    return [];
-  },
-  async delete(_token: string): Promise<void> {},
-  async markAsAccepted(_token: string): Promise<void> {},
-  async getPendingInvitations(_options?: {
-    limit?: number;
-    offset?: number;
-  }): Promise<{ invitations: any[]; total: number }> {
-    return { invitations: [], total: 0 };
-  },
-};
 
 // Promo Code - stub (not needed for local)
 export const promoCodeRepository = {

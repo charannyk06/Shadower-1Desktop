@@ -107,31 +107,6 @@ export const VerificationTable = sqliteTable("verification", {
   ),
 });
 
-// User Invitation Table
-export const UserInvitationTable = sqliteTable(
-  "user_invitation",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    email: text("email").notNull(),
-    token: text("token").notNull().unique(),
-    invitedBy: text("invited_by")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
-    acceptedAt: integer("accepted_at", { mode: "timestamp" }),
-    revokedAt: integer("revoked_at", { mode: "timestamp" }),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    emailIdx: index("user_invitation_email_idx").on(table.email),
-    tokenIdx: index("user_invitation_token_idx").on(table.token),
-  }),
-);
-
 // ============================================================================
 // Chat Tables
 // ============================================================================
@@ -264,9 +239,6 @@ export const AgentTable = sqliteTable("agent", {
   instructions: text("instructions", { mode: "json" }).$type<
     Agent["instructions"]
   >(),
-  visibility: text("visibility", { enum: ["public", "private", "readonly"] })
-    .notNull()
-    .default("private"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     currentTimestamp,
   ),
@@ -524,9 +496,6 @@ export const McpServerTable = sqliteTable("mcp_server", {
   userId: text("user_id")
     .notNull()
     .references(() => UserTable.id, { onDelete: "cascade" }),
-  visibility: text("visibility", { enum: ["public", "private"] })
-    .notNull()
-    .default("private"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     currentTimestamp,
   ),
@@ -636,9 +605,6 @@ export const WorkflowTable = sqliteTable("workflow", {
   isPublished: integer("is_published", { mode: "boolean" })
     .notNull()
     .default(false),
-  visibility: text("visibility", { enum: ["public", "private", "readonly"] })
-    .notNull()
-    .default("private"),
   userId: text("user_id")
     .notNull()
     .references(() => UserTable.id, { onDelete: "cascade" }),
@@ -743,31 +709,6 @@ export const ArchiveItemTable = sqliteTable(
   },
   (table) => ({
     itemIdIdx: index("archive_item_item_id_idx").on(table.itemId),
-  }),
-);
-
-// Bookmark Table
-export const BookmarkTable = sqliteTable(
-  "bookmark",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    userId: text("user_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    itemId: text("item_id").notNull(),
-    itemType: text("item_type", {
-      enum: ["agent", "workflow", "mcp"],
-    }).notNull(),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    uniqueBookmark: unique().on(table.userId, table.itemId, table.itemType),
-    userIdIdx: index("bookmark_user_id_idx").on(table.userId),
-    itemIdx: index("bookmark_item_idx").on(table.itemId, table.itemType),
   }),
 );
 
@@ -1278,7 +1219,6 @@ export type UserEntity = typeof UserTable.$inferSelect;
 export type SessionEntity = typeof SessionTable.$inferSelect;
 export type AccountEntity = typeof AccountTable.$inferSelect;
 export type VerificationEntity = typeof VerificationTable.$inferSelect;
-export type UserInvitationEntity = typeof UserInvitationTable.$inferSelect;
 export type ChatThreadEntity = typeof ChatThreadTable.$inferSelect;
 export type ChatMessageEntity = typeof ChatMessageTable.$inferSelect;
 export type ChatExportEntity = typeof ChatExportTable.$inferSelect;
@@ -1306,7 +1246,6 @@ export type WorkflowNodeDataEntity = typeof WorkflowNodeDataTable.$inferSelect;
 export type WorkflowEdgeEntity = typeof WorkflowEdgeTable.$inferSelect;
 export type ArchiveEntity = typeof ArchiveTable.$inferSelect;
 export type ArchiveItemEntity = typeof ArchiveItemTable.$inferSelect;
-export type BookmarkEntity = typeof BookmarkTable.$inferSelect;
 export type ThreadSandboxContextEntity =
   typeof ThreadSandboxContextTable.$inferSelect;
 export type ThreadFileContextEntity = ThreadSandboxContextEntity;
@@ -1326,7 +1265,6 @@ export type UserInsert = typeof UserTable.$inferInsert;
 export type SessionInsert = typeof SessionTable.$inferInsert;
 export type AccountInsert = typeof AccountTable.$inferInsert;
 export type VerificationInsert = typeof VerificationTable.$inferInsert;
-export type UserInvitationInsert = typeof UserInvitationTable.$inferInsert;
 export type ChatThreadInsert = typeof ChatThreadTable.$inferInsert;
 export type ChatMessageInsert = typeof ChatMessageTable.$inferInsert;
 export type ChatExportInsert = typeof ChatExportTable.$inferInsert;
@@ -1354,7 +1292,6 @@ export type WorkflowNodeDataInsert = typeof WorkflowNodeDataTable.$inferInsert;
 export type WorkflowEdgeInsert = typeof WorkflowEdgeTable.$inferInsert;
 export type ArchiveInsert = typeof ArchiveTable.$inferInsert;
 export type ArchiveItemInsert = typeof ArchiveItemTable.$inferInsert;
-export type BookmarkInsert = typeof BookmarkTable.$inferInsert;
 export type ThreadSandboxContextInsert =
   typeof ThreadSandboxContextTable.$inferInsert;
 export type BrowserSessionInsert = typeof BrowserSessionTable.$inferInsert;

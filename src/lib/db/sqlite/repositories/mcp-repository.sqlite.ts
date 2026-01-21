@@ -1,8 +1,8 @@
 import type { MCPRepository } from "app-types/mcp";
-import { desc, eq, or } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { generateUUID } from "lib/utils";
 import { sqliteDb as db } from "../db.sqlite";
-import { McpServerTable, UserTable } from "../schema.sqlite";
+import { McpServerTable } from "../schema.sqlite";
 
 export const sqliteMcpRepository: MCPRepository = {
   async save(server) {
@@ -13,7 +13,6 @@ export const sqliteMcpRepository: MCPRepository = {
         name: server.name,
         config: server.config,
         userId: server.userId,
-        visibility: server.visibility ?? "private",
         enabled: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -44,6 +43,7 @@ export const sqliteMcpRepository: MCPRepository = {
   },
 
   async selectAllForUser(userId) {
+    // Single-user mode: only return user's own MCP servers
     const results = await db
       .select({
         id: McpServerTable.id,
@@ -51,29 +51,13 @@ export const sqliteMcpRepository: MCPRepository = {
         config: McpServerTable.config,
         enabled: McpServerTable.enabled,
         userId: McpServerTable.userId,
-        visibility: McpServerTable.visibility,
         createdAt: McpServerTable.createdAt,
         updatedAt: McpServerTable.updatedAt,
-        userName: UserTable.name,
-        userAvatar: UserTable.image,
       })
       .from(McpServerTable)
-      .leftJoin(UserTable, eq(McpServerTable.userId, UserTable.id))
-      .where(
-        or(
-          eq(McpServerTable.userId, userId),
-          eq(McpServerTable.visibility, "public"),
-        ),
-      )
+      .where(eq(McpServerTable.userId, userId))
       .orderBy(desc(McpServerTable.createdAt));
     return results;
-  },
-
-  async updateVisibility(id, visibility) {
-    await db
-      .update(McpServerTable)
-      .set({ visibility, updatedAt: new Date() })
-      .where(eq(McpServerTable.id, id));
   },
 
   async deleteById(id) {

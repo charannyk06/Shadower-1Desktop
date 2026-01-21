@@ -220,8 +220,7 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
         updated_at INTEGER,
         banned INTEGER DEFAULT 0,
         ban_reason TEXT,
-        ban_expires INTEGER,
-        role TEXT NOT NULL DEFAULT 'user'
+        ban_expires INTEGER
       );
     `);
 
@@ -262,18 +261,6 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
         expires_at INTEGER NOT NULL,
         created_at INTEGER,
         updated_at INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS user_invitation (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL,
-        token TEXT NOT NULL UNIQUE,
-        role TEXT NOT NULL DEFAULT 'editor',
-        invited_by TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        expires_at INTEGER NOT NULL,
-        accepted_at INTEGER,
-        revoked_at INTEGER,
-        created_at INTEGER
       );
     `);
 
