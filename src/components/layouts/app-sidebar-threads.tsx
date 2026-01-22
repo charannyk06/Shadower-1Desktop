@@ -99,11 +99,16 @@ export function AppSidebarThreads() {
           threadList: list.map((v) => {
             const target = groupById[v.id]?.[0];
             if (!target) return v;
-            if (target.title && !v.title)
+            // Preserve the store title if:
+            // 1. Store has a real title (not "New Chat" or empty)
+            // 2. AND DB has no title or "New Chat"
+            // This prevents SWR from overwriting a generated title with stale DB data
+            if (target.title && target.title !== "New Chat" && (!v.title || v.title === "New Chat")) {
               return {
                 ...v,
                 title: target.title,
               };
+            }
             return v;
           }),
         };
@@ -184,63 +189,6 @@ export function AppSidebarThreads() {
     });
   };
 
-  const handleDeleteUnarchivedThreads = async () => {
-    await toast.promise(threadApi.deleteUnarchived(), {
-      loading: t("Layout.deletingUnarchivedChats"),
-      success: () => {
-        // Clear thread-related state for unarchived threads
-        // Note: We clear all state here since we can't reliably determine which threads
-        // were deleted before the thread list is refreshed. The state will rebuild
-        // as threads are accessed.
-        appStore.setState((state) => {
-          // Keep only archived threads' state
-          const archivedThreadIds = new Set(
-            (threadList || []).filter((t) => t.archivedAt).map((t) => t.id),
-          );
-
-          const newThreadContextUsage: typeof state.threadContextUsage = {};
-          const newThreadPlans: typeof state.threadPlans = {};
-          const newThreadFiles: typeof state.threadFiles = {};
-          const newThreadMentions: typeof state.threadMentions = {};
-
-          // Preserve state only for archived threads
-          Object.keys(state.threadContextUsage || {}).forEach((threadId) => {
-            if (archivedThreadIds.has(threadId)) {
-              newThreadContextUsage[threadId] =
-                state.threadContextUsage[threadId];
-            }
-          });
-          Object.keys(state.threadPlans || {}).forEach((threadId) => {
-            if (archivedThreadIds.has(threadId)) {
-              newThreadPlans[threadId] = state.threadPlans[threadId];
-            }
-          });
-          Object.keys(state.threadFiles || {}).forEach((threadId) => {
-            if (archivedThreadIds.has(threadId)) {
-              newThreadFiles[threadId] = state.threadFiles[threadId];
-            }
-          });
-          Object.keys(state.threadMentions || {}).forEach((threadId) => {
-            if (archivedThreadIds.has(threadId)) {
-              newThreadMentions[threadId] = state.threadMentions[threadId];
-            }
-          });
-
-          return {
-            threadContextUsage: newThreadContextUsage,
-            threadPlans: newThreadPlans,
-            threadFiles: newThreadFiles,
-            threadMentions: newThreadMentions,
-          };
-        });
-        mutate("/api/thread");
-        navigate({ to: "/" });
-        return t("Layout.unarchivedChatsDeleted");
-      },
-      error: t("Layout.failedToDeleteUnarchivedChats"),
-    });
-  };
-
   if (isLoading || threadList?.length === 0)
     return (
       <SidebarGroup>
@@ -302,13 +250,6 @@ export function AppSidebarThreads() {
                           >
                             <Trash />
                             {t("Layout.deleteAllChats")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={handleDeleteUnarchivedThreads}
-                          >
-                            <Trash />
-                            {t("Layout.deleteUnarchivedChats")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
