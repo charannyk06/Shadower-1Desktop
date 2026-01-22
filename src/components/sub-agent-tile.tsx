@@ -1,10 +1,16 @@
 "use client";
 
 import { cn } from "lib/utils";
-import { Bot, CheckIcon, XIcon } from "lucide-react";
-import { memo, useMemo } from "react";
+import {
+  ChevronRight,
+  FileText,
+  MessageSquare,
+} from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { SubAgentEventPart } from "./sub-agent-event-part";
 import type { SubAgentEvent } from "./tool-invocation/sub-agent-view";
+import { TextShimmer } from "ui/text-shimmer";
 
 interface SubAgentTileProps {
   events: SubAgentEvent[];
@@ -13,8 +19,6 @@ interface SubAgentTileProps {
 
 /**
  * Consolidates consecutive text events into single events
- * This prevents the word-by-word display issue where each text delta
- * becomes a separate event.
  */
 function consolidateTextEvents(events: SubAgentEvent[]): SubAgentEvent[] {
   const result: SubAgentEvent[] = [];
@@ -24,12 +28,10 @@ function consolidateTextEvents(events: SubAgentEvent[]): SubAgentEvent[] {
 
   for (const event of events) {
     if (event.type === "data-sub-agent-text") {
-      // Accumulate text
       accumulatedText += event.data?.text || "";
       lastTextTimestamp = event.data?.timestamp || lastTextTimestamp;
       lastAgentId = event.data?.agentId || lastAgentId;
     } else {
-      // Non-text event - flush accumulated text first
       if (accumulatedText) {
         result.push({
           type: "data-sub-agent-text",
@@ -45,7 +47,6 @@ function consolidateTextEvents(events: SubAgentEvent[]): SubAgentEvent[] {
     }
   }
 
-  // Flush any remaining accumulated text
   if (accumulatedText) {
     result.push({
       type: "data-sub-agent-text",
@@ -61,22 +62,49 @@ function consolidateTextEvents(events: SubAgentEvent[]): SubAgentEvent[] {
 }
 
 /**
- * Groups all sub-agent events for a single agent into one tile
- * with a connecting line/avatar like the main chat messages
+ * Counts the stats for a subagent's events
+ */
+function getEventStats(events: SubAgentEvent[]) {
+  let toolCalls = 0;
+  let messages = 0;
+
+  for (const event of events) {
+    switch (event.type) {
+      case "data-sub-agent-tool-call":
+        toolCalls++;
+        break;
+      case "data-sub-agent-text":
+        if (event.data?.text?.trim()) {
+          messages++;
+        }
+        break;
+    }
+  }
+
+  return { toolCalls, messages };
+}
+
+/**
+ * SubAgent tile with collapsible UI
+ * - When running: expanded to show all activity
+ * - When complete: collapsed to show summary "X tool calls, Y messages"
+ * - User can click to expand/collapse
  */
 export const SubAgentTile = memo(function SubAgentTile({
   events,
   threadId,
 }: SubAgentTileProps) {
+  // Track expanded state per agent - default false for completed, true for running
+  const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
+  // Track which agents we've seen complete - to auto-collapse them
+  const completedAgentsRef = useRef<Set<string>>(new Set());
+
   // Group events by agentId
   const agentGroups = useMemo(() => {
     const groups: Record<string, SubAgentEvent[]> = {};
 
     for (const event of events) {
-      if (!event?.data?.agentId) {
-        console.warn("[SubAgentTile] Event missing agentId:", event);
-        continue;
-      }
+      if (!event?.data?.agentId) continue;
       const agentId = event.data.agentId;
       if (!groups[agentId]) {
         groups[agentId] = [];
@@ -84,200 +112,199 @@ export const SubAgentTile = memo(function SubAgentTile({
       groups[agentId].push(event);
     }
 
-    // Sort events within each group by timestamp and type order
-    // Also remove duplicates based on type + agentId + toolName + timestamp + unique identifier
+    // Remove duplicates and consolidate text
     for (const agentId in groups) {
-      // Remove duplicates first - use a more comprehensive key
       const seen = new Set<string>();
       groups[agentId] = groups[agentId].filter((event, index) => {
-        // Create a unique key that includes type, toolName (if present), timestamp, and content hash
         const toolName = event.data?.toolName || "";
         const timestamp = event.data?.timestamp || 0;
-
-        // For different event types, use different strategies to create unique keys
         let contentHash = "";
         if (event.type === "data-sub-agent-tool-call" && event.data?.args) {
-          // For tool calls, hash the args to distinguish different calls
           contentHash = JSON.stringify(event.data.args).slice(0, 50);
         } else if (event.type === "data-sub-agent-text" && event.data?.text) {
-          // For text events, use a hash of the text content
           contentHash = event.data.text.slice(0, 50);
         } else if (
           event.type === "data-sub-agent-start" ||
           event.type === "data-sub-agent-complete"
         ) {
-          // For start/complete events, use index as they should be unique per agent
           contentHash = String(index);
         }
-
         const key = `${event.type}-${toolName}-${timestamp}-${contentHash}`;
-
-        if (seen.has(key)) {
-          // Silently filter duplicates - no logging to reduce console noise
-          return false;
-        }
+        if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
-
-      // DO NOT SORT - events arrive in correct chronological order from server
-      // Sorting by timestamp breaks the streaming order
-
-      // Consolidate consecutive text events to prevent word-by-word display
       groups[agentId] = consolidateTextEvents(groups[agentId]);
     }
 
     return groups;
   }, [events]);
 
+  // Determine if each agent is complete
+  const agentStatuses = useMemo(() => {
+    const statuses: Record<string, { isComplete: boolean; isError: boolean }> = {};
+
+    for (const [agentId, agentEvents] of Object.entries(agentGroups)) {
+      const isComplete = agentEvents.some((e) => e.type === "data-sub-agent-complete");
+      const isError = agentEvents.some((e) => e.type === "data-sub-agent-error");
+      statuses[agentId] = { isComplete, isError };
+    }
+
+    return statuses;
+  }, [agentGroups]);
+
+  // Auto-collapse when agent completes (only once)
+  useEffect(() => {
+    const newlyCompleted: string[] = [];
+
+    for (const [agentId, status] of Object.entries(agentStatuses)) {
+      if ((status.isComplete || status.isError) && !completedAgentsRef.current.has(agentId)) {
+        newlyCompleted.push(agentId);
+      }
+    }
+
+    if (newlyCompleted.length === 0) return;
+
+    setExpandedAgents((prev) => {
+      const next = { ...prev };
+      for (const agentId of newlyCompleted) {
+        next[agentId] = false;
+      }
+      return next;
+    });
+
+    for (const agentId of newlyCompleted) {
+      completedAgentsRef.current.add(agentId);
+    }
+  }, [agentStatuses]);
+
+  const toggleExpanded = useCallback((agentId: string) => {
+    setExpandedAgents((prev) => ({
+      ...prev,
+      [agentId]: !prev[agentId],
+    }));
+  }, []);
+
   if (Object.keys(agentGroups).length === 0) {
     return null;
   }
 
-  // DO NOT SORT - maintain arrival order from server
-  const agentEntries = useMemo(() => {
-    return Object.entries(agentGroups);
-  }, [agentGroups]);
+  const agentEntries = Object.entries(agentGroups);
 
   return (
     <>
       {agentEntries.map(([agentId, agentEvents]) => {
-        // Find agent name and status from events
-        const startEvent = agentEvents.find(
-          (e) => e.type === "data-sub-agent-start",
-        );
-        const completeEvent = agentEvents.find(
-          (e) => e.type === "data-sub-agent-complete",
-        );
-        const errorEvent = agentEvents.find(
-          (e) => e.type === "data-sub-agent-error",
-        );
-
+        const startEvent = agentEvents.find((e) => e.type === "data-sub-agent-start");
         const agentName = startEvent?.data.agentName || "Sub-Agent";
         const task = startEvent?.data.task;
-        const isComplete = !!completeEvent;
-        const isError = !!errorEvent;
-        const status = isError ? "error" : isComplete ? "complete" : "running";
+
+        const { isComplete, isError } = agentStatuses[agentId] || {};
+        const isRunning = !isComplete && !isError;
+
+        const stats = getEventStats(agentEvents);
+
+        // Running agents are expanded by default, completed are collapsed
+        const isExpanded = expandedAgents[agentId] ?? isRunning;
+
+        const displayEvents = agentEvents.filter(
+          (event) => event.type !== "data-sub-agent-start"
+        );
 
         return (
-          <div key={agentId} className="group w-full">
-            <div className="flex flex-col fade-in duration-300 animate-in">
-              <div className="flex gap-2 py-2">
-                {/* Connecting line and avatar */}
-                <div className="w-7 flex justify-center">
-                  <div className="relative flex flex-col items-center">
-                    {/* Avatar */}
-                    <div
-                      className={cn(
-                        "flex h-7 w-7 items-center justify-center rounded-full border-2 bg-background",
-                        isComplete && "border-emerald-500",
-                        isError && "border-red-500",
-                        status === "running" && "border-blue-500",
-                      )}
-                    >
-                      <Bot
-                        className={cn(
-                          "h-4 w-4",
-                          isComplete && "text-emerald-500",
-                          isError && "text-red-500",
-                          status === "running" && "text-blue-500",
-                        )}
-                      />
-                    </div>
-                  </div>
-                </div>
+          <div key={agentId} className="w-full my-1">
+            <div className="rounded-lg border border-border/50 bg-background overflow-hidden">
+              {/* Collapsible Header */}
+              <button
+                type="button"
+                onClick={() => toggleExpanded(agentId)}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+              >
+                {/* Expand/Collapse Arrow */}
+                <ChevronRight
+                  className={cn(
+                    "h-4 w-4 text-muted-foreground transition-transform duration-200 flex-shrink-0",
+                    isExpanded && "rotate-90"
+                  )}
+                />
 
-                {/* Content tile */}
-                <div className="flex-1 min-w-0">
-                  <div
-                    className={cn(
-                      "rounded-lg border bg-card overflow-hidden transition-colors",
-                      isComplete && "border-emerald-500/30 bg-emerald-500/5",
-                      isError && "border-red-500/30 bg-red-500/5",
-                      status === "running" &&
-                        "border-blue-500/30 bg-blue-500/5",
+                {/* Running State */}
+                {isRunning ? (
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    <TextShimmer className="text-sm font-medium" duration={1.5}>
+                      {agentName}
+                    </TextShimmer>
+                    {task && (
+                      <span className="text-xs text-muted-foreground truncate">
+                        — {task}
+                      </span>
                     )}
-                  >
-                    {/* Header */}
-                    <div className="px-4 py-3 border-b bg-muted/30">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "text-sm font-medium",
-                            isComplete && "text-emerald-500 line-through",
-                            isError && "text-red-500",
-                            status === "running" && "text-blue-500",
-                          )}
-                        >
-                          {agentName}
-                        </span>
-                        <span
-                          className={cn(
-                            "text-xs px-1.5 py-0.5 rounded font-medium",
-                            isComplete && "bg-emerald-500/10 text-emerald-500",
-                            isError && "bg-red-500/10 text-red-500",
-                            status === "running" &&
-                              "bg-blue-500/10 text-blue-500",
-                          )}
-                        >
-                          {isComplete && (
-                            <CheckIcon className="h-3 w-3 inline mr-1" />
-                          )}
-                          {isError && <XIcon className="h-3 w-3 inline mr-1" />}
-                          {status}
-                        </span>
-                      </div>
-                      {task && (
-                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                          {task}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Events content - render in arrival order (DO NOT SORT) */}
-                    {(() => {
-                      // Filter out start events, keep everything else in arrival order
-                      const filteredEvents = agentEvents.filter(
-                        (event) => event.type !== "data-sub-agent-start",
-                      );
-
-                      if (filteredEvents.length === 0) {
-                        return (
-                          <div className="p-3 text-xs text-muted-foreground">
-                            No activity yet...
-                          </div>
-                        );
-                      }
-
-                      // DO NOT SORT - render in exact arrival order from server
-                      return (
-                        <div className="p-3 space-y-3">
-                          {filteredEvents
-                            .map((event, index) => {
-                              try {
-                                return (
-                                  <SubAgentEventPart
-                                    key={`${agentId}-${event.type}-${index}`}
-                                    event={event}
-                                    threadId={threadId}
-                                  />
-                                );
-                              } catch (error) {
-                                console.error(
-                                  "[SubAgentTile] Error rendering event:",
-                                  error,
-                                  event,
-                                );
-                                return null;
-                              }
-                            })
-                            .filter(Boolean)}
-                        </div>
-                      );
-                    })()}
                   </div>
-                </div>
-              </div>
+                ) : (
+                  /* Completed State: Show summary */
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">
+                      {stats.toolCalls > 0 && stats.messages > 0 ? (
+                        <>
+                          {stats.toolCalls} tool call{stats.toolCalls !== 1 ? "s" : ""},{" "}
+                          {stats.messages} message{stats.messages !== 1 ? "s" : ""}
+                        </>
+                      ) : stats.toolCalls > 0 ? (
+                        <>
+                          {stats.toolCalls} tool call{stats.toolCalls !== 1 ? "s" : ""}
+                        </>
+                      ) : stats.messages > 0 ? (
+                        <>
+                          {stats.messages} message{stats.messages !== 1 ? "s" : ""}
+                        </>
+                      ) : (
+                        `${agentName} ${isComplete ? "completed" : "failed"}`
+                      )}
+                    </span>
+                  </div>
+                )}
+
+                {/* Right-side icons for collapsed view */}
+                {!isExpanded && !isRunning && (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    {stats.toolCalls > 0 && (
+                      <FileText className="h-4 w-4" />
+                    )}
+                    {stats.messages > 0 && (
+                      <MessageSquare className="h-4 w-4" />
+                    )}
+                  </div>
+                )}
+              </button>
+
+              {/* Expandable Content */}
+              <AnimatePresence initial={false}>
+                {isExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.15, ease: "easeOut" }}
+                    className="overflow-hidden"
+                  >
+                    {displayEvents.length === 0 ? (
+                      <div className="px-4 py-3 text-xs text-muted-foreground border-t border-border/50">
+                        Waiting for activity...
+                      </div>
+                    ) : (
+                      <div className="px-4 py-2 space-y-1 border-t border-border/50">
+                        {displayEvents.map((event, index) => (
+                          <SubAgentEventPart
+                            key={`${agentId}-${event.type}-${index}`}
+                            event={event}
+                            threadId={threadId}
+                            isAgentRunning={isRunning}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         );
