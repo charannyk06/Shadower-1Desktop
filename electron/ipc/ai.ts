@@ -2383,6 +2383,10 @@ export function registerAIHandlers() {
 
         let result;
 
+        // Track sub-agent events for persistence (used in agent mode)
+        // These events need to be saved to the database so they persist across conversation switches
+        const currentSubAgentEvents: any[] = [];
+
         if (chatMode === "agent") {
           // AGENT MODE: Use the orchestrator with planning and sub-agent capabilities
           console.log(
@@ -2417,6 +2421,18 @@ export function registerAIHandlers() {
                   threadId,
                   chunk: JSON.stringify(data),
                 });
+
+                // PERSISTENCE FIX: Also accumulate sub-agent events for database storage
+                // This ensures they persist when switching conversations
+                if (data.type.startsWith("data-sub-agent-")) {
+                  currentSubAgentEvents.push({
+                    type: data.type,
+                    data: {
+                      ...data.data,
+                      timestamp: data.data?.timestamp || Date.now(),
+                    },
+                  });
+                }
               }
             },
           };
@@ -3145,6 +3161,17 @@ export function registerAIHandlers() {
                 state: "input-available",
                 input: toolCall.input,
               });
+            }
+          }
+
+          // Add sub-agent events to assistant parts for persistence
+          // These capture the full agent execution history (plan, sub-agents, tool calls)
+          if (currentSubAgentEvents.length > 0) {
+            console.log(
+              `[AI IPC] Adding ${currentSubAgentEvents.length} sub-agent events to assistant message parts`,
+            );
+            for (const subAgentEvent of currentSubAgentEvents) {
+              assistantParts.push(subAgentEvent);
             }
           }
 
