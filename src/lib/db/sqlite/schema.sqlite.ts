@@ -139,53 +139,6 @@ export const ChatMessageTable = sqliteTable("chat_message", {
   ),
 });
 
-// Chat Export Table
-export const ChatExportTable = sqliteTable("chat_export", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => randomUUID()),
-  title: text("title").notNull(),
-  exporterId: text("exporter_id")
-    .notNull()
-    .references(() => UserTable.id, { onDelete: "cascade" }),
-  originalThreadId: text("original_thread_id"),
-  messages: text("messages", { mode: "json" }).notNull().$type<
-    Array<{
-      id: string;
-      role: UIMessage["role"];
-      parts: UIMessage["parts"];
-      metadata?: ChatMetadata;
-    }>
-  >(),
-  exportedAt: integer("exported_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-  expiresAt: integer("expires_at", { mode: "timestamp" }),
-});
-
-// Chat Export Comment Table
-export const ChatExportCommentTable = sqliteTable("chat_export_comment", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => randomUUID()),
-  exportId: text("export_id")
-    .notNull()
-    .references(() => ChatExportTable.id, { onDelete: "cascade" }),
-  authorId: text("author_id")
-    .notNull()
-    .references(() => UserTable.id, { onDelete: "cascade" }),
-  parentId: text("parent_id"),
-  content: text("content", { mode: "json" })
-    .notNull()
-    .$type<TipTapMentionJsonContent>(),
-  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-});
-
 // Conversation Summary Table (for context compaction)
 export const ConversationSummaryTable = sqliteTable(
   "conversation_summary",
@@ -668,51 +621,6 @@ export const WorkflowEdgeTable = sqliteTable("workflow_edge", {
 });
 
 // ============================================================================
-// Archive Tables
-// ============================================================================
-
-// Archive Table
-export const ArchiveTable = sqliteTable("archive", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => randomUUID()),
-  name: text("name").notNull(),
-  description: text("description"),
-  userId: text("user_id")
-    .notNull()
-    .references(() => UserTable.id, { onDelete: "cascade" }),
-  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-});
-
-// Archive Item Table
-export const ArchiveItemTable = sqliteTable(
-  "archive_item",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    archiveId: text("archive_id")
-      .notNull()
-      .references(() => ArchiveTable.id, { onDelete: "cascade" }),
-    itemId: text("item_id").notNull(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    addedAt: integer("added_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    itemIdIdx: index("archive_item_item_id_idx").on(table.itemId),
-  }),
-);
-
-// ============================================================================
 // Thread File Context (for per-thread file persistence in local execution)
 // ============================================================================
 
@@ -1122,9 +1030,6 @@ export type AccountEntity = typeof AccountTable.$inferSelect;
 export type VerificationEntity = typeof VerificationTable.$inferSelect;
 export type ChatThreadEntity = typeof ChatThreadTable.$inferSelect;
 export type ChatMessageEntity = typeof ChatMessageTable.$inferSelect;
-export type ChatExportEntity = typeof ChatExportTable.$inferSelect;
-export type ChatExportCommentEntity =
-  typeof ChatExportCommentTable.$inferSelect;
 export type ConversationSummaryEntity =
   typeof ConversationSummaryTable.$inferSelect;
 export type AgentEntity = typeof AgentTable.$inferSelect;
@@ -1145,8 +1050,6 @@ export type McpOAuthSessionEntity = typeof McpOAuthSessionTable.$inferSelect;
 export type WorkflowEntity = typeof WorkflowTable.$inferSelect;
 export type WorkflowNodeDataEntity = typeof WorkflowNodeDataTable.$inferSelect;
 export type WorkflowEdgeEntity = typeof WorkflowEdgeTable.$inferSelect;
-export type ArchiveEntity = typeof ArchiveTable.$inferSelect;
-export type ArchiveItemEntity = typeof ArchiveItemTable.$inferSelect;
 export type ThreadWorkspaceContextEntity =
   typeof ThreadWorkspaceContextTable.$inferSelect;
 export type ThreadFileContextEntity = ThreadWorkspaceContextEntity;
@@ -1164,9 +1067,6 @@ export type AccountInsert = typeof AccountTable.$inferInsert;
 export type VerificationInsert = typeof VerificationTable.$inferInsert;
 export type ChatThreadInsert = typeof ChatThreadTable.$inferInsert;
 export type ChatMessageInsert = typeof ChatMessageTable.$inferInsert;
-export type ChatExportInsert = typeof ChatExportTable.$inferInsert;
-export type ChatExportCommentInsert =
-  typeof ChatExportCommentTable.$inferInsert;
 export type ConversationSummaryInsert =
   typeof ConversationSummaryTable.$inferInsert;
 export type AgentInsert = typeof AgentTable.$inferInsert;
@@ -1187,8 +1087,6 @@ export type McpOAuthSessionInsert = typeof McpOAuthSessionTable.$inferInsert;
 export type WorkflowInsert = typeof WorkflowTable.$inferInsert;
 export type WorkflowNodeDataInsert = typeof WorkflowNodeDataTable.$inferInsert;
 export type WorkflowEdgeInsert = typeof WorkflowEdgeTable.$inferInsert;
-export type ArchiveInsert = typeof ArchiveTable.$inferInsert;
-export type ArchiveItemInsert = typeof ArchiveItemTable.$inferInsert;
 export type ThreadWorkspaceContextInsert =
   typeof ThreadWorkspaceContextTable.$inferInsert;
 export type BrowserSessionInsert = typeof BrowserSessionTable.$inferInsert;

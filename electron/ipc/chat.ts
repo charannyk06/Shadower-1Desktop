@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { getDatabase, schema } from "../services/database";
-import { eq, desc, and, notInArray, gt } from "drizzle-orm";
+import { eq, desc, and, gt } from "drizzle-orm";
 
 export function registerChatHandlers() {
   const db = getDatabase();
@@ -370,45 +370,6 @@ export function registerChatHandlers() {
       throw error;
     }
   });
-
-  // Delete all unarchived threads for a user
-  ipcMain.handle(
-    "db:chat:deleteUnarchivedThreads",
-    async (_event, userId: string) => {
-      try {
-        // Get archived thread IDs from archive items
-        const archivedItems = await db
-          .select({ itemId: schema.ArchiveItemTable.itemId })
-          .from(schema.ArchiveItemTable)
-          .where(eq(schema.ArchiveItemTable.userId, userId));
-
-        const archivedThreadIds = archivedItems.map((item) => item.itemId);
-
-        // Delete threads that are NOT in the archive
-        if (archivedThreadIds.length > 0) {
-          await db
-            .delete(schema.ChatThreadTable)
-            .where(
-              and(
-                eq(schema.ChatThreadTable.userId, userId),
-                notInArray(schema.ChatThreadTable.id, archivedThreadIds),
-              ),
-            );
-        } else {
-          // No archived threads, delete all threads for user
-          await db
-            .delete(schema.ChatThreadTable)
-            .where(eq(schema.ChatThreadTable.userId, userId));
-        }
-
-        console.log(`[IPC] Deleted unarchived threads for user: ${userId}`);
-        return { success: true };
-      } catch (error) {
-        console.error("[IPC] Error deleting unarchived chat threads:", error);
-        throw error;
-      }
-    },
-  );
 
   // Upsert message (create or update)
   ipcMain.handle("db:chat:upsertMessage", async (_event, data: any) => {

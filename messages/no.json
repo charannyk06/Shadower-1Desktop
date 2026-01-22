@@ -273,7 +273,6 @@
     "Thread": {
       "chat": "Chat",
       "renameChat": "Gi nytt navn",
-      "exportChat": "Del lenke",
       "deleteChat": "Slett chat",
       "deleteUnarchivedChats": "Slett alle uarkiverte chatter",
       "confirmDeleteUnarchivedChats": "Er du sikker på at du vil slette alle uarkiverte chatter?",
@@ -285,12 +284,7 @@
       "failedToUpdateThread": "Kunne ikke oppdatere chat",
       "titleRequired": "Tittel er påkrevd",
       "threadUpdated": "Chat oppdatert",
-      "areYouSureYouWantToDeleteThisChatThread": "Er du sikker på at du vil slette denne chatten?",
-      "sharePublicLink": "Del offentlig lenke",
-      "sharePublicLinkDescription": "Alle meldinger lagt til etter deling forblir private.",
-      "creatingLink": "Oppretter lenke...",
-      "createLink": "Opprett lenke",
-      "linkCopied": "Lenke kopiert"
+      "areYouSureYouWantToDeleteThisChatThread": "Er du sikker på at du vil slette denne chatten?"
     },
     "ChatPreferences": {
       "title": "Chatpreferanser",
@@ -314,19 +308,6 @@
       "mcpInstructions": "MCP-instruksjoner",
       "mcpInstructionsDescription": "Tilpass MCP-serverinstruksjonene.",
       "userSettings": "Brukerinnstillinger",
-      "myExports": "Mine eksporterte chatter",
-      "myExportsDescription": "Administrer og organiser dine delte chateksporter.",
-      "noExportsYet": "Ingen eksporter ennå",
-      "exportHint": "Del en chat for å opprette din første eksport.",
-      "exported": "Eksportert",
-      "expires": "Utløper",
-      "messages": "meldinger",
-      "comments": "kommentarer",
-      "copyLink": "Kopier lenke",
-      "openInNewTab": "Åpne i ny fane",
-      "linkCopied": "Lenke kopiert til utklippstavlen",
-      "confirmDeleteExport": "Er du sikker på at du vil slette denne eksporten? Denne handlingen kan ikke angres.",
-      "exportDeleted": "Eksport slettet",
       "failedToDeleteExport": "Kunne ikke slette eksport"
     }
   },

@@ -5,7 +5,7 @@ import { AutoHeight } from "ui/auto-height";
 
 import { appStore } from "@/app/store";
 import { Shortcuts, isShortcutEvent } from "lib/keyboard-shortcuts";
-import { Share2, UserIcon, X } from "lucide-react";
+import { UserIcon, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "ui/button";
 import {
@@ -18,7 +18,6 @@ import {
 import { MCPIcon } from "ui/mcp-icon";
 import { useShallow } from "zustand/shallow";
 import {
-  ExportsManagementContent,
   MCPInstructionsContent,
   UserInstructionsContent,
 } from "./chat-preferences-content";
@@ -39,10 +38,6 @@ export function ChatPreferencesPopup() {
       {
         label: t("Chat.ChatPreferences.mcpInstructions"),
         icon: <MCPIcon className="w-4 h-4 fill-muted-foreground" />,
-      },
-      {
-        label: t("Chat.ChatPreferences.myExports"),
-        icon: <Share2 className="w-4 h-4" />,
       },
     ];
   }, [t]);
@@ -155,8 +150,6 @@ export function ChatPreferencesPopup() {
                           <UserInstructionsContent />
                         ) : tab == 1 ? (
                           <MCPInstructionsContent />
-                        ) : tab == 2 ? (
-                          <ExportsManagementContent />
                         ) : null}
                       </>
                     )}
