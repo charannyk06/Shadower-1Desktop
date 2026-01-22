@@ -105,7 +105,7 @@ export const exportApi = {
     }
 
     // Use Electron's file dialog to save if available
-    if (window.electronAPI?.files?.saveFile) {
+    if ((window.electronAPI?.files as any)?.saveFile) {
       await (window.electronAPI.files as any).saveFile(filename, content, mimeType);
       return true;
     }

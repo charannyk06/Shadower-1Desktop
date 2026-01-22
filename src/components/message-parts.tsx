@@ -743,12 +743,6 @@ const BrowserToolInvocation = lazy(() =>
   })),
 );
 
-const FragmentInvocation = lazy(() =>
-  import("./tool-invocation/fragment-invocation").then((mod) => ({
-    default: mod.FragmentInvocation,
-  })),
-);
-
 const DesktopToolInvocation = lazy(() =>
   import("./tool-invocation/desktop-tool-invocation").then((mod) => ({
     default: mod.DesktopToolInvocation,
@@ -953,15 +947,6 @@ export const ToolMessagePart = memo(
         return (
           <Suspense fallback={<LoadingFallback />}>
             <PlanStatusInvocation part={part} />
-          </Suspense>
-        );
-      }
-
-      // Fragment tools - createFragment and editFragment
-      if (toolName === "createFragment" || toolName === "editFragment") {
-        return (
-          <Suspense fallback={<LoadingFallback />}>
-            <FragmentInvocation part={part} />
           </Suspense>
         );
       }

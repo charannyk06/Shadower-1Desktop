@@ -13,7 +13,7 @@ import { TipTapMentionJsonContent } from "app-types/util";
 import { cn } from "lib/utils";
 import {
   FC,
-  RefObject,
+  MutableRefObject,
   useCallback,
   useEffect,
   useMemo,
@@ -37,7 +37,7 @@ interface MentionInputProps {
   suggestionChar?: string;
   className?: string;
   disabledMention?: boolean;
-  editorRef?: RefObject<Editor | null>;
+  editorRef?: MutableRefObject<Editor | null>;
   onFocus?: () => void;
   onBlur?: () => void;
   fullWidthSuggestion?: boolean;

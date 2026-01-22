@@ -1,10 +1,9 @@
 /**
- * Document Edit Templates - Surgical document editing using E2B sandbox
+ * Document Edit Templates - Surgical document editing using local execution
  *
  * This module provides code generators for editing existing documents
- * (PPTX, DOCX, XLSX) in the E2B sandbox. It leverages the sandbox's
- * existing file read/write capabilities to download, modify, and re-upload
- * documents.
+ * (PPTX, DOCX, XLSX) locally. It leverages the local file system's
+ * read/write capabilities to download, modify, and save documents.
  *
  * Library capabilities:
  * - ExcelJS: Full read/write support for XLSX

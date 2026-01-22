@@ -992,7 +992,7 @@ export function getSlideBackground(
 }
 
 /**
- * Generate image fetching code for the sandbox
+ * Generate image fetching code for local execution
  * This runs before slide generation to pre-fetch all images
  */
 export function generateImageFetchingCode(slides: SlideContent[]): {

@@ -119,9 +119,9 @@ async function contentToArrayBuffer(
     }
   }
 
-  // Handle local file paths (sandbox paths like /sandbox/...)
+  // Handle local file paths (workspace paths like /workspace/...)
   if (content.startsWith("/")) {
-    // For sandbox paths, we need to fetch from the server
+    // For local paths, we need to fetch from the server
     // This assumes there's an API endpoint or the file is accessible
     const response = await fetch(content);
     if (!response.ok) {
@@ -555,8 +555,8 @@ export async function convertPptxToHtml(
       };
     }
 
-    // For local files (sandbox paths), parse PPTX directly
-    if (content.startsWith("/sandbox/") || content.startsWith("/")) {
+    // For local files (workspace paths), parse PPTX directly
+    if (content.startsWith("/workspace/") || content.startsWith("/")) {
       const arrayBuffer = await contentToArrayBuffer(content, opts);
       return await parsePptxToHtml(arrayBuffer);
     }

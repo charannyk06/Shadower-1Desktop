@@ -232,15 +232,14 @@ export function validateBrowserConfig(): void {
 
 /**
  * Check if browser automation is available
- * For local Chrome DevTools, this checks if we're in Electron environment
+ * For agent-browser, this checks if we're in Electron environment
  */
 export function isBrowserConfigured(): boolean {
-  // In Electron environment, browser automation is always available
-  // via Chrome DevTools Protocol
+  // In Electron environment, browser automation is available via agent-browser
   return (
     typeof window !== "undefined" &&
     window.electronAPI !== undefined &&
-    window.electronAPI.chrome !== undefined
+    window.electronAPI.browser !== undefined
   );
 }
 

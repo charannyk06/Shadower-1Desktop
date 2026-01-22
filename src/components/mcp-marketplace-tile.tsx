@@ -165,7 +165,7 @@ export const MCPMarketplaceTile = memo(function MCPMarketplaceTile({
           {description}
         </p>
         {/* Error message */}
-        {hasError && (
+        {hasError != null && (
           <p className="text-xs text-destructive mt-2 truncate" title={String(hasError)}>
             {String(hasError)}
           </p>
@@ -222,7 +222,7 @@ export const MCPMarketplaceTile = memo(function MCPMarketplaceTile({
             {installedServer && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link to={`/mcp/test/${encodeURIComponent(installedServer.id)}`}>
+                  <Link to="/mcp/$serverId/test" params={{ serverId: installedServer.id }}>
                     <Button variant="ghost" size="icon" className="size-8">
                       <FlaskConical className="size-3.5" />
                     </Button>

@@ -42,7 +42,7 @@ export interface BuildResult {
  * Coding Agent (Vibe Coding)
  *
  * Builds full applications from natural language descriptions
- * using local sandbox code execution.
+ * using local terminal code execution.
  */
 export class CodingAgent {
   private dataStream?: UIMessageStreamWriter;
@@ -536,7 +536,7 @@ export function createProjectInitTool(
         projectName: name,
         framework,
         instruction:
-          "Execute this code in the sandbox to initialize the project",
+          "Execute this code locally to initialize the project",
       };
     },
   }) as Tool;
@@ -560,7 +560,7 @@ export function createWriteFileTool(dataStream?: UIMessageStreamWriter): Tool {
         success: true,
         code,
         filePath: path,
-        instruction: "Execute this code in the sandbox to create the file",
+        instruction: "Execute this code locally to create the file",
       };
     },
   }) as Tool;
@@ -585,7 +585,7 @@ export function createRunProjectTool(dataStream?: UIMessageStreamWriter): Tool {
         success: true,
         code,
         framework,
-        instruction: "Execute this code in the sandbox to run the project",
+        instruction: "Execute this code locally to run the project",
       };
     },
   }) as Tool;
@@ -610,7 +610,7 @@ export function createRunTestsTool(dataStream?: UIMessageStreamWriter): Tool {
         success: true,
         code,
         framework,
-        instruction: "Execute this code in the sandbox to run tests",
+        instruction: "Execute this code locally to run tests",
       };
     },
   }) as Tool;

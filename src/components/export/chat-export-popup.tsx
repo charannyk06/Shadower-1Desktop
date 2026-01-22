@@ -1,5 +1,5 @@
 import { exportApi } from "@/lib/electron/export-api";
-import { Download, FileJson, FileText, Loader } from "lucide-react";
+import { FileJson, FileText, Loader } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";

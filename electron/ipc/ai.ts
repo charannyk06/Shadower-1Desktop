@@ -56,6 +56,145 @@ const execAsync = promisify(exec);
 // Track active streams for abort functionality
 const activeStreams = new Map<string, AbortController>();
 
+/**
+ * Auto-generate title for new threads after stream completion
+ * This is called automatically when a stream completes to ensure titles are always generated
+ */
+async function maybeAutoGenerateTitle(
+  threadId: string,
+  chatModel: { provider: string; model: string } | undefined,
+  firstUserMessage: string | undefined,
+  firstAssistantText: string | undefined,
+  event: Electron.IpcMainInvokeEvent,
+): Promise<void> {
+  try {
+    const db = getDatabase();
+
+    // Get the thread to check if it needs a title
+    const [thread] = await db
+      .select()
+      .from(schema.ChatThreadTable)
+      .where(eq(schema.ChatThreadTable.id, threadId));
+
+    if (!thread) {
+      console.log(`[AI IPC] Auto-title: Thread not found: ${threadId}`);
+      return;
+    }
+
+    // Check if thread already has a meaningful title
+    if (thread.title && thread.title !== "New Chat" && thread.title.trim() !== "") {
+      console.log(`[AI IPC] Auto-title: Thread already has title: "${thread.title}"`);
+      return;
+    }
+
+    // Count messages in the thread
+    const messages = await db
+      .select()
+      .from(schema.ChatMessageTable)
+      .where(eq(schema.ChatMessageTable.threadId, threadId));
+
+    // Only generate title for new conversations (≤3 messages: system + user + assistant)
+    if (messages.length > 3) {
+      console.log(`[AI IPC] Auto-title: Too many messages (${messages.length}), skipping`);
+      return;
+    }
+
+    // Build content for title generation
+    let titleContent = "";
+    if (firstUserMessage) {
+      titleContent += `user: ${firstUserMessage.slice(0, 500)}`;
+    }
+    if (firstAssistantText) {
+      titleContent += `\n\nassistant: ${firstAssistantText.slice(0, 500)}`;
+    }
+
+    if (!titleContent.trim()) {
+      console.log(`[AI IPC] Auto-title: No content for title generation`);
+      return;
+    }
+
+    console.log(`[AI IPC] Auto-title: Generating title for thread ${threadId}`);
+
+    // Use the chat model to generate a title
+    if (!chatModel) {
+      // Fallback title from first few words
+      const fallbackTitle = firstUserMessage?.slice(0, 50).trim() + (firstUserMessage && firstUserMessage.length > 50 ? "..." : "") || "New Chat";
+      await db
+        .update(schema.ChatThreadTable)
+        .set({ title: fallbackTitle })
+        .where(eq(schema.ChatThreadTable.id, threadId));
+      event.sender.send("ai:title:generated", { threadId, title: fallbackTitle });
+      console.log(`[AI IPC] Auto-title: Used fallback title: "${fallbackTitle}"`);
+      return;
+    }
+
+    // Get the API key for this provider
+    const apiKey = await getApiKeyForProvider(chatModel.provider);
+
+    if (!apiKey && !isLocalProvider(chatModel.provider)) {
+      // Use fallback title
+      const fallbackTitle = firstUserMessage?.slice(0, 50).trim() + (firstUserMessage && firstUserMessage.length > 50 ? "..." : "") || "New Chat";
+      await db
+        .update(schema.ChatThreadTable)
+        .set({ title: fallbackTitle })
+        .where(eq(schema.ChatThreadTable.id, threadId));
+      event.sender.send("ai:title:generated", { threadId, title: fallbackTitle });
+      console.log(`[AI IPC] Auto-title: No API key, used fallback title: "${fallbackTitle}"`);
+      return;
+    }
+
+    // Get the model instance
+    const model = await getModelInstance(chatModel, apiKey);
+
+    if (!model) {
+      const fallbackTitle = firstUserMessage?.slice(0, 50).trim() + (firstUserMessage && firstUserMessage.length > 50 ? "..." : "") || "New Chat";
+      await db
+        .update(schema.ChatThreadTable)
+        .set({ title: fallbackTitle })
+        .where(eq(schema.ChatThreadTable.id, threadId));
+      event.sender.send("ai:title:generated", { threadId, title: fallbackTitle });
+      return;
+    }
+
+    // Generate title using the AI SDK
+    const { generateText } = await import("ai");
+    const result = await generateText({
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Generate a short, concise title (max 6 words) for this conversation. Respond with ONLY the title, no quotes or extra text.",
+        },
+        {
+          role: "user",
+          content: titleContent,
+        },
+      ],
+      maxTokens: 30,
+    } as Parameters<typeof generateText>[0]);
+
+    const title = result.text.trim().replace(/^["']|["']$/g, ""); // Remove quotes if any
+
+    // Update thread title in database
+    await db
+      .update(schema.ChatThreadTable)
+      .set({ title })
+      .where(eq(schema.ChatThreadTable.id, threadId));
+
+    // Send title to renderer
+    console.log(`[AI IPC] Auto-title: SENDING IPC event - threadId: ${threadId}, title: "${title}"`);
+    event.sender.send("ai:title:generated", {
+      threadId,
+      title,
+    });
+    console.log(`[AI IPC] Auto-title: IPC event SENT successfully`);
+  } catch (error: any) {
+    console.error(`[AI IPC] Auto-title error for ${threadId}:`, error.message);
+    // Non-fatal - don't throw, just log
+  }
+}
+
 // Track stream contexts for two-phase streaming (prepare + start)
 interface StreamContext {
   model: any;
@@ -304,7 +443,6 @@ async function ensureThreadExists(threadId: string): Promise<boolean> {
         userId,
         title: "New Chat", // Default title, will be updated after first response
         createdAt: new Date(),
-        updatedAt: new Date(),
       });
       console.log(
         `[AI IPC] ensureThreadExists - created thread ${threadId} for user ${userId}`,
@@ -340,15 +478,15 @@ async function saveMessageToDb(
         id: messageId,
         threadId,
         role,
-        parts: JSON.stringify(parts),
-        metadata: metadata ? JSON.stringify(metadata) : null,
+        parts: parts as any,
+        metadata: metadata || null,
         createdAt: new Date(),
       })
       .onConflictDoUpdate({
         target: schema.ChatMessageTable.id,
         set: {
-          parts: JSON.stringify(parts),
-          metadata: metadata ? JSON.stringify(metadata) : null,
+          parts: parts as any,
+          metadata: metadata || null,
         },
       });
 
@@ -621,8 +759,12 @@ Home Directory: ${os.homedir()}
 
 /**
  * Create desktop tools that work in Electron main process
+ * Note: event parameter is optional for sending screenshots to UI
  */
-function createElectronTools(_threadId: string) {
+function createElectronTools(
+  threadId: string,
+  event?: Electron.IpcMainInvokeEvent,
+) {
   return {
     // Terminal command execution
     terminal_execute: createTool({
@@ -1399,11 +1541,7 @@ export function registerAIHandlers() {
       const mcpTools = await loadMcpTools(allowedMcpServers);
       const mcpToolNames = Object.keys(mcpTools);
 
-      // Check what categories of MCP tools are available
-      const hasMcpGitHub = mcpToolNames.some((name) => name.includes("github"));
-      const hasMcpGit = mcpToolNames.some(
-        (name) => name.includes("git") && !name.includes("github"),
-      );
+      // Check what categories of MCP tools are available (for renaming conflicts, not filtering)
       const hasMcpFileSystem = mcpToolNames.some(
         (name) =>
           name.includes("filesystem") ||
@@ -1425,22 +1563,19 @@ export function registerAIHandlers() {
       );
 
       // Create desktop tools for this thread
-      const allDesktopTools = createElectronTools(threadId);
+      const allDesktopTools = createElectronTools(threadId, event);
 
-      // Filter out desktop tools that overlap with MCP functionality
-      // When MCP provides the capability, prefer MCP (has API access, logged in sessions, etc.)
+      // IMPORTANT: Desktop tools should ALWAYS be available alongside MCP tools
+      // Terminal/shell execution is fundamental and should never be filtered out
+      // Let both coexist - the model can choose the best tool for the task
       const desktopTools: Record<string, any> = {};
 
       for (const [toolName, tool] of Object.entries(allDesktopTools)) {
-        // Skip terminal_execute if we have GitHub/Git MCP (prevents git commands via terminal)
-        if (toolName === "terminal_execute" && (hasMcpGitHub || hasMcpGit)) {
-          console.log(
-            `[AI IPC] Skipping ${toolName} - MCP provides GitHub/Git tools`,
-          );
-          continue;
-        }
+        // ALWAYS include terminal_execute - it's fundamental for local execution
+        // Even with GitHub MCP, users need terminal for npm, python, scripts, etc.
 
-        // Skip file tools if MCP provides filesystem access
+        // For file tools when MCP provides filesystem, rename to avoid conflicts
+        // but KEEP them available (MCP might be sandboxed, local gives full access)
         if (
           (toolName === "file_read" ||
             toolName === "file_write" ||
@@ -1448,31 +1583,36 @@ export function registerAIHandlers() {
             toolName === "file_search") &&
           hasMcpFileSystem
         ) {
+          // Rename to local_* to differentiate from MCP filesystem tools
+          desktopTools[`local_${toolName}`] = tool;
           console.log(
-            `[AI IPC] Skipping ${toolName} - MCP provides filesystem tools`,
+            `[AI IPC] Renamed ${toolName} to local_${toolName} - MCP also provides filesystem`,
           );
           continue;
         }
 
-        // Skip web_search/web_fetch if MCP provides search
+        // For web tools when MCP provides search, rename to avoid conflicts
         if (
           (toolName === "web_search" || toolName === "web_fetch") &&
           hasMcpSearch
         ) {
+          desktopTools[`local_${toolName}`] = tool;
           console.log(
-            `[AI IPC] Skipping ${toolName} - MCP provides search tools`,
+            `[AI IPC] Renamed ${toolName} to local_${toolName} - MCP also provides search`,
           );
           continue;
         }
 
-        // Skip browser_open if MCP provides browser automation
+        // For browser_open when MCP provides browser, rename to avoid conflicts
         if (toolName === "browser_open" && hasMcpBrowser) {
+          desktopTools[`local_${toolName}`] = tool;
           console.log(
-            `[AI IPC] Skipping ${toolName} - MCP provides browser tools`,
+            `[AI IPC] Renamed ${toolName} to local_${toolName} - MCP also provides browser`,
           );
           continue;
         }
 
+        // Include all other tools without modification
         desktopTools[toolName] = tool;
       }
 
@@ -1488,27 +1628,41 @@ export function registerAIHandlers() {
       const capabilities = getModelCapabilities(chatModel.model);
       const isLocal = isLocalProvider(chatModel.provider);
 
-      // For local models, also check the local model whitelist
-      const modelSupportsTools = isLocal
-        ? localModelSupportsTools(chatModel.model) &&
-          capabilities.isToolCallSupported
-        : capabilities.isToolCallSupported;
+      // For local models, check if the model is in the known whitelist
+      // But we now TRY tools anyway for unknown models - better to try and fail gracefully
+      const isKnownToolSupport = isLocal
+        ? localModelSupportsTools(chatModel.model)
+        : true;
 
-      // Handle empty tools or unsupported models - pass undefined for text-only streaming
+      const modelSupportsTools = capabilities.isToolCallSupported;
+
+      // Handle empty tools or definitely unsupported models
       let toolsToUse: typeof tools | undefined;
       if (Object.keys(tools).length === 0) {
         toolsToUse = undefined;
       } else if (!modelSupportsTools) {
-        // Model doesn't support tools - warn and proceed without tools
+        // Model has built-in tools or requires Responses API - can't use our tools
         console.warn(
-          `[AI IPC] Model ${chatModel.provider}/${chatModel.model} doesn't support tool calling, proceeding without tools`,
+          `[AI IPC] Model ${chatModel.provider}/${chatModel.model} has conflicting tool requirements, proceeding without tools`,
         );
         event.sender.send("ai:stream:warning", {
           threadId,
-          message: `Model "${chatModel.model}" doesn't support tool calling. Running without tool capabilities.`,
+          message: `Model "${chatModel.model}" has built-in tools that conflict with custom tools. Running without tool capabilities.`,
           type: "tool-unsupported",
         });
         toolsToUse = undefined;
+      } else if (isLocal && !isKnownToolSupport) {
+        // Local model not in whitelist - TRY ANYWAY with warning
+        // Better UX to try and fail than to preemptively disable
+        console.log(
+          `[AI IPC] Local model ${chatModel.model} not in known tool-support whitelist, but trying tools anyway`,
+        );
+        event.sender.send("ai:stream:warning", {
+          threadId,
+          message: `Model "${chatModel.model}" may have limited tool support. If tools fail, consider using a model like Llama 3, Qwen, or DeepSeek.`,
+          type: "tool-experimental",
+        });
+        toolsToUse = tools; // TRY ANYWAY!
       } else {
         toolsToUse = tools;
       }
@@ -1621,8 +1775,8 @@ export function registerAIHandlers() {
                 {
                   type: "text",
                   text:
-                    typeof userMessage.content === "string"
-                      ? userMessage.content
+                    typeof (userMessage as any).content === "string"
+                      ? (userMessage as any).content
                       : "",
                 },
               ],
@@ -1645,9 +1799,9 @@ export function registerAIHandlers() {
 
             // INDEX USER MESSAGE for memory search (non-blocking)
             const userTextContent =
-              typeof userMessage.content === "string"
-                ? userMessage.content
-                : userMessage.parts?.find((p: any) => p.type === "text")
+              typeof (userMessage as any).content === "string"
+                ? (userMessage as any).content
+                : (userMessage as any).parts?.find((p: any) => p.type === "text")
                     ?.text || "";
             if (userTextContent && userTextContent.length > 10) {
               indexMessageForMemory({
@@ -1850,6 +2004,7 @@ export function registerAIHandlers() {
                 data.type === "data-sub-agent-start" ||
                 data.type === "data-sub-agent-complete" ||
                 data.type === "data-sub-agent-text" ||
+                data.type === "data-sub-agent-tool-call" ||
                 data.type === "data-sub-agent-error"
               ) {
                 event.sender.send("ai:stream:chunk", {
@@ -1874,6 +2029,7 @@ export function registerAIHandlers() {
             userId,
             threadId,
             chatModel,
+            model, // CRITICAL: Pass pre-configured model with API keys for sub-agents
             availableTools: tools || {},
             mcpTools: {}, // MCP tools already merged into tools
             maxSteps: agentMaxSteps, // Configurable limit for long-running agent mode
@@ -1890,7 +2046,7 @@ export function registerAIHandlers() {
             stopWhen: orchestratorConfig.stopWhen, // CRITICAL: Pass stop conditions for proper loop control
             abortSignal: abortController.signal,
             maxRetries: 2,
-            onStepFinish: ({ stepType, toolCalls, toolResults }) => {
+            onStepFinish: ({ toolCalls, toolResults, ...stepInfo }: any) => {
               // Check for STOP/COMPLETED signals in tool results
               if (toolResults) {
                 const hasStopSignal = toolResults.some((r: any) => {
@@ -1906,11 +2062,11 @@ export function registerAIHandlers() {
               // Send step event to renderer
               event.sender.send("ai:stream:step", {
                 threadId,
-                stepType,
+                stepType: stepInfo.stepType,
                 toolCallCount: toolCalls?.length || 0,
               });
             },
-          });
+          } as Parameters<typeof streamText>[0]);
         } else {
           // REGULAR MODE: Standard streaming with basic tools
           console.log(
@@ -1976,13 +2132,13 @@ export function registerAIHandlers() {
             abortSignal: abortController.signal,
             maxRetries: 2,
             onStepFinish: ({
-              stepType,
               toolCalls,
               toolResults,
               finishReason,
-            }) => {
+              ...stepInfo
+            }: any) => {
               console.log(
-                `[AI IPC] Step finished: type=${stepType}, toolCalls=${toolCalls?.length || 0}, toolResults=${toolResults?.length || 0}, finishReason=${finishReason}`,
+                `[AI IPC] Step finished: type=${stepInfo.stepType}, toolCalls=${toolCalls?.length || 0}, toolResults=${toolResults?.length || 0}, finishReason=${finishReason}`,
               );
               if (toolCalls?.length) {
                 console.log(
@@ -1999,11 +2155,11 @@ export function registerAIHandlers() {
               // Send step event to renderer
               event.sender.send("ai:stream:step", {
                 threadId,
-                stepType,
+                stepType: stepInfo.stepType,
                 toolCallCount: toolCalls?.length || 0,
               });
             },
-          });
+          } as Parameters<typeof streamText>[0]);
         }
 
         // console.log(`[AI IPC] streamText result created, converting to UI stream...`);
@@ -2623,6 +2779,43 @@ export function registerAIHandlers() {
             threadId,
             finishReason: "stop",
           });
+
+          // AUTO-GENERATE TITLE if needed (non-blocking)
+          // Extract first user message text content
+          const userMsgAny = userMessage as any;
+          console.log("[AI IPC] Preparing auto-title - userMessage:", {
+            hasUserMessage: !!userMessage,
+            contentType: typeof userMsgAny?.content,
+            contentLength: typeof userMsgAny?.content === "string" ? userMsgAny.content.length : 0,
+            hasParts: !!userMsgAny?.parts,
+            partsLength: userMsgAny?.parts?.length || 0,
+          });
+
+          const userMessageText =
+            typeof userMsgAny?.content === "string"
+              ? userMsgAny.content
+              : userMsgAny?.parts
+                  ?.filter((p: any) => p.type === "text")
+                  .map((p: any) => p.text)
+                  .join("\n") || "";
+
+          console.log("[AI IPC] Auto-title content:", {
+            userMessageTextLength: userMessageText.length,
+            userMessageTextPreview: userMessageText.slice(0, 100),
+            assistantTextLength: currentTextContent.length,
+            assistantTextPreview: currentTextContent.slice(0, 100),
+          });
+
+          // assistantTextContent is already available from earlier
+          maybeAutoGenerateTitle(
+            threadId,
+            chatModel,
+            userMessageText,
+            currentTextContent, // This is the accumulated assistant text
+            event,
+          ).catch((err) => {
+            console.warn("[AI IPC] Auto-title generation failed:", err.message);
+          });
         } catch (streamError: any) {
           console.error(`[AI IPC] Stream error:`, streamError.message);
           event.sender.send("ai:stream:error", {
@@ -2722,7 +2915,7 @@ export function registerAIHandlers() {
             },
           ],
           maxTokens: 30,
-        });
+        } as Parameters<typeof generateText>[0]);
 
         const title = result.text.trim().replace(/^["']|["']$/g, ""); // Remove quotes if any
 
@@ -2789,7 +2982,7 @@ export function registerAIHandlers() {
 
         // Convert JSON schema to Zod schema dynamically
         const { jsonSchemaToZod } = await import(
-          "../../src/lib/ai/json-schema-to-zod"
+          "../../src/lib/json-schema-to-zod"
         );
         const zodSchema = jsonSchemaToZod(schema);
 
@@ -2823,11 +3016,13 @@ async function getApiKeyForProvider(
     console.log(`[AI IPC] Looking up API key for provider: "${providerId}"`);
 
     // Get the API key from database - try exact match first
-    let [keyRecord] = await db
+    const [exactMatch] = await db
       .select()
       .from(schema.ApiKeyTable)
       .where(eq(schema.ApiKeyTable.providerId, providerId))
       .limit(1);
+
+    let keyRecord: typeof exactMatch | undefined = exactMatch;
 
     // If not found, try case-insensitive match
     if (!keyRecord) {

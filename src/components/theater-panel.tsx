@@ -34,8 +34,8 @@ import { FileTypeIcon } from "./file-type-icon";
 import { BrowserPreview } from "./theater/browser-preview";
 import { DesktopPreview } from "./theater/desktop-preview";
 
-// Interface for sandbox files from API
-interface SandboxFileMetadata {
+// Interface for workspace files from API
+interface WorkspaceFileMetadata {
   name: string;
   size: number;
   type: string;
@@ -155,15 +155,15 @@ export function TheaterPanel() {
     theaterMode.defaultTab || "preview",
   );
   const [isMaximized, setIsMaximized] = useState(false);
-  const [sandboxFiles, setSandboxFiles] = useState<SandboxFileMetadata[]>([]);
-  const [sandboxFilesLoading, setSandboxFilesLoading] = useState(false);
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileMetadata[]>([]);
+  const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
   const { uploadFiles } = useThreadFileUploader(currentThreadId || undefined);
   const isMobile = useIsMobile();
 
-  // Fetch sandbox files from API when theater opens, thread changes, or sandbox files version changes
+  // Fetch workspace files from API when theater opens, thread changes, or files version changes
   useEffect(() => {
     if (!currentThreadId) {
-      setSandboxFiles([]);
+      setWorkspaceFiles([]);
       return;
     }
 
@@ -174,10 +174,10 @@ export function TheaterPanel() {
     }
 
     let cancelled = false;
-    setSandboxFilesLoading(true);
+    setWorkspaceFilesLoading(true);
 
     console.log(
-      "[TheaterPanel] Fetching sandbox files for thread:",
+      "[TheaterPanel] Fetching workspace files for thread:",
       currentThreadId,
       "version:",
       filesVersion,
@@ -188,9 +188,9 @@ export function TheaterPanel() {
       typeof window !== "undefined" ? (window as any).electronAPI : null;
 
     if (api?.files?.listFiles) {
-      // Use IPC to list sandbox files
+      // Use IPC to list workspace files
       api.files
-        .listFiles("sandbox")
+        .listFiles("workspace")
         .then((files: any[]) => {
           if (cancelled) return;
           // Filter files for this thread (if they have thread metadata)
@@ -198,27 +198,27 @@ export function TheaterPanel() {
             (f: any) => !f.threadId || f.threadId === currentThreadId,
           );
           console.log(
-            "[TheaterPanel] Received sandbox files via IPC:",
+            "[TheaterPanel] Received workspace files via IPC:",
             threadFiles.length,
           );
-          setSandboxFiles(threadFiles);
+          setWorkspaceFiles(threadFiles);
         })
         .catch((err: Error) => {
           if (cancelled) return;
-          console.error("Failed to load sandbox files via IPC:", err);
-          setSandboxFiles([]);
+          console.error("Failed to load workspace files via IPC:", err);
+          setWorkspaceFiles([]);
         })
         .finally(() => {
-          if (!cancelled) setSandboxFilesLoading(false);
+          if (!cancelled) setWorkspaceFilesLoading(false);
         });
     } else {
       // No Electron API available - just return empty array
       // In Electron desktop app, HTTP endpoints require auth that's handled via IPC
       console.log(
-        "[TheaterPanel] Electron API not available, skipping sandbox files fetch",
+        "[TheaterPanel] Electron API not available, skipping workspace files fetch",
       );
-      setSandboxFiles([]);
-      setSandboxFilesLoading(false);
+      setWorkspaceFiles([]);
+      setWorkspaceFilesLoading(false);
     }
 
     return () => {
@@ -253,12 +253,12 @@ export function TheaterPanel() {
       createdAt: new Date().toISOString(),
     }));
 
-    const sandboxFileItems = sandboxFiles.map((f) => {
+    const workspaceFileItems = workspaceFiles.map((f) => {
       const storageKey = f.url ? extractStorageKeyFromUrl(f.url) : undefined;
 
       return {
-        _source: "sandbox" as const,
-        id: `sandbox-${f.name}-${f.uploadedAt}`,
+        _source: "workspace" as const,
+        id: `workspace-${f.name}-${f.uploadedAt}`,
         title: f.name,
         name: f.name,
         filename: f.name,
@@ -269,12 +269,12 @@ export function TheaterPanel() {
         size: f.size,
         mimeType: f.type, // Include mimeType for Collabora support
         createdAt: f.uploadedAt,
-        sandboxSource: f.source, // 'user' or 'generated'
+        workspaceSource: f.source, // 'user' or 'generated'
       };
     });
 
-    // Deduplicate: sandbox files may overlap with uploads or artifacts
-    const allCombined = [...artifacts, ...uploads, ...sandboxFileItems];
+    // Deduplicate: workspace files may overlap with uploads or artifacts
+    const allCombined = [...artifacts, ...uploads, ...workspaceFileItems];
     const seenNames = new Set<string>();
     const deduplicated = allCombined.filter((item) => {
       const name = item.filename || item.name || item.title;
@@ -289,7 +289,7 @@ export function TheaterPanel() {
     theaterMode.executionArtifacts,
     threadFiles,
     currentThreadId,
-    sandboxFiles,
+    workspaceFiles,
   ]);
 
   // Auto-switch logic - respect defaultTab when theater opens
@@ -658,7 +658,7 @@ export function TheaterPanel() {
                   )}
                 >
                   {(() => {
-                    if (sandboxFilesLoading) {
+                    if (workspaceFilesLoading) {
                       return (
                         <div className="h-full flex flex-col items-center justify-center text-white/30 gap-4">
                           <Loader2 className="w-8 h-8 animate-spin" />
@@ -680,7 +680,7 @@ export function TheaterPanel() {
                     }
                     return null;
                   })()}
-                  {!sandboxFilesLoading && allItems.length > 0 && (
+                  {!workspaceFilesLoading && allItems.length > 0 && (
                     <FileExplorer
                       items={allItems}
                       onSelect={(item) => {
@@ -766,7 +766,7 @@ function PreviewContent({
     browserSession,
     desktopSession,
     researchTask,
-    fileMetadata,
+    fileMetadata: _fileMetadata,
   } = theaterMode;
   const [officeHtml, setOfficeHtml] = useState<string | null>(null);
   const [officeLoading, setOfficeLoading] = useState(false);
@@ -1940,10 +1940,10 @@ function FileExplorer({
   // Group files by source for quick access
   const groupedBySource = useMemo(() => {
     const generated = items.filter(
-      (i) => i.sandboxSource === "generated" || i._source === "artifact",
+      (i) => i.workspaceSource === "generated" || i._source === "artifact",
     );
     const uploaded = items.filter(
-      (i) => i.sandboxSource === "user" || i._source === "upload",
+      (i) => i.workspaceSource === "user" || i._source === "upload",
     );
     return { generated, uploaded };
   }, [items]);

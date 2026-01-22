@@ -16,7 +16,7 @@ export function registerFileHandlers() {
         content: string | Buffer; // Base64 string or Buffer
         filename?: string;
         contentType?: string;
-        category?: "uploads" | "fragments" | "exports" | "sandbox";
+        category?: "uploads" | "fragments" | "exports" | "workspace";
       },
     ) => {
       try {
@@ -110,7 +110,7 @@ export function registerFileHandlers() {
     "files:listFiles",
     async (
       _event,
-      category: "uploads" | "fragments" | "exports" | "sandbox",
+      category: "uploads" | "fragments" | "exports" | "workspace",
     ) => {
       try {
         return await fileStorage.listFiles(category);
@@ -126,7 +126,7 @@ export function registerFileHandlers() {
     "files:clearCategory",
     async (
       _event,
-      category: "uploads" | "fragments" | "exports" | "sandbox",
+      category: "uploads" | "fragments" | "exports" | "workspace",
     ) => {
       try {
         await fileStorage.clearCategory(category);

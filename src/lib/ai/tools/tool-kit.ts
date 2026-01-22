@@ -15,7 +15,7 @@ import {
 } from "./browser/local-browser-tools";
 
 // Desktop/Computer Use tools (Local Terminal)
-import { desktopTools } from "./sandbox/desktop-tools";
+import { desktopTools } from "./desktop/desktop-tools";
 
 // Data analysis tools
 import { createDataAnalysisTools } from "../agents/data-analysis-agent";
@@ -28,9 +28,6 @@ import { createDeepResearchTool } from "../agents/deep-research-agent";
 
 // Memory tools
 import { rememberContextTool } from "./memory/remember-context";
-
-// Fragment tools (autonomous app generation)
-import { createFragmentTools } from "./fragment/fragment-tool";
 
 import type { UIMessageStreamWriter } from "ai";
 import type { ChatModel } from "app-types/chat";
@@ -69,18 +66,25 @@ export const APP_DEFAULT_TOOL_KIT: Record<
   },
   // Browser automation tools (Local Chrome DevTools Protocol)
   [AppDefaultToolkit.Browser]: {
+    [DefaultToolName.BrowserCreateSession]:
+      localBrowserTools.browser_create_session,
+    [DefaultToolName.BrowserCloseSession]:
+      localBrowserTools.browser_close_session,
     [DefaultToolName.BrowserNavigate]: localBrowserTools.browser_navigate,
-    [DefaultToolName.BrowserAct]: localBrowserTools.browser_act,
-    [DefaultToolName.BrowserObserve]: localBrowserTools.browser_observe,
-    [DefaultToolName.BrowserExtract]: localBrowserTools.browser_extract,
+    [DefaultToolName.BrowserClick]: localBrowserTools.browser_click,
+    [DefaultToolName.BrowserFill]: localBrowserTools.browser_fill,
+    [DefaultToolName.BrowserType]: localBrowserTools.browser_type,
+    [DefaultToolName.BrowserGetSnapshot]: localBrowserTools.browser_get_snapshot,
+    [DefaultToolName.BrowserGetContent]: localBrowserTools.browser_get_content,
     [DefaultToolName.BrowserScreenshot]: localBrowserTools.browser_screenshot,
     [DefaultToolName.BrowserWait]: localBrowserTools.browser_wait,
-    [DefaultToolName.BrowserStealth]: localBrowserTools.browser_stealth,
-    [DefaultToolName.BrowserClose]: localBrowserTools.browser_close,
+    [DefaultToolName.BrowserEvaluate]: localBrowserTools.browser_evaluate,
   },
   // Desktop/Computer Use tools (Local Terminal)
+  // IMPORTANT: desktop_command is the shell/terminal execution tool - essential for all agents
   [AppDefaultToolkit.Desktop]: {
     [DefaultToolName.DesktopCreate]: desktopTools.desktop_create,
+    [DefaultToolName.DesktopCommand]: desktopTools.desktop_command, // Shell execution - CRITICAL
     [DefaultToolName.DesktopScreenshot]: desktopTools.desktop_screenshot,
     [DefaultToolName.DesktopClick]: desktopTools.desktop_click,
     [DefaultToolName.DesktopType]: desktopTools.desktop_type,
@@ -88,6 +92,8 @@ export const APP_DEFAULT_TOOL_KIT: Record<
     [DefaultToolName.DesktopScroll]: desktopTools.desktop_scroll,
     [DefaultToolName.DesktopDrag]: desktopTools.desktop_drag,
     [DefaultToolName.DesktopLaunchApp]: desktopTools.desktop_launch,
+    [DefaultToolName.DesktopDisplayInfo]: desktopTools.desktop_display_info,
+    [DefaultToolName.DesktopCursorPosition]: desktopTools.desktop_cursor_position,
   },
   // Data analysis tools (static versions without dataStream)
   [AppDefaultToolkit.DataAnalysis]: {
@@ -115,8 +121,6 @@ export const APP_DEFAULT_TOOL_KIT: Record<
   [AppDefaultToolkit.Memory]: {
     [DefaultToolName.RememberContext]: rememberContextTool,
   },
-  // Fragment tools (autonomous app generation) - require context
-  [AppDefaultToolkit.Fragments]: {},
 };
 
 /**
@@ -152,18 +156,28 @@ export function createAppDefaultToolKit(
       },
       // Browser tools work without thread context
       [AppDefaultToolkit.Browser]: {
+        [DefaultToolName.BrowserCreateSession]:
+          localBrowserTools.browser_create_session,
+        [DefaultToolName.BrowserCloseSession]:
+          localBrowserTools.browser_close_session,
         [DefaultToolName.BrowserNavigate]: localBrowserTools.browser_navigate,
-        [DefaultToolName.BrowserAct]: localBrowserTools.browser_act,
-        [DefaultToolName.BrowserObserve]: localBrowserTools.browser_observe,
-        [DefaultToolName.BrowserExtract]: localBrowserTools.browser_extract,
+        [DefaultToolName.BrowserClick]: localBrowserTools.browser_click,
+        [DefaultToolName.BrowserFill]: localBrowserTools.browser_fill,
+        [DefaultToolName.BrowserType]: localBrowserTools.browser_type,
+        [DefaultToolName.BrowserGetSnapshot]:
+          localBrowserTools.browser_get_snapshot,
+        [DefaultToolName.BrowserGetContent]:
+          localBrowserTools.browser_get_content,
         [DefaultToolName.BrowserScreenshot]:
           localBrowserTools.browser_screenshot,
         [DefaultToolName.BrowserWait]: localBrowserTools.browser_wait,
-        [DefaultToolName.BrowserStealth]: localBrowserTools.browser_stealth,
-        [DefaultToolName.BrowserClose]: localBrowserTools.browser_close,
+        [DefaultToolName.BrowserEvaluate]: localBrowserTools.browser_evaluate,
       },
       // Desktop tools work without thread context
+      // IMPORTANT: desktop_command (shell execution) is essential for all agents
       [AppDefaultToolkit.Desktop]: {
+        [DefaultToolName.DesktopCreate]: desktopTools.desktop_create,
+        [DefaultToolName.DesktopCommand]: desktopTools.desktop_command, // Shell execution - CRITICAL
         [DefaultToolName.DesktopScreenshot]: desktopTools.desktop_screenshot,
         [DefaultToolName.DesktopClick]: desktopTools.desktop_click,
         [DefaultToolName.DesktopType]: desktopTools.desktop_type,
@@ -171,6 +185,8 @@ export function createAppDefaultToolKit(
         [DefaultToolName.DesktopScroll]: desktopTools.desktop_scroll,
         [DefaultToolName.DesktopDrag]: desktopTools.desktop_drag,
         [DefaultToolName.DesktopLaunchApp]: desktopTools.desktop_launch,
+        [DefaultToolName.DesktopDisplayInfo]: desktopTools.desktop_display_info,
+        [DefaultToolName.DesktopCursorPosition]: desktopTools.desktop_cursor_position,
       },
       // Data analysis (static - no dataStream)
       [AppDefaultToolkit.DataAnalysis]: {
@@ -198,8 +214,6 @@ export function createAppDefaultToolKit(
       [AppDefaultToolkit.Memory]: {
         [DefaultToolName.RememberContext]: rememberContextTool,
       },
-      // Fragment tools unavailable without context
-      [AppDefaultToolkit.Fragments]: {},
     };
   }
 
@@ -233,23 +247,30 @@ export function createAppDefaultToolKit(
     },
     // Browser automation tools (Local Chrome DevTools) - context-aware versions
     [AppDefaultToolkit.Browser]: {
+      [DefaultToolName.BrowserCreateSession]:
+        contextAwareBrowserTools.browser_create_session,
+      [DefaultToolName.BrowserCloseSession]:
+        contextAwareBrowserTools.browser_close_session,
       [DefaultToolName.BrowserNavigate]:
         contextAwareBrowserTools.browser_navigate,
-      [DefaultToolName.BrowserAct]: contextAwareBrowserTools.browser_act,
-      [DefaultToolName.BrowserObserve]:
-        contextAwareBrowserTools.browser_observe,
-      [DefaultToolName.BrowserExtract]:
-        contextAwareBrowserTools.browser_extract,
+      [DefaultToolName.BrowserClick]: contextAwareBrowserTools.browser_click,
+      [DefaultToolName.BrowserFill]: contextAwareBrowserTools.browser_fill,
+      [DefaultToolName.BrowserType]: contextAwareBrowserTools.browser_type,
+      [DefaultToolName.BrowserGetSnapshot]:
+        contextAwareBrowserTools.browser_get_snapshot,
+      [DefaultToolName.BrowserGetContent]:
+        contextAwareBrowserTools.browser_get_content,
       [DefaultToolName.BrowserScreenshot]:
         contextAwareBrowserTools.browser_screenshot,
       [DefaultToolName.BrowserWait]: contextAwareBrowserTools.browser_wait,
-      [DefaultToolName.BrowserStealth]:
-        contextAwareBrowserTools.browser_stealth,
-      [DefaultToolName.BrowserClose]: contextAwareBrowserTools.browser_close,
+      [DefaultToolName.BrowserEvaluate]:
+        contextAwareBrowserTools.browser_evaluate,
     },
     // Desktop/Computer Use tools (Local Terminal)
+    // IMPORTANT: desktop_command (shell execution) is essential for all agents
     [AppDefaultToolkit.Desktop]: {
       [DefaultToolName.DesktopCreate]: desktopTools.desktop_create,
+      [DefaultToolName.DesktopCommand]: desktopTools.desktop_command, // Shell execution - CRITICAL
       [DefaultToolName.DesktopScreenshot]: desktopTools.desktop_screenshot,
       [DefaultToolName.DesktopClick]: desktopTools.desktop_click,
       [DefaultToolName.DesktopType]: desktopTools.desktop_type,
@@ -257,6 +278,8 @@ export function createAppDefaultToolKit(
       [DefaultToolName.DesktopScroll]: desktopTools.desktop_scroll,
       [DefaultToolName.DesktopDrag]: desktopTools.desktop_drag,
       [DefaultToolName.DesktopLaunchApp]: desktopTools.desktop_launch,
+      [DefaultToolName.DesktopDisplayInfo]: desktopTools.desktop_display_info,
+      [DefaultToolName.DesktopCursorPosition]: desktopTools.desktop_cursor_position,
     },
     // Data analysis tools (with dataStream for progress updates)
     [AppDefaultToolkit.DataAnalysis]: {
@@ -303,12 +326,5 @@ export function createAppDefaultToolKit(
     [AppDefaultToolkit.Memory]: {
       [DefaultToolName.RememberContext]: rememberContextTool,
     },
-    // Fragment tools (autonomous app generation)
-    [AppDefaultToolkit.Fragments]: createFragmentTools({
-      userId: context.userId,
-      threadId: context.threadId,
-      dataStream,
-      chatModel: context.chatModel,
-    }),
   };
 }

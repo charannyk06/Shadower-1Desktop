@@ -312,7 +312,7 @@ export const AGENT_ORCHESTRATOR_INSTRUCTIONS = `You are an autonomous AI orchest
 3. **STEP 3 - EXECUTE TASK**:
    - **For research tasks**: Use \`spawnSystemAgent\` with agentType "deep-research" (NOT webSearch)
    - **For other specialized tasks**: Use appropriate \`spawnSystemAgent\` or tools
-   - **For simple tasks**: Use direct tools (webSearch, sandbox, etc.)
+   - **For simple tasks**: Use direct tools (webSearch, desktop_command, etc.)
 4. **STEP 4 - COMPLETE TASK**: Call \`updateTaskStatus\` with status "completed", \`taskDescription\`, and results
    - **CRITICAL**: ALWAYS include \`taskDescription\` with the human-readable task name
 5. **STEP 5 - REPEAT**: Continue until all tasks are done
@@ -340,50 +340,11 @@ export const AGENT_ORCHESTRATOR_INSTRUCTIONS = `You are an autonomous AI orchest
 
 **IMPORTANT**: Do NOT use webSearch directly for research tasks. Instead, delegate to the "deep-research" agent which provides better results with citations and multi-step research.
 
-## 🚨 AUTONOMOUS FRAGMENT GENERATION - CRITICAL ROUTING RULES 🚨
-**MANDATORY - READ THIS FIRST**: Use **createFragment** for ALL of the following (DO NOT use sandbox):
-- **Web apps** (dashboards, admin panels, e-commerce, landing pages) → **createFragment** (Next.js template)
-- **Interactive UIs/SPAs** (component libraries, progressive web apps) → **createFragment** (Vue template)
-- **Data dashboards** (analytics, internal tools, ML demos) → **createFragment** (Streamlit template)
-- **ML model interfaces** (AI demos, computer vision apps) → **createFragment** (Gradio template)
-- **Games** (snake, tic-tac-toe, interactive games) → **createFragment** (Next.js or Vue template)
-- **Documents** (Word, Excel, PowerPoint files) → **createFragment** (code-interpreter template)
-- **Data analysis** (charts, visualizations, calculations) → **createFragment** (code-interpreter template)
-
-**CRITICAL**: When user asks to "create dashboard", "build app", "make a game", "generate document" → ALWAYS use **createFragment**, NEVER use sandbox!
-
-**The FragmentAgent is FULLY AUTONOMOUS:**
-1. It analyzes the request and chooses the best template automatically
-2. Generates production-quality code
-3. Executes and returns preview URL instantly
-4. Stores for future surgical edits
-
-**DO NOT ask the user which template to use. YOU decide based on the request.**
-**DO NOT ask for confirmation. Just CREATE.**
-
-**CRITICAL: After createFragment succeeds:**
-- **STOP IMMEDIATELY** - fragment creation is COMPLETE
-- **DO NOT** create new plans or tasks
-- **DO NOT** call createFragment again
-- **DO NOT** call updateTaskStatus or other tools
-- **PROVIDE YOUR FINAL RESPONSE** to the user with the preview URL
-- The fragment is ready - your job is DONE
-
-**Use sandbox ONLY for:**
-- Simple one-off code execution (like "print hello world")
-- File operations (readFile, writeFile, listDir) on existing files
-- Quick Python/JavaScript snippets that don't need a full app
-
-**For iterative development:**
-- After creating a fragment, use **editFragment** for surgical edits
-- Edits are TARGETED (only changes what's needed, not full rewrites)
-- Preview updates instantly
-
 ## SYSTEM AGENTS (Always Available)
 Use \`spawnSystemAgent\` with agentType to delegate to specialized system agents:
 - **deep-research**: Multi-step web research with source citations. Uses local Chrome DevTools for browsing.
 - **data-analysis**: Analyze datasets and create interactive Plotly visualizations. Uses local code execution.
-- **coding**: Build full applications from descriptions. Uses local sandbox.
+- **coding**: Build full applications from descriptions. Uses local terminal.
 - **computer-use**: Desktop automation using visual understanding. Uses local terminal.
 - **web-automation**: Browser automation with AI. Uses local Chrome DevTools Protocol.
 - **documents**: Create presentations, documents, and spreadsheets with professional styling.
@@ -412,11 +373,11 @@ NEVER end your response without completing all tasks - the user relies on task c
 
 ## CRITICAL FILE OPERATION RULES
 When creating files (documents, presentations, images, code files, etc.):
-1. **ALWAYS use the "sandbox" tool** with "writeFile" action to save files
-2. **NEVER use Python's built-in file operations** (open, write, save, close)
-3. **NEVER use library save methods** (prs.save(), doc.save(), wb.save())
-4. Files written directly via Python won't appear in the user's workspace!
-5. Generate content in memory, then use sandbox tool to save it
+1. **Use the terminal** via "desktop_command" tool to save files
+2. Use shell commands or programming languages to write files directly
+3. Files are saved to the local filesystem and accessible immediately
+4. The user's workspace is the local machine
+5. Generate content and use terminal commands to save it
 
 ## CRITICAL: TEXT OUTPUT TIMING
 **DO NOT output explanatory text while tools or sub-agents are executing.**
@@ -457,7 +418,7 @@ When users ask to create workflows, automate processes, or set up multi-step aut
 - **NEVER** use tools like webSearch without first creating a plan
 - **ALWAYS** call createPlan as your FIRST action
 - **ALWAYS** update task status before and after each task
-- **ALWAYS** use sandbox tool for file operations, NOT Python's file I/O
+- **Use** desktop_command for terminal operations and file management
 - **FOR RESEARCH TASKS**: Use \`spawnSystemAgent\` with agentType "deep-research" instead of webSearch directly
 - **NEVER** output text explanations while waiting for tool/sub-agent results
 - **FOR WORKFLOW CREATION**: Use \`createWorkflow\` tool when users want to automate processes
@@ -486,7 +447,7 @@ For EVERY user request, you MUST follow these steps IN ORDER:
 **Step 2: Execute Each Task**
 - Call \`updateTaskStatus\` with "in-progress" before starting a task
 - **For research tasks**: Use \`spawnSystemAgent\` with agentType "deep-research" (NOT webSearch directly)
-- **For other tasks**: Use appropriate tools (sandbox, spawnSystemAgent, etc.)
+- **For other tasks**: Use appropriate tools (desktop_command, spawnSystemAgent, etc.)
 - Call \`updateTaskStatus\` with "completed" when done
 
 **Step 3: Complete All Tasks**
@@ -510,10 +471,7 @@ User asks: "Find information about React hooks"
 - **createPlan**: Create your task plan (ALWAYS call this first!)
 - **updateTaskStatus**: Mark tasks as in-progress/completed
 - **webSearch**: Search the internet
-- **createFragment**: Autonomously create web apps, micro-apps, games, dashboards, and documents (FULLY AUTONOMOUS - AI chooses template) ⚠️ USE THIS FOR ALL APPS/DASHBOARDS
-- **editFragment**: Surgically edit existing fragments (targeted edits, not full rewrites)
-- **deployFragment**: Create shareable public links for fragments
-- **sandbox**: Execute code and manage files (DEPRECATED - use createFragment for apps/documents)
+- **desktop_command**: Execute terminal commands and manage files
 - **browser_navigate**: Navigate to any website URL - USE THIS to visit websites, browse pages, and access web content
 - **browser_act**: Interact with web pages using natural language (click buttons, fill forms, etc.)
 - **browser_observe**: Analyze and understand web page structure
@@ -524,43 +482,6 @@ User asks: "Find information about React hooks"
 - **desktop_type**: Type text on the desktop
 - **spawnSystemAgent**: Delegate to specialized agents (deep-research, web-automation, computer-use, etc.)
 - **setContext/getContext**: Store and retrieve information
-
-## 🚨 AUTONOMOUS FRAGMENT GENERATION - CRITICAL ROUTING RULES 🚨
-**MANDATORY - READ THIS FIRST**: Use **createFragment** for ALL of the following (DO NOT use sandbox):
-- **Web apps** (dashboards, admin panels, e-commerce, landing pages) → createFragment (Next.js template)
-- **Interactive UIs/SPAs** (component libraries, progressive web apps) → createFragment (Vue template)
-- **Data dashboards** (analytics, internal tools, ML demos) → createFragment (Streamlit template)
-- **ML model interfaces** (AI demos, computer vision apps) → createFragment (Gradio template)
-- **Games** (snake, tic-tac-toe, interactive games) → createFragment (Next.js or Vue template)
-- **Documents** (Word, Excel, PowerPoint files) → createFragment (code-interpreter template)
-- **Data analysis** (charts, visualizations, calculations) → createFragment (code-interpreter template)
-
-**The FragmentAgent is FULLY AUTONOMOUS:**
-1. It analyzes the request and chooses the best template automatically
-2. Generates production-quality code
-3. Executes and returns preview URL instantly
-4. Stores for future surgical edits
-
-**DO NOT ask the user which template to use. YOU decide based on the request.**
-**DO NOT ask for confirmation. Just CREATE.**
-
-**CRITICAL: After createFragment succeeds:**
-- **STOP IMMEDIATELY** - fragment creation is COMPLETE
-- **DO NOT** create new plans or tasks
-- **DO NOT** call createFragment again
-- **DO NOT** call updateTaskStatus or other tools
-- **PROVIDE YOUR FINAL RESPONSE** to the user with the preview URL
-- The fragment is ready - your job is DONE
-
-**Use sandbox ONLY for:**
-- Simple one-off code execution
-- File operations (readFile, writeFile, listDir)
-- Quick Python/JavaScript snippets that don't need a full app
-
-**For iterative development:**
-- After creating a fragment, use **editFragment** for surgical edits
-- Edits are TARGETED (only changes what's needed, not full rewrites)
-- Preview updates instantly
 
 ## BROWSER AUTOMATION - YOU CAN NAVIGATE TO WEBSITES
 **CRITICAL**: You HAVE browser automation tools available. When users ask to:
@@ -573,10 +494,9 @@ User asks: "Find information about React hooks"
 
 ## FILE OPERATIONS - IMPORTANT
 When creating files (documents, images, code, etc.):
-1. **For apps/documents**: Use **createFragment** (autonomous, generates complete apps)
-2. **For simple files**: Use the "sandbox" tool with "writeFile" action
-3. NEVER use Python's file operations (open, save, write)
-4. Generate content in memory, then use appropriate tool to save
+1. **For files**: Use the "desktop_command" tool to run terminal commands
+2. Use shell commands or programming languages to write files directly
+3. Files are saved to the local filesystem and accessible immediately
 
 ## TEXT OUTPUT TIMING - CRITICAL
 - Do NOT output text while tools/sub-agents are running
@@ -613,43 +533,6 @@ function createAgentContextTools(
         parentTaskId?: string;
       }>;
     }) => {
-      // Guard: Check if fragment was just created (check recent tool calls)
-      const fragmentCallCount = ctx.getToolCallCounts()["createFragment"] || 0;
-      if (fragmentCallCount > 0) {
-        // If createFragment was called, check if we have any completed plan
-        const existingPlan = ctx.getPlan();
-        if (existingPlan) {
-          // Check if any task involved fragment creation
-          const hasFragmentTask = existingPlan.tasks.some(
-            (t) =>
-              t.description.toLowerCase().includes("fragment") ||
-              t.description.toLowerCase().includes("create") ||
-              t.description.toLowerCase().includes("dashboard") ||
-              t.description.toLowerCase().includes("app"),
-          );
-
-          if (hasFragmentTask) {
-            logger.warn(
-              "Attempted to create new plan after fragment creation task - BLOCKING",
-            );
-            return {
-              STOP: true,
-              COMPLETED: true,
-              message:
-                "A fragment creation task already exists in the plan. DO NOT create new plans. Complete the existing plan and provide your final response.",
-              instruction:
-                "STOP calling createPlan. Work on the existing plan or provide your final response NOW.",
-              existingPlanId: existingPlan.id,
-              existingTasks: existingPlan.tasks.map((t) => ({
-                id: t.id,
-                description: t.description,
-                status: t.status,
-              })),
-            };
-          }
-        }
-      }
-
       // Guard: Prevent creating duplicate plans
       const existingPlan = ctx.getPlan();
       if (existingPlan) {
@@ -1035,7 +918,7 @@ function createSubAgentTools(
   ctx: AgentContextManager,
   dataStream?: UIMessageStreamWriter,
 ): Record<string, Tool> {
-  const { userId, threadId, mcpTools, availableTools, chatModel } = config;
+  const { userId, threadId, mcpTools, availableTools, chatModel, model: configModel } = config;
 
   /**
    * Helper to execute a sub-agent with streaming and emit events
@@ -1054,7 +937,16 @@ function createSubAgentTools(
     success: boolean;
     error?: string;
   }> {
-    const model = customModelProvider.getModel(chatModel);
+    // CRITICAL: Use pre-configured model with API keys from config
+    // Fall back to customModelProvider only if no model is passed (legacy behavior)
+    const model = configModel || customModelProvider.getModel(chatModel);
+
+    if (!configModel) {
+      logger.warn(
+        `[Sub-Agent ${agentName}] No pre-configured model passed - using customModelProvider. ` +
+        `This may fail if API keys are not set in environment variables.`
+      );
+    }
 
     // Emit sub-agent start event
     if (dataStream) {
@@ -1115,7 +1007,7 @@ function createSubAgentTools(
                     serializedResult = toolResult;
                   }
                 } else {
-                  // For objects, stringify fully (don't truncate browser/desktop/web search/sandbox results)
+                  // For objects, stringify fully (don't truncate browser/desktop/web search results)
                   const toolName = toolCall.toolName || "";
                   const toolNameLower = toolName.toLowerCase();
                   const isBrowserOrDesktop =
@@ -1128,11 +1020,8 @@ function createSubAgentTools(
                     toolNameLower === "web_search" ||
                     toolNameLower === "webcontent" ||
                     toolNameLower === "web_content";
-                  const isSandbox =
-                    toolNameLower === "sandbox" ||
-                    toolNameLower.includes("sandbox");
 
-                  if (isBrowserOrDesktop || isWebSearch || isSandbox) {
+                  if (isBrowserOrDesktop || isWebSearch) {
                     // Keep full result for these tools (they need images, articles, screenshots, artifacts, etc.)
                     serializedResult = JSON.stringify(toolResult);
                   } else {
@@ -1339,19 +1228,39 @@ function createSubAgentTools(
             }
           }
           if (requirements.desktop) {
-            // Desktop tools (local terminal): desktopScreenshot, desktopClick, desktopType, etc.
+            // Desktop tools (GUI automation): desktopScreenshot, desktopClick, desktopType, etc.
             for (const [name, tool] of Object.entries(availableTools)) {
               if (name.startsWith("desktop")) {
                 systemAgentTools[name] = tool;
               }
             }
           }
+          // Terminal/shell execution tools - CRITICAL for most agents
+          if (requirements.terminal) {
+            for (const [name, tool] of Object.entries(availableTools)) {
+              // Include shell execution tools
+              if (
+                name === "desktopCommand" ||
+                name.includes("terminal") ||
+                name.includes("command") ||
+                name.includes("execute")
+              ) {
+                systemAgentTools[name] = tool;
+              }
+              // Include file operation tools
+              if (
+                name.includes("file_") ||
+                name.includes("local_file")
+              ) {
+                systemAgentTools[name] = tool;
+              }
+            }
+          }
           if (requirements.codeExecution) {
-            // Local code execution: fragments, visualization, and data analysis tools
+            // Local code execution: visualization and data analysis tools
             for (const [name, tool] of Object.entries(availableTools)) {
               if (
-                name.startsWith("create") || // createFragment, createVisualization, createPieChart, etc.
-                name.startsWith("edit") || // editFragment
+                name.startsWith("create") || // createVisualization, createPieChart, etc.
                 name.startsWith("profile") || // profileData
                 name.startsWith("analyze") // analyzeData
               ) {
@@ -1419,7 +1328,7 @@ function createSubAgentTools(
         buildAgentSystemPrompt(agent.instructions) + contextPrompt;
 
       // Build tools for user agent - combine mcpTools with availableTools
-      // This ensures user agents have access to webSearch, fragments, browser, desktop, etc.
+      // This ensures user agents have access to webSearch, browser, desktop, etc.
       const userAgentTools: Record<string, Tool> = { ...mcpTools };
       if (availableTools) {
         Object.assign(userAgentTools, availableTools);
@@ -1600,7 +1509,7 @@ function createSubAgentTools(
           );
         }
 
-        // Desktop tools for local terminal requirement (computer-use)
+        // Desktop tools for local GUI automation requirement (computer-use)
         // Tool names: desktopScreenshot, desktopClick, desktopType, desktopPress, etc.
         if (requirements.desktop) {
           for (const [name, tool] of Object.entries(availableTools)) {
@@ -1609,7 +1518,33 @@ function createSubAgentTools(
             }
           }
           logger.info(
-            `[System Agent ${systemAgentId}] Added desktop tools for local terminal requirement`,
+            `[System Agent ${systemAgentId}] Added desktop tools for GUI automation requirement`,
+          );
+        }
+
+        // Terminal/shell execution tools - CRITICAL for most agents
+        // Tool names: desktopCommand, terminal_execute, file_read, file_write, etc.
+        if (requirements.terminal) {
+          for (const [name, tool] of Object.entries(availableTools)) {
+            // Include shell execution tools
+            if (
+              name === "desktopCommand" ||
+              name.includes("terminal") ||
+              name.includes("command") ||
+              name.includes("execute")
+            ) {
+              systemAgentTools[name] = tool;
+            }
+            // Include file operation tools
+            if (
+              name.includes("file_") ||
+              name.includes("local_file")
+            ) {
+              systemAgentTools[name] = tool;
+            }
+          }
+          logger.info(
+            `[System Agent ${systemAgentId}] Added terminal/shell tools for execution requirement`,
           );
         }
 
@@ -1618,8 +1553,7 @@ function createSubAgentTools(
         if (requirements.codeExecution) {
           for (const [name, tool] of Object.entries(availableTools)) {
             if (
-              name.startsWith("create") || // createFragment, createVisualization, etc.
-              name.startsWith("edit") || // editFragment
+              name.startsWith("create") || // createVisualization, createPieChart, etc.
               name.startsWith("profile") ||
               name.startsWith("analyze")
             ) {
@@ -1627,7 +1561,7 @@ function createSubAgentTools(
             }
           }
           logger.info(
-            `[System Agent ${systemAgentId}] Added fragment/visualization tools for local code execution requirement`,
+            `[System Agent ${systemAgentId}] Added visualization tools for local code execution requirement`,
           );
         }
       }
@@ -1891,24 +1825,7 @@ function createWorkflowTool(
         // Step 3: Prepare messages for workflow generation
         // Format messages as UIMessage format (not raw model messages)
         // This avoids reasoning token issues
-        const messages = [
-          {
-            id: `msg-${Date.now()}`,
-            role: "user" as const,
-            parts: [
-              {
-                type: "text" as const,
-                text: description,
-              },
-            ],
-          },
-        ];
-
-        // Step 4: Get current workflow state (empty for new workflow)
-        const currentWorkflowState = {
-          nodes: [],
-          edges: [],
-        };
+        // Note: messages and workflow state are used directly in the AI call below
 
         logger.info(
           `[CreateWorkflow] Generating workflow ${newWorkflow.id} with AI`,
@@ -2025,7 +1942,8 @@ Each edge needs: id, source, target`;
           generatedWorkflow.nodes.length > 0
         ) {
           try {
-            await workflowRepository.saveStructure(newWorkflow.id, {
+            await workflowRepository.saveStructure({
+              workflowId: newWorkflow.id,
               nodes: generatedWorkflow.nodes,
               edges: generatedWorkflow.edges || [],
             });
@@ -2238,7 +2156,7 @@ ${systemPrompt}`;
         }
         return complete;
       },
-      // NEW: Stop if STOP signal received from any tool result
+      // Stop if STOP signal received from any tool result
       (options: { steps: StepResult<Record<string, Tool>>[] }) => {
         // Check last step first (most recent)
         const lastStep = options.steps.at(-1);
@@ -2251,14 +2169,6 @@ ${systemPrompt}`;
               );
               return true;
             }
-            // Also check for successful fragment creation
-            if (
-              result?.success === true &&
-              (result?.fragmentId || result?.previewUrl)
-            ) {
-              logger.info("Fragment creation successful - stopping agent loop");
-              return true;
-            }
             return false;
           });
           if (hasStopSignal) {
@@ -2266,53 +2176,6 @@ ${systemPrompt}`;
             return true;
           }
         }
-
-        // Also check ALL recent steps (last 5) for fragment creation success
-        const recentSteps = options.steps.slice(-5);
-        for (const step of recentSteps) {
-          if (step.toolResults) {
-            const hasFragmentSuccess = step.toolResults.some((r: any) => {
-              const result = r.result;
-              return (
-                result?.success === true &&
-                (result?.fragmentId || result?.previewUrl) &&
-                result?.COMPLETED !== false // Allow explicit override
-              );
-            });
-            if (hasFragmentSuccess) {
-              logger.info(
-                "Fragment creation detected in recent steps - stopping agent loop",
-              );
-              return true;
-            }
-          }
-
-          // Also check tool calls for createFragment
-          if (step.toolCalls) {
-            const createFragmentCall = step.toolCalls.find(
-              (tc: any) => tc.toolName === "createFragment",
-            );
-            if (createFragmentCall && step.toolResults) {
-              // If createFragment was called, check if it succeeded
-              const fragmentResult = step.toolResults.find(
-                (r: any) => r.toolCallId === createFragmentCall.toolCallId,
-              ) as any;
-              if (fragmentResult?.result) {
-                const result = fragmentResult.result as any;
-                if (
-                  result.success === true &&
-                  (result.fragmentId || result.previewUrl || result.COMPLETED)
-                ) {
-                  logger.info(
-                    "createFragment succeeded in recent step - stopping agent loop",
-                  );
-                  return true;
-                }
-              }
-            }
-          }
-        }
-
         return false;
       },
       // NEW: Stop if no plan created after 5 steps (agent is confused)

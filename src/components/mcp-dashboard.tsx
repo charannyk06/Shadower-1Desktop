@@ -10,7 +10,7 @@ import { Skeleton } from "ui/skeleton";
 
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
 import { BasicUser } from "app-types/user";
-import { cn } from "lib/utils";
+import type { MCPServerInfo } from "app-types/mcp";
 import { Grid, InfoIcon, List, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import React, { Suspense, useEffect, useMemo, useState } from "react";
@@ -51,10 +51,10 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
     "marketplace",
   );
 
-  const { myServers, featuredServers } = useMemo(() => {
+  const { myServers, featuredServers } = useMemo((): { myServers: MCPServerInfo[]; featuredServers: MCPServerInfo[] } => {
     if (!mcpList) return { myServers: [], featuredServers: [] };
 
-    const sortFn = (a: any, b: any) => {
+    const sortFn = (a: MCPServerInfo, b: MCPServerInfo) => {
       if (a.status === b.status) return 0;
       if (a.status === "authorizing") return -1;
       if (b.status === "authorizing") return 1;
@@ -199,7 +199,7 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
                       <InfoIcon className="size-4" />
                     </Button>
                   </SmitheryIntegration>
-                  <Link to="/mcp/create">
+                  <Link to="/mcp/create" search={{ name: undefined, config: undefined }}>
                     <Button
                       className="font-semibold bg-input/20"
                       variant="outline"

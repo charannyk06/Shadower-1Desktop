@@ -26,7 +26,6 @@ import {
   useState,
 } from "react";
 import useSWR from "swr";
-import { safe } from "ts-safe";
 import { Alert, AlertDescription, AlertTitle } from "ui/alert";
 import { Badge } from "ui/badge";
 import { Button } from "ui/button";
@@ -274,6 +273,7 @@ const GenerateExampleInputJsonDialog = ({
   });
 
   const generateExampleSchema = useCallback(async () => {
+    if (!option.model) return;
     setOption({ loading: true });
     try {
       const result = await aiApi.generateObject({
@@ -380,7 +380,7 @@ ${option.prompt ? `Additional instructions: ${option.prompt}` : ""}`,
 
 export default function McpTestPage() {
   const params = useParams({ strict: false });
-  const id = params.serverId;
+  const id = params.serverId ?? "";
 
   const { t } = useTranslation();
 

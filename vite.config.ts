@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react-swc";
+import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
+import replace from "@rollup/plugin-replace";
 import { resolve } from "path";
 
 // Plugin to fix Electron renderer process.env read-only issue
@@ -8,8 +9,8 @@ const electronEnvFix = () => {
   return {
     name: "electron-env-fix",
     resolveId(id: string) {
-      // Intercept env.mjs to provide a safe version
-      if (id === "/@vite/env" || id.includes("env.mjs")) {
+      // Only intercept the exact Vite env module, not any file containing "env.mjs"
+      if (id === "/@vite/env") {
         return "\0electron-env-fix";
       }
       return null;
@@ -25,16 +26,6 @@ const electronEnvFix = () => {
           export const PROD = ${process.env.NODE_ENV === "production"};
           export const SSR = false;
         `;
-      }
-      return null;
-    },
-    transform(code: string, _id: string) {
-      // Fix any other code that tries to assign to process.env
-      if (code.includes("process.env.NODE_ENV =")) {
-        return code.replace(
-          /process\.env\.([A-Z_]+)\s*=/g,
-          "// process.env.$1 = (read-only in Electron renderer)",
-        );
       }
       return null;
     },
@@ -55,9 +46,23 @@ export default defineConfig({
     outDir: "../out",
     emptyOutDir: true,
     target: "chrome120", // Electron uses Chromium
-    minify: "esbuild",
+    minify: "terser",
     sourcemap: process.env.NODE_ENV === "development",
+    commonjsOptions: {
+      transformMixedEsModules: true,
+      include: [/node_modules/],
+      extensions: [".js", ".cjs"],
+      ignoreDynamicRequires: true,
+    },
     rollupOptions: {
+      plugins: [
+        replace({
+          preventAssignment: true,
+          "process.env.NODE_ENV": JSON.stringify(
+            process.env.NODE_ENV || "production",
+          ),
+        }),
+      ],
       input: {
         main: resolve(__dirname, "src/index.html"),
       },
@@ -105,6 +110,10 @@ export default defineConfig({
       "@tanstack/react-router",
     ],
     exclude: ["electron"],
+    esbuildOptions: {
+      mainFields: ["module", "main"],
+      resolveExtensions: [".mjs", ".js", ".ts", ".jsx", ".tsx", ".json"],
+    },
   },
   server: {
     port: 5173,
@@ -115,13 +124,8 @@ export default defineConfig({
   css: {
     devSourcemap: true,
   },
-  // Environment variables
-  // In Electron renderer, process.env is read-only, so we use define to replace it at build time
-  define: {
-    "process.env.NODE_ENV": JSON.stringify(
-      process.env.NODE_ENV || "development",
-    ),
-  },
+  // Explicitly set empty define to prevent default Vite defines from using esbuild
+  define: {},
   // Disable Vite's automatic env variable injection to prevent modifying process.env
   // Electron renderer has read-only process.env, so we handle env vars differently
   envPrefix: "VITE_",

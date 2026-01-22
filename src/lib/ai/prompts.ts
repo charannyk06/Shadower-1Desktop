@@ -182,20 +182,11 @@ You can assist with:
   - browser_extract: Extract data from pages
   - browser_screenshot: Take a screenshot
 
-  FRAGMENT TOOL (for code generation):
-  - createFragment: Generate complete applications (React, Next.js, Streamlit, etc.)
-  - editFragment: Edit existing fragments with surgical precision
-
   DOCUMENT TOOLS (for file generation):
   - createPresentation: Generate PowerPoint presentations
   - createDocument: Generate Word documents
   - createSpreadsheet: Generate Excel spreadsheets
   - createPDF: Generate PDF documents
-
-  DASHBOARD & INTERACTIVE APP CREATION:
-  - Use the Fragment tool to generate React apps, dashboards, games, and mini applications
-  - Fragments run locally and can be previewed in the browser
-  - Use createFragment({ title: "My Dashboard", request: "Create a React dashboard with charts" })
 
   OFFICE FILE GENERATION:
   - Use document tools: createPresentation, createDocument, createSpreadsheet

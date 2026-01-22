@@ -202,7 +202,7 @@ export interface ElectronAPI {
       content: string | Buffer;
       filename?: string;
       contentType?: string;
-      category?: "uploads" | "fragments" | "exports" | "sandbox";
+      category?: "uploads" | "fragments" | "exports" | "workspace";
     }) => Promise<any>;
     download: (key: string) => Promise<string>;
     delete: (key: string) => Promise<{ success: boolean }>;
@@ -211,10 +211,10 @@ export interface ElectronAPI {
     getSourceUrl: (key: string) => Promise<string | null>;
     getDownloadUrl: (key: string) => Promise<string | null>;
     listFiles: (
-      category: "uploads" | "fragments" | "exports" | "sandbox",
+      category: "uploads" | "fragments" | "exports" | "workspace",
     ) => Promise<any[]>;
     clearCategory: (
-      category: "uploads" | "fragments" | "exports" | "sandbox",
+      category: "uploads" | "fragments" | "exports" | "workspace",
     ) => Promise<{ success: boolean }>;
     getStats: () => Promise<any>;
   };
@@ -303,104 +303,113 @@ export interface ElectronAPI {
     query: (naturalLanguageQuery: string) => Promise<any>;
   };
 
-  // Sandbox operations (to be implemented in Phase 5)
-  sandbox: {
-    executeCode: (code: string, language: string) => Promise<any>;
-    getFiles: (threadId: string) => Promise<string[]>;
-  };
 
-  // Chrome automation via DevTools Protocol
-  chrome: {
-    connect: (options: { port?: number }) => Promise<{
-      success: boolean;
-      tabs?: Array<{ id: string; title: string; url: string; type: string }>;
-      error?: string;
-    }>;
-    listTabs: (options: { port?: number }) => Promise<{
-      success: boolean;
-      tabs?: Array<{ id: string; title: string; url: string; type: string }>;
-      error?: string;
-    }>;
-    attachTab: (options: { tabId: string; port?: number }) => Promise<{
-      success: boolean;
-      title?: string;
-      url?: string;
-      error?: string;
-    }>;
-    navigate: (options: {
-      url: string;
-      waitUntil?: "load" | "domcontentloaded" | "networkIdle";
+  // Browser automation (agent-browser powered)
+  browser: {
+    // Session management
+    createSession: (options?: {
+      headless?: boolean;
+      executablePath?: string;
+      cdpPort?: number;
+      cdpUrl?: string;
+      viewport?: { width: number; height: number };
     }) => Promise<{
-      success: boolean;
-      title?: string;
+      sessionId?: string;
       url?: string;
+      title?: string;
       error?: string;
     }>;
-    screenshot: (options: {
+    closeSession: (sessionId?: string) => Promise<{
+      success?: boolean;
+      error?: string;
+    }>;
+    listSessions: () => Promise<
+      Array<{ id: string; createdAt: Date; isActive: boolean }>
+    >;
+    switchSession: (sessionId: string) => Promise<{
+      success?: boolean;
+      error?: string;
+    }>;
+
+    // Navigation
+    navigate: (
+      url: string,
+      options?: {
+        waitUntil?: "load" | "domcontentloaded" | "networkidle";
+        sessionId?: string;
+      },
+    ) => Promise<{ url?: string; title?: string; error?: string }>;
+    goBack: (sessionId?: string) => Promise<{ url?: string; error?: string }>;
+    goForward: (sessionId?: string) => Promise<{ url?: string; error?: string }>;
+    reload: (sessionId?: string) => Promise<{ url?: string; error?: string }>;
+
+    // AI-optimized snapshot (the key feature!)
+    getSnapshot: (options?: {
+      interactive?: boolean;
+      maxDepth?: number;
+      compact?: boolean;
+      selector?: string;
+      sessionId?: string;
+    }) => Promise<{
+      tree?: string;
+      refs?: Record<string, { selector: string; role: string; name?: string }>;
+      stats?: { lines: number; chars: number; refs: number; interactive: number };
+      error?: string;
+    }>;
+
+    // Actions (support refs like @e1 or CSS selectors)
+    click: (
+      selector: string,
+      options?: { sessionId?: string },
+    ) => Promise<{ success?: boolean; error?: string }>;
+    fill: (
+      selector: string,
+      value: string,
+      options?: { sessionId?: string },
+    ) => Promise<{ success?: boolean; error?: string }>;
+    type: (
+      selector: string,
+      text: string,
+      options?: { delay?: number; sessionId?: string },
+    ) => Promise<{ success?: boolean; error?: string }>;
+    press: (
+      key: string,
+      options?: { selector?: string; sessionId?: string },
+    ) => Promise<{ success?: boolean; error?: string }>;
+    screenshot: (options?: {
       fullPage?: boolean;
-      format?: "png" | "jpeg" | "webp";
-      quality?: number;
+      path?: string;
+      sessionId?: string;
     }) => Promise<{
-      success: boolean;
-      screenshot?: string;
+      success?: boolean;
+      data?: { base64?: string; path?: string };
       error?: string;
     }>;
-    click: (options: { selector: string }) => Promise<{
-      success: boolean;
-      error?: string;
-    }>;
-    type: (options: {
-      selector: string;
-      text: string;
-      clear?: boolean;
-    }) => Promise<{
-      success: boolean;
-      error?: string;
-    }>;
-    extract: (options: {
-      selector: string;
-      attribute?: string;
-      all?: boolean;
-    }) => Promise<{
-      success: boolean;
-      data?: string | string[];
-      error?: string;
-    }>;
-    wait: (options: { selector: string; timeout?: number }) => Promise<{
-      success: boolean;
-      error?: string;
-    }>;
-    evaluate: (options: { script: string }) => Promise<{
-      success: boolean;
-      result?: any;
-      error?: string;
-    }>;
-    scroll: (options: {
+    scroll: (options?: {
       direction?: "up" | "down";
       amount?: number;
       selector?: string;
-    }) => Promise<{
-      success: boolean;
-      error?: string;
-    }>;
-    getHtml: (options: { selector?: string }) => Promise<{
-      success: boolean;
-      html?: string;
-      error?: string;
-    }>;
-    pressKey: (options: { key: string }) => Promise<{
-      success: boolean;
-      error?: string;
-    }>;
-    newTab: (options: { url?: string; port?: number }) => Promise<{
-      success: boolean;
-      tabId?: string;
-      error?: string;
-    }>;
-    closeTab: (options: { port?: number }) => Promise<{
-      success: boolean;
-      error?: string;
-    }>;
+      sessionId?: string;
+    }) => Promise<{ success?: boolean; error?: string }>;
+
+    // Utilities
+    evaluate: (
+      script: string,
+      options?: { sessionId?: string },
+    ) => Promise<{ result?: any; error?: string }>;
+    wait: (options: {
+      selector?: string;
+      state?: "visible" | "hidden" | "attached" | "detached";
+      timeout?: number;
+      loadState?: "load" | "domcontentloaded" | "networkidle";
+      sessionId?: string;
+    }) => Promise<{ success?: boolean; error?: string }>;
+    getContent: (options?: {
+      selector?: string;
+      sessionId?: string;
+    }) => Promise<{ html?: string; error?: string }>;
+    getUrl: (sessionId?: string) => Promise<{ url?: string; error?: string }>;
+    getTitle: (sessionId?: string) => Promise<{ title?: string; error?: string }>;
   };
 
   // Terminal operations (for computer use agent)
@@ -940,7 +949,7 @@ const electronAPI: ElectronAPI = {
       content: string | Buffer;
       filename?: string;
       contentType?: string;
-      category?: "uploads" | "fragments" | "exports" | "sandbox";
+      category?: "uploads" | "fragments" | "exports" | "workspace";
     }) => ipcRenderer.invoke("files:upload", data),
     download: (key: string) => ipcRenderer.invoke("files:download", key),
     delete: (key: string) => ipcRenderer.invoke("files:delete", key),
@@ -950,10 +959,10 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("files:getSourceUrl", key),
     getDownloadUrl: (key: string) =>
       ipcRenderer.invoke("files:getDownloadUrl", key),
-    listFiles: (category: "uploads" | "fragments" | "exports" | "sandbox") =>
+    listFiles: (category: "uploads" | "fragments" | "exports" | "workspace") =>
       ipcRenderer.invoke("files:listFiles", category),
     clearCategory: (
-      category: "uploads" | "fragments" | "exports" | "sandbox",
+      category: "uploads" | "fragments" | "exports" | "workspace",
     ) => ipcRenderer.invoke("files:clearCategory", category),
     getStats: () => ipcRenderer.invoke("files:getStats"),
   },
@@ -1031,57 +1040,50 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("graph:query", naturalLanguageQuery),
   },
 
-  // Sandbox
-  sandbox: {
-    executeCode: (code: string, language: string) =>
-      ipcRenderer.invoke("sandbox:execute", code, language),
-    getFiles: (threadId: string) =>
-      ipcRenderer.invoke("sandbox:getFiles", threadId),
-  },
 
-  // Chrome automation via DevTools Protocol
-  chrome: {
-    connect: (options: { port?: number }) =>
-      ipcRenderer.invoke("chrome:connect", options),
-    listTabs: (options: { port?: number }) =>
-      ipcRenderer.invoke("chrome:listTabs", options),
-    attachTab: (options: { tabId: string; port?: number }) =>
-      ipcRenderer.invoke("chrome:attachTab", options),
-    navigate: (options: {
-      url: string;
-      waitUntil?: "load" | "domcontentloaded" | "networkIdle";
-    }) => ipcRenderer.invoke("chrome:navigate", options),
-    screenshot: (options: {
-      fullPage?: boolean;
-      format?: "png" | "jpeg" | "webp";
-      quality?: number;
-    }) => ipcRenderer.invoke("chrome:screenshot", options),
-    click: (options: { selector: string }) =>
-      ipcRenderer.invoke("chrome:click", options),
-    type: (options: { selector: string; text: string; clear?: boolean }) =>
-      ipcRenderer.invoke("chrome:type", options),
-    extract: (options: {
-      selector: string;
-      attribute?: string;
-      all?: boolean;
-    }) => ipcRenderer.invoke("chrome:extract", options),
-    wait: (options: { selector: string; timeout?: number }) =>
-      ipcRenderer.invoke("chrome:wait", options),
-    evaluate: (options: { script: string }) =>
-      ipcRenderer.invoke("chrome:evaluate", options),
-    scroll: (options: {
-      direction?: "up" | "down";
-      amount?: number;
-      selector?: string;
-    }) => ipcRenderer.invoke("chrome:scroll", options),
-    getHtml: (options: { selector?: string }) =>
-      ipcRenderer.invoke("chrome:getHtml", options),
-    pressKey: (options: { key: string }) =>
-      ipcRenderer.invoke("chrome:pressKey", options),
-    newTab: (options: { url?: string; port?: number }) =>
-      ipcRenderer.invoke("chrome:newTab", options),
-    closeTab: (options: { port?: number }) =>
-      ipcRenderer.invoke("chrome:closeTab", options),
+  // Browser automation (agent-browser powered)
+  browser: {
+    // Session management
+    createSession: (options) =>
+      ipcRenderer.invoke("browser:createSession", options),
+    closeSession: (sessionId) =>
+      ipcRenderer.invoke("browser:closeSession", sessionId),
+    listSessions: () => ipcRenderer.invoke("browser:listSessions"),
+    switchSession: (sessionId) =>
+      ipcRenderer.invoke("browser:switchSession", sessionId),
+
+    // Navigation
+    navigate: (url, options) =>
+      ipcRenderer.invoke("browser:navigate", url, options),
+    goBack: (sessionId) => ipcRenderer.invoke("browser:goBack", sessionId),
+    goForward: (sessionId) =>
+      ipcRenderer.invoke("browser:goForward", sessionId),
+    reload: (sessionId) => ipcRenderer.invoke("browser:reload", sessionId),
+
+    // AI-optimized snapshot
+    getSnapshot: (options) =>
+      ipcRenderer.invoke("browser:getSnapshot", options),
+
+    // Actions
+    click: (selector, options) =>
+      ipcRenderer.invoke("browser:click", selector, options),
+    fill: (selector, value, options) =>
+      ipcRenderer.invoke("browser:fill", selector, value, options),
+    type: (selector, text, options) =>
+      ipcRenderer.invoke("browser:type", selector, text, options),
+    press: (key, options) => ipcRenderer.invoke("browser:press", key, options),
+    screenshot: (options) =>
+      ipcRenderer.invoke("browser:screenshot", options),
+    scroll: (options) => ipcRenderer.invoke("browser:scroll", options),
+
+    // Utilities
+    evaluate: (script, options) =>
+      ipcRenderer.invoke("browser:evaluate", script, options),
+    wait: (options) => ipcRenderer.invoke("browser:wait", options),
+    getContent: (options) =>
+      ipcRenderer.invoke("browser:getContent", options),
+    getUrl: (sessionId) => ipcRenderer.invoke("browser:getUrl", sessionId),
+    getTitle: (sessionId) => ipcRenderer.invoke("browser:getTitle", sessionId),
   },
 
   // Terminal operations

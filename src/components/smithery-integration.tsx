@@ -4,7 +4,7 @@ import { MCPServerConfig } from "app-types/mcp";
 import { isMaybeMCPServerConfig } from "lib/ai/mcp/is-mcp-config";
 import { safeJSONParse } from "lib/utils";
 import { Check, Copy, ExternalLink } from "lucide-react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";

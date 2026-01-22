@@ -13,6 +13,13 @@ import {
 } from "app-types/workflow";
 
 /**
+ * Check if we're running in Electron mode
+ */
+export function isElectronMode(): boolean {
+  return typeof window !== "undefined" && !!window.electronAPI;
+}
+
+/**
  * Get current user ID from Electron auth
  */
 async function getElectronUserId(): Promise<string> {

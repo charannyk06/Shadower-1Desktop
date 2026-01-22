@@ -2,9 +2,7 @@ import {
   createRouter,
   createRoute,
   createRootRoute,
-  redirect,
   Outlet,
-  useNavigate,
 } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";

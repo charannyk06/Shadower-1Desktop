@@ -9,8 +9,6 @@ export enum AppDefaultToolkit {
   Documents = "documents",
   Research = "research",
   Memory = "memory",
-  // Fragment-based micro-app and document generation
-  Fragments = "fragments",
 }
 
 export enum DefaultToolName {
@@ -23,16 +21,20 @@ export enum DefaultToolName {
   WebContent = "webContent",
   Http = "http",
   // Browser automation tools (Local Chrome DevTools Protocol)
+  BrowserCreateSession = "browserCreateSession",
+  BrowserCloseSession = "browserCloseSession",
   BrowserNavigate = "browserNavigate",
-  BrowserAct = "browserAct",
-  BrowserObserve = "browserObserve",
-  BrowserExtract = "browserExtract",
+  BrowserClick = "browserClick",
+  BrowserFill = "browserFill",
+  BrowserType = "browserType",
+  BrowserGetSnapshot = "browserGetSnapshot",
+  BrowserGetContent = "browserGetContent",
   BrowserScreenshot = "browserScreenshot",
-  BrowserStealth = "browserStealth",
   BrowserWait = "browserWait",
-  BrowserClose = "browserClose",
+  BrowserEvaluate = "browserEvaluate",
   // Desktop/Computer Use tools (Local Terminal)
   DesktopCreate = "desktopCreate",
+  DesktopCommand = "desktopCommand", // Shell/terminal command execution
   DesktopScreenshot = "desktopScreenshot",
   DesktopClick = "desktopClick",
   DesktopType = "desktopType",
@@ -40,6 +42,8 @@ export enum DefaultToolName {
   DesktopScroll = "desktopScroll",
   DesktopDrag = "desktopDrag",
   DesktopLaunchApp = "desktopLaunchApp",
+  DesktopDisplayInfo = "desktopDisplayInfo",
+  DesktopCursorPosition = "desktopCursorPosition",
   // Data analysis tools
   UploadDataset = "uploadDataset",
   ProfileData = "profileData",
@@ -59,12 +63,6 @@ export enum DefaultToolName {
   DeepResearch = "deepResearch",
   // Memory tools
   RememberContext = "rememberContext",
-  // Fragment tools (autonomous app generation)
-  CreateFragment = "createFragment",
-  EditFragment = "editFragment",
-  DeployFragment = "deployFragment",
-  GetFragment = "getFragment",
-  ListFragments = "listFragments",
 }
 
 export const SequentialThinkingToolName = "sequential_thinking";

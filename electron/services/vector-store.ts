@@ -193,7 +193,6 @@ export class VectorStore {
 
     // SECURITY: Validate and sanitize inputs
     const params: any[] = [];
-    let paramIndex = 0;
 
     // Build WHERE clause with parameterized queries
     const conditions: string[] = [];

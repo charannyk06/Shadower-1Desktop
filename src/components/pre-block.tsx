@@ -34,7 +34,7 @@ const PurePre = ({
   code,
   lang,
 }: {
-  children: any;
+  children?: any;
   className?: string;
   code: string;
   lang: string;

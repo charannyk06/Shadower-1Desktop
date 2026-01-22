@@ -67,7 +67,7 @@ export const desktopCommandTool = createTool({
 });
 
 /**
- * Create a desktop sandbox (placeholder - runs in local terminal)
+ * Create a desktop terminal session for executing commands locally
  */
 export const desktopCreateTool = createTool({
   description:

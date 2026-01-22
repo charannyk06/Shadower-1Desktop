@@ -170,7 +170,8 @@ export const MCPCard = memo(function MCPCard({
               </div>
             ) : (
               <Link
-                to={`/mcp/test/${encodeURIComponent(id)}`}
+                to="/mcp/$serverId/test"
+                params={{ serverId: id }}
                 className="cursor-pointer hidden sm:block"
               >
                 <Button variant="ghost" size="icon">

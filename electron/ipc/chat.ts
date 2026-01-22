@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { getDatabase, schema } from "../services/database";
-import { eq, desc, and, notInArray, gt, gte, sql } from "drizzle-orm";
+import { eq, desc, and, notInArray, gt } from "drizzle-orm";
 
 export function registerChatHandlers() {
   const db = getDatabase();
@@ -486,14 +486,16 @@ export function registerChatHandlers() {
         }
 
         // Delete all messages in the thread that are after this message
-        await db
-          .delete(schema.ChatMessageTable)
-          .where(
-            and(
-              eq(schema.ChatMessageTable.threadId, threadId),
-              gt(schema.ChatMessageTable.createdAt, targetMessage.createdAt),
-            ),
-          );
+        if (targetMessage.createdAt) {
+          await db
+            .delete(schema.ChatMessageTable)
+            .where(
+              and(
+                eq(schema.ChatMessageTable.threadId, threadId),
+                gt(schema.ChatMessageTable.createdAt, targetMessage.createdAt),
+              ),
+            );
+        }
 
         return { success: true };
       } catch (error) {

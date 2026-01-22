@@ -249,14 +249,17 @@ export default function EditAgent({
 
   // Map snake_case tool names to camelCase DefaultToolName enum values
   const toolNameMap: Record<string, DefaultToolName> = {
+    browser_create_session: DefaultToolName.BrowserCreateSession,
+    browser_close_session: DefaultToolName.BrowserCloseSession,
     browser_navigate: DefaultToolName.BrowserNavigate,
-    browser_act: DefaultToolName.BrowserAct,
-    browser_observe: DefaultToolName.BrowserObserve,
-    browser_extract: DefaultToolName.BrowserExtract,
+    browser_click: DefaultToolName.BrowserClick,
+    browser_fill: DefaultToolName.BrowserFill,
+    browser_type: DefaultToolName.BrowserType,
+    browser_get_snapshot: DefaultToolName.BrowserGetSnapshot,
+    browser_get_content: DefaultToolName.BrowserGetContent,
     browser_screenshot: DefaultToolName.BrowserScreenshot,
-    browser_stealth: DefaultToolName.BrowserStealth,
     browser_wait: DefaultToolName.BrowserWait,
-    browser_close: DefaultToolName.BrowserClose,
+    browser_evaluate: DefaultToolName.BrowserEvaluate,
     desktop_create: DefaultToolName.DesktopCreate,
     desktop_screenshot: DefaultToolName.DesktopScreenshot,
     desktop_click: DefaultToolName.DesktopClick,
@@ -284,7 +287,7 @@ export default function EditAgent({
 
         const toolMentions: ChatMention[] = defaultTools
           .map((toolName) => {
-            // Try direct match first (for camelCase names like "webSearch", "sandbox")
+            // Try direct match first (for camelCase names like "webSearch", "terminal")
             if (
               Object.values(DefaultToolName).includes(
                 toolName as DefaultToolName,

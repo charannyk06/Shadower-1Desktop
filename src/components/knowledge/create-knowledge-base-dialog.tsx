@@ -15,7 +15,6 @@ import { Input } from "ui/input";
 import { Label } from "ui/label";
 import { Textarea } from "ui/textarea";
 import { toast } from "sonner";
-import logger from "logger";
 
 interface CreateKnowledgeBaseDialogProps {
   open: boolean;

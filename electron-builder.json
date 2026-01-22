@@ -70,7 +70,6 @@
       }
     ],
     "icon": "resources/icon.ico",
-    "publisherName": "Shadower",
     "verifyUpdateCodeSignature": false
   },
   "nsis": {
@@ -103,7 +102,7 @@
     "owner": "charannyk06",
     "repo": "Shadower-1Desktop"
   },
-  "buildDependenciesFromSource": true,
-  "npmRebuild": true,
+  "buildDependenciesFromSource": false,
+  "npmRebuild": false,
   "nodeGypRebuild": false
 }

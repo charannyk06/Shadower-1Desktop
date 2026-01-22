@@ -219,23 +219,15 @@ export { sqliteBrowserSessionRepository as browserSessionRepository } from "./sq
 // Newly migrated SQLite repositories
 export { sqliteChatExportRepository as chatExportRepository } from "./sqlite/repositories/chat-export-repository.sqlite";
 export { sqliteConversationSummaryRepository as conversationSummaryRepository } from "./sqlite/repositories/conversation-summary-repository.sqlite";
-export { sqliteFragmentRepository as fragmentRepository } from "./sqlite/repositories/fragment-repository.sqlite";
-export { sqliteLocalExecutionRepository as localExecutionRepository } from "./sqlite/repositories/fragment-repository.sqlite";
-export { sqliteFragmentSharesRepository as fragmentSharesRepository } from "./sqlite/repositories/fragment-repository.sqlite";
 export { sqliteMcpOAuthRepository as mcpOAuthRepository } from "./sqlite/repositories/mcp-oauth-repository.sqlite";
 export { sqliteMcpServerCustomizationRepository as mcpServerCustomizationRepository } from "./sqlite/repositories/mcp-server-customization-repository.sqlite";
 export { sqliteMcpToolCustomizationRepository as mcpMcpToolCustomizationRepository } from "./sqlite/repositories/mcp-tool-customization-repository.sqlite";
 export { sqliteThreadFileContextRepository as threadFileContextRepository } from "./sqlite/repositories/thread-file-context-repository.sqlite";
 export type { ThreadFileContextRepository } from "./sqlite/repositories/thread-file-context-repository.sqlite";
 
-// Alias for backwards compatibility with existing API routes
-export { sqliteThreadFileContextRepository as threadSandboxContextRepository } from "./sqlite/repositories/thread-file-context-repository.sqlite";
-export type { ThreadFileContextRepository as ThreadSandboxContextRepository } from "./sqlite/repositories/thread-file-context-repository.sqlite";
-
-// Type exports for fragments
-export type { SqliteFragmentRepository as FragmentRepository } from "./sqlite/repositories/fragment-repository.sqlite";
-export type { SqliteLocalExecutionRepository as LocalExecutionRepository } from "./sqlite/repositories/fragment-repository.sqlite";
-export type { SqliteFragmentSharesRepository as FragmentSharesRepository } from "./sqlite/repositories/fragment-repository.sqlite";
+// Alias for backwards compatibility (deprecated - use threadFileContextRepository)
+export { sqliteThreadFileContextRepository as threadWorkspaceContextRepository } from "./sqlite/repositories/thread-file-context-repository.sqlite";
+export type { ThreadFileContextRepository as ThreadWorkspaceContextRepository } from "./sqlite/repositories/thread-file-context-repository.sqlite";
 
 // Stub exports for repositories not needed in local-first single-user mode
 
