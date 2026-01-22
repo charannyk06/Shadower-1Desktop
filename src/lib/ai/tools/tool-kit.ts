@@ -64,20 +64,35 @@ export const APP_DEFAULT_TOOL_KIT: Record<
   [AppDefaultToolkit.Http]: {
     [DefaultToolName.Http]: httpFetchTool,
   },
-  // Browser automation tools (Local Chrome DevTools Protocol)
+  // Browser automation tools (Local Chrome DevTools Protocol via agent-browser)
   [AppDefaultToolkit.Browser]: {
-    [DefaultToolName.BrowserCreateSession]:
-      localBrowserTools.browser_create_session,
-    [DefaultToolName.BrowserCloseSession]:
-      localBrowserTools.browser_close_session,
+    // Session Management
+    [DefaultToolName.BrowserCreateSession]: localBrowserTools.browser_create_session,
+    [DefaultToolName.BrowserCloseSession]: localBrowserTools.browser_close_session,
+    [DefaultToolName.BrowserListSessions]: localBrowserTools.browser_list_sessions,
+    [DefaultToolName.BrowserSwitchSession]: localBrowserTools.browser_switch_session,
+    // Navigation
     [DefaultToolName.BrowserNavigate]: localBrowserTools.browser_navigate,
+    [DefaultToolName.BrowserGoBack]: localBrowserTools.browser_go_back,
+    [DefaultToolName.BrowserGoForward]: localBrowserTools.browser_go_forward,
+    [DefaultToolName.BrowserReload]: localBrowserTools.browser_reload,
+    // AI-Optimized Page Understanding
+    [DefaultToolName.BrowserGetSnapshot]: localBrowserTools.browser_get_snapshot,
+    [DefaultToolName.BrowserGetContext]: localBrowserTools.browser_get_context,
+    [DefaultToolName.BrowserAnalyzeForms]: localBrowserTools.browser_analyze_forms,
+    [DefaultToolName.BrowserFillForm]: localBrowserTools.browser_fill_form,
+    // Element Interaction
     [DefaultToolName.BrowserClick]: localBrowserTools.browser_click,
     [DefaultToolName.BrowserFill]: localBrowserTools.browser_fill,
     [DefaultToolName.BrowserType]: localBrowserTools.browser_type,
-    [DefaultToolName.BrowserGetSnapshot]: localBrowserTools.browser_get_snapshot,
-    [DefaultToolName.BrowserGetContent]: localBrowserTools.browser_get_content,
-    [DefaultToolName.BrowserScreenshot]: localBrowserTools.browser_screenshot,
+    [DefaultToolName.BrowserPressKey]: localBrowserTools.browser_press_key,
+    [DefaultToolName.BrowserScroll]: localBrowserTools.browser_scroll,
     [DefaultToolName.BrowserWait]: localBrowserTools.browser_wait,
+    // Page Information
+    [DefaultToolName.BrowserScreenshot]: localBrowserTools.browser_screenshot,
+    [DefaultToolName.BrowserGetContent]: localBrowserTools.browser_get_content,
+    [DefaultToolName.BrowserGetUrl]: localBrowserTools.browser_get_url,
+    [DefaultToolName.BrowserGetTitle]: localBrowserTools.browser_get_title,
     [DefaultToolName.BrowserEvaluate]: localBrowserTools.browser_evaluate,
   },
   // Desktop/Computer Use tools (Local Terminal)
@@ -156,21 +171,33 @@ export function createAppDefaultToolKit(
       },
       // Browser tools work without thread context
       [AppDefaultToolkit.Browser]: {
-        [DefaultToolName.BrowserCreateSession]:
-          localBrowserTools.browser_create_session,
-        [DefaultToolName.BrowserCloseSession]:
-          localBrowserTools.browser_close_session,
+        // Session Management
+        [DefaultToolName.BrowserCreateSession]: localBrowserTools.browser_create_session,
+        [DefaultToolName.BrowserCloseSession]: localBrowserTools.browser_close_session,
+        [DefaultToolName.BrowserListSessions]: localBrowserTools.browser_list_sessions,
+        [DefaultToolName.BrowserSwitchSession]: localBrowserTools.browser_switch_session,
+        // Navigation
         [DefaultToolName.BrowserNavigate]: localBrowserTools.browser_navigate,
+        [DefaultToolName.BrowserGoBack]: localBrowserTools.browser_go_back,
+        [DefaultToolName.BrowserGoForward]: localBrowserTools.browser_go_forward,
+        [DefaultToolName.BrowserReload]: localBrowserTools.browser_reload,
+        // AI-Optimized Page Understanding
+        [DefaultToolName.BrowserGetSnapshot]: localBrowserTools.browser_get_snapshot,
+        [DefaultToolName.BrowserGetContext]: localBrowserTools.browser_get_context,
+        [DefaultToolName.BrowserAnalyzeForms]: localBrowserTools.browser_analyze_forms,
+        [DefaultToolName.BrowserFillForm]: localBrowserTools.browser_fill_form,
+        // Element Interaction
         [DefaultToolName.BrowserClick]: localBrowserTools.browser_click,
         [DefaultToolName.BrowserFill]: localBrowserTools.browser_fill,
         [DefaultToolName.BrowserType]: localBrowserTools.browser_type,
-        [DefaultToolName.BrowserGetSnapshot]:
-          localBrowserTools.browser_get_snapshot,
-        [DefaultToolName.BrowserGetContent]:
-          localBrowserTools.browser_get_content,
-        [DefaultToolName.BrowserScreenshot]:
-          localBrowserTools.browser_screenshot,
+        [DefaultToolName.BrowserPressKey]: localBrowserTools.browser_press_key,
+        [DefaultToolName.BrowserScroll]: localBrowserTools.browser_scroll,
         [DefaultToolName.BrowserWait]: localBrowserTools.browser_wait,
+        // Page Information
+        [DefaultToolName.BrowserScreenshot]: localBrowserTools.browser_screenshot,
+        [DefaultToolName.BrowserGetContent]: localBrowserTools.browser_get_content,
+        [DefaultToolName.BrowserGetUrl]: localBrowserTools.browser_get_url,
+        [DefaultToolName.BrowserGetTitle]: localBrowserTools.browser_get_title,
         [DefaultToolName.BrowserEvaluate]: localBrowserTools.browser_evaluate,
       },
       // Desktop tools work without thread context
@@ -247,24 +274,34 @@ export function createAppDefaultToolKit(
     },
     // Browser automation tools (Local Chrome DevTools) - context-aware versions
     [AppDefaultToolkit.Browser]: {
-      [DefaultToolName.BrowserCreateSession]:
-        contextAwareBrowserTools.browser_create_session,
-      [DefaultToolName.BrowserCloseSession]:
-        contextAwareBrowserTools.browser_close_session,
-      [DefaultToolName.BrowserNavigate]:
-        contextAwareBrowserTools.browser_navigate,
+      // Session Management
+      [DefaultToolName.BrowserCreateSession]: contextAwareBrowserTools.browser_create_session,
+      [DefaultToolName.BrowserCloseSession]: contextAwareBrowserTools.browser_close_session,
+      [DefaultToolName.BrowserListSessions]: contextAwareBrowserTools.browser_list_sessions,
+      [DefaultToolName.BrowserSwitchSession]: contextAwareBrowserTools.browser_switch_session,
+      // Navigation
+      [DefaultToolName.BrowserNavigate]: contextAwareBrowserTools.browser_navigate,
+      [DefaultToolName.BrowserGoBack]: contextAwareBrowserTools.browser_go_back,
+      [DefaultToolName.BrowserGoForward]: contextAwareBrowserTools.browser_go_forward,
+      [DefaultToolName.BrowserReload]: contextAwareBrowserTools.browser_reload,
+      // AI-Optimized Page Understanding
+      [DefaultToolName.BrowserGetSnapshot]: contextAwareBrowserTools.browser_get_snapshot,
+      [DefaultToolName.BrowserGetContext]: contextAwareBrowserTools.browser_get_context,
+      [DefaultToolName.BrowserAnalyzeForms]: contextAwareBrowserTools.browser_analyze_forms,
+      [DefaultToolName.BrowserFillForm]: contextAwareBrowserTools.browser_fill_form,
+      // Element Interaction
       [DefaultToolName.BrowserClick]: contextAwareBrowserTools.browser_click,
       [DefaultToolName.BrowserFill]: contextAwareBrowserTools.browser_fill,
       [DefaultToolName.BrowserType]: contextAwareBrowserTools.browser_type,
-      [DefaultToolName.BrowserGetSnapshot]:
-        contextAwareBrowserTools.browser_get_snapshot,
-      [DefaultToolName.BrowserGetContent]:
-        contextAwareBrowserTools.browser_get_content,
-      [DefaultToolName.BrowserScreenshot]:
-        contextAwareBrowserTools.browser_screenshot,
+      [DefaultToolName.BrowserPressKey]: contextAwareBrowserTools.browser_press_key,
+      [DefaultToolName.BrowserScroll]: contextAwareBrowserTools.browser_scroll,
       [DefaultToolName.BrowserWait]: contextAwareBrowserTools.browser_wait,
-      [DefaultToolName.BrowserEvaluate]:
-        contextAwareBrowserTools.browser_evaluate,
+      // Page Information
+      [DefaultToolName.BrowserScreenshot]: contextAwareBrowserTools.browser_screenshot,
+      [DefaultToolName.BrowserGetContent]: contextAwareBrowserTools.browser_get_content,
+      [DefaultToolName.BrowserGetUrl]: contextAwareBrowserTools.browser_get_url,
+      [DefaultToolName.BrowserGetTitle]: contextAwareBrowserTools.browser_get_title,
+      [DefaultToolName.BrowserEvaluate]: contextAwareBrowserTools.browser_evaluate,
     },
     // Desktop/Computer Use tools (Local Terminal)
     // IMPORTANT: desktop_command (shell execution) is essential for all agents

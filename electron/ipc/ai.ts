@@ -50,6 +50,8 @@ import {
 } from "../../src/lib/ai/context";
 import { getVectorStore } from "../services/vector-store";
 import { indexMessageForMemory } from "./memory";
+import { EnhancedBrowserService } from "../services/browser-service";
+import { setBrowserServiceInstance } from "../../src/lib/ai/tools/browser/local-browser-tools";
 
 const execAsync = promisify(exec);
 
@@ -1429,10 +1431,414 @@ function createElectronTools(
         }
       },
     }),
+
+    // ============================================
+    // Browser Automation Tools (using agent-browser)
+    // ============================================
+
+    // Create a new browser session
+    browser_create_session: createTool({
+      description:
+        "Create a new browser session for web automation. This launches a browser instance that you can control. " +
+        "Use headless=false (default) to see the browser window.",
+      inputSchema: z.object({
+        headless: z
+          .boolean()
+          .optional()
+          .describe("Run in headless mode (default: false for visibility)"),
+        cdpPort: z
+          .number()
+          .optional()
+          .describe("Connect to existing Chrome via CDP port"),
+      }),
+      execute: async ({ headless = false, cdpPort }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const result = await service.createSession({ headless, cdpPort });
+          if (!result || !result.sessionId) {
+            return { success: false, error: "Browser session creation returned empty result" };
+          }
+          return {
+            success: true,
+            sessionId: result.sessionId,
+            url: result.url,
+            title: result.title,
+            message: `Browser session created: ${result.sessionId}`,
+          };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Close a browser session
+    browser_close_session: createTool({
+      description: "Close a browser session",
+      inputSchema: z.object({
+        sessionId: z.string().optional().describe("Session ID to close (closes active session if not specified)"),
+      }),
+      execute: async ({ sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          await service.closeSession(sessionId);
+          return { success: true, message: "Browser session closed" };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // List all browser sessions
+    browser_list_sessions: createTool({
+      description: "List all active browser sessions",
+      inputSchema: z.object({}),
+      execute: async () => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const sessions = service.listSessions();
+          return { success: true, sessions };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Switch active session
+    browser_switch_session: createTool({
+      description: "Switch to a different browser session",
+      inputSchema: z.object({
+        sessionId: z.string().describe("Session ID to switch to"),
+      }),
+      execute: async ({ sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          service.switchSession(sessionId);
+          return { success: true, message: `Switched to session: ${sessionId}` };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Navigate to a URL
+    browser_navigate: createTool({
+      description: "Navigate the browser to a URL",
+      inputSchema: z.object({
+        url: z.string().describe("URL to navigate to"),
+        waitUntil: z
+          .enum(["load", "domcontentloaded", "networkidle"])
+          .optional()
+          .describe("Wait condition (default: load)"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ url, waitUntil, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const result = await service.navigate(url, { waitUntil, sessionId });
+          return { success: true, url: result.url, title: result.title };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Get AI-optimized snapshot
+    browser_get_snapshot: createTool({
+      description:
+        "Get an AI-optimized snapshot of the page with element refs. " +
+        "Returns a text tree with refs like @e1, @e2 that can be used with click, fill, etc. " +
+        "This is the PRIMARY tool for understanding page content.",
+      inputSchema: z.object({
+        interactive: z.boolean().optional().describe("Only include interactive elements"),
+        compact: z.boolean().optional().describe("Remove structural elements without content"),
+        selector: z.string().optional().describe("CSS selector to scope the snapshot"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ interactive, compact, selector, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const result = await service.getSnapshot({ interactive, compact, selector, sessionId });
+          return {
+            success: true,
+            tree: result.tree,
+            stats: result.stats,
+            usage: "Use refs like @e1, @e2 with click/fill tools",
+          };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Click an element
+    browser_click: createTool({
+      description: "Click an element using a ref (@e1) or CSS selector",
+      inputSchema: z.object({
+        selector: z.string().describe("Element ref (e.g. @e1) or CSS selector"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ selector, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          await service.executeAction({ type: "click", selector }, { sessionId });
+          return { success: true, message: `Clicked: ${selector}` };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Fill an input field
+    browser_fill: createTool({
+      description: "Fill an input field with text (clears existing content first)",
+      inputSchema: z.object({
+        selector: z.string().describe("Element ref or CSS selector"),
+        value: z.string().describe("Text to fill"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ selector, value, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          await service.executeAction({ type: "fill", selector, value }, { sessionId });
+          return { success: true, message: `Filled ${selector} with text` };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Type text character by character
+    browser_type: createTool({
+      description: "Type text character by character (useful for autocomplete fields)",
+      inputSchema: z.object({
+        selector: z.string().describe("Element ref or CSS selector"),
+        text: z.string().describe("Text to type"),
+        delay: z.number().optional().describe("Delay between keystrokes in ms"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ selector, text, delay, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          await service.executeAction({ type: "type", selector, text, delay }, { sessionId });
+          return { success: true, message: `Typed text in ${selector}` };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Press a keyboard key
+    browser_press_key: createTool({
+      description: "Press a keyboard key (Enter, Tab, Escape, ArrowDown, etc.)",
+      inputSchema: z.object({
+        key: z.string().describe("Key to press (e.g. Enter, Tab, Escape)"),
+        selector: z.string().optional().describe("Optional element to focus first"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ key, selector, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          await service.executeAction({ type: "press", key, selector }, { sessionId });
+          return { success: true, message: `Pressed key: ${key}` };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Scroll the page
+    browser_scroll: createTool({
+      description: "Scroll the page or an element",
+      inputSchema: z.object({
+        direction: z.enum(["up", "down"]).optional().describe("Scroll direction"),
+        amount: z.number().optional().describe("Scroll amount in pixels (default 500)"),
+        selector: z.string().optional().describe("Element to scroll into view"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ direction, amount, selector, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          await service.executeAction({ type: "scroll", direction, amount, selector }, { sessionId });
+          return { success: true, message: "Scrolled page" };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Take a screenshot
+    browser_screenshot: createTool({
+      description: "Take a screenshot of the page",
+      inputSchema: z.object({
+        fullPage: z.boolean().optional().describe("Capture full page (default: viewport only)"),
+        path: z.string().optional().describe("Path to save screenshot"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ fullPage, path: screenshotPath, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const result = await service.executeAction(
+            { type: "screenshot", fullPage, path: screenshotPath },
+            { sessionId }
+          );
+          if (result.data && typeof result.data === "object" && "base64" in result.data) {
+            return { success: true, base64: (result.data as any).base64 };
+          }
+          return { success: true, path: screenshotPath };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Wait for element or page state
+    browser_wait: createTool({
+      description: "Wait for an element to appear or a page load state",
+      inputSchema: z.object({
+        selector: z.string().optional().describe("CSS selector to wait for"),
+        state: z.enum(["visible", "hidden", "attached", "detached"]).optional().describe("Element state to wait for"),
+        loadState: z.enum(["load", "domcontentloaded", "networkidle"]).optional().describe("Page load state to wait for"),
+        timeout: z.number().optional().describe("Timeout in milliseconds"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ selector, state, loadState, timeout, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          await service.wait({ selector, state, loadState, timeout, sessionId });
+          return { success: true, message: "Wait completed" };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Get page URL
+    browser_get_url: createTool({
+      description: "Get the current page URL",
+      inputSchema: z.object({
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const url = await service.getUrl(sessionId);
+          return { success: true, url };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Get page title
+    browser_get_title: createTool({
+      description: "Get the current page title",
+      inputSchema: z.object({
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const title = await service.getTitle(sessionId);
+          return { success: true, title };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Get page HTML content
+    browser_get_content: createTool({
+      description: "Get the HTML content of the page or a specific element",
+      inputSchema: z.object({
+        selector: z.string().optional().describe("CSS selector to get content from"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ selector, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const html = await service.getContent({ selector, sessionId });
+          return { success: true, html: html.slice(0, 50000) };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Go back in history
+    browser_go_back: createTool({
+      description: "Go back in browser history",
+      inputSchema: z.object({
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const result = await service.goBack(sessionId);
+          return { success: true, url: result.url };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Go forward in history
+    browser_go_forward: createTool({
+      description: "Go forward in browser history",
+      inputSchema: z.object({
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const result = await service.goForward(sessionId);
+          return { success: true, url: result.url };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Reload page
+    browser_reload: createTool({
+      description: "Reload the current page",
+      inputSchema: z.object({
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const result = await service.reload(sessionId);
+          return { success: true, url: result.url };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
+
+    // Evaluate JavaScript
+    browser_evaluate: createTool({
+      description: "Execute JavaScript in the browser page context",
+      inputSchema: z.object({
+        script: z.string().describe("JavaScript code to execute"),
+        sessionId: z.string().optional().describe("Session ID"),
+      }),
+      execute: async ({ script, sessionId }) => {
+        try {
+          const service = EnhancedBrowserService.getInstance();
+          const result = await service.evaluate(script, { sessionId });
+          return { success: true, result };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
   };
 }
 
 export function registerAIHandlers() {
+  // Initialize browser service for local-browser-tools (used by orchestrator agent)
+  setBrowserServiceInstance(EnhancedBrowserService.getInstance());
+
   // Also register the workflow generation handler
   registerWorkflowGenerationHandler();
   /**
@@ -2037,11 +2443,26 @@ export function registerAIHandlers() {
             dataStream: ipcDataStream as any, // Cast to any since we're only implementing write()
           });
 
+          // Verify model supports tool calling in agent mode
+          if (!modelSupportsTools) {
+            console.warn(
+              `[AI IPC Agent] WARNING: Model ${chatModel?.model} may not fully support tool calling. Agent mode may not work correctly.`,
+            );
+          }
+
+          // Verify createPlan tool is present (critical for agent mode)
+          if (!orchestratorConfig.tools.createPlan) {
+            console.error(`[AI IPC Agent] CRITICAL: createPlan tool is MISSING!`);
+          }
+
           result = streamText({
             model,
             system: orchestratorConfig.system,
             messages: sanitizedMessages, // Use sanitized messages (large data stripped)
             tools: orchestratorConfig.tools,
+            // KEY FIX: Use prepareStep for dynamic per-step tool control instead of static toolChoice
+            // This enables the AI SDK 6 pattern of forcing createPlan on step 0
+            prepareStep: orchestratorConfig.prepareStep,
             maxSteps: agentMaxSteps, // Configurable for long-running agent mode with planning
             stopWhen: orchestratorConfig.stopWhen, // CRITICAL: Pass stop conditions for proper loop control
             abortSignal: abortController.signal,

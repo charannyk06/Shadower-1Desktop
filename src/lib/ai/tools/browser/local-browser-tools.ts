@@ -24,27 +24,198 @@ import {
  * - browser_analyze_forms: Detect and analyze forms on the page
  */
 
-// Check if running in Electron renderer
-const isElectron = typeof window !== "undefined" && window.electronAPI;
+/**
+ * Interface for browser service - used for type safety when interacting with
+ * the EnhancedBrowserService from the main process
+ */
+export interface BrowserServiceInterface {
+  createSession(options: { headless?: boolean; cdpPort?: number }): Promise<{
+    sessionId: string;
+    url: string;
+    title: string;
+  }>;
+  closeSession(sessionId?: string): Promise<void>;
+  listSessions(): { sessionId: string; url: string; isActive: boolean }[];
+  switchSession(sessionId: string): void;
+  navigate(
+    url: string,
+    options?: { waitUntil?: string; sessionId?: string }
+  ): Promise<{ url: string; title: string }>;
+  goBack(sessionId?: string): Promise<{ url: string }>;
+  goForward(sessionId?: string): Promise<{ url: string }>;
+  reload(sessionId?: string): Promise<{ url: string }>;
+  getSnapshot(options?: {
+    interactive?: boolean;
+    compact?: boolean;
+    selector?: string;
+    sessionId?: string;
+  }): Promise<{ tree: string; stats?: Record<string, number> }>;
+  executeAction(
+    action: {
+      type: string;
+      selector?: string;
+      value?: string;
+      text?: string;
+      key?: string;
+      delay?: number;
+      direction?: string;
+      amount?: number;
+      fullPage?: boolean;
+      path?: string;
+    },
+    options?: { sessionId?: string }
+  ): Promise<{ data?: unknown }>;
+  evaluate(script: string, options?: { sessionId?: string }): Promise<unknown>;
+  wait(options: {
+    selector?: string;
+    state?: string;
+    loadState?: string;
+    timeout?: number;
+    sessionId?: string;
+  }): Promise<void>;
+  getContent(options?: { selector?: string; sessionId?: string }): Promise<string>;
+  getUrl(sessionId?: string): Promise<string>;
+  getTitle(sessionId?: string): Promise<string>;
+}
 
 /**
- * Helper to call Electron IPC for browser operations (agent-browser powered)
+ * Browser Service reference for main process execution
+ * This is set by calling setBrowserServiceInstance() from the main process
+ */
+let browserServiceInstance: BrowserServiceInterface | null = null;
+
+/**
+ * Set the browser service instance (called from main process)
+ * This allows the browser tools to work in both main and renderer process contexts
+ */
+export function setBrowserServiceInstance(service: BrowserServiceInterface): void {
+  browserServiceInstance = service;
+}
+
+/**
+ * Check if running in Electron renderer at runtime
+ */
+function isRendererProcess(): boolean {
+  return typeof window !== "undefined" && !!window.electronAPI?.browser;
+}
+
+/**
+ * Check if running in Node.js/main process at runtime
+ */
+function isMainProcess(): boolean {
+  return typeof process !== "undefined" && process.versions?.electron !== undefined && typeof window === "undefined";
+}
+
+/**
+ * Get the browser service for main process execution
+ */
+function getBrowserServiceForMainProcess(): BrowserServiceInterface {
+  if (browserServiceInstance) {
+    return browserServiceInstance;
+  }
+  throw new Error(
+    "Browser service not initialized. Call setBrowserServiceInstance() first from the main process."
+  );
+}
+
+/**
+ * Helper to call browser operations - works in both main process and renderer
  */
 async function callBrowserAPI<T>(
   method: string,
   ...args: unknown[]
 ): Promise<T> {
-  if (!isElectron) {
-    throw new Error("Browser tools are only available in the desktop app");
+  // Check if in renderer process (has window.electronAPI)
+  if (isRendererProcess()) {
+    // @ts-ignore - electronAPI is injected by preload
+    const browserAPI = window.electronAPI.browser;
+    if (!browserAPI || !browserAPI[method]) {
+      throw new Error(
+        `Browser method '${method}' not available in renderer. ` +
+          "This may indicate a version mismatch between the renderer and main process."
+      );
+    }
+
+    try {
+      return await browserAPI[method](...args);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes("No browser session")) {
+        throw new Error(
+          "No browser session active. Call browser_create_session first to launch a browser."
+        );
+      }
+      throw error;
+    }
   }
 
-  // @ts-ignore - electronAPI is injected by preload
-  const browserAPI = window.electronAPI.browser;
-  if (!browserAPI || !browserAPI[method]) {
-    throw new Error(`Browser method ${method} not available`);
+  // Check if in main process (Node.js with Electron)
+  if (isMainProcess()) {
+    try {
+      const service = await getBrowserServiceForMainProcess();
+
+      // Map method names to service methods
+      switch (method) {
+        case "createSession":
+          return await service.createSession(args[0]) as T;
+        case "closeSession":
+          return { success: true, ...(await service.closeSession(args[0])) } as T;
+        case "listSessions":
+          return service.listSessions() as T;
+        case "switchSession":
+          service.switchSession(args[0] as string);
+          return { success: true } as T;
+        case "navigate":
+          return await service.navigate(args[0] as string, args[1]) as T;
+        case "goBack":
+          return await service.goBack(args[0] as string) as T;
+        case "goForward":
+          return await service.goForward(args[0] as string) as T;
+        case "reload":
+          return await service.reload(args[0] as string) as T;
+        case "getSnapshot":
+          return await service.getSnapshot(args[0]) as T;
+        case "click":
+          return await service.executeAction({ type: "click", selector: args[0] as string }, args[1]) as T;
+        case "fill":
+          return await service.executeAction({ type: "fill", selector: args[0] as string, value: args[1] as string }, args[2]) as T;
+        case "type":
+          return await service.executeAction({ type: "type", selector: args[0] as string, text: args[1] as string, delay: (args[2] as any)?.delay }, { sessionId: (args[2] as any)?.sessionId }) as T;
+        case "press":
+          return await service.executeAction({ type: "press", key: args[0] as string, selector: (args[1] as any)?.selector }, { sessionId: (args[1] as any)?.sessionId }) as T;
+        case "screenshot":
+          return await service.executeAction({ type: "screenshot", fullPage: (args[0] as any)?.fullPage, path: (args[0] as any)?.path }, { sessionId: (args[0] as any)?.sessionId }) as T;
+        case "scroll":
+          return await service.executeAction({ type: "scroll", direction: (args[0] as any)?.direction, amount: (args[0] as any)?.amount, selector: (args[0] as any)?.selector }, { sessionId: (args[0] as any)?.sessionId }) as T;
+        case "evaluate":
+          return { result: await service.evaluate(args[0] as string, args[1]) } as T;
+        case "wait":
+          return await service.wait(args[0] as any) as T;
+        case "getContent":
+          return { html: await service.getContent(args[0]) } as T;
+        case "getUrl":
+          return { url: await service.getUrl((args[0] as any)?.sessionId) } as T;
+        case "getTitle":
+          return { title: await service.getTitle((args[0] as any)?.sessionId) } as T;
+        default:
+          throw new Error(`Unknown browser method: ${method}`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes("No browser session") || errorMessage.includes("No active session")) {
+        throw new Error(
+          "No browser session active. Call browser_create_session first to launch a browser."
+        );
+      }
+      throw error;
+    }
   }
 
-  return browserAPI[method](...args);
+  // Not in a supported context
+  throw new Error(
+    "Browser tools require either the Electron renderer process (with electronAPI) " +
+      "or the Electron main process. Current environment is not supported."
+  );
 }
 
 /**
@@ -174,6 +345,39 @@ export const browserListSessionsTool = createTool({
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to list sessions",
+      };
+    }
+  },
+});
+
+/**
+ * Switch to a different browser session
+ */
+export const browserSwitchSessionTool = createTool({
+  description: "Switch to a different browser session. Use browser_list_sessions to see available sessions.",
+  inputSchema: z.object({
+    sessionId: z.string().describe("The session ID to switch to"),
+  }),
+  execute: async ({ sessionId }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("switchSession", sessionId);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        message: `Switched to session ${sessionId}`,
+        activeSessionId: sessionId,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to switch session",
       };
     }
   },
@@ -986,6 +1190,7 @@ export const localBrowserTools = {
   browser_create_session: browserCreateSessionTool,
   browser_close_session: browserCloseSessionTool,
   browser_list_sessions: browserListSessionsTool,
+  browser_switch_session: browserSwitchSessionTool,
 
   // Navigation
   browser_navigate: browserNavigateTool,
