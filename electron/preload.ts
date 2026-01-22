@@ -56,9 +56,6 @@ export interface ElectronAPI {
       updateThread: (id: string, data: any) => Promise<void>;
       deleteThread: (id: string) => Promise<void>;
       deleteAllThreads: (userId: string) => Promise<{ success: boolean }>;
-      deleteUnarchivedThreads: (
-        userId: string,
-      ) => Promise<{ success: boolean }>;
       // New handlers
       upsertMessage: (data: { message: any; threadId: string }) => Promise<any>;
       deleteMessage: (messageId: string) => Promise<{ success: boolean }>;
@@ -70,24 +67,6 @@ export interface ElectronAPI {
         messageId: string;
         parts: any[];
       }) => Promise<any>;
-    };
-    archives: {
-      getAll: (userId: string) => Promise<any[]>;
-      getById: (id: string) => Promise<any>;
-      create: (data: any) => Promise<any>;
-      update: (id: string, data: any) => Promise<any>;
-      delete: (id: string) => Promise<void>;
-      archiveThread: (
-        threadId: string,
-        archiveId: string,
-        userId: string,
-      ) => Promise<{ success: boolean }>;
-      unarchiveThread: (
-        threadId: string,
-        archiveId?: string,
-      ) => Promise<{ success: boolean }>;
-      getItems: (archiveId: string) => Promise<any[]>;
-      getItemArchives: (itemId: string) => Promise<any[]>;
     };
     bookmark: {
       toggle: (
@@ -773,8 +752,6 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.invoke("db:chat:deleteThread", id),
       deleteAllThreads: (userId: string) =>
         ipcRenderer.invoke("db:chat:deleteAllThreads", userId),
-      deleteUnarchivedThreads: (userId: string) =>
-        ipcRenderer.invoke("db:chat:deleteUnarchivedThreads", userId),
       // New handlers
       upsertMessage: (data: { message: any; threadId: string }) =>
         ipcRenderer.invoke("db:chat:upsertMessage", data),
@@ -877,28 +854,6 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.invoke("db:user:updateImage", imageUrl),
       updateDetails: (data: { name?: string }) =>
         ipcRenderer.invoke("db:user:updateDetails", data),
-    },
-    archives: {
-      getAll: (userId: string) =>
-        ipcRenderer.invoke("db:archives:getAll", userId),
-      getById: (id: string) => ipcRenderer.invoke("db:archives:getById", id),
-      create: (data: any) => ipcRenderer.invoke("db:archives:create", data),
-      update: (id: string, data: any) =>
-        ipcRenderer.invoke("db:archives:update", id, data),
-      delete: (id: string) => ipcRenderer.invoke("db:archives:delete", id),
-      archiveThread: (threadId: string, archiveId: string, userId: string) =>
-        ipcRenderer.invoke(
-          "db:archives:archiveThread",
-          threadId,
-          archiveId,
-          userId,
-        ),
-      unarchiveThread: (threadId: string, archiveId?: string) =>
-        ipcRenderer.invoke("db:archives:unarchiveThread", threadId, archiveId),
-      getItems: (archiveId: string) =>
-        ipcRenderer.invoke("db:archives:getItems", archiveId),
-      getItemArchives: (itemId: string) =>
-        ipcRenderer.invoke("db:archives:getItemArchives", itemId),
     },
     bookmark: {
       toggle: (

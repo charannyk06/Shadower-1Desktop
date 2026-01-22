@@ -78,14 +78,6 @@ export const threadApi = {
   },
 
   /**
-   * Delete all unarchived threads for the current user
-   */
-  async deleteUnarchived(): Promise<void> {
-    const userId = await getElectronUserId();
-    await window.electronAPI.db.chat.deleteUnarchivedThreads(userId);
-  },
-
-  /**
    * Upsert a message (create or update)
    */
   async upsertMessage(message: any, threadId: string): Promise<any> {
