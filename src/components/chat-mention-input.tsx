@@ -1,11 +1,11 @@
 "use client";
 import React, {
-  RefObject,
+  forwardRef,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
-  useEffect,
 } from "react";
 
 import { getSystemAgentCustomIcon } from "@/hooks/use-system-agent-icon";
@@ -14,7 +14,7 @@ import { MCPIcon } from "ui/mcp-icon";
 
 import { ChatMention } from "app-types/chat";
 
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Popover, PopoverContent, PopoverTrigger } from "ui/popover";
 import MentionInput from "./mention-input";
 
@@ -46,61 +46,80 @@ interface ChatMentionInputProps {
   placeholder?: string;
   input: string;
   disabledMention?: boolean;
-  ref?: RefObject<Editor | null>;
   onFocus?: () => void;
   onBlur?: () => void;
 }
 
-export default function ChatMentionInput({
-  onChange,
-  onChangeMention,
-  onEnter,
-  placeholder,
-  ref,
-  input,
-  disabledMention,
-  onFocus,
-  onBlur,
-}: ChatMentionInputProps) {
-  const latestMentions = useRef<string[]>([]);
-
-  const handleChange = useCallback(
-    ({
-      text,
-      mentions,
-    }: {
-      text: string;
-      mentions: { label: string; id: string }[];
-    }) => {
-      onChange(text);
-      const mentionsIds = mentions.map((mention) => mention.id);
-      const parsedMentions = mentionsIds.map(
-        (id) => JSON.parse(id) as ChatMention,
-      );
-      if (equal(latestMentions.current, mentionsIds)) return;
-      latestMentions.current = mentionsIds;
-      onChangeMention(parsedMentions);
+const ChatMentionInput = forwardRef<Editor | null, ChatMentionInputProps>(
+  (
+    {
+      onChange,
+      onChangeMention,
+      onEnter,
+      placeholder,
+      input,
+      disabledMention,
+      onFocus,
+      onBlur,
     },
-    [onChange, onChangeMention],
-  );
+    ref,
+  ) => {
+    const latestMentions = useRef<string[]>([]);
 
-  return (
-    <MentionInput
-      content={input}
-      onEnter={onEnter}
-      placeholder={placeholder}
-      suggestionChar="@"
-      disabledMention={disabledMention}
-      onChange={handleChange}
-      MentionItem={ChatMentionInputMentionItem}
-      Suggestion={ChatMentionInputSuggestion}
-      editorRef={ref}
-      onFocus={onFocus}
-      onBlur={onBlur}
-      fullWidthSuggestion={true}
-    />
-  );
-}
+    const handleChange = useCallback(
+      ({
+        text,
+        mentions,
+      }: {
+        text: string;
+        mentions: { label: string; id: string }[];
+      }) => {
+        onChange(text);
+        const mentionsIds = mentions.map((mention) => mention.id);
+        const parsedMentions = mentionsIds.map(
+          (id) => JSON.parse(id) as ChatMention,
+        );
+        if (equal(latestMentions.current, mentionsIds)) return;
+        latestMentions.current = mentionsIds;
+        onChangeMention(parsedMentions);
+      },
+      [onChange, onChangeMention],
+    );
+
+    // Convert ForwardedRef to MutableRefObject for MentionInput
+    const editorRef = useRef<Editor | null>(null);
+
+    // Sync editor ref to forwarded ref
+    useEffect(() => {
+      if (typeof ref === "function") {
+        ref(editorRef.current);
+      } else if (ref) {
+        ref.current = editorRef.current;
+      }
+    });
+
+    return (
+      <MentionInput
+        content={input}
+        onEnter={onEnter}
+        placeholder={placeholder}
+        suggestionChar="@"
+        disabledMention={disabledMention}
+        onChange={handleChange}
+        MentionItem={ChatMentionInputMentionItem}
+        Suggestion={ChatMentionInputSuggestion}
+        editorRef={editorRef}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        fullWidthSuggestion={true}
+      />
+    );
+  },
+);
+
+ChatMentionInput.displayName = "ChatMentionInput";
+
+export default ChatMentionInput;
 
 export function ChatMentionInputMentionItem({
   id,
@@ -159,7 +178,7 @@ export function ChatMentionInputSuggestion({
   style?: React.CSSProperties;
   disabledType?: ("mcp" | "workflow" | "defaultTool" | "agent")[];
 }) {
-  const t = useTranslations("Common");
+  const { t } = useTranslation();
 
   const [mcpList, workflowList, agentList] = appStore(
     useShallow((state) => [
@@ -398,37 +417,49 @@ export function ChatMentionInputSuggestion({
           description = "Send an http request";
           break;
         // Browser automation tools (Local Chrome DevTools)
+        case DefaultToolName.BrowserCreateSession:
+          label = "browser-create-session";
+          description = "Create a new browser session";
+          break;
+        case DefaultToolName.BrowserCloseSession:
+          label = "browser-close-session";
+          description = "Close the browser session";
+          break;
         case DefaultToolName.BrowserNavigate:
           label = "browser-navigate";
           description = "Navigate browser to a URL";
           break;
-        case DefaultToolName.BrowserAct:
-          label = "browser-act";
-          description = "Perform actions in browser using natural language";
+        case DefaultToolName.BrowserClick:
+          label = "browser-click";
+          description = "Click an element on the page";
           break;
-        case DefaultToolName.BrowserObserve:
-          label = "browser-observe";
-          description = "Observe and find elements on a web page";
+        case DefaultToolName.BrowserFill:
+          label = "browser-fill";
+          description = "Fill an input field";
           break;
-        case DefaultToolName.BrowserExtract:
-          label = "browser-extract";
-          description = "Extract structured data from web pages";
+        case DefaultToolName.BrowserType:
+          label = "browser-type";
+          description = "Type text into an element";
+          break;
+        case DefaultToolName.BrowserGetSnapshot:
+          label = "browser-get-snapshot";
+          description = "Get a snapshot of the page structure";
+          break;
+        case DefaultToolName.BrowserGetContent:
+          label = "browser-get-content";
+          description = "Get the page content";
           break;
         case DefaultToolName.BrowserScreenshot:
           label = "browser-screenshot";
           description = "Take a screenshot of the browser";
           break;
-        case DefaultToolName.BrowserStealth:
-          label = "browser-stealth";
-          description = "Enable stealth mode for anti-detection";
-          break;
         case DefaultToolName.BrowserWait:
           label = "browser-wait";
           description = "Wait for elements or conditions";
           break;
-        case DefaultToolName.BrowserClose:
-          label = "browser-close";
-          description = "Close the browser session";
+        case DefaultToolName.BrowserEvaluate:
+          label = "browser-evaluate";
+          description = "Evaluate JavaScript in the browser";
           break;
         // Desktop/Computer Use tools (E2B Desktop)
         case DefaultToolName.DesktopScreenshot:
@@ -618,7 +649,7 @@ export function ChatMentionInputSuggestion({
             <SearchIcon className="size-4 shrink-0 opacity-50" />
             <input
               className="flex h-8 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder={t("search")}
+              placeholder={t("Common.search")}
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
               onKeyDown={(e) => {
@@ -694,7 +725,7 @@ export function ChatMentionInputSuggestion({
                 <div className="text-center">
                   <div className="mb-2">
                     {searchValue
-                      ? t("noResults")
+                      ? t("Common.noResults")
                       : "Type @ to see available mentions"}
                   </div>
                   {searchValue && (

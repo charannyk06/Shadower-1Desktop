@@ -13,7 +13,6 @@ export const GetWeather = (): {
       description: "Get weather data from the API",
       name: "Get Weather",
       isPublished: true,
-      visibility: "private",
       icon: {
         type: "emoji",
         value:
@@ -42,7 +41,6 @@ export const BabyResearch = (): {
         "Comprehensive web research workflow that performs multi-layered search and content analysis to generate detailed research reports based on user instructions and research objectives.",
       name: "baby-research",
       isPublished: true,
-      visibility: "private",
       icon: {
         type: "emoji",
         value:

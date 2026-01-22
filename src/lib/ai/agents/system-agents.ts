@@ -1,4 +1,3 @@
-import "server-only";
 import type { AgentIcon, AgentSummary } from "app-types/agent";
 
 /**
@@ -28,6 +27,8 @@ export interface SystemAgentDefinition {
   requiresDesktop?: boolean;
   /** Whether this agent requires local code execution */
   requiresCodeExecution?: boolean;
+  /** Whether this agent requires terminal/shell access (RECOMMENDED: true for most agents) */
+  requiresTerminal?: boolean;
 }
 
 /**
@@ -46,6 +47,7 @@ export const DEEP_RESEARCH_AGENT: SystemAgentDefinition = {
   },
   category: "research",
   requiresBrowser: true,
+  requiresTerminal: true, // For running scripts, data processing, etc.
   defaultTools: [
     "browser_navigate",
     "browser_act",
@@ -107,6 +109,7 @@ export const DATA_ANALYSIS_AGENT: SystemAgentDefinition = {
   },
   category: "analysis",
   requiresCodeExecution: true,
+  requiresTerminal: true, // For running Python, pandas, data scripts
   defaultTools: [
     "createFragment",
     "createVisualization",
@@ -170,6 +173,7 @@ export const CODING_AGENT: SystemAgentDefinition = {
   },
   category: "coding",
   requiresCodeExecution: true,
+  requiresTerminal: true, // CRITICAL: For npm, git, build commands, running code
   defaultTools: ["createFragment", "editFragment", "setContext", "getContext"],
   role: "Senior Full-Stack Developer",
   systemPrompt: `You are a senior full-stack developer who can build complete applications from descriptions.
@@ -229,17 +233,19 @@ export const COMPUTER_USE_AGENT: SystemAgentDefinition = {
   },
   category: "automation",
   requiresDesktop: true,
+  requiresTerminal: true, // For launching apps, running scripts from desktop
   defaultTools: [
-    "desktop_create",
-    "desktop_screenshot",
-    "desktop_click",
-    "desktop_type",
-    "desktop_press",
-    "desktop_scroll",
-    "desktop_launch",
-    "desktop_move",
-    "desktop_drag",
-    "desktop_command",
+    "desktopCreate",
+    "desktopCommand", // Shell execution - CRITICAL for desktop automation
+    "desktopScreenshot",
+    "desktopClick",
+    "desktopType",
+    "desktopPress",
+    "desktopScroll",
+    "desktopLaunchApp",
+    "desktopDrag",
+    "desktopDisplayInfo",
+    "desktopCursorPosition",
     "setContext",
     "getContext",
   ],
@@ -301,6 +307,7 @@ export const WEB_AUTOMATION_AGENT: SystemAgentDefinition = {
   },
   category: "automation",
   requiresBrowser: true,
+  requiresTerminal: true, // For running scrapers, data processing scripts
   defaultTools: [
     "browser_navigate",
     "browser_act",
@@ -376,6 +383,7 @@ export const DOCUMENT_AGENT: SystemAgentDefinition = {
   },
   category: "documents",
   requiresCodeExecution: true,
+  requiresTerminal: true, // For file operations, document processing
   defaultTools: [
     // Create tools
     "createPresentation",
@@ -579,12 +587,8 @@ export function systemAgentToSummary(
     description: agent.description,
     icon: agent.icon,
     userId: "system",
-    visibility: "public",
     createdAt: new Date("2024-01-01"),
     updatedAt: new Date("2024-01-01"),
-    userName: "Shadower",
-    userAvatar: "/shadower-logo-final.png",
-    isBookmarked: false,
   };
 }
 
@@ -626,11 +630,13 @@ export function getSystemAgentRequirements(id: string): {
   browser: boolean;
   desktop: boolean;
   codeExecution: boolean;
+  terminal: boolean;
 } {
   const agent = getSystemAgent(id);
   return {
     browser: agent?.requiresBrowser ?? false,
     desktop: agent?.requiresDesktop ?? false,
     codeExecution: agent?.requiresCodeExecution ?? false,
+    terminal: agent?.requiresTerminal ?? false,
   };
 }

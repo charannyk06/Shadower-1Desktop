@@ -17,14 +17,8 @@ export interface User extends Omit<UserEntity, "password"> {
   lastLogin?: Date | null;
 }
 
-export type BasicUser = Omit<
-  User,
-  "password" | "preferences" | "image" | "banned" | "banReason" | "banExpires"
-> & {
+export type BasicUser = Omit<User, "password" | "preferences" | "image"> & {
   image?: string | null;
-  banned?: boolean | null;
-  banReason?: string | null;
-  banExpires?: Date | null;
 };
 
 export interface BasicUserWithLastLogin extends BasicUser {

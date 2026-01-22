@@ -3,7 +3,7 @@
 import { userFetcher } from "@/lib/electron/user-api";
 import { BasicUser } from "app-types/user";
 import { motion } from "framer-motion";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useMemo } from "react";
 import useSWR from "swr";
 import { FlipWords } from "ui/flip-words";
@@ -16,24 +16,50 @@ function getGreetingByTime() {
 }
 
 export const ChatGreeting = () => {
-  const { data: user } = useSWR<BasicUser>(`/api/user/details`, userFetcher, {
-    revalidateOnMount: false,
-  });
-  const t = useTranslations("Chat.Greeting");
+  const { data: user, isLoading } = useSWR<BasicUser>(
+    `/api/user/details`,
+    userFetcher,
+    {
+      revalidateOnMount: true,
+      revalidateOnFocus: false,
+    },
+  );
+  const { t } = useTranslation();
+
+  // Debug: log user data to understand what's being returned
+  console.log(
+    "[ChatGreeting] user data:",
+    JSON.stringify(user),
+    "isLoading:",
+    isLoading,
+  );
 
   const word = useMemo(() => {
-    if (!user?.name) return "";
+    // Get the user's name, with fallback
+    const userName = user?.name?.trim();
+    console.log("[ChatGreeting] computed userName:", userName);
+
+    // If no name or still loading, show greetings without name
+    if (!userName) {
+      const genericWords = [
+        t("Chat.Greeting.letMeKnowWhenYoureReadyToBegin"),
+        t("Chat.Greeting.whatAreYourThoughtsToday"),
+        t("Chat.Greeting.whereWouldYouLikeToStart"),
+      ];
+      return genericWords[Math.floor(Math.random() * genericWords.length)];
+    }
+
     const words = [
-      t(getGreetingByTime(), { name: user.name }),
-      t("niceToSeeYouAgain", { name: user.name }),
-      t("whatAreYouWorkingOnToday", { name: user.name }),
-      t("letMeKnowWhenYoureReadyToBegin"),
-      t("whatAreYourThoughtsToday"),
-      t("whereWouldYouLikeToStart"),
-      t("whatAreYouThinking", { name: user.name }),
+      t("Chat.Greeting." + getGreetingByTime(), { name: userName }),
+      t("Chat.Greeting.niceToSeeYouAgain", { name: userName }),
+      t("Chat.Greeting.whatAreYouWorkingOnToday", { name: userName }),
+      t("Chat.Greeting.letMeKnowWhenYoureReadyToBegin"),
+      t("Chat.Greeting.whatAreYourThoughtsToday"),
+      t("Chat.Greeting.whereWouldYouLikeToStart"),
+      t("Chat.Greeting.whatAreYouThinking", { name: userName }),
     ];
     return words[Math.floor(Math.random() * words.length)];
-  }, [user?.name]);
+  }, [user?.name, t, isLoading]);
 
   return (
     <motion.div

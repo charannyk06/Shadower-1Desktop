@@ -1,5 +1,3 @@
-import "server-only";
-
 import {
   OAuthClientProvider,
   UnauthorizedError,
@@ -119,9 +117,10 @@ export class PgOAuthClientProvider implements OAuthClientProvider {
     const authData = await this.getAuthData();
     if (authData?.clientInfo) {
       // Check if redirect URI matches (security check)
+      // SECURITY: Use strict equality to prevent type coercion attacks
       if (
         !authData.tokens &&
-        authData.clientInfo.redirect_uris[0] != this.redirectUrl
+        authData.clientInfo.redirect_uris[0] !== this.redirectUrl
       ) {
         // Security guard: redirect URI mismatch → drop only this mismatched session by state
         if (authData.state) {

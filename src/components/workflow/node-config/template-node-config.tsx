@@ -12,7 +12,7 @@ import { InfoIcon } from "lucide-react";
 import { TipTapMentionJsonContent } from "app-types/util";
 
 import { useWorkflowStore } from "@/app/store/workflow.store";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
 interface TemplateNodeConfigProps {
@@ -22,7 +22,7 @@ interface TemplateNodeConfigProps {
 export const TemplateNodeConfig = memo(function TemplateNodeConfig({
   data,
 }: TemplateNodeConfigProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const { updateNodeData } = useReactFlow<UINode>();
   const nodes = useNodes() as UINode[];
   const edges = useEdges();

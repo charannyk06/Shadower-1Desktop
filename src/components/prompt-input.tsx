@@ -16,12 +16,20 @@ import {
   Square,
   XIcon,
 } from "lucide-react";
-import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "ui/button";
 import { useShallow } from "zustand/shallow";
 import { SelectModel } from "./select-model";
 import { ToolModeDropdown } from "./tool-mode-dropdown";
+import { ChatModeDropdown } from "./chat-mode-dropdown";
 
 import { useThreadFileUploader } from "@/hooks/use-thread-file-uploader";
 import { cn } from "@/lib/utils";
@@ -29,7 +37,7 @@ import { Editor } from "@tiptap/react";
 import { WorkflowSummary } from "app-types/workflow";
 import { DefaultToolName } from "lib/ai/tools";
 import equal from "lib/equal";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { ClaudeIcon } from "ui/claude-icon";
 import {
@@ -77,12 +85,7 @@ interface PromptInputProps {
   onFocus?: () => void;
 }
 
-const ChatMentionInput = dynamic(() => import("./chat-mention-input"), {
-  ssr: false,
-  loading() {
-    return <div className="h-[2rem] w-full animate-pulse"></div>;
-  },
-});
+const ChatMentionInput = lazy(() => import("./chat-mention-input"));
 
 export default function PromptInput({
   placeholder,
@@ -99,7 +102,7 @@ export default function PromptInput({
   threadId,
   disabledMention,
 }: PromptInputProps) {
-  const t = useTranslations("Chat");
+  const { t } = useTranslation("translation", { keyPrefix: "Chat" });
   const [isUploadDropdownOpen, setIsUploadDropdownOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { uploadFiles } = useThreadFileUploader(threadId);
@@ -489,16 +492,22 @@ export default function PromptInput({
             )}
             <div className="flex flex-col gap-3.5 px-6 pt-3 pb-5">
               <div className="relative min-h-[2rem]">
-                <ChatMentionInput
-                  input={input}
-                  onChange={setInput}
-                  onChangeMention={onChangeMention}
-                  onEnter={submit}
-                  placeholder={placeholder ?? t("placeholder")}
-                  ref={editorRef}
-                  disabledMention={disabledMention}
-                  onFocus={onFocus}
-                />
+                <Suspense
+                  fallback={
+                    <div className="h-[2rem] w-full animate-pulse"></div>
+                  }
+                >
+                  <ChatMentionInput
+                    input={input}
+                    onChange={setInput}
+                    onChangeMention={onChangeMention}
+                    onEnter={submit}
+                    placeholder={placeholder ?? t("placeholder")}
+                    ref={editorRef}
+                    disabledMention={disabledMention}
+                    onFocus={onFocus}
+                  />
+                </Suspense>
               </div>
               <div className="flex w-full items-center z-30">
                 <input
@@ -580,6 +589,7 @@ export default function PromptInput({
                     </Button>
                   ) : (
                     <>
+                      <ChatModeDropdown />
                       <ToolModeDropdown />
                       <ToolSelectDropdown
                         className="mx-1"

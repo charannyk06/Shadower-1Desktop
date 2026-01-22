@@ -3,8 +3,7 @@
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Shortcuts, isShortcutEvent } from "lib/keyboard-shortcuts";
 import { PanelLeft } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import {
   SidebarHeader,
@@ -31,7 +30,8 @@ export function SidebarHeaderShared({
 }: SidebarHeaderSharedProps) {
   const { toggleSidebar, setOpenMobile, open } = useSidebar();
   const isMobile = useIsMobile();
-  const pathname = usePathname();
+  const location = useLocation();
+  const pathname = location.pathname;
   const currentPath = useRef<string | null>(null);
 
   // Handle shortcuts (only for main app sidebar)
@@ -69,7 +69,7 @@ export function SidebarHeaderShared({
         <SidebarMenuItem className="flex items-center gap-0.5 mb-1">
           <SidebarMenuButton asChild className="hover:bg-transparent">
             <Link
-              href={href}
+              to={href}
               onClick={handleLinkClick}
               className="flex items-center gap-2"
             >

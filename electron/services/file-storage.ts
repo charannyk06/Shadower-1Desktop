@@ -35,7 +35,7 @@ export class ElectronFileStorage {
   private uploadsDir: string;
   private fragmentsDir: string;
   private exportsDir: string;
-  private sandboxDir: string;
+  private workspaceDir: string;
 
   private constructor() {
     // Base directory for all app data
@@ -45,7 +45,7 @@ export class ElectronFileStorage {
     this.uploadsDir = path.join(this.baseDir, "uploads");
     this.fragmentsDir = path.join(this.baseDir, "fragments");
     this.exportsDir = path.join(this.baseDir, "exports");
-    this.sandboxDir = path.join(this.baseDir, "sandbox");
+    this.workspaceDir = path.join(this.baseDir, "workspace");
   }
 
   static getInstance(): ElectronFileStorage {
@@ -62,7 +62,7 @@ export class ElectronFileStorage {
     await fs.ensureDir(this.uploadsDir);
     await fs.ensureDir(this.fragmentsDir);
     await fs.ensureDir(this.exportsDir);
-    await fs.ensureDir(this.sandboxDir);
+    await fs.ensureDir(this.workspaceDir);
     console.log("[FileStorage] Initialized at:", this.baseDir);
   }
 
@@ -79,7 +79,7 @@ export class ElectronFileStorage {
    */
   private buildPathname(
     filename: string,
-    category: "uploads" | "fragments" | "exports" | "sandbox",
+    category: "uploads" | "fragments" | "exports" | "workspace",
   ): string {
     const safeName = this.sanitizeFilename(filename);
     const id = randomUUID();
@@ -102,7 +102,7 @@ export class ElectronFileStorage {
   async upload(
     content: UploadContent,
     options: UploadOptions & {
-      category?: "uploads" | "fragments" | "exports" | "sandbox";
+      category?: "uploads" | "fragments" | "exports" | "workspace";
     } = {},
   ): Promise<UploadResult> {
     const filename = options.filename || "file";
@@ -244,7 +244,7 @@ export class ElectronFileStorage {
    * List all files in a category
    */
   async listFiles(
-    category: "uploads" | "fragments" | "exports" | "sandbox",
+    category: "uploads" | "fragments" | "exports" | "workspace",
   ): Promise<FileMetadata[]> {
     const dir = this[`${category}Dir`];
     const exists = await fs.pathExists(dir);
@@ -279,7 +279,7 @@ export class ElectronFileStorage {
    * Delete all files in a category
    */
   async clearCategory(
-    category: "uploads" | "fragments" | "exports" | "sandbox",
+    category: "uploads" | "fragments" | "exports" | "workspace",
   ): Promise<void> {
     const dir = this[`${category}Dir`];
     const exists = await fs.pathExists(dir);
@@ -297,7 +297,7 @@ export class ElectronFileStorage {
     totalSize: number;
     categories: Record<string, { files: number; size: number }>;
   }> {
-    const categories = ["uploads", "fragments", "exports", "sandbox"] as const;
+    const categories = ["uploads", "fragments", "exports", "workspace"] as const;
     const stats = {
       totalFiles: 0,
       totalSize: 0,

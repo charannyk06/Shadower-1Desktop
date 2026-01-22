@@ -1,5 +1,3 @@
-import "server-only";
-
 import { LanguageModel } from "ai";
 import { serverCache } from "lib/cache";
 import logger from "logger";

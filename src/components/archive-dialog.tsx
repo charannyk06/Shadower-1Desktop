@@ -3,7 +3,7 @@
 import { archiveApi } from "@/lib/electron/archive-api";
 import { Archive } from "app-types/archive";
 import { Loader } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { mutate } from "swr";
@@ -45,7 +45,7 @@ export function ArchiveDialog({
   onOpenChange,
   onSuccess,
 }: ArchiveDialogProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const isEdit = !!archive;
 
   const getInitialConfig = () => ({

@@ -52,14 +52,29 @@ async function main() {
     );
 
     // Rebuild native modules for Electron if Electron is installed
+    // Use the dedicated rebuild script - non-blocking if it fails
     try {
       const electronPath = require.resolve("electron/package.json");
       if (electronPath) {
-        console.log("Rebuilding native modules for Electron...");
-        await runCommand(
-          "npx @electron/rebuild --only=better-sqlite3 --force",
-          "Rebuild better-sqlite3 for Electron",
-        );
+        console.log("Rebuilding better-sqlite3 for Electron...");
+        try {
+          const { stdout, stderr } = await execPromise(
+            "node scripts/rebuild-better-sqlite3.js",
+            {
+              cwd: process.cwd(),
+              env: process.env,
+            },
+          );
+          console.log("Rebuild output:", stdout);
+          if (stderr) console.warn("Rebuild stderr:", stderr);
+          console.log("Rebuild finished successfully.");
+        } catch (rebuildError: any) {
+          console.warn(
+            "Rebuild failed (non-blocking). App will work via Electron IPC:",
+            rebuildError.message || rebuildError,
+          );
+          // Don't throw - allow postinstall to continue
+        }
       }
     } catch (error) {
       console.warn(

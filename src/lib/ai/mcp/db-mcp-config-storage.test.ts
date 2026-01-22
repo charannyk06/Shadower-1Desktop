@@ -103,7 +103,6 @@ describe("DB-based MCP Config Storage", () => {
       vi.mocked(mockMcpRepository.save).mockResolvedValue({
         ...serverToSave,
         userId: "test-user-id",
-        visibility: "private" as const,
       });
 
       const serverWithUserId = {

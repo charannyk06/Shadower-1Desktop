@@ -4,7 +4,6 @@ import { useAppStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useThreadFileUploader } from "@/hooks/use-thread-file-uploader";
-import { isCollaboraSupported } from "@/lib/collabora";
 import {
   type OfficeFileType,
   convertOfficeFileToHtml,
@@ -28,17 +27,15 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { Edit3 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
-import { CollaboraEditor, useCollaboraEditor } from "./collabora-editor";
 import { FileTypeIcon } from "./file-type-icon";
 import { BrowserPreview } from "./theater/browser-preview";
 import { DesktopPreview } from "./theater/desktop-preview";
 
-// Interface for sandbox files from API
-interface SandboxFileMetadata {
+// Interface for workspace files from API
+interface WorkspaceFileMetadata {
   name: string;
   size: number;
   type: string;
@@ -158,15 +155,15 @@ export function TheaterPanel() {
     theaterMode.defaultTab || "preview",
   );
   const [isMaximized, setIsMaximized] = useState(false);
-  const [sandboxFiles, setSandboxFiles] = useState<SandboxFileMetadata[]>([]);
-  const [sandboxFilesLoading, setSandboxFilesLoading] = useState(false);
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileMetadata[]>([]);
+  const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
   const { uploadFiles } = useThreadFileUploader(currentThreadId || undefined);
   const isMobile = useIsMobile();
 
-  // Fetch sandbox files from API when theater opens, thread changes, or sandbox files version changes
+  // Fetch workspace files from API when theater opens, thread changes, or files version changes
   useEffect(() => {
     if (!currentThreadId) {
-      setSandboxFiles([]);
+      setWorkspaceFiles([]);
       return;
     }
 
@@ -177,37 +174,52 @@ export function TheaterPanel() {
     }
 
     let cancelled = false;
-    setSandboxFilesLoading(true);
+    setWorkspaceFilesLoading(true);
 
     console.log(
-      "[TheaterPanel] Fetching sandbox files for thread:",
+      "[TheaterPanel] Fetching workspace files for thread:",
       currentThreadId,
       "version:",
       filesVersion,
     );
 
-    fetch(`/api/thread/${currentThreadId}/files`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch sandbox files");
-        return res.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        console.log(
-          "[TheaterPanel] Received sandbox files:",
-          data.files?.length || 0,
-          data.files,
-        );
-        setSandboxFiles(data.files || []);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error("Failed to load sandbox files:", err);
-        setSandboxFiles([]);
-      })
-      .finally(() => {
-        if (!cancelled) setSandboxFilesLoading(false);
-      });
+    // Use Electron IPC if available - this is an Electron desktop app
+    const api =
+      typeof window !== "undefined" ? (window as any).electronAPI : null;
+
+    if (api?.files?.listFiles) {
+      // Use IPC to list workspace files
+      api.files
+        .listFiles("workspace")
+        .then((files: any[]) => {
+          if (cancelled) return;
+          // Filter files for this thread (if they have thread metadata)
+          const threadFiles = files.filter(
+            (f: any) => !f.threadId || f.threadId === currentThreadId,
+          );
+          console.log(
+            "[TheaterPanel] Received workspace files via IPC:",
+            threadFiles.length,
+          );
+          setWorkspaceFiles(threadFiles);
+        })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          console.error("Failed to load workspace files via IPC:", err);
+          setWorkspaceFiles([]);
+        })
+        .finally(() => {
+          if (!cancelled) setWorkspaceFilesLoading(false);
+        });
+    } else {
+      // No Electron API available - just return empty array
+      // In Electron desktop app, HTTP endpoints require auth that's handled via IPC
+      console.log(
+        "[TheaterPanel] Electron API not available, skipping workspace files fetch",
+      );
+      setWorkspaceFiles([]);
+      setWorkspaceFilesLoading(false);
+    }
 
     return () => {
       cancelled = true;
@@ -241,12 +253,12 @@ export function TheaterPanel() {
       createdAt: new Date().toISOString(),
     }));
 
-    const sandboxFileItems = sandboxFiles.map((f) => {
+    const workspaceFileItems = workspaceFiles.map((f) => {
       const storageKey = f.url ? extractStorageKeyFromUrl(f.url) : undefined;
 
       return {
-        _source: "sandbox" as const,
-        id: `sandbox-${f.name}-${f.uploadedAt}`,
+        _source: "workspace" as const,
+        id: `workspace-${f.name}-${f.uploadedAt}`,
         title: f.name,
         name: f.name,
         filename: f.name,
@@ -257,12 +269,12 @@ export function TheaterPanel() {
         size: f.size,
         mimeType: f.type, // Include mimeType for Collabora support
         createdAt: f.uploadedAt,
-        sandboxSource: f.source, // 'user' or 'generated'
+        workspaceSource: f.source, // 'user' or 'generated'
       };
     });
 
-    // Deduplicate: sandbox files may overlap with uploads or artifacts
-    const allCombined = [...artifacts, ...uploads, ...sandboxFileItems];
+    // Deduplicate: workspace files may overlap with uploads or artifacts
+    const allCombined = [...artifacts, ...uploads, ...workspaceFileItems];
     const seenNames = new Set<string>();
     const deduplicated = allCombined.filter((item) => {
       const name = item.filename || item.name || item.title;
@@ -277,7 +289,7 @@ export function TheaterPanel() {
     theaterMode.executionArtifacts,
     threadFiles,
     currentThreadId,
-    sandboxFiles,
+    workspaceFiles,
   ]);
 
   // Auto-switch logic - respect defaultTab when theater opens
@@ -646,7 +658,7 @@ export function TheaterPanel() {
                   )}
                 >
                   {(() => {
-                    if (sandboxFilesLoading) {
+                    if (workspaceFilesLoading) {
                       return (
                         <div className="h-full flex flex-col items-center justify-center text-white/30 gap-4">
                           <Loader2 className="w-8 h-8 animate-spin" />
@@ -668,7 +680,7 @@ export function TheaterPanel() {
                     }
                     return null;
                   })()}
-                  {!sandboxFilesLoading && allItems.length > 0 && (
+                  {!workspaceFilesLoading && allItems.length > 0 && (
                     <FileExplorer
                       items={allItems}
                       onSelect={(item) => {
@@ -754,7 +766,7 @@ function PreviewContent({
     browserSession,
     desktopSession,
     researchTask,
-    fileMetadata,
+    fileMetadata: _fileMetadata,
   } = theaterMode;
   const [officeHtml, setOfficeHtml] = useState<string | null>(null);
   const [officeLoading, setOfficeLoading] = useState(false);
@@ -767,85 +779,6 @@ function PreviewContent({
   const [pdfError, setPdfError] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
-
-  // Collabora editing/preview state
-  const [editorUrl, setEditorUrl] = useState<string | null>(null);
-  const [collaboraFailed, setCollaboraFailed] = useState(false);
-  const { getEditorUrl, isLoading: isEditorLoading } = useCollaboraEditor();
-
-  // Check if this file can be edited with Collabora
-  // Note: Collabora requires the WOPI endpoints to be reachable from the Collabora server
-  // In local dev (localhost), the remote Collabora server can't reach our WOPI endpoints
-  const canEditWithCollabora = useMemo(() => {
-    if (!fileMetadata?.storageKey || !threadId) return false;
-    // Skip Collabora in local development - the remote server can't reach localhost WOPI
-    if (
-      typeof window !== "undefined" &&
-      window.location.hostname === "localhost"
-    ) {
-      return false;
-    }
-    const mimeType = fileMetadata.mimeType || "";
-    const fileName = fileMetadata.name || title || "";
-    return isCollaboraSupported(mimeType, fileName);
-  }, [fileMetadata, threadId, title]);
-
-  // Handler to open Collabora editor
-  const handleOpenEditor = useCallback(async () => {
-    if (!fileMetadata?.storageKey || !threadId) return;
-
-    const fileName = fileMetadata.name || title || "document";
-    const mimeType = fileMetadata.mimeType || "";
-
-    const url = await getEditorUrl(
-      fileMetadata.storageKey,
-      fileName,
-      mimeType,
-      threadId,
-    );
-
-    if (url) {
-      setEditorUrl(url);
-      setCollaboraFailed(false);
-    } else {
-      setCollaboraFailed(true);
-      // Don't show toast for auto-load failures, only manual edit clicks
-    }
-  }, [fileMetadata, threadId, title, getEditorUrl]);
-
-  // Handler to close Collabora editor
-  const handleCloseEditor = useCallback(() => {
-    setEditorUrl(null);
-  }, []);
-
-  // Auto-load Collabora for Office file preview
-  // This provides a much better preview experience than client-side HTML conversion
-  useEffect(() => {
-    if (
-      type === "office" &&
-      canEditWithCollabora &&
-      !editorUrl &&
-      !isEditorLoading &&
-      !collaboraFailed && // Don't retry if already failed
-      fileMetadata?.storageKey
-    ) {
-      handleOpenEditor();
-    }
-  }, [
-    type,
-    canEditWithCollabora,
-    editorUrl,
-    isEditorLoading,
-    collaboraFailed,
-    fileMetadata?.storageKey,
-    handleOpenEditor,
-  ]);
-
-  // Reset collaboraFailed when file changes
-  useEffect(() => {
-    setCollaboraFailed(false);
-    setEditorUrl(null);
-  }, [fileMetadata?.storageKey]);
 
   // Robustly extract content string for code/text views
   const textContent = useMemo(() => {
@@ -970,11 +903,8 @@ function PreviewContent({
       setHtmlLoading(true);
       setHtmlContent(null);
 
-      // Use proxy endpoint to bypass CORS restrictions from Vercel Blob Storage
-      const isVercelBlob = urlContent.includes("blob.vercel-storage.com");
-      const fetchUrl = isVercelBlob
-        ? `/api/proxy/content?url=${encodeURIComponent(urlContent)}`
-        : urlContent;
+      // In desktop mode, we fetch directly - CORS is not an issue
+      const fetchUrl = urlContent;
 
       fetch(fetchUrl)
         .then((res) => {
@@ -1044,14 +974,9 @@ function PreviewContent({
       setTextFileLoading(true);
       setTextFileContent(null);
 
-      // Use proxy for Vercel Blob storage
-      const isVercelBlob = urlContent.includes("blob.vercel-storage.com");
-      const fetchUrl = isVercelBlob
-        ? `/api/proxy/content?url=${encodeURIComponent(urlContent)}`
-        : urlContent;
-
+      // In desktop mode, we fetch directly - CORS is not an issue
       // Fetch the text content
-      fetch(fetchUrl)
+      fetch(urlContent)
         .then((res) => {
           if (cancelled) return;
           if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
@@ -1093,11 +1018,8 @@ function PreviewContent({
       setPdfBlobUrl(null);
       setPdfError(false);
 
-      // Use proxy endpoint to bypass CORS restrictions from Vercel Blob Storage
-      const isVercelBlob = urlContent.includes("blob.vercel-storage.com");
-      const fetchUrl = isVercelBlob
-        ? `/api/proxy/content?url=${encodeURIComponent(urlContent)}`
-        : urlContent;
+      // In desktop mode, we fetch directly - CORS is not an issue
+      const fetchUrl = urlContent;
 
       fetch(fetchUrl)
         .then((res) => {
@@ -1271,34 +1193,6 @@ function PreviewContent({
   }
 
   if (type === "office" && urlContent) {
-    // Use Collabora for preview (it's the best quality viewer)
-    if (editorUrl) {
-      return (
-        <CollaboraEditor
-          editorUrl={editorUrl}
-          fileName={fileMetadata?.name || title || "document"}
-          onClose={handleCloseEditor}
-          onSave={() => {
-            toast.success("Document saved");
-          }}
-          className="h-full w-full"
-        />
-      );
-    }
-
-    // Show loading while Collabora URL is being fetched (but not if it failed)
-    // Don't show Collabora-specific message - just show generic loading
-    if (
-      isEditorLoading ||
-      (canEditWithCollabora && !editorUrl && !collaboraFailed)
-    ) {
-      return (
-        <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-          <Loader2 className="w-12 h-12 animate-spin opacity-50" />
-        </div>
-      );
-    }
-
     const isRemote =
       urlContent.startsWith("http") &&
       !urlContent.startsWith("http://localhost");
@@ -1328,11 +1222,13 @@ function PreviewContent({
             </div>
           </div>
           <div className="flex-1 w-full bg-white relative">
+{/* SECURITY: Using allow-same-origin is required for Google Docs viewer to work */}
             <iframe
               src={`https://docs.google.com/gview?url=${encodeURIComponent(urlContent)}&embedded=true`}
               className="w-full h-full border-none"
               title="Office Preview"
-              sandbox="allow-same-origin allow-scripts"
+              sandbox="allow-scripts allow-forms"
+              referrerPolicy="no-referrer"
               onError={(e) => {
                 console.error("Office preview load error:", e);
               }}
@@ -1397,23 +1293,6 @@ function PreviewContent({
               {officeFileType === "pptx" && "Presentation Preview"}
             </span>
             <div className="flex items-center gap-2">
-              {canEditWithCollabora && (
-                <button
-                  onClick={handleOpenEditor}
-                  disabled={isEditorLoading}
-                  className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 disabled:opacity-50"
-                  title="Edit in browser with Collabora"
-                >
-                  {isEditorLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Edit3 className="w-3.5 h-3.5" />
-                  )}
-                  <span className="text-[10px] font-medium">
-                    {isEditorLoading ? "Loading..." : "Edit"}
-                  </span>
-                </button>
-              )}
               <a
                 href={urlContent}
                 download={title || "file"}
@@ -1805,11 +1684,13 @@ function PreviewContent({
           </a>
         </div>
         <div className="flex-1 w-full bg-white relative">
+          {/* SECURITY: Removed allow-same-origin when allow-scripts is present */}
           <iframe
             src={urlContent}
             className="w-full h-full border-none bg-white"
             title="File Preview"
-            sandbox="allow-same-origin allow-scripts"
+            sandbox="allow-scripts allow-forms allow-popups"
+            referrerPolicy="no-referrer"
             onError={(e) => {
               console.error("File preview load error:", e);
             }}
@@ -2059,10 +1940,10 @@ function FileExplorer({
   // Group files by source for quick access
   const groupedBySource = useMemo(() => {
     const generated = items.filter(
-      (i) => i.sandboxSource === "generated" || i._source === "artifact",
+      (i) => i.workspaceSource === "generated" || i._source === "artifact",
     );
     const uploaded = items.filter(
-      (i) => i.sandboxSource === "user" || i._source === "upload",
+      (i) => i.workspaceSource === "user" || i._source === "upload",
     );
     return { generated, uploaded };
   }, [items]);

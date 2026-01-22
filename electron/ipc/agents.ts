@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { getDatabase, schema } from "../services/database";
-import { eq, desc, ne, or, and, sql } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 export function registerAgentHandlers() {
   const db = getDatabase();
@@ -21,59 +21,17 @@ export function registerAgentHandlers() {
     }
   });
 
-  // Select agents with filters (mine, shared, bookmarked, all) - matches selectAgents from repository
+  // Select agents with filters - single-user mode: only return user's own agents
   ipcMain.handle(
     "db:agents:selectAgents",
     async (
       _event,
       currentUserId: string,
-      filters: string[] = ["all"],
+      _filters: string[] = ["all"],
       limit: number = 50,
     ) => {
       try {
-        let orConditions: any[] = [];
-
-        for (const filter of filters) {
-          if (filter === "mine") {
-            orConditions.push(eq(schema.AgentTable.userId, currentUserId));
-          } else if (filter === "shared") {
-            orConditions.push(
-              and(
-                ne(schema.AgentTable.userId, currentUserId),
-                or(
-                  eq(schema.AgentTable.visibility, "public"),
-                  eq(schema.AgentTable.visibility, "readonly"),
-                ),
-              ),
-            );
-          } else if (filter === "bookmarked") {
-            orConditions.push(
-              and(
-                ne(schema.AgentTable.userId, currentUserId),
-                or(
-                  eq(schema.AgentTable.visibility, "public"),
-                  eq(schema.AgentTable.visibility, "readonly"),
-                ),
-                sql`${schema.BookmarkTable.id} IS NOT NULL`,
-              ),
-            );
-          } else if (filter === "all") {
-            orConditions = [
-              or(
-                eq(schema.AgentTable.userId, currentUserId),
-                and(
-                  ne(schema.AgentTable.userId, currentUserId),
-                  or(
-                    eq(schema.AgentTable.visibility, "public"),
-                    eq(schema.AgentTable.visibility, "readonly"),
-                  ),
-                ),
-              ),
-            ];
-            break;
-          }
-        }
-
+        // Single-user mode: always return only user's own agents
         const results = await db
           .select({
             id: schema.AgentTable.id,
@@ -81,41 +39,18 @@ export function registerAgentHandlers() {
             description: schema.AgentTable.description,
             icon: schema.AgentTable.icon,
             userId: schema.AgentTable.userId,
-            visibility: schema.AgentTable.visibility,
             createdAt: schema.AgentTable.createdAt,
             updatedAt: schema.AgentTable.updatedAt,
-            userName: schema.UserTable.name,
-            userAvatar: schema.UserTable.image,
-            isBookmarked: sql<boolean>`CASE WHEN ${schema.BookmarkTable.id} IS NOT NULL THEN 1 ELSE 0 END`,
           })
           .from(schema.AgentTable)
-          .innerJoin(
-            schema.UserTable,
-            eq(schema.AgentTable.userId, schema.UserTable.id),
-          )
-          .leftJoin(
-            schema.BookmarkTable,
-            and(
-              eq(schema.BookmarkTable.itemId, schema.AgentTable.id),
-              eq(schema.BookmarkTable.itemType, "agent"),
-              eq(schema.BookmarkTable.userId, currentUserId),
-            ),
-          )
-          .where(
-            orConditions.length > 1 ? or(...orConditions) : orConditions[0],
-          )
-          .orderBy(
-            sql`CASE WHEN ${schema.AgentTable.userId} = ${currentUserId} THEN 0 ELSE 1 END`,
-            desc(schema.AgentTable.createdAt),
-          )
+          .where(eq(schema.AgentTable.userId, currentUserId))
+          .orderBy(desc(schema.AgentTable.createdAt))
           .limit(limit);
 
         return results.map((result) => ({
           ...result,
           description: result.description ?? undefined,
           icon: result.icon ?? undefined,
-          userName: result.userName ?? undefined,
-          userAvatar: result.userAvatar ?? undefined,
           createdAt: result.createdAt ?? new Date(),
           updatedAt: result.updatedAt ?? new Date(),
         }));
@@ -129,7 +64,6 @@ export function registerAgentHandlers() {
   // Get agent by ID
   ipcMain.handle("db:agents:getById", async (_event, id: string) => {
     try {
-      // Use select query instead of db.query which may not be available
       const [agent] = await db
         .select()
         .from(schema.AgentTable)
@@ -154,7 +88,6 @@ export function registerAgentHandlers() {
           icon: data.icon,
           userId: data.userId,
           instructions: data.instructions,
-          visibility: data.visibility || "private",
         } as typeof schema.AgentTable.$inferInsert)
         .returning();
 
@@ -175,7 +108,6 @@ export function registerAgentHandlers() {
           description: data.description,
           icon: data.icon,
           instructions: data.instructions,
-          visibility: data.visibility,
           updatedAt: new Date(),
         } as Partial<typeof schema.AgentTable.$inferInsert>)
         .where(eq(schema.AgentTable.id, id))

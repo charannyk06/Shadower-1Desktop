@@ -27,7 +27,7 @@ import { arrangeNodes } from "lib/ai/workflow/arrange-nodes";
 import { allNodeValidate } from "lib/ai/workflow/node-validate";
 import { workflowApi } from "lib/electron/workflow-api";
 import { generateUUID } from "lib/utils";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { mutate } from "swr";
 import { safe } from "ts-safe";
@@ -292,8 +292,8 @@ export const WorkflowPanel = memo(
     const [showExecutePanel, setShowExecutePanel] = useState(false);
     const [showBuilderChat, setShowBuilderChat] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
-    const t = useTranslations();
+    const [isSaving, _setIsSaving] = useState(false);
+    const { t } = useTranslation();
 
     const handleArrangeNodes = useCallback(() => {
       const nodes = getNodes() as UINode[];
@@ -304,21 +304,6 @@ export const WorkflowPanel = memo(
       setNodes(arrangedNodes);
       toast.success(t("Workflow.nodesArranged"));
     }, [getNodes, getEdges, setNodes, t]);
-
-    const updateVisibility = useCallback(
-      (visibility: DBWorkflow["visibility"]) => {
-        setIsSaving(true);
-        const close = addProcess();
-        safe(() => workflowApi.update(workflow.id, { visibility }))
-          .ifOk(() => mutate(`/api/workflow/${workflow.id}`))
-          .ifFail((e) => handleErrorWithToast(e))
-          .watch(() => {
-            setIsSaving(false);
-            close();
-          });
-      },
-      [workflow, addProcess],
-    );
 
     const updatePublished = useCallback(
       (isPublished: boolean) => {
@@ -639,10 +624,8 @@ export const WorkflowPanel = memo(
           </Tooltip>
           <ShareableActions
             type="workflow"
-            visibility={workflow.visibility}
-            isOwner={hasEditAccess || false}
-            onVisibilityChange={hasEditAccess ? updateVisibility : undefined}
-            isVisibilityChangeLoading={isSaving}
+            isOwner={true}
+            disabled={isSaving}
           />
         </div>
         <div className="flex gap-2">

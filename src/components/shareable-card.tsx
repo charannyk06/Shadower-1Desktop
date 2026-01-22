@@ -6,8 +6,8 @@ import { MCPServerInfo } from "app-types/mcp";
 import { WorkflowSummary } from "app-types/workflow";
 import { format } from "date-fns";
 import { cn } from "lib/utils";
-import { useTranslations } from "next-intl";
-import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import {
@@ -19,7 +19,7 @@ import {
   CardTitle,
 } from "ui/card";
 import { MCPIcon } from "ui/mcp-icon";
-import { ShareableActions, type Visibility } from "./shareable-actions";
+import { ShareableActions } from "./shareable-actions";
 
 export interface ShareableIcon {
   value?: string;
@@ -32,11 +32,7 @@ interface ShareableCardProps {
   item: AgentSummary | WorkflowSummary | MCPServerInfo;
   isOwner?: boolean;
   href: string;
-  onBookmarkToggle?: (itemId: string, isBookmarked: boolean) => void;
-  onVisibilityChange?: (itemId: string, visibility: Visibility) => void;
   onDelete?: (itemId: string) => void;
-  isVisibilityChangeLoading?: boolean;
-  isBookmarkToggleLoading?: boolean;
   isDeleteLoading?: boolean;
   actionsDisabled?: boolean;
   hideActions?: boolean;
@@ -47,19 +43,13 @@ export function ShareableCard({
   item,
   isOwner = true,
   href,
-  onBookmarkToggle,
-  onVisibilityChange,
   onDelete,
-  isBookmarkToggleLoading,
-  isVisibilityChangeLoading,
   isDeleteLoading,
   actionsDisabled,
   hideActions = false,
 }: ShareableCardProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const isPublished = (item as WorkflowSummary).isPublished;
-  const isBookmarked =
-    type === "mcp" ? undefined : (item as AgentSummary).isBookmarked;
 
   // Get effective icon - use custom icon for system agents if available
   const effectiveIcon = useMemo(() => {
@@ -77,7 +67,7 @@ export function ShareableCard({
   }, [type, item.id, item.icon]);
 
   return (
-    <Link href={href} title={item.name}>
+    <Link to={href} title={item.name}>
       <Card
         className={cn(
           "w-full min-h-[196px] @container transition-colors group flex flex-col gap-3 cursor-pointer hover:bg-input",
@@ -135,50 +125,12 @@ export function ShareableCard({
               <div onClick={(e) => e.stopPropagation()}>
                 <ShareableActions
                   type={type}
-                  visibility={item.visibility}
                   isOwner={isOwner}
-                  isBookmarked={isBookmarked}
                   editHref={href}
-                  onVisibilityChange={
-                    onVisibilityChange
-                      ? (visibility) => onVisibilityChange(item.id, visibility)
-                      : undefined
-                  }
-                  onBookmarkToggle={
-                    onBookmarkToggle
-                      ? (isBookmarked) =>
-                          onBookmarkToggle(item.id, isBookmarked)
-                      : undefined
-                  }
                   onDelete={onDelete ? () => onDelete(item.id) : undefined}
-                  isBookmarkToggleLoading={isBookmarkToggleLoading}
-                  isVisibilityChangeLoading={isVisibilityChangeLoading}
                   isDeleteLoading={isDeleteLoading}
                   disabled={actionsDisabled}
                 />
-              </div>
-            )}
-
-            {!isOwner && item.userName && (
-              <div className="flex items-center gap-1.5 min-w-0">
-                {item.userName === "Shadower" ? (
-                  <img
-                    src="/shadower-logo-final.png"
-                    alt="Shadower"
-                    className="size-4 shrink-0 rounded"
-                    style={{ filter: "var(--logo-filter)" }}
-                  />
-                ) : (
-                  <Avatar className="size-4 ring shrink-0 rounded-full">
-                    <AvatarImage src={item.userAvatar || undefined} />
-                    <AvatarFallback>
-                      {item.userName[0]?.toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                )}
-                <span className="text-xs text-muted-foreground font-medium truncate min-w-0">
-                  {item.userName}
-                </span>
               </div>
             )}
           </div>

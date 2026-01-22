@@ -30,7 +30,7 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
     loading: true,
   });
   const containerRef = useRef<HTMLDivElement>(null);
-  const previousChartRef = useRef<string>(chart);
+  const previousChartRef = useRef<string | undefined>(chart);
   const debounce = useMemo(() => createDebounce(), []);
 
   useEffect(() => {
@@ -51,10 +51,11 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
         const mermaid = await loadMermaid();
 
         // Initialize mermaid with theme
+        // SECURITY: Use "strict" security level to prevent XSS attacks
         mermaid.initialize({
           startOnLoad: false,
           theme: theme == "dark" ? "dark" : "default",
-          securityLevel: "loose",
+          securityLevel: "strict",
         });
 
         // // First try to parse to catch syntax errors early

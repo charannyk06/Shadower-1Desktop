@@ -9,7 +9,7 @@ import {
   ShieldAlertIcon,
   Wrench,
 } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import { memo, useCallback, useMemo, useState } from "react";
 import { useSWRConfig } from "swr";
 import { safe } from "ts-safe";
@@ -19,13 +19,9 @@ import { Card, CardContent, CardHeader } from "ui/card";
 import JsonView from "ui/json-view";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
-import {
-  refreshMcpClientAction,
-  removeMcpClientAction,
-  shareMcpServerAction,
-} from "@/app/api/mcp/actions";
+import { mcpApi } from "@/lib/electron/mcp-api";
 import { handleErrorWithToast } from "ui/shared-toast";
-import { ShareableActions, type Visibility } from "./shareable-actions";
+import { ShareableActions } from "./shareable-actions";
 
 import type { MCPServerInfo, MCPToolInfo } from "app-types/mcp";
 
@@ -33,8 +29,7 @@ import { appStore } from "@/app/store";
 import { BasicUser } from "app-types/user";
 import { redriectMcpOauth } from "lib/ai/mcp/oauth-redirect";
 import { isString } from "lib/utils";
-import { useTranslations } from "next-intl";
-import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
+import { useTranslation } from "react-i18next";
 import { Separator } from "ui/separator";
 import { ToolDetailPopup } from "./tool-detail-popup";
 
@@ -46,21 +41,14 @@ export const MCPCard = memo(function MCPCard({
   status,
   name,
   toolInfo,
-  visibility,
   enabled,
   userId,
   user,
-  userName,
-  userAvatar,
 }: MCPServerInfo & { user: BasicUser }) {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [visibilityChangeLoading, setVisibilityChangeLoading] = useState(false);
-  const t = useTranslations("MCP");
+  const { t } = useTranslation();
   const appStoreMutate = appStore((state) => state.mutate);
   const { mutate } = useSWRConfig();
-  const isOwner = userId === user?.id;
-  // All authenticated users can change visibility (roles/permissions removed)
-  const canChangeVisibility = true;
 
   const isLoading = useMemo(() => {
     return isProcessing || status === "loading";
@@ -87,33 +75,16 @@ export const MCPCard = memo(function MCPCard({
   );
 
   const handleRefresh = useCallback(
-    () => pipeProcessing(() => refreshMcpClientAction(id)),
+    () => pipeProcessing(() => mcpApi.refreshClient(id)),
     [id],
   );
 
   const handleDelete = useCallback(async () => {
-    await pipeProcessing(() => removeMcpClientAction(id));
+    await pipeProcessing(() => mcpApi.delete(id));
   }, [id]);
 
   const handleAuthorize = useCallback(
     () => pipeProcessing(() => redriectMcpOauth(id)),
-    [id],
-  );
-
-  const handleVisibilityChange = useCallback(
-    async (newVisibility: Visibility) => {
-      // Map visibility for MCP (public becomes featured)
-      const mcpVisibility = newVisibility === "public" ? "public" : "private";
-      safe(() => setVisibilityChangeLoading(true))
-        .map(async () => shareMcpServerAction(id, mcpVisibility))
-        .ifOk(() => {
-          mutate("/api/mcp/list");
-        })
-        .ifFail((e) => {
-          handleErrorWithToast(e);
-        })
-        .watch(() => setVisibilityChangeLoading(false));
-    },
     [id],
   );
 
@@ -122,7 +93,6 @@ export const MCPCard = memo(function MCPCard({
       key={`mcp-card-${id}-${status}`}
       className="relative hover:border-foreground/20 transition-colors bg-secondary/40"
       data-testid="mcp-server-card"
-      data-featured={visibility === "public"}
     >
       {isLoading && (
         <div className="animate-pulse z-10 absolute inset-0 bg-background/50 flex items-center justify-center w-full h-full" />
@@ -176,7 +146,6 @@ export const MCPCard = memo(function MCPCard({
                     status,
                     toolInfo,
                     error,
-                    visibility,
                     enabled,
                     userId,
                   },
@@ -187,7 +156,7 @@ export const MCPCard = memo(function MCPCard({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{t("mcpServerCustomization")}</p>
+            <p>{t("MCP.mcpServerCustomization")}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -201,7 +170,8 @@ export const MCPCard = memo(function MCPCard({
               </div>
             ) : (
               <Link
-                href={`/mcp/test/${encodeURIComponent(id)}`}
+                to="/mcp/$serverId/test"
+                params={{ serverId: id }}
                 className="cursor-pointer hidden sm:block"
               >
                 <Button variant="ghost" size="icon">
@@ -211,7 +181,7 @@ export const MCPCard = memo(function MCPCard({
             )}
           </TooltipTrigger>
           <TooltipContent>
-            <p>{t("toolsTest")}</p>
+            <p>{t("MCP.toolsTest")}</p>
           </TooltipContent>
         </Tooltip>
         <div className="h-4">
@@ -229,55 +199,18 @@ export const MCPCard = memo(function MCPCard({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{t("refresh")}</p>
+            <p>{t("MCP.refresh")}</p>
           </TooltipContent>
         </Tooltip>
-        {/* Add sharing actions for owners or visibility indicator for featured servers */}
+        {/* Actions for single-user mode */}
         <ShareableActions
           type="mcp"
-          visibility={visibility === "public" ? "public" : "private"}
-          isOwner={isOwner}
-          canChangeVisibility={canChangeVisibility}
-          editHref={
-            isOwner ? `/mcp/modify/${encodeURIComponent(id)}` : undefined
-          }
-          onVisibilityChange={
-            canChangeVisibility ? handleVisibilityChange : undefined
-          }
-          onDelete={isOwner ? handleDelete : undefined}
-          isVisibilityChangeLoading={visibilityChangeLoading}
+          isOwner={true}
+          editHref={`/mcp/modify/${encodeURIComponent(id)}`}
+          onDelete={handleDelete}
           isDeleteLoading={isProcessing}
           disabled={isLoading}
-          renderActions={() => null}
         />
-        {/* Show user info for featured servers */}
-        {!isOwner && userName && (
-          <>
-            <div className="h-4">
-              <Separator orientation="vertical" />
-            </div>
-            <div className="flex items-center gap-1.5 ml-2">
-              {userName === "Shadower" ? (
-                <img
-                  src="/shadower-logo-final.png"
-                  alt="Shadower"
-                  className="size-4 shrink-0 rounded"
-                  style={{ filter: "var(--logo-filter)" }}
-                />
-              ) : (
-                <Avatar className="size-4 ring shrink-0 rounded-full">
-                  <AvatarImage src={userAvatar || undefined} />
-                  <AvatarFallback className="text-xs">
-                    {userName[0]?.toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-              )}
-              <span className="text-xs text-muted-foreground font-medium">
-                {userName}
-              </span>
-            </div>
-          </>
-        )}
       </CardHeader>
 
       {errorMessage && <ErrorAlert error={errorMessage} />}
@@ -307,13 +240,13 @@ export const MCPCard = memo(function MCPCard({
 
       <div className="relative hidden sm:flex w-full">
         <CardContent className="flex min-w-0 w-full flex-row text-sm max-h-[320px] overflow-hidden border-r-0">
-          {/* Only show config to owners to prevent credential exposure */}
-          {isOwner && config && (
+          {/* Show config in single-user mode */}
+          {config && (
             <div className="w-1/2 min-w-0 flex flex-col pr-2 border-r border-border">
               <div className="flex items-center gap-2 mb-2 pt-2 pb-1 z-10">
                 <Settings size={14} className="text-muted-foreground" />
                 <h5 className="text-muted-foreground text-sm font-medium">
-                  {t("configuration")}
+                  {t("MCP.configuration")}
                 </h5>
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -323,12 +256,12 @@ export const MCPCard = memo(function MCPCard({
           )}
 
           <div
-            className={`${isOwner && config ? "w-1/2" : "w-full"} min-w-0 flex flex-col ${isOwner && config ? "pl-4" : ""}`}
+            className={`${config ? "w-1/2" : "w-full"} min-w-0 flex flex-col ${config ? "pl-4" : ""}`}
           >
             <div className="flex items-center gap-2 mb-4 pt-2 pb-1 z-10">
               <Wrench size={14} className="text-muted-foreground" />
               <h5 className="text-muted-foreground text-sm font-medium">
-                {t("availableTools")}
+                {t("MCP.availableTools")}
               </h5>
             </div>
 
@@ -338,7 +271,7 @@ export const MCPCard = memo(function MCPCard({
               ) : (
                 <div className="bg-secondary/30 rounded-md p-3 text-center">
                   <p className="text-sm text-muted-foreground">
-                    {t("noToolsAvailable")}
+                    {t("MCP.noToolsAvailable")}
                   </p>
                 </div>
               )}

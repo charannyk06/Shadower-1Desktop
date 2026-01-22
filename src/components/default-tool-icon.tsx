@@ -5,6 +5,7 @@ import {
   BookOpenIcon,
   ChartColumnIcon,
   ChartPieIcon,
+  CodeIcon,
   ComputerIcon,
   FileSpreadsheetIcon,
   FileTextIcon,
@@ -20,7 +21,6 @@ import {
   PresentationIcon,
   ScrollIcon,
   SearchIcon,
-  ShieldIcon,
   TableOfContents,
   TimerIcon,
   TrendingUpIcon,
@@ -75,20 +75,40 @@ export function DefaultToolIcon({
     }
 
     // Browser automation tools (Local Chrome DevTools Protocol)
+    if (name === DefaultToolName.BrowserCreateSession) {
+      return <PlayIcon className={cn("size-3.5 text-orange-500", className)} />;
+    }
+    if (name === DefaultToolName.BrowserCloseSession) {
+      return <XIcon className={cn("size-3.5 text-orange-500", className)} />;
+    }
     if (name === DefaultToolName.BrowserNavigate) {
       return (
         <NavigationIcon className={cn("size-3.5 text-orange-500", className)} />
       );
     }
-    if (name === DefaultToolName.BrowserAct) {
-      return <PlayIcon className={cn("size-3.5 text-orange-500", className)} />;
+    if (name === DefaultToolName.BrowserClick) {
+      return (
+        <MousePointerClickIcon
+          className={cn("size-3.5 text-orange-500", className)}
+        />
+      );
     }
-    if (name === DefaultToolName.BrowserObserve) {
+    if (name === DefaultToolName.BrowserFill) {
+      return (
+        <FileTextIcon className={cn("size-3.5 text-orange-400", className)} />
+      );
+    }
+    if (name === DefaultToolName.BrowserType) {
+      return (
+        <FileTextIcon className={cn("size-3.5 text-orange-400", className)} />
+      );
+    }
+    if (name === DefaultToolName.BrowserGetSnapshot) {
       return (
         <SearchIcon className={cn("size-3.5 text-orange-400", className)} />
       );
     }
-    if (name === DefaultToolName.BrowserExtract) {
+    if (name === DefaultToolName.BrowserGetContent) {
       return (
         <FileTextIcon className={cn("size-3.5 text-orange-400", className)} />
       );
@@ -98,18 +118,13 @@ export function DefaultToolIcon({
         <ImageIcon className={cn("size-3.5 text-orange-500", className)} />
       );
     }
-    if (name === DefaultToolName.BrowserStealth) {
-      return (
-        <ShieldIcon className={cn("size-3.5 text-orange-600", className)} />
-      );
-    }
     if (name === DefaultToolName.BrowserWait) {
       return (
         <TimerIcon className={cn("size-3.5 text-orange-400", className)} />
       );
     }
-    if (name === DefaultToolName.BrowserClose) {
-      return <XIcon className={cn("size-3.5 text-orange-500", className)} />;
+    if (name === DefaultToolName.BrowserEvaluate) {
+      return <CodeIcon className={cn("size-3.5 text-orange-500", className)} />;
     }
 
     // Desktop/Computer Use tools (Local Terminal)

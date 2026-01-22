@@ -1,5 +1,4 @@
-import "server-only";
-import type { Tool } from "ai";
+import type { LanguageModel, Tool } from "ai";
 import type { Agent } from "app-types/agent";
 import type { ChatModel } from "app-types/chat";
 
@@ -31,10 +30,18 @@ export type OrchestratorConfig = {
   /** Thread ID for browser session association (required for sub-agents using browser tools) */
   threadId?: string;
   chatModel?: ChatModel;
+  /**
+   * Pre-configured model instance with API keys.
+   * REQUIRED for sub-agents to work correctly.
+   * Sub-agents will use this model instead of creating their own without API keys.
+   */
+  model?: LanguageModel;
   availableTools: Record<string, Tool>;
   mcpTools: Record<string, Tool>;
   userAgent?: Agent | null;
   maxSteps?: number;
+  /** Continuous mode: don't stop on plan completion, run until maxSteps (for long-running tasks) */
+  continuousMode?: boolean;
 };
 
 /**

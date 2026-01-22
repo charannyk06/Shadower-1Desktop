@@ -1,21 +1,17 @@
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 
 /**
- * Hook for context-aware profile translations
- * Automatically selects appropriate translation namespace based on view context
+ * Hook for profile translations
  *
- * @param view - 'admin' for admin view, 'user' for user view
- * @returns Translation functions for the appropriate context
+ * @returns Translation functions for user profile
  */
-export function useProfileTranslations(view: "admin" | "user" = "user") {
-  // Use the specific namespace based on view
-  const t = useTranslations(`User.Profile.${view}`);
-  const tCommon = useTranslations("User.Profile.common");
+export function useProfileTranslations() {
+  const { t } = useTranslation();
 
   return {
-    /** Context-aware translations (admin vs user) */
+    /** User translations */
     t,
-    /** Common translations that don't change by context */
-    tCommon,
+    /** Common translations */
+    tCommon: t,
   };
 }

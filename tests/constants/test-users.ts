@@ -1,65 +1,45 @@
 /**
- * Shared test user credentials for E2E tests
- * These users are created by the seed script: pnpm test:e2e:seed
- *
- * SECURITY: In CI/CD environments, override these with environment variables:
- * - TEST_ADMIN_PASSWORD
- * - TEST_EDITOR_PASSWORD
- * - TEST_USER_PASSWORD
+ * Test user constants for Playwright E2E tests.
+ * These are used for authentication during testing.
  */
 
-// Get passwords from environment variables (for CI/CD security)
-const getTestPassword = (userType: string, fallback: string): string => {
-  const envKey = `TEST_${userType.toUpperCase()}_PASSWORD`;
-  return process.env[envKey] || fallback;
-};
+interface TestUser {
+  email: string;
+  password: string;
+  authFile: string;
+}
 
-export const TEST_USERS = {
+interface TestUsers {
+  admin: TestUser;
+  editor: TestUser;
+  editor2: TestUser;
+  regular: TestUser;
+}
+
+/**
+ * Test users for E2E testing.
+ * In Electron mode (single-user), these are still used for Playwright test structure
+ * but authentication is simplified.
+ */
+export const TEST_USERS: TestUsers = {
   admin: {
-    email: "admin@test-seed.local",
-    password: getTestPassword("admin", "AdminPassword123!"),
-    name: "Test Admin User",
-    authFile: "tests/.auth/admin.json",
+    email: process.env.TEST_ADMIN_EMAIL || "admin@test.local",
+    password: process.env.TEST_ADMIN_PASSWORD || "testpassword",
+    authFile: ".auth/admin.json",
   },
   editor: {
-    email: "editor@test-seed.local",
-    password: getTestPassword("editor", "EditorPassword123!"),
-    name: "Test Editor User",
-    authFile: "tests/.auth/editor-user.json",
+    email: process.env.TEST_EDITOR_EMAIL || "editor@test.local",
+    password: process.env.TEST_EDITOR_PASSWORD || "testpassword",
+    authFile: ".auth/editor.json",
   },
   editor2: {
-    email: "editor2@test-seed.local",
-    password: getTestPassword("editor2", "Editor2Password123!"),
-    name: "Test Editor User 2",
-    authFile: "tests/.auth/editor-user2.json",
+    email: process.env.TEST_EDITOR2_EMAIL || "editor2@test.local",
+    password: process.env.TEST_EDITOR2_PASSWORD || "testpassword",
+    authFile: ".auth/editor2.json",
   },
   regular: {
-    email: "user@test-seed.local",
-    password: getTestPassword("user", "UserPassword123!"),
-    name: "Test Regular User",
-    authFile: "tests/.auth/regular-user.json",
+    email: process.env.TEST_REGULAR_EMAIL || "user@test.local",
+    password: process.env.TEST_REGULAR_PASSWORD || "testpassword",
+    authFile: ".auth/regular.json",
   },
-  banned: {
-    email: "testuser21@test-seed.local",
-    password: getTestPassword("banned", "TestPass21!"),
-    name: "Test User 21",
-    banReason: "Test ban for E2E testing",
-  },
-  // Additional test users for pagination testing
-  testUsers: Array.from({ length: 18 }, (_, i) => ({
-    email: `testuser${i + 4}@test-seed.local`,
-    password: getTestPassword(`testuser${i + 4}`, `TestPass${i + 4}!`),
-    name: `Test User ${i + 4}`,
-  })),
-} as const;
-
-// Test email domain for easy identification and cleanup
-export const TEST_EMAIL_DOMAIN = "@test-seed.local";
-
-// Patterns for identifying test users to clean up
-export const TEST_EMAIL_PATTERNS = {
-  seeded: "%@test-seed.local%", // Our seeded test users
-  playwright: "%playwright%", // Dynamically created playwright users
-  example: "%@example.com%", // Test signup users
-  tempTest: "%@temp-test.%", // Temporary test users
-} as const;
+};

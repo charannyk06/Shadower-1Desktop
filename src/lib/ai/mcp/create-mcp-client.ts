@@ -23,7 +23,12 @@ import {
 import logger from "logger";
 import { isMaybeRemoteConfig, isMaybeStdioConfig } from "./is-mcp-config";
 
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  UnauthorizedError,
+  discoverAuthorizationServerMetadata,
+  discoverOAuthProtectedResourceMetadata,
+  startAuthorization,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { BASE_URL, IS_MCP_SERVER_REMOTE_ONLY, IS_VERCEL_ENV } from "lib/const";
 import { safe } from "ts-safe";
@@ -55,6 +60,8 @@ export class MCPClient {
   private disconnectDebounce = createDebounce();
   private needOauthProvider = false;
   private inProgressToolCallIds: string[] = [];
+  // Flag to indicate OAuth is required but auth URL not yet available
+  private needsOAuthAuthorization = false;
   constructor(
     private id: string,
     private name: string,
@@ -72,7 +79,8 @@ export class MCPClient {
 
   get status() {
     if (this.locker.isLocked) return "loading";
-    if (this.authorizationUrl) return "authorizing";
+    if (this.authorizationUrl || this.needsOAuthAuthorization)
+      return "authorizing";
     if (this.isConnected) return "connected";
     return "disconnected";
   }
@@ -117,7 +125,6 @@ export class MCPClient {
       status: this.status,
       error: this.error,
       toolInfo: this.toolInfo,
-      visibility: "private" as const,
       enabled: true,
       userId: "", // This will be filled by the manager
     };
@@ -258,6 +265,147 @@ export class MCPClient {
             return this.connect(oauthState); // Recursive call with OAuth
           }
 
+          // Check if this is an auth-related error that requires OAuth
+          const isAuthError =
+            streamableHttpError?.message?.includes(
+              "Incompatible auth server",
+            ) ||
+            streamableHttpError?.message?.includes(
+              "does not support dynamic client registration",
+            );
+
+          if (isAuthError) {
+            // This error indicates OAuth is required but dynamic registration isn't supported
+            // We need to manually trigger the OAuth flow to get the authorization URL
+            this.needOauthProvider = true;
+            this.logger.info(
+              "Auth server doesn't support dynamic registration - manually initiating OAuth",
+            );
+
+            // Create OAuth provider
+            const oauthProvider = this.createOAuthProvider(oauthState);
+            if (oauthProvider && isMaybeRemoteConfig(this.serverConfig)) {
+              try {
+                // Step 1: Get the MCP server URL
+                const serverUrl = new URL(this.serverConfig.url);
+                this.logger.info(
+                  `Discovering OAuth for MCP server: ${serverUrl}`,
+                );
+
+                // Step 2: Try to discover protected resource metadata to find the authorization server
+                let authServerUrl: URL;
+                let resourceMetadata;
+                try {
+                  resourceMetadata =
+                    await discoverOAuthProtectedResourceMetadata(serverUrl);
+                  this.logger.info(
+                    "Protected resource metadata discovered:",
+                    JSON.stringify(resourceMetadata),
+                  );
+
+                  // Get authorization server from resource metadata
+                  if (
+                    resourceMetadata.authorization_servers &&
+                    resourceMetadata.authorization_servers.length > 0
+                  ) {
+                    authServerUrl = new URL(
+                      resourceMetadata.authorization_servers[0],
+                    );
+                    this.logger.info(
+                      `Using authorization server from metadata: ${authServerUrl}`,
+                    );
+                  } else {
+                    // Fallback to server root
+                    authServerUrl = new URL("/", serverUrl);
+                    this.logger.info(
+                      `No authorization_servers in metadata, using server root: ${authServerUrl}`,
+                    );
+                  }
+                } catch (resourceError: any) {
+                  this.logger.warn(
+                    "Could not discover protected resource metadata:",
+                    resourceError?.message,
+                  );
+                  // Fallback to server root as auth server
+                  authServerUrl = new URL("/", serverUrl);
+                }
+
+                // Step 3: Try to discover authorization server metadata
+                let metadata;
+                try {
+                  metadata =
+                    await discoverAuthorizationServerMetadata(authServerUrl);
+                  this.logger.info(
+                    "OAuth authorization server metadata discovered",
+                  );
+                } catch (metadataError: any) {
+                  this.logger.warn(
+                    "Could not discover OAuth metadata, using defaults:",
+                    metadataError?.message,
+                  );
+                  // Continue without metadata - startAuthorization will use defaults
+                }
+
+                // Step 4: Get or create client information
+                const redirectUri = `${BASE_URL}/api/mcp/oauth/callback`;
+                const clientInfo =
+                  (await oauthProvider.clientInformation()) || {
+                    client_id: redirectUri, // Use redirect URI as client ID for public clients
+                  };
+
+                // Save client info if we created it
+                if (!(await oauthProvider.clientInformation())) {
+                  await oauthProvider.saveClientInformation(clientInfo as any);
+                }
+
+                // Step 5: Generate the authorization URL with PKCE
+                const state = oauthProvider.state();
+                const { authorizationUrl, codeVerifier } =
+                  await startAuthorization(authServerUrl, {
+                    metadata,
+                    clientInformation: clientInfo,
+                    redirectUrl: new URL(redirectUri),
+                    scope:
+                      resourceMetadata?.scopes_supported?.join(" ") ||
+                      "mcp:tools",
+                    state,
+                    resource: serverUrl, // Pass the MCP server as the resource
+                  });
+
+                // Save the code verifier for the token exchange later
+                await oauthProvider.saveCodeVerifier(codeVerifier);
+
+                this.logger.info(
+                  `OAuth authorization URL generated: ${authorizationUrl.toString()}`,
+                );
+
+                // Set the authorization URL
+                this.authorizationUrl = authorizationUrl;
+                return undefined; // Status will be "authorizing"
+              } catch (oauthError: any) {
+                // If OAuthAuthorizationRequiredError is thrown, authorizationUrl was set
+                if (oauthError instanceof OAuthAuthorizationRequiredError) {
+                  this.logger.info(
+                    "OAuth authorization URL obtained via callback",
+                  );
+                  return undefined; // Status will be "authorizing"
+                }
+                this.logger.error(
+                  "Failed to generate OAuth authorization URL:",
+                  oauthError,
+                );
+                // Fall through to set needsOAuthAuthorization flag
+              }
+            }
+
+            // If we couldn't generate the URL, mark that OAuth is required
+            this.needsOAuthAuthorization = true;
+            this.logger.info(
+              "OAuth authorization required - status set to authorizing",
+            );
+            return undefined;
+          }
+
           if (!isOAuthAuthorizationRequired(streamableHttpError)) {
             this.logger.warn(
               `Streamable HTTP connection failed, Because ${streamableHttpError.message}, falling back to SSE transport`,
@@ -278,7 +426,7 @@ export class MCPClient {
                 }),
                 CONNET_TIMEOUT,
               );
-            } catch (sseError) {
+            } catch (sseError: any) {
               if (isUnauthorized(sseError) && !this.needOauthProvider) {
                 this.logger.info(
                   "OAuth authentication required for SSE, retrying with OAuth provider",
@@ -287,6 +435,99 @@ export class MCPClient {
                 this.locker.unlock();
                 await this.disconnect();
                 return this.connect(oauthState); // Recursive call with OAuth
+              }
+
+              // Check for auth server incompatibility error in SSE transport too
+              const isSSEAuthError =
+                sseError?.message?.includes("Incompatible auth server") ||
+                sseError?.message?.includes(
+                  "does not support dynamic client registration",
+                );
+
+              if (isSSEAuthError) {
+                this.needOauthProvider = true;
+                this.logger.info(
+                  "OAuth authorization required (SSE - dynamic registration not supported)",
+                );
+
+                // Try to manually generate OAuth authorization URL
+                const oauthProvider = this.createOAuthProvider(oauthState);
+                if (oauthProvider && isMaybeRemoteConfig(this.serverConfig)) {
+                  try {
+                    const serverUrl = new URL(this.serverConfig.url);
+
+                    // Discover protected resource metadata to find auth server
+                    let authServerUrl: URL;
+                    let resourceMetadata;
+                    try {
+                      resourceMetadata =
+                        await discoverOAuthProtectedResourceMetadata(serverUrl);
+                      if (resourceMetadata.authorization_servers?.length > 0) {
+                        authServerUrl = new URL(
+                          resourceMetadata.authorization_servers[0],
+                        );
+                      } else {
+                        authServerUrl = new URL("/", serverUrl);
+                      }
+                    } catch {
+                      authServerUrl = new URL("/", serverUrl);
+                    }
+
+                    let metadata;
+                    try {
+                      metadata =
+                        await discoverAuthorizationServerMetadata(
+                          authServerUrl,
+                        );
+                    } catch {
+                      // Continue without metadata
+                    }
+
+                    const redirectUri = `${BASE_URL}/api/mcp/oauth/callback`;
+                    const clientInfo =
+                      (await oauthProvider.clientInformation()) || {
+                        client_id: redirectUri,
+                      };
+
+                    if (!(await oauthProvider.clientInformation())) {
+                      await oauthProvider.saveClientInformation(
+                        clientInfo as any,
+                      );
+                    }
+
+                    const state = oauthProvider.state();
+                    const { authorizationUrl, codeVerifier } =
+                      await startAuthorization(authServerUrl, {
+                        metadata,
+                        clientInformation: clientInfo,
+                        redirectUrl: new URL(redirectUri),
+                        scope:
+                          resourceMetadata?.scopes_supported?.join(" ") ||
+                          "mcp:tools",
+                        state,
+                        resource: serverUrl,
+                      });
+
+                    await oauthProvider.saveCodeVerifier(codeVerifier);
+                    this.authorizationUrl = authorizationUrl;
+                    this.logger.info(
+                      "OAuth authorization URL generated (SSE fallback)",
+                    );
+                    return undefined;
+                  } catch (oauthError: any) {
+                    if (oauthError instanceof OAuthAuthorizationRequiredError) {
+                      return undefined;
+                    }
+                    this.logger.error(
+                      "Failed to generate OAuth URL (SSE):",
+                      oauthError,
+                    );
+                  }
+                }
+
+                // Fallback: mark OAuth required without URL
+                this.needsOAuthAuthorization = true;
+                return undefined;
               }
 
               if (!isOAuthAuthorizationRequired(sseError)) throw sseError;
@@ -442,5 +683,9 @@ function isUnauthorized(error: any): boolean {
 }
 
 function isOAuthAuthorizationRequired(error: any): boolean {
-  return error instanceof OAuthAuthorizationRequiredError;
+  return (
+    error instanceof OAuthAuthorizationRequiredError ||
+    error?.message?.includes("Incompatible auth server") ||
+    error?.message?.includes("does not support dynamic client registration")
+  );
 }

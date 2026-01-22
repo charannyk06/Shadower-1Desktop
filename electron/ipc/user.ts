@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { getDatabase, schema } from "../services/database";
-import { eq, sql, count, and, gte } from "drizzle-orm";
+import { eq, count } from "drizzle-orm";
 
 export function registerUserHandlers() {
   const db = getDatabase();
@@ -160,6 +160,69 @@ export function registerUserHandlers() {
       };
     }
   });
+
+  // Update user image/avatar
+  ipcMain.handle("db:user:updateImage", async (_event, imageUrl: string) => {
+    try {
+      const [user] = await db
+        .select()
+        .from(schema.UserTable)
+        .where(eq(schema.UserTable.email, "local@shadower.app"))
+        .limit(1);
+
+      if (!user) {
+        throw new Error("Default user not found");
+      }
+
+      const [updatedUser] = await db
+        .update(schema.UserTable)
+        .set({
+          image: imageUrl,
+          updatedAt: new Date(),
+        } as Partial<typeof schema.UserTable.$inferInsert>)
+        .where(eq(schema.UserTable.id, user.id))
+        .returning();
+
+      return updatedUser;
+    } catch (error) {
+      console.error("[IPC] Error updating user image:", error);
+      throw error;
+    }
+  });
+
+  // Update user details (name, etc.)
+  ipcMain.handle(
+    "db:user:updateDetails",
+    async (_event, data: { name?: string }) => {
+      try {
+        const [user] = await db
+          .select()
+          .from(schema.UserTable)
+          .where(eq(schema.UserTable.email, "local@shadower.app"))
+          .limit(1);
+
+        if (!user) {
+          throw new Error("Default user not found");
+        }
+
+        const updateData: any = { updatedAt: new Date() };
+        if (data.name !== undefined) {
+          updateData.name = data.name;
+        }
+
+        const [updatedUser] = await db
+          .update(schema.UserTable)
+          .set(updateData)
+          .where(eq(schema.UserTable.id, user.id))
+          .returning();
+
+        return updatedUser;
+      } catch (error) {
+        console.error("[IPC] Error updating user details:", error);
+        throw error;
+      }
+    },
+  );
 
   console.log("[IPC] User handlers registered");
 }

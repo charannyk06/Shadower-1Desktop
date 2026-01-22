@@ -1,4 +1,4 @@
-import { generateObjectAction } from "@/app/api/chat/actions";
+import { aiApi } from "@/lib/electron/ai-api";
 import { appStore } from "@/app/store";
 import { useWorkflowStore } from "@/app/store/workflow.store";
 import { SelectModel } from "@/components/select-model";
@@ -47,7 +47,7 @@ import { Textarea } from "ui/textarea";
 import { NodeIcon } from "../node-icon";
 
 import { useCopy } from "@/hooks/use-copy";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { NodeResultPopup } from "../node-result-popup";
 
 const debounce = createDebounce();
@@ -76,7 +76,7 @@ export function ExecuteTab({
   );
 
   const [tab, setTab] = useState<(typeof tabs)[number]["value"]>(tabs[0].value);
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [isRunning, setIsRunning] = useState(false);
   const [histories, setHistories] = useState<NodeRuntimeHistory[]>([]);
   const [result, setResult] = useState<GraphEndEvent | undefined>();
@@ -123,24 +123,26 @@ export function ExecuteTab({
         </div>
       ),
     });
-    if (!result) return;
+    if (!result || !model) return;
     toast.promise(
-      generateObjectAction({
-        model,
-        prompt: {
-          system: `You are a parameter generator for tool execution.
+      aiApi
+        .generateObject({
+          model,
+          prompt: {
+            system: `You are a parameter generator for tool execution.
 Analyze the user's request and generate creative JSON data that matches the provided schema.
 If information cannot be inferred from the user's question, use your creativity to generate engaging data.
 Fill all required fields and return only valid JSON without explanations.
 
 tool-name: ${workflow!.name}
 ${workflow!.description ? `tool-description: ${workflow!.description}` : ""}`,
-          user: result,
-        },
-        schema: inputSchema,
-      }).then((res) => {
-        setQuery(res);
-      }),
+            user: result,
+          },
+          schema: inputSchema,
+        })
+        .then((res) => {
+          setQuery(res);
+        }),
       {
         loading: t("Common.generatingInputWithAI"),
         success: t("Common.inputGeneratedSuccessfully"),

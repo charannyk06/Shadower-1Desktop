@@ -6,7 +6,7 @@ import {
   UINode,
 } from "lib/ai/workflow/workflow.interface";
 import { PlusIcon, Unlink } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { ReactNode, useCallback, useMemo } from "react";
 import { Button } from "ui/button";
 import { Label } from "ui/label";
@@ -21,7 +21,7 @@ interface NextNodeInfoProps {
 }
 
 export function NextNodeInfo({ node, onSelectNode }: NextNodeInfoProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const { addNodes, addEdges, updateNode, setEdges } = useReactFlow();
   // Use reactive hooks instead of getEdges/getNodes for proper re-renders when edges change
   const nodes = useNodes() as UINode[];
@@ -194,7 +194,7 @@ function NextNodeConnector({
   onSelectNode,
   label,
 }: NodeConnectorProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   return (
     <div className="flex w-full">
       <div className="py-1">

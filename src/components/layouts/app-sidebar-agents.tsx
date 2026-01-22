@@ -7,7 +7,7 @@ import {
   MoreHorizontal,
   PlusIcon,
 } from "lucide-react";
-import Link from "next/link";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { SidebarMenuAction } from "ui/sidebar";
 import { SidebarMenuButton, SidebarMenuSkeleton } from "ui/sidebar";
 import { SidebarGroupContent, SidebarMenu, SidebarMenuItem } from "ui/sidebar";
@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
 import { getSystemAgentCustomIcon } from "@/hooks/use-system-agent-icon";
 import { useAgents } from "@/hooks/queries/use-agents";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useCallback, useMemo, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { AgentDropdown } from "../agent/agent-dropdown";
@@ -28,22 +28,21 @@ import { appStore } from "@/app/store";
 import { ChatMention } from "app-types/chat";
 import { BACKGROUND_COLORS, EMOJI_DATA } from "lib/const";
 import { cn } from "lib/utils";
-import { useRouter } from "next/navigation";
 
 const DISPLAY_LIMIT = 5; // Number of agents to show when collapsed
 
 export function AppSidebarAgents() {
   const mounted = useMounted();
-  const t = useTranslations();
-  const router = useRouter();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
-  const { bookmarkedAgents, myAgents, isLoading, sharedAgents } = useAgents({
+  const { myAgents, isLoading } = useAgents({
     limit: 50,
   }); // Increase limit since we're not artificially limiting display
 
   const agents = useMemo(() => {
-    return [...myAgents, ...bookmarkedAgents];
-  }, [bookmarkedAgents, myAgents]);
+    return myAgents;
+  }, [myAgents]);
 
   const handleAgentClick = useCallback(
     (id: string) => {
@@ -84,14 +83,14 @@ export function AppSidebarAgents() {
           };
         });
       } else {
-        router.push("/");
+        navigate({ to: "/" });
 
         appStore.setState(() => ({
           pendingThreadMention: newMention,
         }));
       }
     },
-    [agents, router],
+    [agents, navigate],
   );
 
   // All authenticated users can create agents (roles/permissions removed)
@@ -103,14 +102,14 @@ export function AppSidebarAgents() {
         <SidebarMenu className="group/agents" data-testid="agents-sidebar-menu">
           <SidebarMenuItem>
             <SidebarMenuButton asChild className="font-semibold">
-              <Link href="/agents" data-testid="agents-link">
+              <Link to="/agents" data-testid="agents-link">
                 {t("Layout.agents")}
               </Link>
             </SidebarMenuButton>
             {canCreate && (
               <SidebarMenuAction
                 className="group-hover/agents:opacity-100 opacity-0 transition-opacity"
-                onClick={() => router.push("/agent/new")}
+                onClick={() => navigate({ to: "/agent/$agentId", params: { agentId: "new" } })}
                 data-testid="sidebar-create-agent-button"
               >
                 <Tooltip>
@@ -135,7 +134,8 @@ export function AppSidebarAgents() {
             <div className="px-2 mt-1">
               {canCreate ? (
                 <Link
-                  href={"/agent/new"}
+                  to="/agent/$agentId"
+                  params={{ agentId: "new" }}
                   className="bg-input/40 py-8 px-4 hover:bg-input/100 rounded-lg cursor-pointer flex justify-between items-center text-xs overflow-hidden"
                   data-testid="sidebar-create-agent-link"
                 >
@@ -145,28 +145,11 @@ export function AppSidebarAgents() {
                       <ArrowUpRightIcon className="size-3" />
                     </div>
                     <p className="text-muted-foreground">
-                      {sharedAgents.length > 0
-                        ? t("Layout.createYourOwnAgentOrSelectShared")
-                        : t("Layout.createYourOwnAgent")}
+                      {t("Layout.createYourOwnAgent")}
                     </p>
                   </div>
                 </Link>
-              ) : (
-                <div className="bg-input/40 py-8 px-4 rounded-lg text-xs overflow-hidden">
-                  <div className="gap-1 z-10">
-                    <p className="font-semibold mb-2">
-                      {sharedAgents.length > 0
-                        ? t("Layout.availableAgents")
-                        : t("Layout.noAgentsAvailable")}
-                    </p>
-                    <p className="text-muted-foreground">
-                      {sharedAgents.length > 0
-                        ? t("Layout.browseAgentsToBookmark")
-                        : t("Layout.askAdminToShareAgents")}
-                    </p>
-                  </div>
-                </div>
-              )}
+              ) : null}
             </div>
           ) : (
             <div className="flex flex-col">

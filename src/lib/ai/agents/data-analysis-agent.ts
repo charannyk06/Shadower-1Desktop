@@ -1,4 +1,3 @@
-import "server-only";
 import { type Tool, tool as createTool } from "ai";
 import type { UIMessageStreamWriter } from "ai";
 import { colorize } from "consola/utils";
@@ -367,7 +366,7 @@ export function createDataProfileTool(
     description:
       "Profile a dataset to understand its structure, types, and quality",
     inputSchema: z.object({
-      dataPath: z.string().describe("Path to the data file in the sandbox"),
+      dataPath: z.string().describe("Path to the data file"),
       fileType: z
         .enum(["csv", "excel", "json"])
         .default("csv")
@@ -381,7 +380,7 @@ export function createDataProfileTool(
         success: true,
         code,
         instruction:
-          "Execute this code in the sandbox to get the dataset profile",
+          "Execute this code locally to get the dataset profile",
       };
     },
   }) as Tool;
@@ -411,7 +410,7 @@ export function createStatsAnalysisTool(
         success: true,
         code,
         instruction:
-          "Execute this code in the sandbox to get statistical analysis",
+          "Execute this code locally to get statistical analysis",
       };
     },
   }) as Tool;
@@ -454,7 +453,7 @@ export function createVisualizationTool(
         code,
         vizType,
         instruction:
-          "Execute this code in the sandbox to generate the visualization",
+          "Execute this code locally to generate the visualization",
       };
     },
   }) as Tool;

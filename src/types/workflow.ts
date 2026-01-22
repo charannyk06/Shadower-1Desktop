@@ -1,7 +1,7 @@
 import { Tool } from "ai";
 import { NodeKind } from "lib/ai/workflow/workflow.interface";
 import { tag } from "lib/tag";
-import { ObjectJsonSchema7, Visibility } from "./util";
+import { ObjectJsonSchema7 } from "./util";
 
 export type WorkflowIcon = {
   type: "emoji";
@@ -16,7 +16,6 @@ export type DBWorkflow = {
   name: string;
   description?: string;
   isPublished: boolean;
-  visibility: Visibility;
   userId: string;
   createdAt: Date;
   updatedAt: Date;
@@ -58,11 +57,8 @@ export type WorkflowSummary = {
   description?: string;
   icon?: WorkflowIcon;
   type?: "workflow";
-  visibility: Visibility;
   isPublished: boolean;
   userId: string;
-  userName: string;
-  userAvatar?: string;
   updatedAt: Date;
 };
 export interface WorkflowRepository {
@@ -87,12 +83,7 @@ export interface WorkflowRepository {
   save(
     workflow: PartialBy<
       DBWorkflow,
-      | "id"
-      | "createdAt"
-      | "updatedAt"
-      | "visibility"
-      | "isPublished"
-      | "version"
+      "id" | "createdAt" | "updatedAt" | "isPublished" | "version"
     >,
     noGenerateInputNode?: boolean,
   ): Promise<DBWorkflow>;

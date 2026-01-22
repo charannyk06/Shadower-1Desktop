@@ -32,15 +32,6 @@ interface BrowserPreviewProps {
   className?: string;
 }
 
-interface StreamEvent {
-  type: "connected" | "screenshot" | "session_closed" | "error";
-  data?: string;
-  url?: string;
-  timestamp?: string;
-  message?: string;
-  sessionId?: string;
-}
-
 export function BrowserPreview({
   sessionId,
   provider = "chrome-devtools",
@@ -58,87 +49,100 @@ export function BrowserPreview({
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const streamingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const retryCountRef = useRef(0);
   const maxRetries = 3;
 
-  // Connect to SSE stream for live updates
+  // Take screenshot via Electron IPC
+  const captureScreenshot = useCallback(async (): Promise<{
+    data?: string;
+    url?: string;
+    success: boolean;
+  }> => {
+    try {
+      // Use Electron IPC for browser screenshot (agent-browser powered)
+      if (window.electronAPI?.browser?.screenshot) {
+        const result = await window.electronAPI.browser.screenshot();
+        if (result?.data?.base64) {
+          const urlResult = await window.electronAPI.browser.getUrl();
+          return {
+            data: result.data.base64,
+            url: urlResult?.url,
+            success: true,
+          };
+        }
+      }
+      return { success: false };
+    } catch (err) {
+      console.error("[BrowserPreview] Screenshot capture error:", err);
+      return { success: false };
+    }
+  }, []);
+
+  // Connect to stream using polling via Electron IPC
   const connectToStream = useCallback(() => {
     if (!sessionId || !isStreaming) return;
 
-    // Clean up existing connection
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
+    // Clean up existing interval
+    if (streamingIntervalRef.current) {
+      clearInterval(streamingIntervalRef.current);
     }
 
     setIsLoading(true);
     setError(null);
 
-    const eventSource = new EventSource(
-      `/api/browser/stream?sessionId=${sessionId}&interval=1000`,
-    );
-
-    eventSource.onopen = () => {
-      console.log("[BrowserPreview] SSE connection opened");
-      retryCountRef.current = 0;
-    };
-
-    eventSource.onmessage = (event) => {
+    // Initial connection
+    const connect = async () => {
       try {
-        const data: StreamEvent = JSON.parse(event.data);
-
-        switch (data.type) {
-          case "connected":
-            setIsConnected(true);
-            setIsLoading(false);
-            break;
-
-          case "screenshot":
-            if (data.data) {
-              setScreenshot(`data:image/png;base64,${data.data}`);
-              setLastUpdated(new Date());
-              setIsLoading(false);
-            }
-            if (data.url) {
-              setCurrentUrl(data.url);
-            }
-            break;
-
-          case "session_closed":
-            setIsConnected(false);
-            setError("Browser session has been closed");
-            eventSource.close();
-            break;
-
-          case "error":
-            console.error("[BrowserPreview] Stream error:", data.message);
-            setError(data.message || "Stream error occurred");
-            break;
+        const result = await captureScreenshot();
+        if (result.success && result.data) {
+          setIsConnected(true);
+          setIsLoading(false);
+          setScreenshot(`data:image/png;base64,${result.data}`);
+          setLastUpdated(new Date());
+          if (result.url) {
+            setCurrentUrl(result.url);
+          }
+          retryCountRef.current = 0;
+        } else if (retryCountRef.current < maxRetries) {
+          retryCountRef.current++;
+          console.log(
+            `[BrowserPreview] Retrying connection (${retryCountRef.current}/${maxRetries})...`
+          );
+          setTimeout(connect, 2000 * retryCountRef.current);
+        } else {
+          setError("Failed to connect to browser");
+          setIsLoading(false);
         }
       } catch (err) {
-        console.error("[BrowserPreview] Failed to parse SSE message:", err);
+        console.error("[BrowserPreview] Connection error:", err);
+        setIsConnected(false);
+        if (retryCountRef.current < maxRetries) {
+          retryCountRef.current++;
+          setTimeout(connect, 2000 * retryCountRef.current);
+        } else {
+          setError("Failed to connect to browser stream");
+          setIsLoading(false);
+        }
       }
     };
 
-    eventSource.onerror = (err) => {
-      console.error("[BrowserPreview] SSE error:", err);
-      eventSource.close();
-      setIsConnected(false);
+    connect();
 
-      if (retryCountRef.current < maxRetries && isStreaming) {
-        retryCountRef.current++;
-        console.log(
-          `[BrowserPreview] Retrying connection (${retryCountRef.current}/${maxRetries})...`,
-        );
-        setTimeout(connectToStream, 2000 * retryCountRef.current);
-      } else {
-        setError("Failed to connect to browser stream");
-        setIsLoading(false);
+    // Set up polling interval for live updates (1 second)
+    streamingIntervalRef.current = setInterval(async () => {
+      if (!isStreaming) return;
+
+      const result = await captureScreenshot();
+      if (result.success && result.data) {
+        setScreenshot(`data:image/png;base64,${result.data}`);
+        setLastUpdated(new Date());
+        if (result.url) {
+          setCurrentUrl(result.url);
+        }
       }
-    };
-
-    eventSourceRef.current = eventSource;
-  }, [sessionId, isStreaming]);
+    }, 1000);
+  }, [sessionId, isStreaming, captureScreenshot]);
 
   // Start streaming on mount
   useEffect(() => {
@@ -147,8 +151,8 @@ export function BrowserPreview({
     }
 
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+      if (streamingIntervalRef.current) {
+        clearInterval(streamingIntervalRef.current);
       }
     };
   }, [connectToStream, isStreaming]);
@@ -156,19 +160,9 @@ export function BrowserPreview({
   // Manual screenshot capture
   const takeScreenshot = useCallback(async () => {
     try {
-      const response = await fetch("/api/browser/screenshot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, saveToHistory: true }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to capture screenshot");
-      }
-
-      const data = await response.json();
-      if (data.success && data.screenshot?.data) {
-        const screenshotData = `data:image/png;base64,${data.screenshot.data}`;
+      const result = await captureScreenshot();
+      if (result.success && result.data) {
+        const screenshotData = `data:image/png;base64,${result.data}`;
         setScreenshot(screenshotData);
         setLastUpdated(new Date());
         onScreenshot?.(screenshotData);
@@ -176,15 +170,15 @@ export function BrowserPreview({
     } catch (err) {
       console.error("[BrowserPreview] Screenshot error:", err);
     }
-  }, [sessionId, onScreenshot]);
+  }, [captureScreenshot, onScreenshot]);
 
   // Toggle streaming
   const toggleStreaming = useCallback(() => {
     if (isStreaming) {
       // Stop streaming
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
+      if (streamingIntervalRef.current) {
+        clearInterval(streamingIntervalRef.current);
+        streamingIntervalRef.current = null;
       }
       setIsStreaming(false);
     } else {
@@ -196,26 +190,18 @@ export function BrowserPreview({
   // Manual refresh
   const refreshFrame = useCallback(async () => {
     try {
-      const response = await fetch("/api/browser/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.frame?.data) {
-          setScreenshot(`data:image/png;base64,${data.frame.data}`);
-          setLastUpdated(new Date());
-          if (data.frame.url) {
-            setCurrentUrl(data.frame.url);
-          }
+      const result = await captureScreenshot();
+      if (result.success && result.data) {
+        setScreenshot(`data:image/png;base64,${result.data}`);
+        setLastUpdated(new Date());
+        if (result.url) {
+          setCurrentUrl(result.url);
         }
       }
     } catch (err) {
       console.error("[BrowserPreview] Refresh error:", err);
     }
-  }, [sessionId]);
+  }, [captureScreenshot]);
 
   return (
     <div

@@ -1,140 +1,179 @@
 import { tool as createTool } from "ai";
 import { z } from "zod";
+import {
+  PAGE_CONTEXT_EXTRACTION_SCRIPT,
+  createFormFillScript,
+  formatContextAsText,
+  simplifyContext,
+  type PageContext,
+} from "../../browser/page-context";
 
 /**
- * Local Browser Automation Tools using Chrome DevTools Protocol (CDP)
+ * Local Browser Automation Tools using agent-browser
  *
- * These tools connect to the user's EXISTING Chrome browser via CDP,
- * allowing access to all logged-in accounts and sessions.
+ * These tools use agent-browser's BrowserManager for AI-optimized browser automation.
+ * Key features:
+ * - AI-optimized snapshots with element refs (@e1, @e2, etc.)
+ * - Session management for multiple browser instances
+ * - Works with both CSS selectors and refs
  *
- * User must launch Chrome with: --remote-debugging-port=9222
- * Or the app will prompt them to do so.
+ * KEY TOOLS FOR AUTOMATION:
+ * - browser_get_snapshot: Get AI-optimized element tree with refs
+ * - browser_get_context: Get structured page context (NO screenshots, token-efficient)
+ * - browser_fill_form: Fill multiple form fields at once
+ * - browser_analyze_forms: Detect and analyze forms on the page
  */
 
 // Check if running in Electron renderer
 const isElectron = typeof window !== "undefined" && window.electronAPI;
 
 /**
- * Helper to call Electron IPC for Chrome DevTools operations
+ * Helper to call Electron IPC for browser operations (agent-browser powered)
  */
-async function callChromeIPC<T>(method: string, ...args: any[]): Promise<T> {
+async function callBrowserAPI<T>(
+  method: string,
+  ...args: unknown[]
+): Promise<T> {
   if (!isElectron) {
-    throw new Error("Chrome tools are only available in the desktop app");
+    throw new Error("Browser tools are only available in the desktop app");
   }
 
   // @ts-ignore - electronAPI is injected by preload
-  return window.electronAPI.chrome[method](...args);
+  const browserAPI = window.electronAPI.browser;
+  if (!browserAPI || !browserAPI[method]) {
+    throw new Error(`Browser method ${method} not available`);
+  }
+
+  return browserAPI[method](...args);
 }
 
 /**
- * Connect to Chrome via DevTools Protocol
+ * Create a browser session
  */
-export const browserConnectTool = createTool({
+export const browserCreateSessionTool = createTool({
   description:
-    "Connect to your existing Chrome browser via DevTools Protocol. Chrome must be running with --remote-debugging-port=9222. This gives access to all your logged-in sessions.",
+    "Create a new browser session for automation. Returns a session ID that can be used for subsequent actions. " +
+    "Can optionally connect to an existing Chrome browser via CDP.",
   inputSchema: z.object({
-    port: z
+    headless: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Run browser in headless mode (default: false)"),
+    cdpPort: z
       .number()
       .optional()
-      .default(9222)
-      .describe("Chrome debugging port (default: 9222)"),
+      .describe(
+        "Connect to existing Chrome via CDP port (e.g., 9222). Chrome must be running with --remote-debugging-port=9222",
+      ),
+    cdpUrl: z
+      .string()
+      .optional()
+      .describe("Connect to existing Chrome via CDP WebSocket URL"),
+    viewport: z
+      .object({
+        width: z.number().default(1280),
+        height: z.number().default(720),
+      })
+      .optional()
+      .describe("Browser viewport dimensions"),
   }),
-  execute: async ({ port }) => {
+  execute: async ({ headless, cdpPort, cdpUrl, viewport }) => {
     try {
-      const result = await callChromeIPC<{
-        success: boolean;
-        tabs?: any[];
+      const result = await callBrowserAPI<{
+        sessionId?: string;
+        url?: string;
+        title?: string;
         error?: string;
-      }>("connect", { port });
+      }>("createSession", {
+        headless,
+        cdpPort,
+        cdpUrl,
+        viewport,
+      });
 
-      if (!result.success) {
+      if (result.error || !result.sessionId) {
         return {
           success: false,
-          error: result.error,
-          hint: "Launch Chrome with: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222",
+          error: result.error || "Failed to create browser session",
+          hint: cdpPort
+            ? "Make sure Chrome is running with --remote-debugging-port=9222"
+            : undefined,
         };
       }
 
       return {
         success: true,
-        tabs: result.tabs,
-        message: `Connected to Chrome on port ${port}. Found ${result.tabs?.length || 0} tabs.`,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Connection failed",
-        hint: "Make sure Chrome is running with --remote-debugging-port=9222",
-      };
-    }
-  },
-});
-
-/**
- * List all open Chrome tabs
- */
-export const browserListTabsTool = createTool({
-  description:
-    "List all open tabs in your Chrome browser. Use this to find the tab you want to interact with.",
-  inputSchema: z.object({}),
-  execute: async () => {
-    try {
-      const result = await callChromeIPC<{
-        success: boolean;
-        tabs?: any[];
-        error?: string;
-      }>("listTabs", {});
-
-      return {
-        success: result.success,
-        tabs: result.tabs?.map((tab: any) => ({
-          id: tab.id,
-          title: tab.title,
-          url: tab.url,
-          type: tab.type,
-        })),
-        error: result.error,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to list tabs",
-      };
-    }
-  },
-});
-
-/**
- * Attach to a specific Chrome tab
- */
-export const browserAttachTabTool = createTool({
-  description:
-    "Attach to a specific Chrome tab by its ID. Get tab IDs from browser_list_tabs.",
-  inputSchema: z.object({
-    tabId: z.string().describe("The tab ID to attach to"),
-  }),
-  execute: async ({ tabId }) => {
-    try {
-      const result = await callChromeIPC<{
-        success: boolean;
-        title?: string;
-        url?: string;
-        error?: string;
-      }>("attachTab", { tabId });
-
-      return {
-        success: result.success,
-        title: result.title,
+        sessionId: result.sessionId,
         url: result.url,
-        message: result.success
-          ? `Attached to tab: ${result.title}`
-          : result.error,
+        title: result.title,
+        message:
+          "Browser session created. Use browser_get_snapshot to see page elements with refs.",
       };
     } catch (error) {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to attach to tab",
+          error instanceof Error ? error.message : "Session creation failed",
+      };
+    }
+  },
+});
+
+/**
+ * Close a browser session
+ */
+export const browserCloseSessionTool = createTool({
+  description: "Close a browser session and release its resources.",
+  inputSchema: z.object({
+    sessionId: z
+      .string()
+      .optional()
+      .describe(
+        "Session ID to close. If not provided, closes the active session.",
+      ),
+  }),
+  execute: async ({ sessionId }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("closeSession", sessionId);
+
+      return {
+        success: result.success !== false,
+        message: result.error || "Session closed",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to close session",
+      };
+    }
+  },
+});
+
+/**
+ * List all active browser sessions
+ */
+export const browserListSessionsTool = createTool({
+  description: "List all active browser sessions.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const sessions = await callBrowserAPI<
+        Array<{ id: string; createdAt: Date; isActive: boolean }>
+      >("listSessions");
+
+      return {
+        success: true,
+        sessions,
+        count: sessions.length,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to list sessions",
       };
     }
   },
@@ -144,29 +183,32 @@ export const browserAttachTabTool = createTool({
  * Navigate to a URL in the current tab
  */
 export const browserNavigateTool = createTool({
-  description: "Navigate to a URL in the currently attached Chrome tab.",
+  description: "Navigate to a URL in the browser.",
   inputSchema: z.object({
     url: z.string().url().describe("The URL to navigate to"),
     waitUntil: z
-      .enum(["load", "domcontentloaded", "networkIdle"])
+      .enum(["load", "domcontentloaded", "networkidle"])
       .optional()
       .default("domcontentloaded")
       .describe("When to consider navigation complete"),
   }),
   execute: async ({ url, waitUntil }) => {
     try {
-      const result = await callChromeIPC<{
-        success: boolean;
-        title?: string;
+      const result = await callBrowserAPI<{
         url?: string;
+        title?: string;
         error?: string;
-      }>("navigate", { url, waitUntil });
+      }>("navigate", url, { waitUntil });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
 
       return {
-        success: result.success,
+        success: true,
         title: result.title,
         currentUrl: result.url,
-        message: result.success ? `Navigated to ${url}` : result.error,
+        message: `Navigated to ${url}`,
       };
     } catch (error) {
       return {
@@ -178,42 +220,100 @@ export const browserNavigateTool = createTool({
 });
 
 /**
+ * Get AI-optimized snapshot with element refs
+ * This is THE KEY TOOL for understanding page structure
+ */
+export const browserGetSnapshotTool = createTool({
+  description: `Get an AI-optimized snapshot of the page with element refs.
+
+Returns a text tree of elements like:
+- heading "Example Domain" [ref=e1] [level=1]
+- paragraph: Some text content
+- button "Submit" [ref=e2]
+- textbox "Email" [ref=e3]
+
+Use refs (@e1, @e2) or CSS selectors in subsequent actions.
+This is the PRIMARY tool for understanding what's on a page.`,
+  inputSchema: z.object({
+    interactive: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Only include interactive elements (buttons, links, inputs)"),
+    compact: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe("Remove structural elements without meaningful content"),
+    selector: z
+      .string()
+      .optional()
+      .describe("CSS selector to scope the snapshot to"),
+  }),
+  execute: async ({ interactive, compact, selector }) => {
+    try {
+      const result = await callBrowserAPI<{
+        tree?: string;
+        refs?: Record<string, { selector: string; role: string; name?: string }>;
+        stats?: {
+          lines: number;
+          chars: number;
+          refs: number;
+          interactive: number;
+        };
+        error?: string;
+      }>("getSnapshot", { interactive, compact, selector });
+
+      if (result.error || !result.tree) {
+        return {
+          success: false,
+          error: result.error || "Failed to get snapshot",
+        };
+      }
+
+      return {
+        success: true,
+        tree: result.tree,
+        stats: result.stats,
+        hint: "Use refs like @e1, @e2 in click, fill, type actions for deterministic selection",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Snapshot failed",
+      };
+    }
+  },
+});
+
+/**
  * Take a screenshot of the current tab
  */
 export const browserScreenshotTool = createTool({
   description:
-    "Take a screenshot of the currently attached Chrome tab. Returns a base64-encoded image.",
+    "Take a screenshot of the browser. Returns a base64-encoded image.",
   inputSchema: z.object({
     fullPage: z
       .boolean()
       .optional()
       .default(false)
       .describe("Whether to capture the full scrollable page"),
-    format: z
-      .enum(["png", "jpeg", "webp"])
-      .optional()
-      .default("png")
-      .describe("Image format"),
-    quality: z
-      .number()
-      .optional()
-      .describe("Image quality (1-100, only for jpeg/webp)"),
   }),
-  execute: async ({ fullPage, format, quality }) => {
+  execute: async ({ fullPage }) => {
     try {
-      const result = await callChromeIPC<{
-        success: boolean;
-        screenshot?: string;
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        data?: { base64?: string; path?: string };
         error?: string;
-      }>("screenshot", { fullPage, format, quality });
+      }>("screenshot", { fullPage });
 
-      if (!result.success) {
-        return { success: false, error: result.error };
+      if (result.error || !result.data?.base64) {
+        return { success: false, error: result.error || "Screenshot failed" };
       }
 
       return {
         success: true,
-        screenshot: `data:image/${format};base64,${result.screenshot}`,
+        screenshot: `data:image/png;base64,${result.data.base64}`,
       };
     } catch (error) {
       return {
@@ -228,20 +328,27 @@ export const browserScreenshotTool = createTool({
  * Click on an element
  */
 export const browserClickTool = createTool({
-  description: "Click on an element in the Chrome tab using a CSS selector.",
+  description:
+    "Click on an element using a CSS selector or ref from snapshot (e.g., @e1).",
   inputSchema: z.object({
-    selector: z.string().describe("CSS selector for the element to click"),
+    selector: z
+      .string()
+      .describe("CSS selector or ref (e.g., @e1) for the element to click"),
   }),
   execute: async ({ selector }) => {
     try {
-      const result = await callChromeIPC<{ success: boolean; error?: string }>(
-        "click",
-        { selector },
-      );
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("click", selector);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
 
       return {
-        success: result.success,
-        message: result.success ? `Clicked on ${selector}` : result.error,
+        success: true,
+        message: `Clicked on ${selector}`,
       };
     } catch (error) {
       return {
@@ -253,30 +360,67 @@ export const browserClickTool = createTool({
 });
 
 /**
+ * Fill an input field (clears and sets value)
+ */
+export const browserFillTool = createTool({
+  description:
+    "Fill an input field with a value (clears existing content first). Use ref (@e1) or CSS selector.",
+  inputSchema: z.object({
+    selector: z.string().describe("CSS selector or ref for the input element"),
+    value: z.string().describe("Value to fill"),
+  }),
+  execute: async ({ selector, value }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("fill", selector, value);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        message: `Filled ${selector} with value`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Fill failed",
+      };
+    }
+  },
+});
+
+/**
  * Type text into an element
  */
 export const browserTypeTool = createTool({
   description:
-    "Type text into an input field in Chrome. Can optionally clear the field first.",
+    "Type text into an input field character by character (doesn't clear first). Use for natural typing.",
   inputSchema: z.object({
-    selector: z.string().describe("CSS selector for the input element"),
+    selector: z.string().describe("CSS selector or ref for the input element"),
     text: z.string().describe("Text to type"),
-    clear: z
-      .boolean()
+    delay: z
+      .number()
       .optional()
-      .default(false)
-      .describe("Clear the field before typing"),
+      .describe("Delay between key presses in milliseconds"),
   }),
-  execute: async ({ selector, text, clear }) => {
+  execute: async ({ selector, text, delay }) => {
     try {
-      const result = await callChromeIPC<{ success: boolean; error?: string }>(
-        "type",
-        { selector, text, clear },
-      );
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("type", selector, text, { delay });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
 
       return {
-        success: result.success,
-        message: result.success ? `Typed into ${selector}` : result.error,
+        success: true,
+        message: `Typed into ${selector}`,
       };
     } catch (error) {
       return {
@@ -288,69 +432,78 @@ export const browserTypeTool = createTool({
 });
 
 /**
- * Extract text or attributes from elements
+ * Press keyboard keys
  */
-export const browserExtractTool = createTool({
-  description: "Extract text content or attributes from elements on the page.",
+export const browserPressKeyTool = createTool({
+  description:
+    "Press a keyboard key (e.g., 'Enter', 'Tab', 'Escape', 'Control+A').",
   inputSchema: z.object({
-    selector: z.string().describe("CSS selector for elements to extract from"),
-    attribute: z
+    key: z.string().describe("Key to press (e.g., 'Enter', 'Tab')"),
+    selector: z
       .string()
       .optional()
-      .describe(
-        "Attribute to extract (e.g., 'href'). If not provided, extracts text content.",
-      ),
-    all: z
-      .boolean()
-      .optional()
-      .default(false)
-      .describe("Extract from all matching elements"),
+      .describe("Optional element to focus before pressing key"),
   }),
-  execute: async ({ selector, attribute, all }) => {
+  execute: async ({ key, selector }) => {
     try {
-      const result = await callChromeIPC<{
-        success: boolean;
-        data?: string | string[];
+      const result = await callBrowserAPI<{
+        success?: boolean;
         error?: string;
-      }>("extract", { selector, attribute, all });
+      }>("press", key, { selector });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
 
       return {
-        success: result.success,
-        data: result.data,
-        error: result.error,
+        success: true,
+        message: `Pressed ${key}`,
       };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Extract failed",
+        error: error instanceof Error ? error.message : "Key press failed",
       };
     }
   },
 });
 
 /**
- * Wait for an element
+ * Wait for an element or load state
  */
 export const browserWaitTool = createTool({
-  description: "Wait for an element to appear on the page.",
+  description: "Wait for an element to appear or for a load state.",
   inputSchema: z.object({
-    selector: z.string().describe("CSS selector to wait for"),
+    selector: z.string().optional().describe("CSS selector to wait for"),
+    state: z
+      .enum(["visible", "hidden", "attached", "detached"])
+      .optional()
+      .default("visible")
+      .describe("Element state to wait for"),
+    loadState: z
+      .enum(["load", "domcontentloaded", "networkidle"])
+      .optional()
+      .describe("Page load state to wait for (use instead of selector)"),
     timeout: z
       .number()
       .optional()
       .default(30000)
       .describe("Maximum time to wait in ms"),
   }),
-  execute: async ({ selector, timeout }) => {
+  execute: async ({ selector, state, loadState, timeout }) => {
     try {
-      const result = await callChromeIPC<{ success: boolean; error?: string }>(
-        "wait",
-        { selector, timeout },
-      );
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("wait", { selector, state, loadState, timeout });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
 
       return {
-        success: result.success,
-        message: result.success ? `Element ${selector} found` : result.error,
+        success: true,
+        message: selector ? `Element ${selector} is ${state}` : "Load complete",
       };
     } catch (error) {
       return {
@@ -366,22 +519,24 @@ export const browserWaitTool = createTool({
  */
 export const browserEvaluateTool = createTool({
   description:
-    "Execute JavaScript code in the Chrome tab. Use for complex interactions not covered by other tools.",
+    "Execute JavaScript code in the browser tab. Use for complex interactions not covered by other tools.",
   inputSchema: z.object({
     script: z.string().describe("JavaScript code to execute"),
   }),
   execute: async ({ script }) => {
     try {
-      const result = await callChromeIPC<{
-        success: boolean;
-        result?: any;
+      const result = await callBrowserAPI<{
+        result?: unknown;
         error?: string;
-      }>("evaluate", { script });
+      }>("evaluate", script);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
 
       return {
-        success: result.success,
+        success: true,
         result: result.result,
-        error: result.error,
       };
     } catch (error) {
       return {
@@ -410,18 +565,24 @@ export const browserScrollTool = createTool({
     selector: z
       .string()
       .optional()
-      .describe("CSS selector to scroll element into view"),
+      .describe("CSS selector or ref to scroll element into view"),
   }),
   execute: async ({ direction, amount, selector }) => {
     try {
-      const result = await callChromeIPC<{ success: boolean; error?: string }>(
-        "scroll",
-        { direction, amount, selector },
-      );
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("scroll", { direction, amount, selector });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
 
       return {
-        success: result.success,
-        message: result.success ? "Scrolled successfully" : result.error,
+        success: true,
+        message: selector
+          ? `Scrolled ${selector} into view`
+          : `Scrolled ${direction || "down"}`,
       };
     } catch (error) {
       return {
@@ -435,7 +596,7 @@ export const browserScrollTool = createTool({
 /**
  * Get page HTML
  */
-export const browserGetHtmlTool = createTool({
+export const browserGetContentTool = createTool({
   description: "Get the HTML content of the page or a specific element.",
   inputSchema: z.object({
     selector: z
@@ -447,107 +608,373 @@ export const browserGetHtmlTool = createTool({
   }),
   execute: async ({ selector }) => {
     try {
-      const result = await callChromeIPC<{
-        success: boolean;
+      const result = await callBrowserAPI<{
         html?: string;
         error?: string;
-      }>("getHtml", { selector });
+      }>("getContent", { selector });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
 
       return {
-        success: result.success,
+        success: true,
         html: result.html,
-        error: result.error,
       };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Get HTML failed",
+        error: error instanceof Error ? error.message : "Get content failed",
       };
     }
   },
 });
 
 /**
- * Press keyboard keys
+ * Get current URL
  */
-export const browserPressKeyTool = createTool({
-  description:
-    "Press a keyboard key or key combination (e.g., 'Enter', 'Tab', 'Control+A').",
-  inputSchema: z.object({
-    key: z.string().describe("Key or key combination to press"),
-  }),
-  execute: async ({ key }) => {
+export const browserGetUrlTool = createTool({
+  description: "Get the current URL of the browser tab.",
+  inputSchema: z.object({}),
+  execute: async () => {
     try {
-      const result = await callChromeIPC<{ success: boolean; error?: string }>(
-        "pressKey",
-        { key },
-      );
-
-      return {
-        success: result.success,
-        message: result.success ? `Pressed ${key}` : result.error,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Key press failed",
-      };
-    }
-  },
-});
-
-/**
- * Open a new tab
- */
-export const browserNewTabTool = createTool({
-  description: "Open a new Chrome tab with an optional URL.",
-  inputSchema: z.object({
-    url: z.string().url().optional().describe("URL to open in the new tab"),
-  }),
-  execute: async ({ url }) => {
-    try {
-      const result = await callChromeIPC<{
-        success: boolean;
-        tabId?: string;
+      const result = await callBrowserAPI<{
+        url?: string;
         error?: string;
-      }>("newTab", { url });
+      }>("getUrl");
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
 
       return {
-        success: result.success,
-        tabId: result.tabId,
-        message: result.success ? "New tab opened" : result.error,
+        success: true,
+        url: result.url,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Get URL failed",
+      };
+    }
+  },
+});
+
+/**
+ * Get page title
+ */
+export const browserGetTitleTool = createTool({
+  description: "Get the title of the current page.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const result = await callBrowserAPI<{
+        title?: string;
+        error?: string;
+      }>("getTitle");
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        title: result.title,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Get title failed",
+      };
+    }
+  },
+});
+
+/**
+ * Navigate back
+ */
+export const browserGoBackTool = createTool({
+  description: "Navigate back in browser history.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const result = await callBrowserAPI<{
+        url?: string;
+        error?: string;
+      }>("goBack");
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        url: result.url,
+        message: "Navigated back",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Go back failed",
+      };
+    }
+  },
+});
+
+/**
+ * Navigate forward
+ */
+export const browserGoForwardTool = createTool({
+  description: "Navigate forward in browser history.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const result = await callBrowserAPI<{
+        url?: string;
+        error?: string;
+      }>("goForward");
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        url: result.url,
+        message: "Navigated forward",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Go forward failed",
+      };
+    }
+  },
+});
+
+/**
+ * Reload page
+ */
+export const browserReloadTool = createTool({
+  description: "Reload the current page.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const result = await callBrowserAPI<{
+        url?: string;
+        error?: string;
+      }>("reload");
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        url: result.url,
+        message: "Page reloaded",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Reload failed",
+      };
+    }
+  },
+});
+
+// ============================================================================
+// CONTEXT-BASED TOOLS (Legacy compat - uses evaluate for page context)
+// ============================================================================
+
+/**
+ * Get structured page context (uses JS evaluation for compatibility)
+ */
+export const browserGetContextTool = createTool({
+  description: `Get structured page context. Returns:
+- All interactive elements (buttons, links, inputs) with CSS selectors
+- Forms with field types, labels, and current values
+- Page structure (headings, navigation)
+
+This is an alternative to browser_get_snapshot that returns structured JSON.
+Each element has a 'ref' ID (like "btn-1", "field-3") and a 'selector'.`,
+  inputSchema: z.object({
+    format: z
+      .enum(["json", "text", "simplified"])
+      .optional()
+      .default("text")
+      .describe(
+        "Output format: 'text' for human-readable, 'json' for full data",
+      ),
+  }),
+  execute: async ({ format }) => {
+    try {
+      const result = await callBrowserAPI<{
+        result?: unknown;
+        error?: string;
+      }>("evaluate", PAGE_CONTEXT_EXTRACTION_SCRIPT);
+
+      if (result.error || !result.result) {
+        return {
+          success: false,
+          error: result.error || "Failed to extract page context",
+        };
+      }
+
+      const context = result.result as PageContext;
+
+      if (format === "json") {
+        return { success: true, context };
+      } else if (format === "simplified") {
+        return { success: true, context: simplifyContext(context) };
+      } else {
+        return { success: true, context: formatContextAsText(context) };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to get page context",
+      };
+    }
+  },
+});
+
+/**
+ * Analyze forms on the page
+ */
+export const browserAnalyzeFormsTool = createTool({
+  description: `Analyze all forms on the current page. Returns detailed information about:
+- Form type (login, signup, search, or general)
+- All fields with their types, labels, and current values
+- Required fields
+- Submit button location`,
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const result = await callBrowserAPI<{
+        result?: unknown;
+        error?: string;
+      }>("evaluate", PAGE_CONTEXT_EXTRACTION_SCRIPT);
+
+      if (result.error || !result.result) {
+        return {
+          success: false,
+          error: result.error || "Failed to analyze forms",
+        };
+      }
+
+      const context = result.result as PageContext;
+
+      if (context.forms.length === 0) {
+        return {
+          success: true,
+          message: "No forms found on this page",
+          forms: [],
+        };
+      }
+
+      const formSummaries = context.forms.map((form) => {
+        const formType = form.isLoginForm
+          ? "LOGIN"
+          : form.isSignupForm
+            ? "SIGNUP"
+            : form.isSearchForm
+              ? "SEARCH"
+              : "GENERAL";
+
+        return {
+          ref: form.ref,
+          type: formType,
+          selector: form.selector,
+          fieldCount: form.fields.length,
+          fields: form.fields.map((f) => ({
+            ref: f.ref,
+            selector: f.selector,
+            type: f.type,
+            label: f.label || f.placeholder || f.name || "unlabeled",
+            required: f.required,
+            hasValue: !!f.value,
+            options: f.options?.map((o) => o.text),
+          })),
+          submitButton: form.submitButton,
+        };
+      });
+
+      return {
+        success: true,
+        formCount: context.forms.length,
+        forms: formSummaries,
       };
     } catch (error) {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to open new tab",
+          error instanceof Error ? error.message : "Failed to analyze forms",
       };
     }
   },
 });
 
 /**
- * Close the current tab
+ * Fill multiple form fields at once
  */
-export const browserCloseTabTool = createTool({
-  description: "Close the currently attached Chrome tab.",
-  inputSchema: z.object({}),
-  execute: async () => {
+export const browserFillFormTool = createTool({
+  description: `Fill multiple form fields at once. Much more efficient than typing into each field separately.
+
+Provide an array of field-value pairs. Each field needs:
+- selector: CSS selector for the field
+- value: The value to fill
+
+For checkboxes/radios, use "true" or "false" as values.
+For select dropdowns, use the option value.`,
+  inputSchema: z.object({
+    fields: z
+      .array(
+        z.object({
+          selector: z.string().describe("CSS selector for the field"),
+          value: z.string().describe("Value to fill in the field"),
+        }),
+      )
+      .describe("Array of field-value pairs to fill"),
+  }),
+  execute: async ({ fields }) => {
     try {
-      const result = await callChromeIPC<{ success: boolean; error?: string }>(
-        "closeTab",
-        {},
-      );
+      const script = createFormFillScript(fields);
+      const result = await callBrowserAPI<{
+        result?: { success: boolean; results: Array<{ success: boolean; selector: string; error?: string }> };
+        error?: string;
+      }>("evaluate", script);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      const fillResult = result.result;
+      const failedFields =
+        fillResult?.results.filter((r) => !r.success) || [];
+
+      if (failedFields.length > 0) {
+        return {
+          success: false,
+          message: `Failed to fill ${failedFields.length} of ${fields.length} fields`,
+          failedFields: failedFields.map((f) => ({
+            selector: f.selector,
+            error: f.error,
+          })),
+          successfulFields: fields.length - failedFields.length,
+        };
+      }
 
       return {
-        success: result.success,
-        message: result.success ? "Tab closed" : result.error,
+        success: true,
+        message: `Successfully filled ${fields.length} fields`,
+        filledFields: fields.length,
       };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to close tab",
+        error: error instanceof Error ? error.message : "Failed to fill form",
       };
     }
   },
@@ -555,46 +982,45 @@ export const browserCloseTabTool = createTool({
 
 // Export all browser tools as a collection
 export const localBrowserTools = {
-  browser_connect: browserConnectTool,
-  browser_list_tabs: browserListTabsTool,
-  browser_attach_tab: browserAttachTabTool,
+  // Session Management
+  browser_create_session: browserCreateSessionTool,
+  browser_close_session: browserCloseSessionTool,
+  browser_list_sessions: browserListSessionsTool,
+
+  // Navigation
   browser_navigate: browserNavigateTool,
-  browser_screenshot: browserScreenshotTool,
+  browser_go_back: browserGoBackTool,
+  browser_go_forward: browserGoForwardTool,
+  browser_reload: browserReloadTool,
+
+  // === AI-OPTIMIZED TOOLS (PRIMARY) ===
+  browser_get_snapshot: browserGetSnapshotTool, // PRIMARY - ref-based element tree
+  browser_get_context: browserGetContextTool, // Structured context extraction
+  browser_analyze_forms: browserAnalyzeFormsTool,
+  browser_fill_form: browserFillFormTool,
+
+  // Element Interaction
   browser_click: browserClickTool,
+  browser_fill: browserFillTool,
   browser_type: browserTypeTool,
-  browser_extract: browserExtractTool,
-  browser_wait: browserWaitTool,
-  browser_evaluate: browserEvaluateTool,
-  browser_scroll: browserScrollTool,
-  browser_get_html: browserGetHtmlTool,
   browser_press_key: browserPressKeyTool,
-  browser_new_tab: browserNewTabTool,
-  browser_close_tab: browserCloseTabTool,
-  // Backwards compatibility aliases for tool-kit
-  browser_act: browserClickTool,
-  browser_observe: browserGetHtmlTool,
-  browser_stealth: browserConnectTool,
-  browser_close: browserCloseTabTool,
-};
-
-// Backwards compatibility aliases
-export const browserbaseTools = {
-  browser_navigate: browserNavigateTool,
-  browser_act: browserClickTool,
-  browser_observe: browserGetHtmlTool,
-  browser_extract: browserExtractTool,
-  browser_screenshot: browserScreenshotTool,
+  browser_scroll: browserScrollTool,
   browser_wait: browserWaitTool,
-  browser_stealth: browserConnectTool, // Connect is similar to stealth mode
-  browser_close: browserCloseTabTool,
+
+  // Page Info
+  browser_screenshot: browserScreenshotTool,
+  browser_get_content: browserGetContentTool,
+  browser_get_url: browserGetUrlTool,
+  browser_get_title: browserGetTitleTool,
+  browser_evaluate: browserEvaluateTool,
 };
 
-// Create context-aware browser tools (simplified for local - no cloud session needed)
+// Create context-aware browser tools
 export function createBrowserToolsWithContext(
   _userId: string,
   _threadId: string | null,
 ) {
-  // For local Chrome DevTools, we don't need userId/threadId injection
-  // The browser is the user's own Chrome instance
+  // For agent-browser, we don't need userId/threadId injection
+  // The browser is managed via sessions
   return localBrowserTools;
 }

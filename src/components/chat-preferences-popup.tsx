@@ -6,7 +6,7 @@ import { AutoHeight } from "ui/auto-height";
 import { appStore } from "@/app/store";
 import { Shortcuts, isShortcutEvent } from "lib/keyboard-shortcuts";
 import { Share2, UserIcon, X } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Button } from "ui/button";
 import {
   Drawer,
@@ -28,7 +28,7 @@ export function ChatPreferencesPopup() {
     useShallow((state) => [state.openChatPreferences, state.mutate]),
   );
 
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   const tabs = useMemo(() => {
     return [

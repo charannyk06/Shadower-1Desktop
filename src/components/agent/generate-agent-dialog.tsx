@@ -6,7 +6,7 @@ import { experimental_useObject } from "@ai-sdk/react";
 import { AgentGenerateSchema } from "app-types/agent";
 import { ChatModel } from "app-types/chat";
 import { CommandIcon, CornerRightUpIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { Button } from "ui/button";
 import {
@@ -33,7 +33,7 @@ export function GenerateAgentDialog({
   onAgentChange,
   onToolsGenerated,
 }: GenerateAgentDialogProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [generateModel, setGenerateModel] = useState<ChatModel | undefined>(
     appStore.getState().chatModel,
   );

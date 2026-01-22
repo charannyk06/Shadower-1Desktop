@@ -23,7 +23,7 @@ import {
   WrenchIcon,
   X,
 } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "ui/badge";
@@ -53,7 +53,7 @@ import {
 import { Input } from "ui/input";
 import { MCPIcon } from "ui/mcp-icon";
 
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
 import { useWorkflowToolList } from "@/hooks/queries/use-workflow-tool-list";
@@ -68,7 +68,8 @@ import { WorkflowGreeting } from "./workflow/workflow-greeting";
 
 import { AgentSummary } from "app-types/agent";
 import { authClient } from "auth/client";
-import { getCurrentUserId, isElectronMode } from "lib/electron/workflow-api";
+import { getCurrentUserId } from "lib/electron/workflow-api";
+import { isElectronMode } from "lib/electron/ai-api";
 import { Separator } from "ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
@@ -123,7 +124,7 @@ export function ToolSelectDropdown({
       ]),
     );
 
-  const t = useTranslations("Chat.Tool");
+  const { t } = useTranslation();
   const { isLoading } = useMcpList();
   const { data: providers } = useChatModels();
   const [globalModel] = appStore(useShallow((state) => [state.chatModel]));
@@ -243,11 +244,11 @@ export function ToolSelectDropdown({
             <TooltipContent align={align} side={side} className="p-4 text-xs  ">
               <div className="flex items-center gap-2">
                 <WrenchIcon className="size-3.5" />
-                <span className="text-sm">{t("toolsSetup")}</span>
+                <span className="text-sm">{t("Chat.Tool.toolsSetup")}</span>
               </div>
 
               <p className="text-muted-foreground mt-4 whitespace-pre-wrap">
-                {t("toolsSetupDescription")}
+                {t("Chat.Tool.toolsSetupDescription")}
               </p>
             </TooltipContent>
           </Tooltip>
@@ -303,7 +304,7 @@ function ToolPresets() {
   );
   const [open, setOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   const presetWithToolCount = useMemo(() => {
     return presets.map((preset) => ({
@@ -458,7 +459,7 @@ function WorkflowToolSelector({
 }: {
   onSelectWorkflow?: (workflow: WorkflowSummary) => void;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const workflowToolList = appStore((state) => state.workflowToolList);
   const { data: session } = authClient.useSession();
   // In Electron mode, we need the actual database user ID (UUID), not the hardcoded "local-user"
@@ -571,32 +572,6 @@ function WorkflowToolSelector({
                     ) : null}
                     <div className="flex items-center justify-between flex-1 min-w-0">
                       <span className="truncate min-w-0">{workflow.name}</span>
-                      {workflow.userName && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            {workflow.userName === "Shadower" ? (
-                              <img
-                                src="/shadower-logo-final.png"
-                                alt="Shadower"
-                                className="size-4 ml-2 shrink-0 rounded"
-                                style={{ filter: "var(--logo-filter)" }}
-                              />
-                            ) : (
-                              <Avatar className="size-4 ml-2 shrink-0">
-                                <AvatarImage src={workflow.userAvatar} />
-                                <AvatarFallback className="text-xs text-muted-foreground font-medium">
-                                  {workflow.userName[0]?.toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                            )}
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {t("Common.sharedBy", {
-                              userName: workflow.userName,
-                            })}
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
                     </div>
                   </DropdownMenuItem>
                 ))}
@@ -666,7 +641,7 @@ function McpServerSelector() {
       {!selectedMcpServerList.length ? (
         <div className="text-sm text-muted-foreground w-full h-full flex flex-col items-center justify-center py-6">
           <div>No MCP servers detected.</div>
-          <Link href="/mcp">
+          <Link to="/mcp">
             <Button
               variant={"ghost"}
               className="mt-2 text-primary flex items-center gap-1"
@@ -776,7 +751,7 @@ function McpServerToolSelector({
   checked,
   onToolClick,
 }: McpServerToolSelectorProps) {
-  const t = useTranslations("Common");
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const filteredTools = useMemo(() => {
@@ -830,7 +805,7 @@ function McpServerToolSelector({
       >
         <input
           autoFocus
-          placeholder={t("search")}
+          placeholder={t("Common.search")}
           value={search}
           onKeyDown={(e) => {
             e.stopPropagation();
@@ -848,7 +823,7 @@ function McpServerToolSelector({
       <div className="max-h-96 overflow-y-auto">
         {filteredTools.length === 0 ? (
           <div className="text-sm text-muted-foreground w-full h-full flex items-center justify-center py-6">
-            {t("noResults")}
+            {t("Common.noResults")}
           </div>
         ) : (
           filteredTools.map((tool) => (
@@ -879,7 +854,7 @@ function AppDefaultToolKitSelector() {
   const [appStoreMutate, allowedAppDefaultToolkit] = appStore(
     useShallow((state) => [state.mutate, state.allowedAppDefaultToolkit]),
   );
-  const t = useTranslations();
+  const { t } = useTranslation();
   const toggleAppDefaultToolkit = useCallback((toolkit: AppDefaultToolkit) => {
     appStoreMutate((prev) => {
       const newAllowedAppDefaultToolkit = [
@@ -898,7 +873,9 @@ function AppDefaultToolKitSelector() {
   }, []);
 
   const defaultToolInfo = useMemo(() => {
-    const raw = t.raw("Chat.Tool.defaultToolKit");
+    const raw = t("Chat.Tool.defaultToolKit", {
+      returnObjects: true,
+    }) as Record<string, string>;
     return Object.values(AppDefaultToolkit).map((toolkit) => {
       const label = raw[toolkit] || toolkit;
       const id = toolkit;
@@ -961,16 +938,16 @@ function AgentSelector({
 }: {
   onSelectAgent?: (agent: AgentSummary) => void;
 }) {
-  const t = useTranslations();
-  const { myAgents, bookmarkedAgents } = useAgents({
-    filters: ["mine", "bookmarked"],
+  const { t } = useTranslation();
+  const { myAgents } = useAgents({
+    filters: ["mine"],
   });
 
   const emptyAgent = useMemo(() => {
-    if (myAgents.length + bookmarkedAgents.length > 0) return null;
+    if (myAgents.length > 0) return null;
     return (
       <Link
-        href={"/agent/new"}
+        to={"/agents"}
         className="py-8 px-4 hover:bg-input/100 rounded-lg cursor-pointer flex justify-between items-center text-xs overflow-hidden"
       >
         <div className="gap-1 z-10">
@@ -979,14 +956,12 @@ function AgentSelector({
             <ArrowUpRightIcon className="size-3" />
           </div>
           <p className="text-muted-foreground">
-            {bookmarkedAgents.length > 0
-              ? t("Layout.createYourOwnAgentOrSelectShared")
-              : t("Layout.createYourOwnAgent")}
+            {t("Layout.createYourOwnAgent")}
           </p>
         </div>
       </Link>
     );
-  }, [myAgents.length, bookmarkedAgents.length, t]);
+  }, [myAgents.length, t]);
 
   return (
     <DropdownMenuGroup>
@@ -1022,59 +997,6 @@ function AgentSelector({
                 <span className="truncate min-w-0">{agent.name}</span>
               </DropdownMenuItem>
             ))}
-
-            {myAgents.length > 0 && bookmarkedAgents.length > 0 && (
-              <DropdownMenuSeparator />
-            )}
-
-            {bookmarkedAgents.map((agent) => (
-              <DropdownMenuItem
-                key={agent.id}
-                className="cursor-pointer"
-                onClick={() => onSelectAgent?.(agent)}
-              >
-                {agent.icon && agent.icon.type === "emoji" ? (
-                  <div
-                    style={{
-                      backgroundColor: agent.icon?.style?.backgroundColor,
-                    }}
-                    className="p-1 rounded flex items-center justify-center ring ring-background border"
-                  >
-                    <Avatar className="size-3">
-                      <AvatarImage src={agent.icon?.value} />
-                      <AvatarFallback>{agent.name.slice(0, 1)}</AvatarFallback>
-                    </Avatar>
-                  </div>
-                ) : null}
-                <div className="flex items-center justify-between flex-1 min-w-0">
-                  <span className="truncate min-w-0">{agent.name}</span>
-                  {agent.userName && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        {agent.userName === "Shadower" ? (
-                          <img
-                            src="/shadower-logo-final.png"
-                            alt="Shadower"
-                            className="size-4 ml-2 shrink-0 rounded"
-                            style={{ filter: "var(--logo-filter)" }}
-                          />
-                        ) : (
-                          <Avatar className="size-4 ml-2 shrink-0">
-                            <AvatarImage src={agent.userAvatar} />
-                            <AvatarFallback className="text-xs text-muted-foreground font-medium">
-                              {agent.userName[0]?.toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("Common.sharedBy", { userName: agent.userName })}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
-              </DropdownMenuItem>
-            ))}
           </DropdownMenuSubContent>
         </DropdownMenuPortal>
       </DropdownMenuSub>
@@ -1089,14 +1011,14 @@ function ImageGeneratorSelector({
   onGenerateImage?: (provider?: "google" | "openai") => void;
   modelInfo?: { isToolCallUnsupported?: boolean };
 }) {
-  const t = useTranslations("Chat");
+  const { t } = useTranslation();
 
   return (
     <DropdownMenuGroup>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger className="text-xs flex items-center gap-2 font-semibold cursor-pointer">
           <ImagesIcon className="size-3.5" />
-          {t("generateImage")}
+          {t("Chat.generateImage")}
         </DropdownMenuSubTrigger>
         <DropdownMenuPortal>
           <DropdownMenuSubContent>

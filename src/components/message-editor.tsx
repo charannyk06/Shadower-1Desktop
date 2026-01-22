@@ -1,10 +1,10 @@
 "use client";
 
-import { deleteMessagesByChatIdAfterTimestampAction } from "@/app/api/chat/actions";
+import { threadApi } from "@/lib/electron/thread-api";
 import type { UseChatHelpers } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { Loader } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import {
   type Dispatch,
   type SetStateAction,
@@ -17,6 +17,7 @@ import { Textarea } from "./ui/textarea";
 
 export type MessageEditorProps = {
   message: UIMessage;
+  chatId?: string;
   setMode: Dispatch<SetStateAction<"view" | "edit">>;
   setMessages: UseChatHelpers<UIMessage>["setMessages"];
   sendMessage: UseChatHelpers<UIMessage>["sendMessage"];
@@ -24,11 +25,12 @@ export type MessageEditorProps = {
 
 export function MessageEditor({
   message,
+  chatId,
   setMode,
   setMessages,
   sendMessage,
 }: MessageEditorProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const canEdit = useMemo(
@@ -54,7 +56,9 @@ export function MessageEditor({
   const handleSubmit = async () => {
     setIsSubmitting(true);
 
-    await deleteMessagesByChatIdAfterTimestampAction(message.id);
+    if (chatId) {
+      await threadApi.deleteMessagesAfterTimestamp(chatId, message.id);
+    }
 
     setMessages((messages) => {
       const index = messages.findIndex((m) => m.id === message.id);

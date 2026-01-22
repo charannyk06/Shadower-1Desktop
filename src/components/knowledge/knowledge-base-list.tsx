@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useTransition } from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useNavigate, useSearch, useLocation } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { FileTextIcon, TrashIcon, Search, X } from "lucide-react";
 import {
   Card,
@@ -28,8 +28,9 @@ import {
 } from "ui/alert-dialog";
 import { toast } from "sonner";
 import { useDebounce } from "@/hooks/use-debounce";
-import Form from "next/form";
+// Using native form - Next.js Form not needed in Vite
 import { formatDistanceToNow } from "date-fns";
+import { knowledgeApi } from "@/lib/electron/knowledge-api";
 
 interface KnowledgeBaseListProps {
   userId: string;
@@ -64,16 +65,17 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 
 export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
-  const t = useTranslations("Knowledge");
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const pathname = location.pathname;
+  const searchParams = useSearch({ strict: false }) as Record<string, string>;
   const [_, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
 
   // Get URL params
-  const page = parseInt(searchParams.get("page") || String(DEFAULT_PAGE), 10);
-  const searchQuery = searchParams.get("search") || "";
+  const page = parseInt(searchParams?.page || String(DEFAULT_PAGE), 10);
+  const searchQuery = searchParams?.search || "";
 
   // State
   const [data, setData] = useState<KnowledgeBasesResponse | null>(null);
@@ -118,20 +120,28 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
     try {
       setLoading(true);
       setError(null);
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: DEFAULT_LIMIT.toString(),
-        ...(searchQuery ? { search: searchQuery } : {}),
+
+      // Desktop mode: Knowledge bases feature is limited
+      // Return empty data for now
+      const knowledgeBases = await knowledgeApi.getKnowledgeBases();
+
+      setData({
+        knowledgeBases: knowledgeBases.map((kb: any) => ({
+          ...kb,
+          files: kb.files || [],
+          totalChunks: kb.totalChunks || 0,
+        })),
+        pagination: {
+          page,
+          limit: DEFAULT_LIMIT,
+          total: knowledgeBases.length,
+          totalPages: Math.ceil(knowledgeBases.length / DEFAULT_LIMIT),
+          hasMore: false,
+        },
       });
-
-      const response = await fetch(`/api/knowledge/bases?${params}`);
-      if (!response.ok) throw new Error("Failed to load knowledge bases");
-      const result = await response.json();
-
-      setData(result);
     } catch (err: any) {
       setError(err);
-      toast.error(t("failedToLoadMemories"), {
+      toast.error(t("Knowledge.failedToLoadMemories"), {
         description: err.message,
       });
     } finally {
@@ -159,26 +169,16 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
 
     setIsDeleting(true);
     try {
-      const response = await fetch(
-        `/api/knowledge/bases/${deletingKnowledgeBaseId}`,
-        {
-          method: "DELETE",
-        },
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to delete knowledge base");
-      }
+      // Desktop mode: Knowledge bases deletion not fully supported yet
+      toast.info("Knowledge base deletion is coming soon to desktop mode");
 
       setDeleteDialogOpen(false);
       setDeletingKnowledgeBaseId(null);
-      toast.success(t("knowledgeBaseDeleted"));
 
       // Reload knowledge bases list
       await loadKnowledgeBases();
     } catch (error: any) {
-      toast.error(error.message || t("failedToDeleteKnowledgeBase"));
+      toast.error(error.message || t("Knowledge.failedToDeleteKnowledgeBase"));
       console.error("Failed to delete knowledge base:", error);
     } finally {
       setIsDeleting(false);
@@ -200,7 +200,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
       <div className="space-y-4">
         {/* Search Bar */}
         <div className="relative flex-1 max-w-sm">
-          <Form action={pathname} ref={formRef}>
+          <form action={pathname} ref={formRef}>
             {page !== DEFAULT_PAGE && (
               <input type="hidden" name="page" value={DEFAULT_PAGE} />
             )}
@@ -208,7 +208,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <Input
                 name="search"
-                placeholder={t("searchKnowledgeBases")}
+                placeholder={t("Knowledge.searchKnowledgeBases")}
                 defaultValue={searchQuery}
                 onChange={handleSearchChange}
                 className="pl-9 pr-9"
@@ -220,7 +220,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
                   className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                   onClick={() => {
                     startTransition(() => {
-                      router.push(buildUrl({ search: "", page: 1 }));
+                      navigate({ to: buildUrl({ search: "", page: 1 }) });
                     });
                   }}
                 >
@@ -228,17 +228,19 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
                 </Button>
               )}
             </div>
-          </Form>
+          </form>
         </div>
 
         <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
           <FileTextIcon className="size-12 mb-4" />
           <p className="text-lg">
-            {searchQuery ? t("noKnowledgeBasesFound") : t("noKnowledgeBases")}
+            {searchQuery
+              ? t("Knowledge.noKnowledgeBasesFound")
+              : t("Knowledge.noKnowledgeBases")}
           </p>
           {!searchQuery && (
             <p className="text-sm mt-2">
-              {t("createKnowledgeBaseToGetStarted")}
+              {t("Knowledge.createKnowledgeBaseToGetStarted")}
             </p>
           )}
         </div>
@@ -250,7 +252,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
     <div className="space-y-4">
       {/* Search Bar */}
       <div className="relative flex-1 max-w-sm">
-        <Form action={pathname} ref={formRef}>
+        <form action={pathname} ref={formRef}>
           {page !== DEFAULT_PAGE && (
             <input type="hidden" name="page" value={DEFAULT_PAGE} />
           )}
@@ -258,7 +260,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <Input
               name="search"
-              placeholder={t("searchKnowledgeBases")}
+              placeholder={t("Knowledge.searchKnowledgeBases")}
               defaultValue={searchQuery}
               onChange={handleSearchChange}
               className="pl-9 pr-9"
@@ -270,7 +272,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                 onClick={() => {
                   startTransition(() => {
-                    router.push(buildUrl({ search: "", page: 1 }));
+                    navigate({ to: buildUrl({ search: "", page: 1 }) });
                   });
                 }}
               >
@@ -278,7 +280,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
               </Button>
             )}
           </div>
-        </Form>
+        </form>
       </div>
 
       {/* Knowledge Bases List */}
@@ -333,7 +335,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
               >
                 <TrashIcon className="size-4 mr-1" />
                 {isDeleting && deletingKnowledgeBaseId === kb.id
-                  ? t("deletingKnowledgeBase")
+                  ? t("Knowledge.deletingKnowledgeBase")
                   : "Delete"}
               </Button>
             </CardFooter>
@@ -356,7 +358,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Knowledge Base?</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("confirmDeleteKnowledgeBase")}
+              {t("Knowledge.confirmDeleteKnowledgeBase")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -366,7 +368,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? t("deletingKnowledgeBase") : "Delete"}
+              {isDeleting ? t("Knowledge.deletingKnowledgeBase") : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

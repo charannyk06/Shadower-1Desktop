@@ -1,5 +1,6 @@
 "use client";
 
+import { useAppStore } from "@/app/store";
 import { ToolUIPart } from "ai";
 import equal from "lib/equal";
 import { cn, toAny } from "lib/utils";
@@ -9,9 +10,10 @@ import {
   CircleDotIcon,
   XIcon,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { memo, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
+import { useShallow } from "zustand/shallow";
 
 interface TaskStatusInvocationProps {
   part: ToolUIPart;
@@ -19,6 +21,7 @@ interface TaskStatusInvocationProps {
 
 interface TaskStatusInput {
   taskId: string;
+  taskDescription?: string; // Added: Allow description to be passed in input
   status: "pending" | "in-progress" | "completed" | "failed" | "blocked";
   result?: string;
 }
@@ -37,9 +40,26 @@ interface TaskStatusOutput {
 function PureTaskStatusInvocation({
   part,
 }: Readonly<TaskStatusInvocationProps>) {
-  const t = useTranslations();
+  const { t } = useTranslation();
+
+  // Get current thread's plan from store for real-time task description lookup
+  const { currentThreadId, threadPlans } = useAppStore(
+    useShallow((s) => ({
+      currentThreadId: s.currentThreadId,
+      threadPlans: s.threadPlans,
+    })),
+  );
 
   const input = part.input as TaskStatusInput | undefined;
+
+  // Look up task description from store - this provides real-time access
+  // to task descriptions even before tool output is received
+  const taskFromPlan = useMemo(() => {
+    if (!currentThreadId || !input?.taskId) return null;
+    const plan = threadPlans[currentThreadId];
+    return plan?.tasks?.find((t: any) => t.id === input.taskId);
+  }, [currentThreadId, threadPlans, input?.taskId]);
+
   const result = useMemo(() => {
     if (!part.state.startsWith("output")) return null;
     return part.output as TaskStatusOutput;
@@ -65,7 +85,16 @@ function PureTaskStatusInvocation({
     );
   }
 
-  const taskDescription = result?.taskDescription || input?.taskId;
+  // Enhanced fallback chain for task description:
+  // 1. From tool output (after completion)
+  // 2. From store (real-time, during progress) - CRITICAL for showing human-readable names
+  // 3. From tool input (if model includes it)
+  // 4. Last resort: raw task ID
+  const taskDescription =
+    result?.taskDescription ||
+    taskFromPlan?.description ||
+    input?.taskDescription ||
+    input?.taskId;
   const status = result?.newStatus || input?.status || "pending";
   const isCompleted = status === "completed";
   const isFailed = status === "failed";

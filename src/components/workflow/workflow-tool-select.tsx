@@ -1,7 +1,7 @@
 import { WorkflowToolKey } from "lib/ai/workflow/workflow.interface";
 import { groupBy } from "lib/utils";
 import { ChevronDownIcon, WrenchIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { ReactNode, useMemo, useState } from "react";
 import { Button } from "ui/button";
 import {
@@ -30,7 +30,7 @@ export function WorkflowToolSelect({
   children?: ReactNode;
   tool?: WorkflowToolKey;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const mcpToolsByServerId = useMemo(() => {
     const mcpTools = tools.filter((tool) => tool.type == "mcp-tool");

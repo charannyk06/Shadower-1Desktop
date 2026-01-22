@@ -3,7 +3,6 @@ import { eq, like, or } from "drizzle-orm";
 import { sqliteDb as db } from "../../src/lib/db/sqlite/db.sqlite";
 import {
   AgentTable,
-  BookmarkTable,
   ChatThreadTable,
   SessionTable,
   UserTable,
@@ -43,9 +42,6 @@ async function cleanup() {
       await db
         .delete(ChatThreadTable)
         .where(eq(ChatThreadTable.userId, user.id));
-
-      // Delete bookmarks
-      await db.delete(BookmarkTable).where(eq(BookmarkTable.userId, user.id));
 
       // Delete agents
       await db.delete(AgentTable).where(eq(AgentTable.userId, user.id));

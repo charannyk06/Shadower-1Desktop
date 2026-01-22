@@ -68,11 +68,11 @@ export const useChatModels = (options?: SWRConfiguration) => {
           }
         } else {
           // No models with API keys available - clear the model
-          appStore.setState({ chatModel: null });
+          appStore.setState({ chatModel: undefined });
         }
       } else {
         // No models available at all - clear the model
-        appStore.setState({ chatModel: null });
+        appStore.setState({ chatModel: undefined });
       }
     },
     ...options,

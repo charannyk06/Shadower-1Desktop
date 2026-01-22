@@ -1,5 +1,5 @@
 "use client";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Sidebar, SidebarContent, SidebarFooter } from "ui/sidebar";
 
@@ -17,20 +17,22 @@ export function AppSidebar({
 }: {
   user?: BasicUser;
 }) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   // Handle new chat shortcut (specific to main app)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isShortcutEvent(e, Shortcuts.openNewChat)) {
         e.preventDefault();
-        router.push("/");
-        router.refresh();
+        navigate({
+          to: "/",
+          search: { new: Date.now() },
+        });
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [router]);
+  }, [navigate]);
 
   return (
     <Sidebar
@@ -42,8 +44,10 @@ export function AppSidebar({
         href="/"
         enableShortcuts={true}
         onLinkClick={() => {
-          router.push("/");
-          router.refresh();
+          navigate({
+            to: "/",
+            search: { new: Date.now() },
+          });
         }}
       />
 

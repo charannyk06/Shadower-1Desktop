@@ -111,7 +111,7 @@ async function cleanupTempFiles(sessionId: string): Promise<number> {
     // Look for files matching the session pattern
     const files = await readdir(tempDir);
     for (const file of files) {
-      if (file.includes(sessionId) || file.startsWith("sandbox_")) {
+      if (file.includes(sessionId) || file.startsWith("workspace_")) {
         try {
           const filePath = join(tempDir, file);
           const stats = await stat(filePath);
@@ -135,9 +135,9 @@ async function cleanupTempFiles(sessionId: string): Promise<number> {
 }
 
 /**
- * Clean up sandbox directory for a session
+ * Clean up workspace directory for a session
  */
-async function cleanupSandboxDir(threadId: string): Promise<number> {
+async function cleanupWorkspaceDir(threadId: string): Promise<number> {
   try {
     const { join } = await import("path");
     const { readdir, unlink, rmdir, stat } = await import("fs/promises");
@@ -151,14 +151,14 @@ async function cleanupSandboxDir(threadId: string): Promise<number> {
       appDataDir = process.cwd();
     }
 
-    const sandboxDir = join(appDataDir, "sandbox", threadId);
+    const workspaceDir = join(appDataDir, "workspace", threadId);
     let deletedCount = 0;
 
     try {
-      const files = await readdir(sandboxDir);
+      const files = await readdir(workspaceDir);
       for (const file of files) {
         try {
-          const filePath = join(sandboxDir, file);
+          const filePath = join(workspaceDir, file);
           const stats = await stat(filePath);
 
           // Only delete files older than 24 hours
@@ -172,9 +172,9 @@ async function cleanupSandboxDir(threadId: string): Promise<number> {
       }
 
       // Remove empty directory
-      const remainingFiles = await readdir(sandboxDir);
+      const remainingFiles = await readdir(workspaceDir);
       if (remainingFiles.length === 0) {
-        await rmdir(sandboxDir);
+        await rmdir(workspaceDir);
       }
     } catch {
       // Directory might not exist
@@ -182,7 +182,7 @@ async function cleanupSandboxDir(threadId: string): Promise<number> {
 
     return deletedCount;
   } catch (error) {
-    console.warn(`Failed to cleanup sandbox dir for ${threadId}:`, error);
+    console.warn(`Failed to cleanup workspace dir for ${threadId}:`, error);
     return 0;
   }
 }
@@ -211,8 +211,8 @@ async function cleanupSession(
     // 3. Clean up temp files
     let tempFilesDeleted = await cleanupTempFiles(session.sessionId);
 
-    // 4. Clean up sandbox directory if applicable
-    tempFilesDeleted += await cleanupSandboxDir(session.sessionId);
+    // 4. Clean up workspace directory if applicable
+    tempFilesDeleted += await cleanupWorkspaceDir(session.sessionId);
 
     // 5. Update session record
     session.status = "closed";
@@ -381,7 +381,7 @@ async function cleanupErrorSessions(): Promise<{
 }
 
 /**
- * Cleanup old temp files and sandbox directories
+ * Cleanup old temp files and workspace directories
  */
 async function cleanupOldFiles(): Promise<number> {
   let totalDeleted = 0;
@@ -391,12 +391,12 @@ async function cleanupOldFiles(): Promise<number> {
     const { readdir, stat, unlink, rmdir } = await import("fs/promises");
     const { tmpdir } = await import("os");
 
-    // Clean up old sandbox files from temp directory
+    // Clean up old workspace files from temp directory
     const tempDir = tmpdir();
     const files = await readdir(tempDir);
 
     for (const file of files) {
-      if (file.startsWith("sandbox_")) {
+      if (file.startsWith("workspace_")) {
         try {
           const filePath = join(tempDir, file);
           const stats = await stat(filePath);
@@ -412,7 +412,7 @@ async function cleanupOldFiles(): Promise<number> {
       }
     }
 
-    // Clean up old sandbox directories
+    // Clean up old workspace directories
     let appDataDir: string;
     try {
       const { app } = await import("electron");
@@ -421,13 +421,13 @@ async function cleanupOldFiles(): Promise<number> {
       appDataDir = process.cwd();
     }
 
-    const sandboxBaseDir = join(appDataDir, "sandbox");
+    const workspaceBaseDir = join(appDataDir, "workspace");
     try {
-      const sandboxDirs = await readdir(sandboxBaseDir);
+      const workspaceDirs = await readdir(workspaceBaseDir);
 
-      for (const dir of sandboxDirs) {
+      for (const dir of workspaceDirs) {
         try {
-          const dirPath = join(sandboxBaseDir, dir);
+          const dirPath = join(workspaceBaseDir, dir);
           const stats = await stat(dirPath);
 
           // Delete directories older than 7 days
@@ -445,7 +445,7 @@ async function cleanupOldFiles(): Promise<number> {
         }
       }
     } catch {
-      // Sandbox directory might not exist
+      // Workspace directory might not exist
     }
   } catch (error) {
     console.warn("[SessionCleanup] Failed to cleanup old files:", error);

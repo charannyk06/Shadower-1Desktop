@@ -14,7 +14,7 @@ import {
 import { Label } from "ui/label";
 import { Textarea } from "ui/textarea";
 
-import { generateObjectAction } from "@/app/api/chat/actions";
+import { aiApi } from "@/lib/electron/ai-api";
 import { appStore } from "@/app/store";
 import { JSONSchema7 } from "json-schema";
 import { defaultObjectJsonSchema } from "lib/ai/workflow/shared.workflow";
@@ -30,7 +30,7 @@ import {
   VariableIcon,
   WandSparklesIcon,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { safe } from "ts-safe";
@@ -95,7 +95,7 @@ export function OutputSchemaEditor({
   open,
   onOpenChange,
 }: OutputSchemaEditorProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [mode, setMode] = useState<SchemaEditMode>("simple");
   const [localSchema, setLocalSchema] = useState<ObjectJsonSchema7>(
     structuredClone(defaultObjectJsonSchema),
@@ -159,12 +159,13 @@ export function OutputSchemaEditor({
         </div>
       ),
     });
-    if (!result) return;
+    if (!result || !model) return;
     toast.promise(
-      generateObjectAction({
-        model,
-        prompt: {
-          system: `You are an expert JSON Schema Draft 7 generator for workflow automation systems.
+      aiApi
+        .generateObject({
+          model,
+          prompt: {
+            system: `You are an expert JSON Schema Draft 7 generator for workflow automation systems.
 
 Your task is to generate a comprehensive JSON Schema based on the user's input. Handle two types of input:
 
@@ -210,17 +211,18 @@ Output: {
 }
 
 Return ONLY the JSON Schema object - no explanations or markdown formatting.`,
-          user: result,
-        },
-        schema: {
-          type: "object",
-          description: "JSON Schema7",
-          properties: {},
-          additionalProperties: true,
-        },
-      }).then((res) => {
-        setAdvancedJson(JSON.stringify(res, null, 2));
-      }),
+            user: result,
+          },
+          schema: {
+            type: "object",
+            description: "JSON Schema7",
+            properties: {},
+            additionalProperties: true,
+          },
+        })
+        .then((res) => {
+          setAdvancedJson(JSON.stringify(res, null, 2));
+        }),
       {
         loading: t("Workflow.generatingJsonSchemaWithAI"),
         success: t("Workflow.jsonSchemaGeneratedSuccessfully"),

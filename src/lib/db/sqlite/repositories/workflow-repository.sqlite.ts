@@ -6,10 +6,9 @@ import {
   WorkflowRepository,
   WorkflowSummary,
 } from "app-types/workflow";
-import { and, desc, eq, inArray, not, or } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { sqliteDb as db } from "../db.sqlite";
 import {
-  UserTable,
   WorkflowEdgeTable,
   WorkflowNodeDataTable,
   WorkflowTable,
@@ -40,48 +39,34 @@ export const sqliteWorkflowRepository: WorkflowRepository = {
   },
 
   async selectExecuteAbility(userId) {
+    // Single-user mode: only return user's own workflows
     const rows = await db
       .select({
         id: WorkflowTable.id,
         name: WorkflowTable.name,
         description: WorkflowTable.description,
         userId: WorkflowTable.userId,
-        visibility: WorkflowTable.visibility,
         updatedAt: WorkflowTable.updatedAt,
-        userName: UserTable.name,
-        userAvatar: UserTable.image,
+        isPublished: WorkflowTable.isPublished,
       })
       .from(WorkflowTable)
-      .innerJoin(UserTable, eq(WorkflowTable.userId, UserTable.id))
-      .where(
-        or(
-          eq(WorkflowTable.userId, userId),
-          not(eq(WorkflowTable.visibility, "private")),
-        ),
-      );
+      .where(eq(WorkflowTable.userId, userId));
     return rows as WorkflowSummary[];
   },
 
   async selectAll(userId) {
+    // Single-user mode: only return user's own workflows
     const rows = await db
       .select({
         id: WorkflowTable.id,
         name: WorkflowTable.name,
         description: WorkflowTable.description,
         userId: WorkflowTable.userId,
-        visibility: WorkflowTable.visibility,
         updatedAt: WorkflowTable.updatedAt,
-        userName: UserTable.name,
-        userAvatar: UserTable.image,
+        isPublished: WorkflowTable.isPublished,
       })
       .from(WorkflowTable)
-      .innerJoin(UserTable, eq(WorkflowTable.userId, UserTable.id))
-      .where(
-        or(
-          inArray(WorkflowTable.visibility, ["public", "readonly"]),
-          eq(WorkflowTable.userId, userId),
-        ),
-      )
+      .where(eq(WorkflowTable.userId, userId))
       .orderBy(desc(WorkflowTable.createdAt));
     return rows as WorkflowSummary[];
   },
@@ -101,10 +86,10 @@ export const sqliteWorkflowRepository: WorkflowRepository = {
     } as unknown as DBWorkflow;
   },
 
-  async checkAccess(workflowId, userId, readOnly = true) {
+  async checkAccess(workflowId, userId, _readOnly = true) {
+    // Single-user mode: only owner has access
     const [workflow] = await db
       .select({
-        visibility: WorkflowTable.visibility,
         userId: WorkflowTable.userId,
       })
       .from(WorkflowTable)
@@ -112,12 +97,7 @@ export const sqliteWorkflowRepository: WorkflowRepository = {
     if (!workflow) {
       return false;
     }
-    if (userId == workflow.userId) return true;
-    if (workflow.visibility === "private") {
-      return false;
-    }
-    if (workflow.visibility == "readonly" && !readOnly) return false;
-    return true;
+    return userId === workflow.userId;
   },
 
   async delete(id) {
@@ -149,7 +129,6 @@ export const sqliteWorkflowRepository: WorkflowRepository = {
       id: workflowId,
       createdAt: workflow.createdAt ?? now,
       updatedAt: now,
-      visibility: workflow.visibility ?? "private",
       version: workflow.version ?? 1,
       isPublished: workflow.isPublished ?? false,
     } as DBWorkflow;
@@ -161,7 +140,6 @@ export const sqliteWorkflowRepository: WorkflowRepository = {
         name: workflow.name,
         description: workflow.description ?? null,
         userId: workflow.userId,
-        visibility: workflow.visibility ?? "private",
         version: String(workflow.version ?? 1),
         isPublished: workflow.isPublished ?? false,
         createdAt: now,
@@ -172,7 +150,6 @@ export const sqliteWorkflowRepository: WorkflowRepository = {
         set: {
           name: workflow.name,
           description: workflow.description ?? null,
-          visibility: workflow.visibility ?? "private",
           version: String(workflow.version ?? 1),
           isPublished: workflow.isPublished ?? false,
           updatedAt: now,

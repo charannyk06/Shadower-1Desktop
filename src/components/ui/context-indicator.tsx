@@ -3,7 +3,7 @@
 import { ContextUsageState, appStore } from "@/app/store";
 import { cn } from "lib/utils";
 import { Sparkles } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 import { useShallow } from "zustand/shallow";
 
@@ -132,19 +132,9 @@ export function ContextIndicator({
     ),
   );
 
-  // Debug: Track re-renders
-  const renderCount = useRef(0);
-  renderCount.current += 1;
-
-  // Log when usage changes to verify reactivity - LOG EVERY TIME to see actual values
-  console.log("[ContextIndicator] Render #" + renderCount.current, {
-    threadId: effectiveThreadId,
-    usedTokens,
-    limit,
-    percentage:
-      percentage !== undefined ? (percentage * 100).toFixed(2) + "%" : "N/A",
-    remaining,
-  });
+  // Debug: Track re-renders (disabled logging to reduce noise)
+  // const renderCount = useRef(0);
+  // renderCount.current += 1;
 
   // Calculate display values - depend on individual primitive values for proper reactivity
   const displayData = useMemo(() => {

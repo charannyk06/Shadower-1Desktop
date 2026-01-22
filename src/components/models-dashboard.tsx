@@ -1,6 +1,7 @@
 "use client";
 
 import { modelsFetcher, modelsApi } from "@/lib/electron/models-api";
+import { mutate } from "swr";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,14 +44,11 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import dynamic from "next/dynamic";
-import { useCallback, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
 
-const LightRays = dynamic(() => import("@/components/ui/light-rays"), {
-  ssr: false,
-});
+const LightRays = lazy(() => import("@/components/ui/light-rays"));
 
 // Types
 interface ApiKeyInfo {
@@ -261,6 +259,8 @@ export default function ModelsDashboard() {
         );
         setApiKeyDialogOpen(false);
         mutateApiKeys();
+        // Invalidate models cache to refresh available providers immediately
+        await mutate("/api/chat/models");
       } else {
         toast.error(result.error || "Failed to save API key");
       }
@@ -281,8 +281,10 @@ export default function ModelsDashboard() {
             `API key removed for ${PROVIDER_REGISTRY[providerId]?.name}`,
           );
           mutateApiKeys();
+          // Invalidate models cache to remove provider from model dropdown immediately
+          await mutate("/api/chat/models");
         } else {
-          toast.error(result.error || "Failed to remove API key");
+          toast.error("Failed to remove API key");
         }
       } catch (_error) {
         toast.error("Failed to remove API key");
@@ -344,7 +346,9 @@ export default function ModelsDashboard() {
     return (
       <>
         <div className="absolute opacity-30 pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
-          <LightRays className="bg-transparent" />
+          <Suspense fallback={null}>
+            <LightRays className="bg-transparent" />
+          </Suspense>
         </div>
         <div className="absolute pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
           <div className="w-full h-full bg-gradient-to-t from-background to-50% to-transparent z-20" />

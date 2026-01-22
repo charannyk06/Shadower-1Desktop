@@ -1,34 +1,43 @@
-import { ipcMain } from "electron";
+import { ipcMain, IpcMainInvokeEvent } from "electron";
 import { getDatabase, schema } from "../services/database";
 import { eq, desc, inArray, and } from "drizzle-orm";
+import { ElectronAuthService } from "../services/auth";
+
+// Track active workflow executions for cancellation
+const activeWorkflowExecutions = new Map<string, AbortController>();
+
+// SECURITY: Helper to require authenticated user
+async function requireAuth(authService: ElectronAuthService) {
+  const user = await authService.getCurrentUser();
+  if (!user) {
+    throw new Error("Authentication required");
+  }
+  return user;
+}
 
 export function registerWorkflowHandlers() {
   const db = getDatabase();
+  const authService = ElectronAuthService.getInstance();
 
-  // Get all workflows for a user - returns WorkflowSummary with user info
-  ipcMain.handle("db:workflows:getAll", async (_event, userId: string) => {
+  // Get all workflows for authenticated user
+  // SECURITY: Uses authenticated user's ID, not client-provided userId
+  ipcMain.handle("db:workflows:getAll", async (_event, _userId: string) => {
     try {
-      // Join with user table to get userName and userAvatar for WorkflowSummary
+      const user = await requireAuth(authService);
+
       const workflows = await db
         .select({
           id: schema.WorkflowTable.id,
           name: schema.WorkflowTable.name,
           description: schema.WorkflowTable.description,
           icon: schema.WorkflowTable.icon,
-          visibility: schema.WorkflowTable.visibility,
           isPublished: schema.WorkflowTable.isPublished,
           userId: schema.WorkflowTable.userId,
           updatedAt: schema.WorkflowTable.updatedAt,
           createdAt: schema.WorkflowTable.createdAt,
-          userName: schema.UserTable.name,
-          userAvatar: schema.UserTable.image,
         })
         .from(schema.WorkflowTable)
-        .innerJoin(
-          schema.UserTable,
-          eq(schema.WorkflowTable.userId, schema.UserTable.id),
-        )
-        .where(eq(schema.WorkflowTable.userId, userId))
+        .where(eq(schema.WorkflowTable.userId, user.id)) // SECURITY: Use authenticated user's ID
         .orderBy(desc(schema.WorkflowTable.createdAt));
 
       return workflows;
@@ -39,33 +48,42 @@ export function registerWorkflowHandlers() {
   });
 
   // Get workflow by ID with nodes and edges
+  // SECURITY: Verifies user owns the workflow before returning
   ipcMain.handle("db:workflows:getById", async (_event, id: string) => {
     try {
+      const user = await requireAuth(authService);
+
+      // SECURITY: Only return workflow if user owns it
       const [workflow] = await db
         .select()
         .from(schema.WorkflowTable)
-        .where(eq(schema.WorkflowTable.id, id))
+        .where(
+          and(
+            eq(schema.WorkflowTable.id, id),
+            eq(schema.WorkflowTable.userId, user.id),
+          ),
+        )
         .limit(1);
 
-      if (workflow) {
-        const nodes = await db
-          .select()
-          .from(schema.WorkflowNodeDataTable)
-          .where(eq(schema.WorkflowNodeDataTable.workflowId, id));
-
-        const edges = await db
-          .select()
-          .from(schema.WorkflowEdgeTable)
-          .where(eq(schema.WorkflowEdgeTable.workflowId, id));
-
-        return {
-          ...workflow,
-          nodes,
-          edges,
-        };
+      if (!workflow) {
+        return null; // Don't reveal if workflow exists but user doesn't own it
       }
 
-      return workflow;
+      const nodes = await db
+        .select()
+        .from(schema.WorkflowNodeDataTable)
+        .where(eq(schema.WorkflowNodeDataTable.workflowId, id));
+
+      const edges = await db
+        .select()
+        .from(schema.WorkflowEdgeTable)
+        .where(eq(schema.WorkflowEdgeTable.workflowId, id));
+
+      return {
+        ...workflow,
+        nodes,
+        edges,
+      };
     } catch (error) {
       console.error("[IPC] Error getting workflow:", error);
       throw error;
@@ -82,7 +100,6 @@ export function registerWorkflowHandlers() {
           description: data.description,
           userId: data.userId,
           icon: data.icon,
-          visibility: data.visibility || "private",
           isPublished: data.isPublished || false,
         } as typeof schema.WorkflowTable.$inferInsert)
         .returning();
@@ -131,22 +148,34 @@ export function registerWorkflowHandlers() {
   });
 
   // Update a workflow
+  // SECURITY: Verifies user owns the workflow before updating
   ipcMain.handle(
     "db:workflows:update",
     async (_event, id: string, data: any) => {
       try {
+        const user = await requireAuth(authService);
+
+        // SECURITY: Only update if user owns the workflow
         const [workflow] = await db
           .update(schema.WorkflowTable)
           .set({
             name: data.name,
             description: data.description,
             icon: data.icon,
-            visibility: data.visibility,
             isPublished: data.isPublished,
             updatedAt: new Date(),
           } as Partial<typeof schema.WorkflowTable.$inferInsert>)
-          .where(eq(schema.WorkflowTable.id, id))
+          .where(
+            and(
+              eq(schema.WorkflowTable.id, id),
+              eq(schema.WorkflowTable.userId, user.id),
+            ),
+          )
           .returning();
+
+        if (!workflow) {
+          throw new Error("Workflow not found or access denied");
+        }
 
         return workflow;
       } catch (error) {
@@ -157,11 +186,20 @@ export function registerWorkflowHandlers() {
   );
 
   // Delete a workflow (cascade will delete nodes and edges)
+  // SECURITY: Verifies user owns the workflow before deleting
   ipcMain.handle("db:workflows:delete", async (_event, id: string) => {
     try {
+      const user = await requireAuth(authService);
+
+      // SECURITY: Only delete if user owns the workflow
       await db
         .delete(schema.WorkflowTable)
-        .where(eq(schema.WorkflowTable.id, id));
+        .where(
+          and(
+            eq(schema.WorkflowTable.id, id),
+            eq(schema.WorkflowTable.userId, user.id),
+          ),
+        );
 
       return { success: true };
     } catch (error) {
@@ -338,6 +376,135 @@ export function registerWorkflowHandlers() {
       }
     },
   );
+
+  // Execute a workflow with streaming events
+  // This is the core streaming execution for desktop mode
+  ipcMain.handle(
+    "workflow:execute",
+    async (
+      event: IpcMainInvokeEvent,
+      workflowId: string,
+      input: Record<string, any>,
+    ) => {
+      try {
+        const user = await requireAuth(authService);
+
+        // Get the workflow with nodes and edges
+        const [workflow] = await db
+          .select()
+          .from(schema.WorkflowTable)
+          .where(
+            and(
+              eq(schema.WorkflowTable.id, workflowId),
+              eq(schema.WorkflowTable.userId, user.id),
+            ),
+          )
+          .limit(1);
+
+        if (!workflow) {
+          throw new Error("Workflow not found or access denied");
+        }
+
+        const nodes = await db
+          .select()
+          .from(schema.WorkflowNodeDataTable)
+          .where(eq(schema.WorkflowNodeDataTable.workflowId, workflowId));
+
+        const edges = await db
+          .select()
+          .from(schema.WorkflowEdgeTable)
+          .where(eq(schema.WorkflowEdgeTable.workflowId, workflowId));
+
+        // Set up abort controller for cancellation
+        const abortController = new AbortController();
+        activeWorkflowExecutions.set(workflowId, abortController);
+
+        // Dynamic import to avoid bundling issues
+        const { createWorkflowExecutor } = await import(
+          "../../src/lib/ai/workflow/executor/workflow-executor"
+        );
+
+        // Create executor with nodes and edges
+        // Map null to undefined for optional fields
+        const executor = createWorkflowExecutor({
+          nodes: nodes.map((n) => ({
+            ...n,
+            description: n.description ?? undefined,
+            createdAt: n.createdAt ?? new Date(),
+            updatedAt: n.updatedAt ?? new Date(),
+            nodeConfig: n.nodeConfig as any,
+            uiConfig: n.uiConfig as any,
+          })),
+          edges: edges.map((e) => ({
+            ...e,
+            createdAt: e.createdAt ?? new Date(),
+            uiConfig: e.uiConfig as any,
+          })),
+          userId: user.id,
+        });
+
+        // Execute and stream events back to renderer
+        console.log(`[Workflow IPC] Starting execution of workflow ${workflowId}`);
+
+        try {
+          // Subscribe to workflow events and forward them to the renderer
+          executor.subscribe((graphEvent: any) => {
+            // Check if aborted
+            if (abortController.signal.aborted) {
+              return;
+            }
+
+            // Send event to renderer
+            event.sender.send("workflow:event", {
+              workflowId,
+              event: graphEvent,
+            });
+          });
+
+          // Execute the workflow with the input
+          const result = await executor.run(input);
+
+          console.log(`[Workflow IPC] Execution completed for ${workflowId}`);
+
+          // Send completion event with result
+          event.sender.send("workflow:event", {
+            workflowId,
+            event: { type: "complete", result },
+          });
+
+          return { success: true };
+        } finally {
+          // Clean up
+          activeWorkflowExecutions.delete(workflowId);
+        }
+      } catch (error) {
+        console.error("[Workflow IPC] Execution error:", error);
+
+        // Send error event
+        event.sender.send("workflow:event", {
+          workflowId,
+          event: {
+            type: "error",
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+        });
+
+        throw error;
+      }
+    },
+  );
+
+  // Cancel a running workflow execution
+  ipcMain.handle("workflow:cancel", async (_event, workflowId: string) => {
+    const controller = activeWorkflowExecutions.get(workflowId);
+    if (controller) {
+      controller.abort();
+      activeWorkflowExecutions.delete(workflowId);
+      console.log(`[Workflow IPC] Cancelled execution of ${workflowId}`);
+      return { success: true, cancelled: true };
+    }
+    return { success: true, cancelled: false };
+  });
 
   console.log("[IPC] Workflow handlers registered");
 }

@@ -16,7 +16,7 @@ import { VariableSelect } from "../variable-select";
 
 import { findJsonSchemaByPath } from "lib/ai/workflow/shared.workflow";
 import { cleanVariableName, generateUniqueKey } from "lib/utils";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Button } from "ui/button";
 import { Input } from "ui/input";
 import { Label } from "ui/label";
@@ -27,7 +27,7 @@ export const OutputNodeDataConfig = memo(function ({
   data: OutputNodeData;
 }) {
   const { getNodes, updateNodeData } = useReactFlow();
-  const t = useTranslations();
+  const { t } = useTranslation();
   const outputVariables = useMemo(() => {
     if (!data?.outputData || !Array.isArray(data.outputData)) return [];
     const nodes = getNodes() as UINode[];

@@ -22,7 +22,7 @@ import { Input } from "ui/input";
 import { JSONSchema7 } from "json-schema";
 import { findAccessibleNodeIds } from "lib/ai/workflow/shared.workflow";
 import { cn } from "lib/utils";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 
 interface VariableSelectProps {
   currentNodeId: string;
@@ -75,7 +75,7 @@ export function VariableSelectContent({
   const { getNodes, getEdges } = useReactFlow<UINode>();
   const nodes = getNodes();
   const edges = getEdges();
-  const t = useTranslations();
+  const { t } = useTranslation();
   const firstNodeRef = useRef<HTMLDivElement>(null);
 
   const accessibleSchemas = useMemo(() => {
@@ -198,7 +198,7 @@ function SchemaItem({
   name: string;
   schema: JSONSchema7;
   path: string[];
-  ref?: React.RefObject<HTMLDivElement | null>;
+  ref?: React.RefObject<HTMLDivElement>;
   allowedTypes?: string[];
   onChange: (path: string[]) => void;
 }) {

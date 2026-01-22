@@ -1,142 +1,93 @@
 /**
  * Unified Archive API for Desktop (Electron)
  *
- * This module provides a unified API for archive operations that automatically
- * uses Electron IPC for all database operations.
+ * This module provides a unified API for archive operations using Electron IPC.
+ * Desktop-only - no HTTP fallbacks.
  */
-
-/**
- * Check if we're running in Electron mode with archive support
- */
-export function isElectronMode(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.electronAPI !== undefined &&
-    window.electronAPI.db !== undefined &&
-    window.electronAPI.db.archives !== undefined
-  );
-}
 
 /**
  * Get current user ID from Electron auth
  */
 async function getElectronUserId(): Promise<string> {
-  if (
-    typeof window === "undefined" ||
-    !window.electronAPI ||
-    !window.electronAPI.auth
-  ) {
-    throw new Error("Not in Electron mode");
-  }
   const user = await window.electronAPI.auth.getCurrentUser();
   return user?.id || "local-user";
 }
 
 /**
- * Unified Archive API
+ * Unified Archive API - Desktop Only (IPC)
  */
 export const archiveApi = {
   /**
    * Get all archives for the current user
    */
   async getAll(): Promise<any[]> {
-    if (isElectronMode()) {
-      const userId = await getElectronUserId();
-      return window.electronAPI.db.archives.getAll(userId);
-    }
-    const res = await fetch("/api/archive");
-    if (!res.ok) throw new Error(`Failed to get archives: ${res.status}`);
-    return res.json();
+    const userId = await getElectronUserId();
+    return window.electronAPI.db.archives.getAll(userId);
   },
 
   /**
    * Get a single archive by ID
    */
   async getById(id: string): Promise<any | null> {
-    if (isElectronMode()) {
-      return window.electronAPI.db.archives.getById(id);
-    }
-    const res = await fetch(`/api/archive/${id}`);
-    if (!res.ok) throw new Error(`Failed to get archive: ${res.status}`);
-    return res.json();
+    return window.electronAPI.db.archives.getById(id);
   },
 
   /**
    * Create a new archive
    */
   async create(data: any): Promise<any> {
-    if (isElectronMode()) {
-      const userId = await getElectronUserId();
-      return window.electronAPI.db.archives.create({
-        ...data,
-        userId,
-      });
-    }
-    const res = await fetch("/api/archive", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+    const userId = await getElectronUserId();
+    return window.electronAPI.db.archives.create({
+      ...data,
+      userId,
     });
-    if (!res.ok) throw new Error(`Failed to create archive: ${res.status}`);
-    return res.json();
   },
 
   /**
    * Update an archive
    */
   async update(id: string, data: any): Promise<any> {
-    if (isElectronMode()) {
-      return window.electronAPI.db.archives.update(id, data);
-    }
-    const res = await fetch(`/api/archive/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error(`Failed to update archive: ${res.status}`);
-    return res.json();
+    return window.electronAPI.db.archives.update(id, data);
   },
 
   /**
    * Delete an archive
    */
   async delete(id: string): Promise<void> {
-    if (isElectronMode()) {
-      await window.electronAPI.db.archives.delete(id);
-      return;
-    }
-    const res = await fetch(`/api/archive/${id}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error(`Failed to delete archive: ${res.status}`);
+    await window.electronAPI.db.archives.delete(id);
   },
 
   /**
    * Archive a thread (move to archive)
    */
   async archiveThread(threadId: string, archiveId: string): Promise<void> {
-    if (isElectronMode()) {
-      await window.electronAPI.db.archives.archiveThread(threadId, archiveId);
-      return;
-    }
-    const res = await fetch(`/api/archive/${archiveId}/threads/${threadId}`, {
-      method: "POST",
-    });
-    if (!res.ok) throw new Error(`Failed to archive thread: ${res.status}`);
+    const userId = await getElectronUserId();
+    await window.electronAPI.db.archives.archiveThread(
+      threadId,
+      archiveId,
+      userId,
+    );
   },
 
   /**
    * Unarchive a thread
    */
-  async unarchiveThread(threadId: string): Promise<void> {
-    if (isElectronMode()) {
-      await window.electronAPI.db.archives.unarchiveThread(threadId);
-      return;
-    }
-    const res = await fetch(`/api/thread/${threadId}/unarchive`, {
-      method: "POST",
-    });
-    if (!res.ok) throw new Error(`Failed to unarchive thread: ${res.status}`);
+  async unarchiveThread(threadId: string, archiveId?: string): Promise<void> {
+    await window.electronAPI.db.archives.unarchiveThread(threadId, archiveId);
+  },
+
+  /**
+   * Get items in an archive
+   */
+  async getItems(archiveId: string): Promise<any[]> {
+    return window.electronAPI.db.archives.getItems(archiveId);
+  },
+
+  /**
+   * Get archives containing a specific item (e.g., thread)
+   */
+  async getItemArchives(itemId: string): Promise<any[]> {
+    return window.electronAPI.db.archives.getItemArchives(itemId);
   },
 };
 
@@ -154,17 +105,11 @@ export async function archiveFetcher(url: string): Promise<any> {
     return archiveApi.getById(archiveMatch[1]);
   }
 
-  // Fallback - log warning and try to handle gracefully
-  if (isElectronMode()) {
-    console.warn(
-      `[archiveFetcher] Unrecognized URL pattern: ${url}, returning empty array`,
-    );
-    return [];
-  }
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-  return res.json();
+  // Unrecognized pattern - return empty array
+  console.warn(
+    `[archiveFetcher] Unrecognized URL pattern: ${url}, returning empty array`,
+  );
+  return [];
 }
 
 export default archiveApi;

@@ -1,9 +1,8 @@
 /**
- * Unified MCP API for Desktop (Electron) and Web
+ * Unified MCP API for Desktop (Electron)
  *
- * This module provides a unified API for MCP server operations that automatically
- * detects if we're running in Electron mode and uses IPC, or falls back to
- * fetch calls for web mode.
+ * This module provides a unified API for MCP server operations using Electron IPC.
+ * Desktop-only - no HTTP fallbacks.
  */
 
 import {
@@ -13,149 +12,72 @@ import {
 } from "app-types/mcp";
 
 /**
- * Check if we're running in Electron mode with MCP IPC available
- */
-export function isElectronMode(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.electronAPI !== undefined &&
-    window.electronAPI.db?.mcp !== undefined
-  );
-}
-
-/**
  * Get current user ID from Electron auth
  */
 async function getElectronUserId(): Promise<string> {
-  if (!isElectronMode()) {
-    throw new Error("Not in Electron mode");
-  }
   const user = await window.electronAPI.auth.getCurrentUser();
   return user?.id || "local-user";
 }
 
 /**
- * Unified MCP API
+ * Unified MCP API - Desktop Only (IPC)
  */
 export const mcpApi = {
   /**
    * Get a single MCP server by ID
    */
   async getById(id: string): Promise<any | null> {
-    if (isElectronMode()) {
-      try {
-        return await window.electronAPI.db.mcp.getServerById(id);
-      } catch (error) {
-        console.error("[mcpApi] Error getting MCP server by ID:", error);
-        return null;
-      }
+    try {
+      return await window.electronAPI.db.mcp.getServerById(id);
+    } catch (error) {
+      console.error("[mcpApi] Error getting MCP server by ID:", error);
+      return null;
     }
-
-    const res = await fetch(`/api/mcp/${id}`);
-    if (!res.ok) {
-      if (res.status === 404) return null;
-      throw new Error(`Failed to get MCP server: ${res.status}`);
-    }
-    return res.json();
   },
 
   /**
    * Get all MCP servers for the current user (list endpoint)
-   * Returns servers with their status and tool info
+   * Returns servers with their ACTUAL connection status and tool info
    */
   async getList(): Promise<MCPServerInfo[]> {
-    if (isElectronMode()) {
-      try {
-        // In Electron mode, get servers from IPC
-        const servers = await window.electronAPI.db.mcp.getServers();
-        // Note: In desktop mode, we return servers but tool info
-        // may not be available until MCP client connects
-        return servers.map((server: any) => ({
-          id: server.id,
-          name: server.name,
-          status: server.enabled ? "connected" : "disconnected",
-          toolInfo: [],
-          error: null,
-          config: server.config,
-        }));
-      } catch (error) {
-        console.error("[mcpApi] Error getting MCP servers:", error);
-        return [];
-      }
+    try {
+      // Use getServersWithStatus to get ACTUAL connection status from MCP clients
+      return await window.electronAPI.db.mcp.getServersWithStatus();
+    } catch (error) {
+      console.error("[mcpApi] Error getting MCP servers:", error);
+      return [];
     }
-
-    const res = await fetch("/api/mcp/list");
-    if (!res.ok) {
-      throw new Error(`Failed to get MCP list: ${res.status}`);
-    }
-    return res.json();
   },
 
   /**
    * Create or update an MCP server
    */
-  async save(data: {
-    id?: string;
-    name: string;
-    config: any;
-  }): Promise<any> {
-    if (isElectronMode()) {
-      const userId = await getElectronUserId();
-      return window.electronAPI.db.mcp.saveServer({
-        ...data,
-        userId,
-      });
-    }
-
-    const res = await fetch("/api/mcp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+  async save(data: { id?: string; name: string; config: any }): Promise<any> {
+    const userId = await getElectronUserId();
+    return window.electronAPI.db.mcp.saveServer({
+      ...data,
+      userId,
     });
-    if (!res.ok) {
-      throw new Error(`Failed to save MCP server: ${res.status}`);
-    }
-    return res.json();
   },
 
   /**
    * Delete an MCP server
    */
   async delete(id: string): Promise<void> {
-    if (isElectronMode()) {
-      await window.electronAPI.db.mcp.deleteServer(id);
-      return;
-    }
-
-    const res = await fetch(`/api/mcp/${id}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) {
-      throw new Error(`Failed to delete MCP server: ${res.status}`);
-    }
+    await window.electronAPI.db.mcp.deleteServer(id);
   },
 
   /**
    * Get server customization for an MCP server
+   * Note: Server customizations are limited in desktop mode
    */
   async getServerCustomization(
     serverId: string,
   ): Promise<McpServerCustomization | null> {
-    if (isElectronMode()) {
-      // In Electron desktop mode, customizations are limited
-      // We could store these in a separate table or localStorage
-      console.log(
-        "[mcpApi] Server customizations not fully supported in desktop mode",
-      );
-      return null;
-    }
-
-    const res = await fetch(`/api/mcp/server-customizations/${serverId}`);
-    if (!res.ok) {
-      if (res.status === 404) return null;
-      throw new Error(`Failed to get server customization: ${res.status}`);
-    }
-    return res.json();
+    console.log(
+      "[mcpApi] Server customizations not fully supported in desktop mode",
+    );
+    return null;
   },
 
   /**
@@ -165,41 +87,19 @@ export const mcpApi = {
     serverId: string,
     data: { prompt: string },
   ): Promise<any> {
-    if (isElectronMode()) {
-      console.log(
-        "[mcpApi] Server customizations not fully supported in desktop mode",
-      );
-      return { success: true };
-    }
-
-    const res = await fetch(`/api/mcp/server-customizations/${serverId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-      throw new Error(`Failed to save server customization: ${res.status}`);
-    }
-    return res.json();
+    console.log(
+      "[mcpApi] Server customizations not fully supported in desktop mode",
+    );
+    return { success: true };
   },
 
   /**
    * Delete server customization
    */
   async deleteServerCustomization(serverId: string): Promise<void> {
-    if (isElectronMode()) {
-      console.log(
-        "[mcpApi] Server customizations not fully supported in desktop mode",
-      );
-      return;
-    }
-
-    const res = await fetch(`/api/mcp/server-customizations/${serverId}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) {
-      throw new Error(`Failed to delete server customization: ${res.status}`);
-    }
+    console.log(
+      "[mcpApi] Server customizations not fully supported in desktop mode",
+    );
   },
 
   /**
@@ -208,20 +108,12 @@ export const mcpApi = {
   async getToolCustomizations(
     serverId: string,
   ): Promise<McpToolCustomization[]> {
-    if (isElectronMode()) {
-      try {
-        return await window.electronAPI.db.mcp.getToolCustomizations(serverId);
-      } catch (error) {
-        console.error("[mcpApi] Error getting tool customizations:", error);
-        return [];
-      }
+    try {
+      return await window.electronAPI.db.mcp.getToolCustomizations(serverId);
+    } catch (error) {
+      console.error("[mcpApi] Error getting tool customizations:", error);
+      return [];
     }
-
-    const res = await fetch(`/api/mcp/tool-customizations/${serverId}`);
-    if (!res.ok) {
-      throw new Error(`Failed to get tool customizations: ${res.status}`);
-    }
-    return res.json();
   },
 
   /**
@@ -231,29 +123,18 @@ export const mcpApi = {
     serverId: string,
     toolName: string,
   ): Promise<McpToolCustomization | null> {
-    if (isElectronMode()) {
-      try {
-        const customizations =
-          await window.electronAPI.db.mcp.getToolCustomizations(serverId);
-        return (
-          customizations.find(
-            (c: McpToolCustomization) => c.toolName === toolName,
-          ) || null
-        );
-      } catch (error) {
-        console.error("[mcpApi] Error getting tool customization:", error);
-        return null;
-      }
+    try {
+      const customizations =
+        await window.electronAPI.db.mcp.getToolCustomizations(serverId);
+      return (
+        customizations.find(
+          (c: McpToolCustomization) => c.toolName === toolName,
+        ) || null
+      );
+    } catch (error) {
+      console.error("[mcpApi] Error getting tool customization:", error);
+      return null;
     }
-
-    const res = await fetch(
-      `/api/mcp/tool-customizations/${serverId}/${toolName}`,
-    );
-    if (!res.ok) {
-      if (res.status === 404) return null;
-      throw new Error(`Failed to get tool customization: ${res.status}`);
-    }
-    return res.json();
   },
 
   /**
@@ -264,28 +145,13 @@ export const mcpApi = {
     toolName: string,
     data: { prompt: string },
   ): Promise<any> {
-    if (isElectronMode()) {
-      const userId = await getElectronUserId();
-      return window.electronAPI.db.mcp.saveToolCustomization({
-        userId,
-        serverId,
-        toolName,
-        prompt: data.prompt,
-      });
-    }
-
-    const res = await fetch(
-      `/api/mcp/tool-customizations/${serverId}/${toolName}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      },
-    );
-    if (!res.ok) {
-      throw new Error(`Failed to save tool customization: ${res.status}`);
-    }
-    return res.json();
+    const userId = await getElectronUserId();
+    return window.electronAPI.db.mcp.saveToolCustomization({
+      userId,
+      serverId,
+      toolName,
+      prompt: data.prompt,
+    });
   },
 
   /**
@@ -295,22 +161,232 @@ export const mcpApi = {
     serverId: string,
     toolName: string,
   ): Promise<void> {
-    if (isElectronMode()) {
-      // Note: Deletion of tool customizations would require adding a delete handler
-      console.log(
-        "[mcpApi] Tool customization deletion not fully supported in desktop mode",
-      );
-      return;
-    }
-
-    const res = await fetch(
-      `/api/mcp/tool-customizations/${serverId}/${toolName}`,
-      {
-        method: "DELETE",
-      },
+    console.log(
+      "[mcpApi] Tool customization deletion not fully supported in desktop mode",
     );
-    if (!res.ok) {
-      throw new Error(`Failed to delete tool customization: ${res.status}`);
+  },
+
+  /**
+   * Check if an MCP server exists by name
+   */
+  async existsByServerName(name: string): Promise<boolean> {
+    try {
+      return await window.electronAPI.db.mcp.existsByServerName(name);
+    } catch (error) {
+      console.error("[mcpApi] Error checking if server exists:", error);
+      return false;
+    }
+  },
+
+  /**
+   * Refresh an MCP client (reconnect)
+   */
+  async refreshClient(serverId: string): Promise<{
+    success: boolean;
+    status?: string;
+    toolInfo?: any[];
+    error?: string;
+  }> {
+    try {
+      return await window.electronAPI.db.mcp.refreshClient(serverId);
+    } catch (error: any) {
+      console.error("[mcpApi] Error refreshing MCP client:", error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  /**
+   * Call an MCP tool directly
+   */
+  async callTool(
+    serverId: string,
+    toolName: string,
+    args: any,
+  ): Promise<{ success: boolean; result?: any; error?: string }> {
+    try {
+      return await window.electronAPI.db.mcp.callTool({
+        serverId,
+        toolName,
+        args,
+      });
+    } catch (error: any) {
+      console.error("[mcpApi] Error calling MCP tool:", error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  /**
+   * Call an MCP tool by server name
+   */
+  async callToolByServerName(
+    serverName: string,
+    toolName: string,
+    args: any,
+  ): Promise<{ success: boolean; result?: any; error?: string }> {
+    try {
+      return await window.electronAPI.db.mcp.callToolByServerName({
+        serverName,
+        toolName,
+        args,
+      });
+    } catch (error: any) {
+      console.error("[mcpApi] Error calling MCP tool by server name:", error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  /**
+   * Get MCP server status with tool info
+   */
+  async getServerStatus(serverId: string): Promise<any | null> {
+    try {
+      return await window.electronAPI.db.mcp.getServerStatus(serverId);
+    } catch (error) {
+      console.error("[mcpApi] Error getting server status:", error);
+      return null;
+    }
+  },
+
+  /**
+   * Update MCP server visibility
+   */
+  async updateVisibility(
+    serverId: string,
+    visibility: "public" | "private",
+  ): Promise<any> {
+    try {
+      return await window.electronAPI.db.mcp.updateVisibility({
+        serverId,
+        visibility,
+      });
+    } catch (error) {
+      console.error("[mcpApi] Error updating visibility:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get all MCP servers with their connection status
+   */
+  async getServersWithStatus(): Promise<MCPServerInfo[]> {
+    try {
+      return await window.electronAPI.db.mcp.getServersWithStatus();
+    } catch (error) {
+      console.error("[mcpApi] Error getting servers with status:", error);
+      return [];
+    }
+  },
+
+  /**
+   * Authorize an MCP client (OAuth flow)
+   * Returns the authorization URL to redirect to
+   */
+  async authorize(serverId: string): Promise<string | null> {
+    try {
+      const result = await window.electronAPI.db.mcp.authorize(serverId);
+      if (!result.success) {
+        throw new Error(result.error || "Failed to get authorization URL");
+      }
+      return result.authUrl || null;
+    } catch (error: any) {
+      console.error("[mcpApi] Error authorizing MCP client:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Check if an MCP client has a valid token
+   */
+  async checkToken(serverId: string): Promise<boolean> {
+    try {
+      const result = await window.electronAPI.db.mcp.checkToken(serverId);
+      return result.valid || false;
+    } catch (error: any) {
+      console.error("[mcpApi] Error checking MCP token:", error);
+      return false;
+    }
+  },
+
+  /**
+   * Finish OAuth flow with authorization code
+   * Called from the OAuth callback page after receiving code and state
+   */
+  async finishOAuth(
+    code: string,
+    state: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await window.electronAPI.db.mcp.finishOAuth({
+        code,
+        state,
+      });
+      return result;
+    } catch (error: any) {
+      console.error("[mcpApi] Error finishing OAuth:", error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  /**
+   * Quick install an MCP server from the marketplace
+   * Creates the server and attempts to connect immediately
+   */
+  async quickInstall(mcpConfig: {
+    name: string;
+    config: any;
+    requiresAuth?: boolean;
+  }): Promise<{
+    success: boolean;
+    serverId?: string;
+    needsAuth?: boolean;
+    status?: string;
+    toolInfo?: any[];
+    error?: string;
+  }> {
+    try {
+      // 1. Check if server with this name already exists
+      const exists = await this.existsByServerName(mcpConfig.name);
+      if (exists) {
+        return { success: false, error: "Server already installed" };
+      }
+
+      // 2. Save the server config
+      const result = await this.save({
+        name: mcpConfig.name,
+        config: mcpConfig.config,
+      });
+
+      if (!result?.id) {
+        return { success: false, error: "Failed to save server configuration" };
+      }
+
+      // 3. Attempt to connect immediately to detect OAuth requirements
+      try {
+        const refreshResult = await this.refreshClient(result.id);
+        return {
+          success: true,
+          serverId: result.id,
+          needsAuth: refreshResult.status === "authorizing",
+          status: refreshResult.status || "disconnected",
+          toolInfo: refreshResult.toolInfo || [],
+        };
+      } catch (refreshError: any) {
+        // Connection failed but server was saved - return success with disconnected status
+        console.log(
+          "[mcpApi] Initial connection attempt failed:",
+          refreshError?.message,
+        );
+        return {
+          success: true,
+          serverId: result.id,
+          needsAuth: mcpConfig.requiresAuth || false,
+          status: "disconnected",
+          toolInfo: [],
+        };
+      }
+    } catch (error: any) {
+      console.error("[mcpApi] Error in quickInstall:", error);
+      return { success: false, error: error.message };
     }
   },
 };
@@ -351,15 +427,11 @@ export async function mcpFetcher(url: string): Promise<any> {
     );
   }
 
-  // Fallback to regular fetch for unrecognized patterns
-  if (isElectronMode()) {
-    console.warn(
-      `[mcpFetcher] Unrecognized URL pattern: ${url}, using fetch fallback`,
-    );
-  }
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-  return res.json();
+  // Unrecognized pattern
+  console.warn(
+    `[mcpFetcher] Unrecognized URL pattern: ${url}, returning empty array`,
+  );
+  return [];
 }
 
 export default mcpApi;

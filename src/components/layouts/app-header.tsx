@@ -13,31 +13,22 @@ import { useSidebar } from "ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
 import { appStore } from "@/app/store";
-import { BackButton } from "@/components/layouts/back-button";
-import { buildReturnUrl } from "lib/admin/navigation-utils";
 import { Shortcuts, getShortcutKeyList } from "lib/keyboard-shortcuts";
-import { useTranslations } from "next-intl";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { useLocation } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 import { useShallow } from "zustand/shallow";
 import { ThreadDropdown } from "../thread-dropdown";
 
 export function AppHeader() {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [appStoreMutate, theaterMode] = appStore(
     useShallow((state) => [state.mutate, state.theaterMode]),
   );
   const { toggleSidebar, open, setOpen } = useSidebar();
-  const currentPaths = usePathname();
-  const searchParams = useSearchParams();
-
-  const showActionButtons = useMemo(() => {
-    if (currentPaths.startsWith("/admin")) {
-      return false;
-    }
-    return true;
-  }, [currentPaths]);
+  const location = useLocation();
+  const currentPaths = location.pathname;
 
   const isOnChatPage = useMemo(() => {
     return currentPaths.startsWith("/chat/");
@@ -47,21 +38,7 @@ export function AppHeader() {
     if (currentPaths.startsWith("/chat/")) {
       return <ThreadDropdownComponent />;
     }
-    if (
-      currentPaths.startsWith("/admin/users/") &&
-      currentPaths.split("/").length > 3
-    ) {
-      const searchPageParams = searchParams.get("searchPageParams");
-      const returnUrl = buildReturnUrl("/admin/users", searchPageParams || "");
-      return (
-        <BackButton
-          data-testid="admin-users-back-button"
-          returnUrl={returnUrl}
-          title={t("Admin.Users.backToUsers")}
-        />
-      );
-    }
-  }, [currentPaths, searchParams]);
+  }, [currentPaths]);
 
   return (
     <header className="sticky top-0 z-50 flex items-center px-3 py-2 pt-8">
@@ -111,7 +88,7 @@ export function AppHeader() {
       {componentByPage}
 
       <div className="flex-1" />
-      {showActionButtons && (
+      {
         <div className="flex items-center gap-2">
           {isOnChatPage && (
             <Tooltip>
@@ -134,7 +111,7 @@ export function AppHeader() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent align="end" side="bottom">
-                <div className="text-xs">Sandbox Files</div>
+                <div className="text-xs">Workspace Files</div>
               </TooltipContent>
             </Tooltip>
           )}
@@ -212,28 +189,34 @@ export function AppHeader() {
             </TooltipContent>
           </Tooltip>
         </div>
-      )}
+      }
     </header>
   );
 }
 
 function ThreadDropdownComponent() {
-  const [threadList, currentThreadId, generatingTitleThreadIds] = appStore(
-    useShallow((state) => [
-      state.threadList,
-      state.currentThreadId,
-      state.generatingTitleThreadIds,
-    ]),
-  );
+  // Subscribe to each field individually for more reliable updates
+  const threadList = appStore((state) => state.threadList);
+  const currentThreadId = appStore((state) => state.currentThreadId);
+  const generatingTitleThreadIds = appStore((state) => state.generatingTitleThreadIds);
+
+  // Find the current thread - recompute when threadList or currentThreadId changes
   const currentThread = useMemo(() => {
-    return threadList.find((thread) => thread.id === currentThreadId);
+    const found = threadList.find((thread) => thread.id === currentThreadId);
+    console.log("[AppHeader] currentThread lookup:", {
+      currentThreadId,
+      foundTitle: found?.title,
+      threadListLength: threadList.length,
+      threadTitles: threadList.slice(0, 3).map(t => ({ id: t.id.slice(0, 8), title: t.title })),
+    });
+    return found;
   }, [threadList, currentThreadId]);
 
   useEffect(() => {
     if (currentThread?.id) {
       document.title = currentThread.title || "New Chat";
     }
-  }, [currentThread?.id]);
+  }, [currentThread?.id, currentThread?.title]);
 
   if (!currentThread) return null;
 

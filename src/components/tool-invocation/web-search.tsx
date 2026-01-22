@@ -6,7 +6,7 @@ import equal from "lib/equal";
 import { notify } from "lib/notify";
 import { cn, toAny } from "lib/utils";
 import { AlertTriangleIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { memo, useMemo, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { GlobalIcon } from "ui/global-icon";
@@ -21,7 +21,7 @@ interface WebSearchToolInvocationProps {
 }
 
 function PureWebSearchToolInvocation({ part }: WebSearchToolInvocationProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   const result = useMemo(() => {
     if (!part.state.startsWith("output")) return null;

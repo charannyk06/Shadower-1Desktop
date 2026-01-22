@@ -8,7 +8,7 @@ import {
 import { objectFlow } from "lib/utils";
 import { InfoIcon, PlusIcon, TrashIcon, VariableIcon } from "lucide-react";
 import { PencilIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { memo, useCallback } from "react";
 import { Button } from "ui/button";
 import { Label } from "ui/label";
@@ -24,7 +24,7 @@ export const InputNodeDataConfig = memo(function ({
 }: {
   data: InputNodeData;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const { updateNodeData } = useReactFlow();
 
   const checkRequired = useCallback(

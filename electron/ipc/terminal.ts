@@ -3,19 +3,76 @@
  *
  * Provides local command execution, screenshot capture,
  * and mouse/keyboard automation for the desktop app.
+ *
+ * SECURITY:
+ * - Input validation for all user-provided parameters
+ * - Logging of dangerous command patterns
+ * - Use of execFile where possible to avoid shell injection
  */
 
 import { ipcMain, desktopCapturer, screen } from "electron";
-import { exec, spawn } from "child_process";
+import { exec, spawn, execFile } from "child_process";
 import { promisify } from "util";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+// SECURITY: Validate coordinates are safe numbers
+function validateCoordinates(
+  x: unknown,
+  y: unknown,
+): { x: number; y: number } | null {
+  const xNum = Number(x);
+  const yNum = Number(y);
+  if (
+    !Number.isFinite(xNum) ||
+    !Number.isFinite(yNum) ||
+    xNum < 0 ||
+    yNum < 0 ||
+    xNum > 100000 ||
+    yNum > 100000
+  ) {
+    return null;
+  }
+  return { x: Math.floor(xNum), y: Math.floor(yNum) };
+}
+
+// SECURITY: Sanitize text for AppleScript by escaping special characters
+function sanitizeForAppleScript(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/'/g, "'\\''");
+}
+
+// SECURITY: Log potentially dangerous commands
+function logCommandExecution(command: string): void {
+  const dangerousPatterns = [
+    /rm\s+(-rf?|--recursive)/i,
+    /sudo/i,
+    /chmod\s+777/i,
+    />\s*\/dev\//i,
+    /mkfs/i,
+    /dd\s+if=/i,
+    /:(){ :|:& };:/i, // fork bomb
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(command)) {
+      console.warn(
+        `[Terminal] SECURITY WARNING: Potentially dangerous command executed: ${command.substring(0, 100)}`,
+      );
+      break;
+    }
+  }
+}
 
 // Platform-specific automation helpers
 const platform = process.platform;
 
 /**
  * Execute a shell command with timeout support
+ * SECURITY: Logs potentially dangerous commands for audit
  */
 async function executeCommand(options: {
   command: string;
@@ -30,6 +87,9 @@ async function executeCommand(options: {
   error?: string;
 }> {
   const { command, cwd, timeout = 60000, env } = options;
+
+  // SECURITY: Log potentially dangerous commands
+  logCommandExecution(command);
 
   try {
     // Determine shell based on platform
@@ -164,6 +224,7 @@ async function captureScreenshot(options: {
 
 /**
  * Platform-specific mouse click implementation
+ * SECURITY: Validates coordinates before use
  */
 async function performClick(options: {
   x: number;
@@ -171,6 +232,15 @@ async function performClick(options: {
   button?: "left" | "right" | "double";
 }): Promise<{ success: boolean; message?: string; error?: string }> {
   const { x, y, button = "left" } = options;
+
+  // SECURITY: Validate coordinates
+  const coords = validateCoordinates(x, y);
+  if (!coords) {
+    return {
+      success: false,
+      error: "Invalid coordinates: must be non-negative finite numbers",
+    };
+  }
 
   try {
     if (platform === "darwin") {
@@ -180,20 +250,22 @@ async function performClick(options: {
       if (button === "double") clickType = "dc";
 
       // Try cliclick first (if installed)
+      // SECURITY: Use execFileAsync to avoid shell injection
       try {
-        await execAsync(`cliclick ${clickType}:${x},${y}`);
-        return { success: true, message: `Clicked at (${x}, ${y})` };
+        await execFileAsync("cliclick", [`${clickType}:${coords.x},${coords.y}`]);
+        return { success: true, message: `Clicked at (${coords.x}, ${coords.y})` };
       } catch {
-        // Fall back to AppleScript
+        // Fall back to AppleScript using execFile
         const script =
           button === "right"
-            ? `tell application "System Events" to click at {${x}, ${y}} using right button`
+            ? `tell application "System Events" to click at {${coords.x}, ${coords.y}} using right button`
             : button === "double"
-              ? `tell application "System Events" to double click at {${x}, ${y}}`
-              : `tell application "System Events" to click at {${x}, ${y}}`;
+              ? `tell application "System Events" to double click at {${coords.x}, ${coords.y}}`
+              : `tell application "System Events" to click at {${coords.x}, ${coords.y}}`;
 
-        await execAsync(`osascript -e '${script}'`);
-        return { success: true, message: `Clicked at (${x}, ${y})` };
+        // SECURITY: Use execFileAsync with args array to avoid shell injection
+        await execFileAsync("osascript", ["-e", script]);
+        return { success: true, message: `Clicked at (${coords.x}, ${coords.y})` };
       }
     } else if (platform === "win32") {
       // Windows: Use PowerShell
@@ -239,20 +311,31 @@ async function performClick(options: {
 
 /**
  * Platform-specific keyboard typing
+ * SECURITY: Sanitizes text input before use
  */
 async function performType(options: {
   text: string;
 }): Promise<{ success: boolean; message?: string; error?: string }> {
   const { text } = options;
 
+  // SECURITY: Validate text is a string and not too long
+  if (typeof text !== "string" || text.length > 10000) {
+    return {
+      success: false,
+      error: "Invalid text: must be a string under 10000 characters",
+    };
+  }
+
   try {
     if (platform === "darwin") {
-      // macOS: Use AppleScript
-      const escapedText = text.replace(/"/g, '\\"').replace(/'/g, "\\'");
-      await execAsync(
-        `osascript -e 'tell application "System Events" to keystroke "${escapedText}"'`,
-      );
-      return { success: true, message: `Typed: ${text}` };
+      // macOS: Use AppleScript with execFile for safety
+      // SECURITY: Sanitize text for AppleScript
+      const sanitizedText = sanitizeForAppleScript(text);
+      const script = `tell application "System Events" to keystroke "${sanitizedText}"`;
+
+      // SECURITY: Use execFileAsync with args array to avoid shell injection
+      await execFileAsync("osascript", ["-e", script]);
+      return { success: true, message: `Typed: ${text.substring(0, 20)}...` };
     } else if (platform === "win32") {
       // Windows: Use PowerShell
       const escapedText = text.replace(/"/g, '`"');

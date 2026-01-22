@@ -1,4 +1,5 @@
 "use client";
+import { workflowApi } from "@/lib/electron/workflow-api";
 import { DBWorkflow } from "app-types/workflow";
 import { useState } from "react";
 import { safe } from "ts-safe";
@@ -11,7 +12,7 @@ import {
 import { EditWorkflowPopup } from "./edit-workflow-popup";
 
 import { PencilIcon, Trash2Icon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { mutate } from "swr";
 
@@ -19,23 +20,19 @@ interface WorkflowContextMenuProps {
   children: React.ReactNode;
   workflow: Pick<
     DBWorkflow,
-    "id" | "name" | "description" | "icon" | "isPublished" | "visibility"
+    "id" | "name" | "description" | "icon" | "isPublished"
   >;
 }
 
 export function WorkflowContextMenu(props: WorkflowContextMenuProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [open, setOpen] = useState(false);
-  const t = useTranslations();
+  const { t } = useTranslation();
   const handleDeleteWorkflow = async () => {
     toast.promise(
-      safe(() =>
-        fetch(`/api/workflow/${props.workflow.id}`, {
-          method: "DELETE",
-        }),
-      )
+      safe(() => workflowApi.delete(props.workflow.id))
         .ifOk(() => {
-          mutate("/api/workflow");
+          mutate("electron:workflows");
           setOpen(false);
         })
         .unwrap(),

@@ -1,4 +1,3 @@
-import "server-only";
 import { IS_DEV } from "lib/const";
 import logger from "logger";
 import type { FileStorage } from "./file-storage.interface";

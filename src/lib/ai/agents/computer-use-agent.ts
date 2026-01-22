@@ -1,4 +1,3 @@
-import "server-only";
 import { type Tool, tool as createTool } from "ai";
 import type { UIMessageStreamWriter } from "ai";
 import { colorize } from "consola/utils";
@@ -78,21 +77,75 @@ const isElectron =
   window.electronAPI.terminal;
 
 /**
- * Helper to call terminal IPC
+ * Helper to check if we're in Electron and throw if not
  */
-async function callTerminalIPC<T>(method: string, data: unknown): Promise<T> {
+function assertElectron(): void {
   if (!isElectron) {
     throw new Error("Computer use is only available in the desktop app");
   }
-  const terminalAPI = window.electronAPI.terminal as unknown as Record<
-    string,
-    (data: unknown) => Promise<T>
-  >;
-  if (!terminalAPI[method]) {
-    throw new Error(`Terminal method ${method} not available`);
-  }
-  return terminalAPI[method](data);
 }
+
+/**
+ * Terminal result type for action methods
+ */
+type TerminalResult = {
+  success: boolean;
+  message?: string;
+  error?: string;
+};
+
+/**
+ * Terminal API helpers - each method matches the preload.ts signatures
+ */
+const terminalAPI = {
+  async screenshot(options?: { fullScreen?: boolean; displayId?: string }): Promise<{
+    success: boolean;
+    screenshot?: string;
+    error?: string;
+  }> {
+    assertElectron();
+    return window.electronAPI.terminal.screenshot(options);
+  },
+
+  async click(x: number, y: number, button?: "left" | "right" | "double"): Promise<TerminalResult> {
+    assertElectron();
+    return window.electronAPI.terminal.click(x, y, button);
+  },
+
+  async type(text: string): Promise<TerminalResult> {
+    assertElectron();
+    return window.electronAPI.terminal.type(text);
+  },
+
+  async keyPress(key: string): Promise<TerminalResult> {
+    assertElectron();
+    return window.electronAPI.terminal.keyPress(key);
+  },
+
+  async scroll(direction: "up" | "down", amount?: number): Promise<TerminalResult> {
+    assertElectron();
+    return window.electronAPI.terminal.scroll(direction, amount);
+  },
+
+  async drag(startX: number, startY: number, endX: number, endY: number): Promise<TerminalResult> {
+    assertElectron();
+    return window.electronAPI.terminal.drag(startX, startY, endX, endY);
+  },
+
+  async launch(app: string, args?: string[]): Promise<TerminalResult & { pid?: number }> {
+    assertElectron();
+    return window.electronAPI.terminal.launch(app, args);
+  },
+
+  async execute(options: {
+    command: string;
+    cwd?: string;
+    timeout?: number;
+  }): Promise<{ success: boolean; stdout: string; stderr: string }> {
+    assertElectron();
+    return window.electronAPI.terminal.execute(options);
+  },
+};
 
 /**
  * Computer Use Agent
@@ -151,11 +204,7 @@ export class ComputerUseAgent {
    * Take a screenshot and return base64
    */
   async captureScreen(_sessionId: string): Promise<string> {
-    const result = await callTerminalIPC<{
-      success: boolean;
-      screenshot?: string;
-      error?: string;
-    }>("screenshot", { fullScreen: true });
+    const result = await terminalAPI.screenshot({ fullScreen: true });
 
     if (!result.success || !result.screenshot) {
       throw new Error(result.error || "Failed to capture screenshot");
@@ -181,77 +230,58 @@ export class ComputerUseAgent {
       switch (action.type) {
         case "click":
           if (action.target) {
-            await callTerminalIPC("click", {
-              x: action.target.x,
-              y: action.target.y,
-              button: "left",
-            });
+            await terminalAPI.click(action.target.x, action.target.y, "left");
           }
           break;
 
         case "doubleClick":
           if (action.target) {
-            await callTerminalIPC("click", {
-              x: action.target.x,
-              y: action.target.y,
-              button: "double",
-            });
+            await terminalAPI.click(action.target.x, action.target.y, "double");
           }
           break;
 
         case "rightClick":
           if (action.target) {
-            await callTerminalIPC("click", {
-              x: action.target.x,
-              y: action.target.y,
-              button: "right",
-            });
+            await terminalAPI.click(action.target.x, action.target.y, "right");
           }
           break;
 
         case "type":
           if (action.text) {
-            await callTerminalIPC("type", { text: action.text });
+            await terminalAPI.type(action.text);
           }
           break;
 
         case "press":
           if (action.keys && action.keys.length > 0) {
-            await callTerminalIPC("press", { key: action.keys.join("+") });
+            await terminalAPI.keyPress(action.keys.join("+"));
           }
           break;
 
         case "scroll":
-          await callTerminalIPC("scroll", {
-            direction: action.direction || "down",
-            amount: action.amount || 3,
-          });
+          await terminalAPI.scroll(action.direction || "down", action.amount || 3);
           break;
 
         case "drag":
           if (action.from && action.to) {
-            await callTerminalIPC("drag", {
-              startX: action.from.x,
-              startY: action.from.y,
-              endX: action.to.x,
-              endY: action.to.y,
-            });
+            await terminalAPI.drag(
+              action.from.x,
+              action.from.y,
+              action.to.x,
+              action.to.y
+            );
           }
           break;
 
         case "launch":
           if (action.app) {
-            await callTerminalIPC("launch", { app: action.app });
+            await terminalAPI.launch(action.app);
           }
           break;
 
         case "command":
           if (action.command) {
-            const result = await callTerminalIPC<{
-              success: boolean;
-              stdout: string;
-              stderr: string;
-            }>("execute", { command: action.command });
+            const result = await terminalAPI.execute({ command: action.command });
             output = result.stdout || result.stderr;
           }
           break;

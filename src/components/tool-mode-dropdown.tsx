@@ -14,7 +14,7 @@ import {
   PenOff,
   Settings2,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { Button } from "ui/button";
 
@@ -37,7 +37,7 @@ import { capitalizeFirstLetter, cn, createDebounce } from "lib/utils";
 const debounce = createDebounce();
 
 export const ToolModeDropdown = ({ disabled }: { disabled?: boolean }) => {
-  const t = useTranslations("Chat.Tool");
+  const { t } = useTranslation();
   const [toolChoice, appStoreMutate] = appStore(
     useShallow((state) => [state.toolChoice, state.mutate]),
   );
@@ -100,7 +100,7 @@ export const ToolModeDropdown = ({ disabled }: { disabled?: boolean }) => {
               </Button>
             </TooltipTrigger>
             <TooltipContent className="flex items-center gap-2" side="top">
-              {t("selectToolMode")}
+              {t("Chat.Tool.selectToolMode")}
               <span className="text-muted-foreground ml-2">
                 {getShortcutKeyList(Shortcuts.toolMode).join("")}
               </span>
@@ -110,7 +110,7 @@ export const ToolModeDropdown = ({ disabled }: { disabled?: boolean }) => {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top">
         <DropdownMenuLabel className="text-muted-foreground flex items-center gap-2">
-          {t("selectToolMode")}
+          {t("Chat.Tool.selectToolMode")}
           <DropdownMenuShortcut>
             <span className="text-xs text-muted-foreground bg-muted rounded-md px-2 py-0.5">
               {getShortcutKeyList(Shortcuts.toolMode).join("")}
@@ -129,7 +129,7 @@ export const ToolModeDropdown = ({ disabled }: { disabled?: boolean }) => {
                 {toolChoice == "auto" && <Check className="ml-auto" />}
               </div>
               <p className="text-xs text-muted-foreground">
-                {t("autoToolModeDescription")}
+                {t("Chat.Tool.autoToolModeDescription")}
               </p>
             </div>
           </DropdownMenuItem>
@@ -146,7 +146,7 @@ export const ToolModeDropdown = ({ disabled }: { disabled?: boolean }) => {
                 {toolChoice == "manual" && <Check className="ml-auto" />}
               </div>
               <p className="text-xs text-muted-foreground">
-                {t("manualToolModeDescription")}
+                {t("Chat.Tool.manualToolModeDescription")}
               </p>
             </div>
           </DropdownMenuItem>
@@ -167,7 +167,7 @@ export const ToolModeDropdown = ({ disabled }: { disabled?: boolean }) => {
               </div>
 
               <p className="text-xs text-muted-foreground">
-                {t("noneToolModeDescription")}
+                {t("Chat.Tool.noneToolModeDescription")}
               </p>
             </div>
           </DropdownMenuItem>

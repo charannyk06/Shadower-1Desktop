@@ -1,7 +1,8 @@
-import "server-only";
-
 import logger from "logger";
-import { getModelCapabilities } from "../../providers/capabilities";
+import {
+  getModelCapabilities,
+  localModelSupportsTools,
+} from "../../providers/capabilities";
 import { formatOllamaDisplayName } from "../display-names";
 import { DynamicModelInfo } from "../types";
 
@@ -54,12 +55,16 @@ export async function fetchOllamaModels(
         // Use centralized capability detection
         const capabilities = getModelCapabilities(modelName);
 
+        // For Ollama models, use local model tool support detection
+        // This properly identifies which local models actually support function calling
+        const supportsTools = localModelSupportsTools(modelName);
+
         return {
           id: modelName,
           name: formatOllamaDisplayName(modelName),
 
-          // Core capabilities from unified system
-          isToolCallSupported: capabilities.isToolCallSupported,
+          // Core capabilities - use local model detection for Ollama
+          isToolCallSupported: supportsTools,
           isImageInputSupported: isVision || capabilities.isImageInputSupported,
           isReasoningModel: capabilities.isReasoningModel,
 

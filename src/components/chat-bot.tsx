@@ -9,6 +9,7 @@ import clsx from "clsx";
 import { clientLogger } from "lib/client-logger";
 import { cn, createDebounce, generateUUID, truncateString } from "lib/utils";
 import React, {
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -24,19 +25,17 @@ import {
   SubAgentEvent,
   isSubAgentEvent,
 } from "./tool-invocation/sub-agent-view";
-import type { FragmentProgressEvent } from "@/types/fragment";
-
 import {
-  DefaultChatTransport,
   TextUIPart,
   UIMessage,
   getToolName,
   isToolUIPart,
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
+import { ElectronIPCTransport } from "@/lib/electron/ai-transport";
 import { useShallow } from "zustand/shallow";
 
-import { deleteThreadAction } from "@/app/api/chat/actions";
+import { threadApi } from "@/lib/electron/thread-api";
 import { cleanupThreadState } from "@/app/store";
 import { useGenerateThreadTitle } from "@/hooks/queries/use-generate-thread-title";
 import { useFileDragOverlay } from "@/hooks/use-file-drag-overlay";
@@ -52,9 +51,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { getStorageManager } from "lib/browser-stroage";
 import { Shortcuts, isShortcutEvent } from "lib/keyboard-shortcuts";
 import { ArrowDown, FilePlus, Loader } from "lucide-react";
-import { useTranslations } from "next-intl";
-import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "@tanstack/react-router";
 import { mutate } from "swr";
 import { safe } from "ts-safe";
 import { Button } from "ui/button";
@@ -81,13 +79,9 @@ type Props = {
   selectedChatModel?: string;
 };
 
-const LightRays = dynamic(() => import("ui/light-rays"), {
-  ssr: false,
-});
+const LightRays = React.lazy(() => import("ui/light-rays"));
 
-const Particles = dynamic(() => import("ui/particles"), {
-  ssr: false,
-});
+const Particles = React.lazy(() => import("ui/particles"));
 
 const debounce = createDebounce();
 
@@ -135,6 +129,16 @@ interface ContextUsageUpdateEvent {
   };
 }
 
+interface ContextCompactionStartEvent {
+  type: "data-context-compaction-start";
+  data: {
+    oldUsage: {
+      usedTokens: number;
+      percentage: number;
+    };
+  };
+}
+
 interface ContextCompactionEvent {
   type: "data-context-compaction";
   data: {
@@ -153,7 +157,10 @@ interface ContextCompactionEvent {
   };
 }
 
-type ContextEvent = ContextUsageUpdateEvent | ContextCompactionEvent;
+type ContextEvent =
+  | ContextUsageUpdateEvent
+  | ContextCompactionStartEvent
+  | ContextCompactionEvent;
 
 function isCollaboraOpenEvent(event: {
   type: string;
@@ -173,157 +180,83 @@ function isCollaboraOpenEvent(event: {
 function isContextEvent(event: { type: string }): event is ContextEvent {
   return (
     event.type === "data-context-usage-update" ||
+    event.type === "data-context-compaction-start" ||
     event.type === "data-context-compaction"
   );
 }
 
-function isFragmentProgressEvent(event: {
-  type: string;
-}): event is { type: "data-fragment-progress"; data: FragmentProgressEvent } {
-  return event.type === "data-fragment-progress";
+// Screenshot event - image sent to UI, only metadata to AI
+interface ScreenshotEvent {
+  type: "data-screenshot";
+  data: {
+    id: string;
+    screenshot: string; // base64 image data
+    width: number;
+    height: number;
+    timestamp: string;
+    description?: string;
+  };
 }
 
-function handleFragmentProgressEvent(
-  event: { type: "data-fragment-progress"; data: FragmentProgressEvent },
-  _setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>,
+function isScreenshotEvent(event: { type: string }): event is ScreenshotEvent {
+  return event.type === "data-screenshot";
+}
+
+function handleScreenshotEvent(
+  event: ScreenshotEvent,
+  setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>,
 ): void {
-  const { data } = event;
+  // Add screenshot as a visible message part in the chat
+  // This shows the user what the AI captured without consuming AI context
+  const { id, screenshot, width, height, description } = event.data;
 
-  // Debug logging
-  console.log("[FragmentProgress] Received event:", {
-    stage: data.stage,
-    message: data.message,
-    hasOperation: !!data.operation,
-    operationType: data.operation?.type,
-    operationsCount: data.operations?.length || 0,
-    workspaceFilesCount: data.workspaceFiles?.length || 0,
-    toolCallId: data.toolCallId,
-  });
+  setMessages((prev) => {
+    // Find the last assistant message to append to, or create indication
+    const lastMsg = prev[prev.length - 1];
 
-  // Update app store with fragment progress
-  // Use toolCallId if available, otherwise use 'current'
-  // NOTE: The AI SDK should provide toolCallId automatically, but if not, we use 'current'
-  const progressKey = data.toolCallId || "current";
-
-  appStore.getState().mutate((state) => {
-    const existingProgress = state.fragmentProgress[progressKey];
-    const operations = existingProgress?.operations || [];
-    const existingWorkspaceFiles = existingProgress?.workspaceFiles || [];
-
-    // Add current operation to history if it exists
-    if (data.operation) {
-      // Always add new operations - don't deduplicate
-      // Operations are unique by timestamp, so we can have multiple of the same type
-      // If status changed from "running" to "success", update the last matching one
-      if (
-        data.operation.status === "success" ||
-        data.operation.status === "error"
-      ) {
-        // Find the last "running" operation of the same type and update it
-        // Work backwards through the array to find the last matching operation
-        let lastRunningIndex = -1;
-        for (let i = operations.length - 1; i >= 0; i--) {
-          const op = operations[i];
-          if (
-            op.type === data.operation?.type &&
-            op.status === "running" &&
-            (!data.operation.command ||
-              op.command === data.operation.command) &&
-            (!data.operation.filePath ||
-              op.filePath === data.operation.filePath)
-          ) {
-            lastRunningIndex = i;
-            break;
-          }
+    if (lastMsg?.role === "assistant") {
+      // Append screenshot part to the last assistant message
+      // Cast to UIMessage[] as screenshot-display is a custom part type
+      return prev.map((msg, idx) => {
+        if (idx === prev.length - 1) {
+          return {
+            ...msg,
+            parts: [
+              ...msg.parts,
+              {
+                type: "screenshot-display" as const,
+                id,
+                screenshot,
+                width,
+                height,
+                description: description || "Screenshot captured",
+              } as any,
+            ],
+          };
         }
-
-        if (lastRunningIndex >= 0) {
-          // Update existing running operation
-          operations[lastRunningIndex] = data.operation;
-        } else {
-          // Add as new operation
-          operations.push(data.operation);
-        }
-      } else {
-        // For "running" status, always add as new operation
-        operations.push(data.operation);
-      }
-
-      // Keep only last 100 operations to prevent memory issues
-      if (operations.length > 100) {
-        operations.shift();
-      }
+        return msg;
+      }) as UIMessage[];
     }
 
-    // Also merge operations from data.operations if provided (for bulk updates)
-    if (data.operations && Array.isArray(data.operations)) {
-      // Merge new operations, avoiding duplicates by timestamp
-      const existingTimestamps = new Set(operations.map((op) => op.timestamp));
-      const newOperations = data.operations.filter(
-        (op) => !existingTimestamps.has(op.timestamp),
-      );
-      operations.push(...newOperations);
-
-      // Sort by timestamp
-      operations.sort((a, b) => a.timestamp - b.timestamp);
-
-      // Keep only last 100
-      if (operations.length > 100) {
-        operations.splice(0, operations.length - 100);
-      }
-    }
-
-    // Merge workspace files - don't overwrite, accumulate
-    let workspaceFiles = [...existingWorkspaceFiles];
-    if (data.workspaceFiles && Array.isArray(data.workspaceFiles)) {
-      // Merge new files, avoiding duplicates by path
-      const existingPaths = new Set(existingWorkspaceFiles.map((f) => f.path));
-      const newFiles = data.workspaceFiles.filter(
-        (f) => !existingPaths.has(f.path),
-      );
-      workspaceFiles = [...workspaceFiles, ...newFiles];
-
-      // Also update existing files if content changed
-      for (const newFile of data.workspaceFiles) {
-        const existingIndex = workspaceFiles.findIndex(
-          (f) => f.path === newFile.path,
-        );
-        if (existingIndex >= 0) {
-          // Update existing file with new content
-          workspaceFiles[existingIndex] = newFile;
-        }
-      }
-
-      console.log(
-        `[FragmentProgress] Workspace files updated: ${workspaceFiles.length} total`,
-        {
-          existing: existingWorkspaceFiles.length,
-          new: data.workspaceFiles.length,
-          paths: workspaceFiles.map((f) => f.path),
-        },
-      );
-    }
-
-    return {
-      fragmentProgress: {
-        ...state.fragmentProgress,
-        [progressKey]: {
-          stage: data.stage,
-          message: data.message,
-          template: data.template,
-          fragmentId: data.fragmentId,
-          previewUrl: data.previewUrl,
-          error: data.error,
-          codeChunk: data.codeChunk,
-          codeLength: data.codeLength,
-          generatedCode: data.generatedCode || existingProgress?.generatedCode,
-          timestamp: Date.now(),
-          operation: data.operation,
-          operations: operations,
-          workspaceFiles: workspaceFiles, // Use merged files
-        },
+    // If no assistant message, create a new one with the screenshot
+    // Cast to UIMessage[] as screenshot-display is a custom part type
+    return [
+      ...prev,
+      {
+        id: `screenshot-msg-${id}`,
+        role: "assistant" as const,
+        parts: [
+          {
+            type: "screenshot-display" as const,
+            id,
+            screenshot,
+            width,
+            height,
+            description: description || "Screenshot captured",
+          } as any,
+        ],
       },
-    };
+    ] as UIMessage[];
   });
 }
 
@@ -646,6 +579,36 @@ function handleContextUsageUpdate(
   });
 }
 
+// Handler for compression START - shows loading tool block
+function handleContextCompactionStart(
+  event: ContextCompactionStartEvent,
+  threadId: string,
+  setMessages?: React.Dispatch<React.SetStateAction<UIMessage[]>>,
+): void {
+  console.log("[Context] Compaction START - showing loading tool block", {
+    threadId,
+    oldPercentage: (event.data.oldUsage.percentage * 100).toFixed(1) + "%",
+  });
+
+  // Add compression "loading" tool block to messages
+  if (setMessages) {
+    const compressionMessage: UIMessage = {
+      id: `compression-${Date.now()}`,
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-context-compression",
+          state: "loading",
+          oldUsage: event.data.oldUsage,
+        } as any,
+      ],
+    };
+
+    setMessages((prev) => [...prev, compressionMessage]);
+  }
+}
+
+// Handler for compression COMPLETE - updates tool block to show results
 function handleContextCompaction(
   event: ContextCompactionEvent,
   threadId: string,
@@ -663,7 +626,7 @@ function handleContextCompaction(
       event.data.newUsage.limit - event.data.newUsage.usedTokens,
   };
 
-  console.log("[Context] Compaction event received - RESETTING INDICATOR", {
+  console.log("[Context] Compaction COMPLETE - updating tool block", {
     threadId,
     compactedCount: event.data.compactedCount,
     tokensSaved: event.data.tokensSaved,
@@ -671,44 +634,31 @@ function handleContextCompaction(
     newPercentage: (newUsage.percentage * 100).toFixed(1) + "%",
   });
 
-  // Add visible compaction status message to chat
+  // Update the compression tool block from "loading" to "complete"
   if (setMessages) {
-    const tokensSavedFormatted =
-      event.data.tokensSaved >= 1000
-        ? `${(event.data.tokensSaved / 1000).toFixed(1)}k`
-        : String(event.data.tokensSaved);
-
-    const compactionMessage: UIMessage = {
-      id: `compaction-${Date.now()}`,
-      role: "assistant",
-      parts: [
-        {
-          type: "text",
-          text:
-            `🔄 **Context Compressed**\n\n` +
-            `- Compacted **${event.data.compactedCount}** messages\n` +
-            `- Saved **${tokensSavedFormatted}** tokens\n` +
-            `- Context usage: **${(oldPercentage * 100).toFixed(1)}%** → **${(newUsage.percentage * 100).toFixed(1)}%**\n\n` +
-            `*Context indicator has been reset with the new compressed context.*`,
-        },
-      ],
-    };
-
     setMessages((prev) => {
-      // Add compaction message before the last assistant message (if exists) or at the end
-      const lastIndex = prev.length - 1;
-      if (lastIndex >= 0 && prev[lastIndex].role === "assistant") {
-        return [
-          ...prev.slice(0, lastIndex),
-          compactionMessage,
-          prev[lastIndex],
-        ];
-      }
-      return [...prev, compactionMessage];
+      return prev.map((msg) => {
+        if (msg.id.startsWith("compression-")) {
+          return {
+            ...msg,
+            parts: [
+              {
+                type: "tool-context-compression",
+                state: "complete",
+                compactedCount: event.data.compactedCount,
+                tokensSaved: event.data.tokensSaved,
+                oldPercentage: event.data.oldUsage?.percentage ?? oldPercentage,
+                newPercentage: newUsage.percentage,
+              } as any,
+            ],
+          };
+        }
+        return msg;
+      });
     });
   }
 
-  // CRITICAL: Force update by creating completely new object references
+  // CRITICAL: Update store to reset context indicator
   appStore.setState((state) => {
     const newThreadContextUsage = {
       ...state.threadContextUsage,
@@ -744,13 +694,8 @@ function handleContextCompaction(
   });
 
   // Show toast notification to user
-  const tokensSavedFormatted =
-    event.data.tokensSaved >= 1000
-      ? `${(event.data.tokensSaved / 1000).toFixed(1)}k`
-      : String(event.data.tokensSaved);
-
   toast.success("Context Compressed", {
-    description: `Compressed ${event.data.compactedCount} messages, saved ${tokensSavedFormatted} tokens. Context usage reset to ${(newUsage.percentage * 100).toFixed(1)}%`,
+    description: `${event.data.compactedCount} messages compressed, context reset to ${(newUsage.percentage * 100).toFixed(0)}%`,
     duration: 5000,
   });
 }
@@ -762,6 +707,8 @@ function handleContextEvent(
 ): void {
   if (dataPart.type === "data-context-usage-update") {
     handleContextUsageUpdate(dataPart, threadId);
+  } else if (dataPart.type === "data-context-compaction-start") {
+    handleContextCompactionStart(dataPart, threadId, setMessages);
   } else if (dataPart.type === "data-context-compaction") {
     handleContextCompaction(dataPart, threadId, setMessages);
   }
@@ -784,6 +731,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     appStoreMutate,
     model,
     toolChoice,
+    chatMode,
     allowedAppDefaultToolkit,
     allowedMcpServers,
     threadList,
@@ -795,6 +743,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       state.mutate,
       state.chatModel,
       state.toolChoice,
+      state.chatMode,
       state.allowedAppDefaultToolkit,
       state.allowedMcpServers,
       state.threadList,
@@ -806,37 +755,86 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
   const generateTitle = useGenerateThreadTitle({
     threadId,
+    chatModel: model,
   });
 
   const [showParticles, setShowParticles] = useState(isFirstTime);
 
-  const onFinish = useCallback(() => {
-    const messages = latestRef.current.messages;
-    const prevThread = latestRef.current.threadList.find(
-      (v) => v.id === threadId,
-    );
-    const isNewThread =
-      !prevThread?.title &&
-      messages.filter((v) => v.role === "user" || v.role === "assistant")
-        .length < 3;
-    if (isNewThread) {
-      const part = messages
-        .slice(0, 2)
-        .flatMap((m) =>
-          m.parts
-            .filter((v) => v.type === "text")
-            .map(
-              (p) =>
-                `${m.role}: ${truncateString((p as TextUIPart).text, 500)}`,
-            ),
-        );
-      if (part.length > 0) {
-        generateTitle(part.join("\n\n"));
+  const onFinish = useCallback(
+    (options: {
+      message: UIMessage;
+      messages: UIMessage[];
+      isAbort: boolean;
+      isDisconnect: boolean;
+      isError: boolean;
+      finishReason?: string;
+    }) => {
+      console.log("[ChatBot] onFinish called for thread:", threadId, {
+        isAbort: options.isAbort,
+        isDisconnect: options.isDisconnect,
+        isError: options.isError,
+        finishReason: options.finishReason,
+        messageCount: options.messages.length,
+      });
+
+      // Don't generate title on abort, disconnect, or error
+      if (options.isAbort || options.isDisconnect || options.isError) {
+        console.log("[ChatBot] onFinish - skipping title generation due to abort/disconnect/error");
+        return;
       }
-    } else if (latestRef.current.threadList[0]?.id !== threadId) {
-      mutate("/api/thread");
-    }
-  }, []);
+
+      const messages = options.messages;
+      const prevThread = latestRef.current.threadList.find(
+        (v) => v.id === threadId,
+      );
+      console.log(
+        "[ChatBot] onFinish - prevThread:",
+        prevThread?.title,
+        "messages count:",
+        messages.length,
+      );
+
+      const isNewThread =
+        (!prevThread?.title || prevThread?.title === "New Chat") &&
+        messages.filter((v) => v.role === "user" || v.role === "assistant")
+          .length < 3;
+      console.log("[ChatBot] onFinish - isNewThread:", isNewThread);
+
+      if (isNewThread) {
+        const part = messages
+          .slice(0, 2)
+          .flatMap((m) =>
+            m.parts
+              .filter((v) => v.type === "text")
+              .map(
+                (p) =>
+                  `${m.role}: ${truncateString((p as TextUIPart).text, 500)}`,
+              ),
+          );
+        console.log("[ChatBot] onFinish - text parts for title:", part.length);
+        if (part.length > 0) {
+          console.log("[ChatBot] onFinish - calling generateTitle");
+          generateTitle(part.join("\n\n"));
+        } else {
+          console.log(
+            "[ChatBot] onFinish - no text parts found for title generation",
+          );
+        }
+      } else if (latestRef.current.threadList[0]?.id !== threadId) {
+        console.log("[ChatBot] onFinish - mutating thread list");
+        mutate("/api/thread");
+      }
+
+      // DON'T navigate here - it causes a remount and loses the streaming messages.
+      // The URL will remain at "/" but that's OK - the messages are saved to DB
+      // by the main process, and when the user clicks on the thread in sidebar
+      // or refreshes, they'll see the saved conversation.
+      //
+      // The thread title will be generated and the thread will appear in sidebar
+      // automatically via the IPC event.
+    },
+    [threadId, generateTitle],
+  );
 
   const [input, setInput] = useState("");
 
@@ -855,11 +853,15 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   } = useChat({
     id: threadId,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-    transport: new DefaultChatTransport({
+    onError: (error) => {
+      console.error("[ChatBot] useChat error:", error);
+      console.error("[ChatBot] useChat error stack:", error?.stack);
+    },
+    transport: new ElectronIPCTransport({
       prepareSendMessagesRequest: ({ messages, body, id }) => {
-        if (window.location.pathname !== `/chat/${threadId}`) {
-          window.history.replaceState({}, "", `/chat/${threadId}`);
-        }
+        // NOTE: Do NOT update URL here with replaceState!
+        // TanStack Router detects URL changes and re-routes, causing the component
+        // to remount and lose the streaming state. URL is updated in onFinish instead.
         const lastMessage = messages.at(-1)!;
         // Filter out UI-only parts (e.g., source-url) so the model doesn't receive unknown parts
         const attachments: ChatAttachment[] = lastMessage.parts.reduce(
@@ -884,13 +886,13 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           [],
         );
 
+        // Filter out source-url parts, but ensure at least one part remains
+        const filteredParts = lastMessage.parts.filter((p: any) => p?.type !== "source-url");
+
         const sanitizedLastMessage = {
           ...lastMessage,
-          parts: lastMessage.parts.filter((p: any) => p?.type !== "source-url"),
+          parts: filteredParts.length > 0 ? filteredParts : [{ type: "text" as const, text: "" }],
         } as typeof lastMessage;
-        const hasFilePart = lastMessage.parts?.some(
-          (p) => (p as any)?.type === "file",
-        );
 
         const requestBody: ChatApiSchemaRequestBody = {
           ...body,
@@ -898,10 +900,8 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           chatModel:
             (body as { model: ChatModel })?.model ?? latestRef.current.model,
           toolChoice: latestRef.current.toolChoice,
-          allowedAppDefaultToolkit:
-            latestRef.current.mentions?.length || hasFilePart
-              ? []
-              : latestRef.current.allowedAppDefaultToolkit,
+          chatMode: latestRef.current.chatMode,
+          allowedAppDefaultToolkit: latestRef.current.allowedAppDefaultToolkit,
           allowedMcpServers: latestRef.current.mentions?.length
             ? {}
             : latestRef.current.allowedMcpServers,
@@ -927,8 +927,8 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         handlePlanEvent(dataPart, threadId);
       } else if (isContextEvent(dataPart)) {
         handleContextEvent(dataPart, threadId, setMessages);
-      } else if (isFragmentProgressEvent(dataPart)) {
-        handleFragmentProgressEvent(dataPart, setMessages);
+      } else if (isScreenshotEvent(dataPart)) {
+        handleScreenshotEvent(dataPart, setMessages);
       } else if (
         isCollaboraOpenEvent(dataPart as { type: string; data?: unknown })
       ) {
@@ -971,14 +971,54 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     },
   });
 
+  // DEBUG: Track when messages and status change
+  useEffect(() => {
+    const lastMsg = messages.at(-1);
+    console.log("[ChatBot] DEBUG messages changed:", {
+      count: messages.length,
+      status,
+      lastMsgRole: lastMsg?.role,
+      lastMsgId: lastMsg?.id,
+      lastMsgPartsCount: lastMsg?.parts.length,
+      // Show ALL parts with their types
+      allPartTypes: lastMsg?.parts.map((p: any) => ({
+        type: p.type,
+        ...(p.type === "text"
+          ? { textLength: p.text?.length, textPreview: p.text?.slice(0, 100) }
+          : {}),
+        ...(p.type === "tool-invocation"
+          ? {
+              toolName: p.toolInvocation?.toolName,
+              state: p.toolInvocation?.state,
+            }
+          : {}),
+      })),
+    });
+  }, [messages, status]);
+
   // Set currentThreadId synchronously on mount/thread change
-  // Using useLayoutEffect ensures child components (like sandbox executors) have access
-  // to the threadId before their effects run - critical for sandbox file persistence
+  // Using useLayoutEffect ensures child components have access
+  // to the threadId before their effects run - critical for file persistence
   useLayoutEffect(() => {
     clientLogger.debug("[ChatBot] Setting currentThreadId", { threadId });
     appStoreMutate((state) => {
       const prevThreadId = state.currentThreadId;
       const threadChanged = prevThreadId && prevThreadId !== threadId;
+
+      // If thread doesn't exist in list, add it with "New Chat" title
+      // This ensures the header can display the thread immediately
+      const threadExists = state.threadList.some((t) => t.id === threadId);
+      const newThreadList = threadExists
+        ? state.threadList
+        : [
+            {
+              id: threadId,
+              title: "New Chat",
+              userId: "",
+              createdAt: new Date(),
+            },
+            ...state.threadList,
+          ];
 
       // When switching threads, reset non-thread-scoped theater mode state
       // This prevents showing content from a different thread
@@ -992,6 +1032,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         );
         return {
           currentThreadId: threadId,
+          threadList: newThreadList,
           theaterMode: {
             ...state.theaterMode,
             // Reset non-thread-scoped content when switching threads
@@ -1005,7 +1046,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         };
       }
 
-      return { currentThreadId: threadId };
+      return { currentThreadId: threadId, threadList: newThreadList };
     });
   }, [threadId]);
 
@@ -1136,13 +1177,13 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   }, [threadId, initialMessages]);
 
   // Aggregate ALL artifacts from the entire conversation history
-  // Only include actual file artifacts from sandbox/code execution, not web search results
+  // Only include actual file artifacts from code execution, not web search results
   const allArtifacts = useMemo(() => {
     const extracted: any[] = [];
 
     // Tools that produce file artifacts
     const artifactProducingTools = new Set([
-      "sandbox",
+      "desktop_command",
       "code",
       "execute_code",
       "run_code",
@@ -1187,7 +1228,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         if (Array.isArray(result)) {
           items = result;
         }
-        // Case 2: Result is wrapped in 'results' property (sandbox execution pattern)
+        // Case 2: Result is wrapped in 'results' property (code execution pattern)
         else if (result.results && Array.isArray(result.results)) {
           items = result.results;
         }
@@ -1309,10 +1350,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         const lastMessage = latestMessages.at(-1);
         if (lastMessage?.role === "assistant") {
           // We need to save this message because it now contains the tool result
-          const { upsertMessageAction } = await import(
-            "@/app/api/chat/actions"
-          );
-          await upsertMessageAction(lastMessage, threadId);
+          await threadApi.upsertMessage(lastMessage, threadId);
         }
       }, 0);
     },
@@ -1323,6 +1361,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
   const latestRef = useToRef({
     toolChoice,
+    chatMode,
     model,
     allowedAppDefaultToolkit,
     allowedMcpServers,
@@ -1387,10 +1426,14 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             transition={{ duration: 5 }}
           >
             <div className="absolute top-0 left-0 w-full h-full z-10">
-              <LightRays />
+              <Suspense fallback={null}>
+                <LightRays />
+              </Suspense>
             </div>
             <div className="absolute top-0 left-0 w-full h-full z-10">
-              <Particles particleCount={400} particleBaseSize={10} />
+              <Suspense fallback={null}>
+                <Particles particleCount={400} particleBaseSize={10} />
+              </Suspense>
             </div>
 
             <div className="absolute top-0 left-0 w-full h-full z-10">
@@ -1656,22 +1699,22 @@ function DeleteThreadPopup({
   readonly onClose: () => void;
   readonly open: boolean;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [isDeleting, setIsDeleting] = useState(false);
-  const router = useRouter();
+  const navigate = useNavigate();
   const handleDelete = useCallback(() => {
     setIsDeleting(true);
-    safe(() => deleteThreadAction(threadId))
+    safe(() => threadApi.delete(threadId))
       .watch(() => setIsDeleting(false))
       .ifOk(() => {
         // Clean up thread-related state (context usage, plans, files, mentions)
         cleanupThreadState(threadId);
         toast.success(t("Chat.Thread.threadDeleted"));
-        router.push("/");
+        navigate({ to: "/" });
       })
       .ifFail(() => toast.error(t("Chat.Thread.failedToDeleteThread")))
       .watch(() => onClose());
-  }, [threadId, router]);
+  }, [threadId, navigate]);
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent>

@@ -3,29 +3,27 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "lib/utils";
 import { Bot, CheckIcon, ChevronDownIcon, XIcon } from "lucide-react";
-import dynamic from "next/dynamic";
-import { memo, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useMemo, useState } from "react";
 
 // Lazy load visualization components
-const BarChart = dynamic(
-  () => import("./bar-chart").then((mod) => mod.BarChart),
-  { ssr: false },
+const BarChart = lazy(() =>
+  import("./bar-chart").then((mod) => ({ default: mod.BarChart })),
 );
-const LineChart = dynamic(
-  () => import("./line-chart").then((mod) => mod.LineChart),
-  { ssr: false },
+const LineChart = lazy(() =>
+  import("./line-chart").then((mod) => ({ default: mod.LineChart })),
 );
-const PieChart = dynamic(
-  () => import("./pie-chart").then((mod) => mod.PieChart),
-  { ssr: false },
+const PieChart = lazy(() =>
+  import("./pie-chart").then((mod) => ({ default: mod.PieChart })),
 );
-const InteractiveTable = dynamic(
-  () => import("./interactive-table").then((mod) => mod.InteractiveTable),
-  { ssr: false },
+const InteractiveTable = lazy(() =>
+  import("./interactive-table").then((mod) => ({
+    default: mod.InteractiveTable,
+  })),
 );
-const ToolCallTimeline = dynamic(
-  () => import("./tool-call-timeline").then((mod) => mod.ToolCallTimeline),
-  { ssr: false },
+const ToolCallTimeline = lazy(() =>
+  import("./tool-call-timeline").then((mod) => ({
+    default: mod.ToolCallTimeline,
+  })),
 );
 
 // Visualization tool names
@@ -35,6 +33,18 @@ const VISUALIZATION_TOOLS = [
   "createPieChart",
   "createTable",
 ];
+
+const ChartLoadingFallback = () => (
+  <div className="h-32 w-full flex items-center justify-center">
+    <span className="text-muted-foreground text-sm">Loading chart...</span>
+  </div>
+);
+
+const TimelineLoadingFallback = () => (
+  <div className="h-20 w-full flex items-center justify-center">
+    <span className="text-muted-foreground text-sm">Loading timeline...</span>
+  </div>
+);
 
 /**
  * Sub-agent event types from the data stream
@@ -219,18 +229,20 @@ function AgentCard({ state }: Readonly<AgentCardProps>) {
                                 key={`${toolCall.name}-${i}-${toolCall.timestamp}`}
                                 className="rounded-md border bg-card p-3"
                               >
-                                {toolCall.name === "createBarChart" && (
-                                  <BarChart {...args} />
-                                )}
-                                {toolCall.name === "createLineChart" && (
-                                  <LineChart {...args} />
-                                )}
-                                {toolCall.name === "createPieChart" && (
-                                  <PieChart {...args} />
-                                )}
-                                {toolCall.name === "createTable" && (
-                                  <InteractiveTable {...args} />
-                                )}
+                                <Suspense fallback={<ChartLoadingFallback />}>
+                                  {toolCall.name === "createBarChart" && (
+                                    <BarChart {...args} />
+                                  )}
+                                  {toolCall.name === "createLineChart" && (
+                                    <LineChart {...args} />
+                                  )}
+                                  {toolCall.name === "createPieChart" && (
+                                    <PieChart {...args} />
+                                  )}
+                                  {toolCall.name === "createTable" && (
+                                    <InteractiveTable {...args} />
+                                  )}
+                                </Suspense>
                               </div>
                             );
                           })}
@@ -243,23 +255,25 @@ function AgentCard({ state }: Readonly<AgentCardProps>) {
                         !VISUALIZATION_TOOLS.includes(toolCall.name),
                     ) && (
                       <div className="max-h-[600px] overflow-y-auto">
-                        <ToolCallTimeline
-                          toolCalls={state.tools
-                            .filter(
-                              (toolCall) =>
-                                !VISUALIZATION_TOOLS.includes(toolCall.name),
-                            )
-                            .map((toolCall) => ({
-                              name: toolCall.name,
-                              args: toolCall.args,
-                              result: toolCall.result,
-                              timestamp: toolCall.timestamp,
-                              status:
-                                toolCall.result === undefined
-                                  ? ("pending" as const)
-                                  : ("success" as const),
-                            }))}
-                        />
+                        <Suspense fallback={<TimelineLoadingFallback />}>
+                          <ToolCallTimeline
+                            toolCalls={state.tools
+                              .filter(
+                                (toolCall) =>
+                                  !VISUALIZATION_TOOLS.includes(toolCall.name),
+                              )
+                              .map((toolCall) => ({
+                                name: toolCall.name,
+                                args: toolCall.args,
+                                result: toolCall.result,
+                                timestamp: toolCall.timestamp,
+                                status:
+                                  toolCall.result === undefined
+                                    ? ("pending" as const)
+                                    : ("success" as const),
+                              }))}
+                          />
+                        </Suspense>
                       </div>
                     )}
                   </div>

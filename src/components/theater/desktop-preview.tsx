@@ -54,29 +54,32 @@ export function DesktopPreview({
     setIsStreaming(false);
   }, []);
 
-  // Fetch screenshot from desktop session
+  // Fetch screenshot from desktop session via Electron IPC
   const fetchScreenshot = useCallback(async () => {
     try {
-      // Use GET request with sessionId as query param for polling efficiency
-      const response = await fetch(
-        `/api/desktop/screenshot?sessionId=${encodeURIComponent(sessionId)}`,
-      );
+      // Use Electron IPC for desktop screenshot
+      if (window.electronAPI?.terminal?.screenshot) {
+        // Pass options object - sessionId may be used as displayId if it's a display identifier
+        const result = await window.electronAPI.terminal.screenshot({
+          fullScreen: true,
+          displayId: sessionId !== "local" ? sessionId : undefined,
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to capture screenshot");
-      }
-
-      const data = await response.json();
-      if (data.success && data.screenshot) {
-        // API returns full data URI already
-        setScreenshot(data.screenshot);
-        setLastUpdated(new Date());
-        setIsConnected(true);
-        setIsLoading(false);
-        setError(null);
-      } else if (!data.success) {
-        throw new Error(data.error || "Screenshot failed");
+        if (result.success && result.screenshot) {
+          // IPC returns screenshot data
+          const screenshotData = result.screenshot.startsWith("data:")
+            ? result.screenshot
+            : `data:image/png;base64,${result.screenshot}`;
+          setScreenshot(screenshotData);
+          setLastUpdated(new Date());
+          setIsConnected(true);
+          setIsLoading(false);
+          setError(null);
+        } else if (!result.success) {
+          throw new Error(result.error || "Screenshot failed");
+        }
+      } else {
+        throw new Error("Desktop screenshot IPC not available");
       }
     } catch (err: any) {
       console.error("[DesktopPreview] Screenshot error:", err);

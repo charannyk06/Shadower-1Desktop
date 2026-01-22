@@ -1,5 +1,3 @@
-import "server-only";
-
 const OPENAI_DISPLAY_NAMES: Record<string, string> = {
   "gpt-4.1": "GPT-4.1",
   "gpt-4.1-mini": "GPT-4.1 Mini",

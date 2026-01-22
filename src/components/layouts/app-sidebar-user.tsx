@@ -21,7 +21,7 @@ import {
   Settings2,
   Sun,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useTheme } from "next-themes";
 import { Suspense, useCallback } from "react";
 import useSWR from "swr";
@@ -57,7 +57,7 @@ export function AppSidebarUserInner(
     refreshInterval: 1000 * 60 * 10,
   });
   const appStoreMutate = appStore((state) => state.mutate);
-  const t = useTranslations("Layout");
+  const { t } = useTranslation();
 
   const logout = () => {
     authClient.signOut().finally(() => {
@@ -127,7 +127,7 @@ export function AppSidebarUserInner(
               onClick={() => appStoreMutate({ openChatPreferences: true })}
             >
               <Settings2 className="size-4 text-foreground" />
-              <span>{t("chatPreferences")}</span>
+              <span>{t("Layout.chatPreferences")}</span>
             </DropdownMenuItem>
             <SelectTheme />
             <SelectLanguage />
@@ -137,7 +137,7 @@ export function AppSidebarUserInner(
               onClick={() => appStoreMutate({ openShortcutsPopup: true })}
             >
               <Command className="size-4 text-foreground" />
-              <span>{t("keyboardShortcuts")}</span>
+              <span>{t("Layout.keyboardShortcuts")}</span>
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
@@ -149,7 +149,7 @@ export function AppSidebarUserInner(
               }}
             >
               <GithubIcon className="size-4 fill-foreground" />
-              <span>{t("reportAnIssue")}</span>
+              <span>{t("Layout.reportAnIssue")}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
 
@@ -159,12 +159,12 @@ export function AppSidebarUserInner(
               data-testid="user-settings-menu-item"
             >
               <Settings className="size-4 text-foreground" />
-              <span>{t("userSettings")}</span>
+              <span>{t("Layout.userSettings")}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout} className="cursor-pointer">
               <LogOutIcon className="size-4 text-foreground" />
-              <span>{t("signOut")}</span>
+              <span>{t("Layout.signOut")}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -174,7 +174,7 @@ export function AppSidebarUserInner(
 }
 
 function SelectTheme() {
-  const t = useTranslations("Layout");
+  const { t } = useTranslation();
 
   const { theme = "light", setTheme } = useTheme();
 
@@ -196,7 +196,7 @@ function SelectTheme() {
         }
       >
         <Palette className="mr-2 size-4" />
-        <span className="mr-auto">{t("theme")}</span>
+        <span className="mr-auto">{t("Layout.theme")}</span>
       </DropdownMenuSubTrigger>
       <DropdownMenuPortal>
         <DropdownMenuSubContent className="w-48">
@@ -252,7 +252,7 @@ function SelectTheme() {
 }
 
 function SelectLanguage() {
-  const t = useTranslations("Layout");
+  const { t } = useTranslation();
   const { data: currentLocale } = useSWR(COOKIE_KEY_LOCALE, getLocaleAction, {
     fallbackData: SUPPORTED_LOCALES[0].code,
     revalidateOnFocus: false,
@@ -266,12 +266,12 @@ function SelectLanguage() {
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
         <Languages className="mr-2 size-4" />
-        <span>{t("language")}</span>
+        <span>{t("Layout.language")}</span>
       </DropdownMenuSubTrigger>
       <DropdownMenuPortal>
         <DropdownMenuSubContent className="w-48 max-h-96 overflow-y-auto">
           <DropdownMenuLabel className="text-muted-foreground">
-            {t("language")}
+            {t("Layout.language")}
           </DropdownMenuLabel>
           {SUPPORTED_LOCALES.map((locale) => (
             <DropdownMenuCheckboxItem

@@ -9,7 +9,7 @@
  */
 
 import { hash, compare } from "bcrypt-ts";
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import { sessionStore } from "./session-store";
 
 export interface LocalUser {
@@ -87,10 +87,11 @@ export class ElectronAuthService {
   }
 
   /**
-   * Generate a secure session token
+   * Generate a cryptographically secure session token
+   * SECURITY: Uses 32 bytes (256 bits) of random data for high entropy
    */
   private generateSessionToken(): string {
-    return `${randomUUID()}-${randomUUID()}`;
+    return randomBytes(32).toString("base64url");
   }
 
   /**
@@ -166,7 +167,6 @@ export class ElectronAuthService {
             email: data.email.toLowerCase(),
             password: hashedPassword,
             emailVerified: true,
-            role: "admin", // First user is admin
             preferences: {
               displayName: data.name,
               botName: "Shadower",
@@ -252,14 +252,6 @@ export class ElectronAuthService {
         return {
           success: false,
           error: "This account doesn't have a password. Please register first.",
-        };
-      }
-
-      // Check if user is banned
-      if (user.banned) {
-        return {
-          success: false,
-          error: user.banReason || "Your account has been suspended",
         };
       }
 
@@ -362,14 +354,16 @@ export class ElectronAuthService {
       const userId = await sessionStore.getUserId();
 
       if (!token || !userId) {
+        console.log("[Auth] No token or userId in session store");
         return null;
       }
 
       const { getDatabase, schema } = require("./database");
       const db = getDatabase();
-      const { eq, and, gt } = require("drizzle-orm");
+      const { eq, and } = require("drizzle-orm");
 
-      // Find valid session
+      // Find session by token and userId
+      // Note: We check expiry manually to avoid drizzle-orm timestamp comparison issues
       const [session] = await db
         .select()
         .from(schema.SessionTable)
@@ -377,12 +371,27 @@ export class ElectronAuthService {
           and(
             eq(schema.SessionTable.token, token),
             eq(schema.SessionTable.userId, userId),
-            gt(schema.SessionTable.expiresAt, new Date()),
           ),
         )
         .limit(1);
 
       if (!session) {
+        console.log("[Auth] No session found in database for token");
+        await sessionStore.clearToken();
+        return null;
+      }
+
+      // Check expiry manually - drizzle returns Date objects for timestamp columns
+      const now = new Date();
+      const expiresAt =
+        session.expiresAt instanceof Date
+          ? session.expiresAt
+          : new Date(session.expiresAt);
+
+      if (now > expiresAt) {
+        console.log(
+          `[Auth] Session expired: ${expiresAt.toISOString()} < ${now.toISOString()}`,
+        );
         await sessionStore.clearToken();
         return null;
       }
@@ -395,18 +404,15 @@ export class ElectronAuthService {
         .limit(1);
 
       if (!user) {
+        console.log("[Auth] User not found for session");
         await sessionStore.clearToken();
-        return null;
-      }
-
-      // Check if user is banned
-      if (user.banned) {
-        await this.signOut();
         return null;
       }
 
       // Refresh session expiry on valid access
       await sessionStore.refreshExpiry();
+
+      console.log(`[Auth] Session validated for user: ${user.email}`);
 
       return {
         user: {
@@ -417,7 +423,7 @@ export class ElectronAuthService {
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
         },
-        expiresAt: session.expiresAt,
+        expiresAt: expiresAt,
         token: token,
       };
     } catch (error) {

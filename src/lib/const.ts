@@ -1,4 +1,47 @@
-export const IS_DEV = process.env.NODE_ENV !== "production";
+// Helper to safely access import.meta.env (only available in Vite/browser context)
+const getViteEnv = (): Record<string, unknown> | undefined => {
+  try {
+    // @ts-ignore - import.meta.env is Vite-specific
+    if (
+      typeof import.meta !== "undefined" &&
+      typeof import.meta.env === "object"
+    ) {
+      // @ts-ignore
+      return import.meta.env;
+    }
+  } catch {
+    // import.meta not available (Node.js/CommonJS context)
+  }
+  return undefined;
+};
+
+// Helper to get environment variables in both Vite and Node.js contexts
+const getEnv = (viteKey: string, nodeKey?: string): string | undefined => {
+  // Check for Vite environment (browser/renderer)
+  const viteEnv = getViteEnv();
+  if (viteEnv) {
+    return viteEnv[viteKey] as string | undefined;
+  }
+  // Fallback to Node.js environment (Electron main process)
+  if (typeof process !== "undefined" && process.env) {
+    return process.env[nodeKey || viteKey.replace("VITE_", "")];
+  }
+  return undefined;
+};
+
+// Check if we're in development mode
+const checkIsDev = (): boolean => {
+  const viteEnv = getViteEnv();
+  if (viteEnv) {
+    return viteEnv.DEV === true;
+  }
+  if (typeof process !== "undefined" && process.env) {
+    return process.env.NODE_ENV !== "production";
+  }
+  return false;
+};
+
+export const IS_DEV = checkIsDev();
 export const IS_BROWSER = typeof window !== "undefined";
 
 declare const EdgeRuntime: any;
@@ -6,29 +49,37 @@ export const IS_EDGE_RUNTIME = typeof EdgeRuntime !== "undefined";
 
 export const PROMPT_PASTE_MAX_LENGTH = 1000;
 
-export const IS_VERCEL_ENV = process.env.VERCEL === "1";
-export const IS_DOCKER_ENV = process.env.DOCKER_BUILD === "1";
+export const IS_VERCEL_ENV = getEnv("VITE_VERCEL", "VERCEL") === "1";
+export const IS_DOCKER_ENV =
+  getEnv("VITE_DOCKER_BUILD", "DOCKER_BUILD") === "1";
 
 export const IS_MCP_SERVER_REMOTE_ONLY = IS_VERCEL_ENV;
 export const FILE_BASED_MCP_CONFIG =
-  process.env.FILE_BASED_MCP_CONFIG === "true";
+  getEnv("VITE_FILE_BASED_MCP_CONFIG", "FILE_BASED_MCP_CONFIG") === "true";
 
 export const COOKIE_KEY_SIDEBAR_STATE = "sidebar:state";
 export const COOKIE_KEY_LOCALE = "i18n:locale";
 
 export const BASE_URL = (() => {
-  if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
+  const betterAuthUrl = getEnv("VITE_BETTER_AUTH_URL", "BETTER_AUTH_URL");
+  if (betterAuthUrl) return betterAuthUrl;
 
   if (IS_VERCEL_ENV) {
+    const vercelEnv = getEnv("VITE_VERCEL_ENV", "VERCEL_ENV");
+    const productionUrl = getEnv(
+      "VITE_VERCEL_PROJECT_PRODUCTION_URL",
+      "VERCEL_PROJECT_PRODUCTION_URL",
+    );
+    const vercelUrl = getEnv("VITE_VERCEL_URL", "VERCEL_URL");
+
     const vercelDomain =
-      (process.env.VERCEL_ENV == "production"
-        ? process.env.VERCEL_PROJECT_PRODUCTION_URL
-        : process.env.VERCEL_URL) || process.env.VERCEL_URL;
+      (vercelEnv === "production" ? productionUrl : vercelUrl) || vercelUrl;
 
     if (vercelDomain) return `https://${vercelDomain}`;
   }
 
-  return `http://localhost:${process.env.PORT || 3000}`;
+  const port = getEnv("VITE_PORT", "PORT") || "3000";
+  return `http://localhost:${port}`;
 })().replace(/\/+$/, "");
 
 export const BASE_THEMES = [

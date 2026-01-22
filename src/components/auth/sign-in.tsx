@@ -11,13 +11,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useObjectState } from "@/hooks/use-object-state";
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { SocialAuthenticationProvider } from "app-types/authentication";
 import { authClient } from "auth/client";
 import { Loader } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { safe } from "ts-safe";
 import { GithubIcon } from "ui/github-icon";
@@ -34,7 +34,7 @@ export default function SignIn({
   signUpEnabled: boolean;
   socialAuthenticationProviders: SocialAuthenticationProvider[];
 }) {
-  const t = useTranslations("Auth.SignIn");
+  const { t } = useTranslation();
 
   const [loading, setLoading] = useState(false);
 
@@ -80,11 +80,11 @@ export default function SignIn({
         <CardHeader className="my-4">
           <CardTitle className="text-2xl text-center my-1">
             <TextShimmer className="text-2xl font-semibold">
-              {t("title")}
+              {t("Auth.SignIn.title")}
             </TextShimmer>
           </CardTitle>
           <CardDescription className="text-center text-muted-foreground">
-            {t("description")}
+            {t("Auth.SignIn.description")}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col">
@@ -131,7 +131,7 @@ export default function SignIn({
                 {loading ? (
                   <Loader className="size-4 animate-spin ml-1" />
                 ) : (
-                  t("signIn")
+                  t("Auth.SignIn.signIn")
                 )}
               </Button>
             </div>
@@ -142,7 +142,7 @@ export default function SignIn({
                 <div className="flex items-center my-4">
                   <div className="flex-1 h-px bg-accent"></div>
                   <span className="px-4 text-sm text-muted-foreground">
-                    {t("orContinueWith")}
+                    {t("Auth.SignIn.orContinueWith")}
                   </span>
                   <div className="flex-1 h-px bg-accent"></div>
                 </div>
@@ -183,9 +183,9 @@ export default function SignIn({
           )}
           {signUpEnabled && (
             <div className="my-8 text-center text-sm text-muted-foreground">
-              {t("noAccount")}
-              <Link href="/sign-up" className="underline-offset-4 text-primary">
-                {t("signUp")}
+              {t("Auth.SignIn.noAccount")}
+              <Link to="/sign-up" className="underline-offset-4 text-primary">
+                {t("Auth.SignIn.signUp")}
               </Link>
             </div>
           )}

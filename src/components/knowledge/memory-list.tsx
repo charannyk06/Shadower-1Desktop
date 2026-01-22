@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useTransition } from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useNavigate, useSearch, useLocation } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { MessageSquareIcon, Search, X } from "lucide-react";
 import { Button } from "ui/button";
 import { Input } from "ui/input";
@@ -14,9 +14,10 @@ import { BulkActionToolbar } from "./bulk-action-toolbar";
 import { TablePagination } from "ui/table-pagination";
 import { toast } from "sonner";
 import { useDebounce } from "@/hooks/use-debounce";
-import Form from "next/form";
+// Using native form - Next.js Form not needed in Vite
 import { cn } from "lib/utils";
 import { motion, LayoutGroup } from "framer-motion";
+import { knowledgeApi } from "@/lib/electron/knowledge-api";
 
 interface Memory {
   id: string;
@@ -43,19 +44,19 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 
 export function MemoryList({ userId: _userId }: MemoryListProps) {
-  const t = useTranslations();
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const pathname = location.pathname;
+  const searchParams = useSearch({ strict: false }) as Record<string, string>;
   const [_, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
 
   // Get URL params
-  const page = parseInt(searchParams.get("page") || String(DEFAULT_PAGE), 10);
-  const searchQuery = searchParams.get("search") || "";
-  const roleFilter =
-    (searchParams.get("role") as "user" | "assistant") || undefined;
-  const sourceFilter = (searchParams.get("source") || "all") as
+  const page = parseInt(searchParams?.page || String(DEFAULT_PAGE), 10);
+  const searchQuery = searchParams?.search || "";
+  const roleFilter = (searchParams?.role as "user" | "assistant") || undefined;
+  const sourceFilter = (searchParams?.source || "all") as
     | "all"
     | "messages"
     | "knowledge"
@@ -134,19 +135,13 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
   const loadMemories = useCallback(async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: DEFAULT_LIMIT.toString(),
-        ...(searchQuery ? { search: searchQuery } : {}),
-        ...(roleFilter ? { role: roleFilter } : {}),
-        ...(sourceFilter && sourceFilter !== "all"
-          ? { source: sourceFilter }
-          : {}),
+      const data = await knowledgeApi.getMemories({
+        page,
+        limit: DEFAULT_LIMIT,
+        search: searchQuery || undefined,
+        role: roleFilter,
+        source: sourceFilter,
       });
-
-      const response = await fetch(`/api/knowledge/memories?${params}`);
-      if (!response.ok) throw new Error("Failed to load memories");
-      const data = await response.json();
 
       setMemories(data.memories || []);
       setPagination(
@@ -180,7 +175,7 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
   // Handle role filter change
   const handleRoleFilterChange = (role: "user" | "assistant" | null) => {
     startTransition(() => {
-      router.push(buildUrl({ role, page: 1 }));
+      navigate({ to: buildUrl({ role, page: 1 }) });
     });
   };
 
@@ -215,10 +210,8 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
     if (!confirm(t("Knowledge.confirmDeleteMemory"))) return;
 
     try {
-      const response = await fetch(`/api/knowledge/memories/${id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) throw new Error("Failed to delete memory");
+      const result = await knowledgeApi.deleteMemory(id);
+      if (!result.success) throw new Error("Failed to delete memory");
 
       setMemories((prev) => prev.filter((m) => m.id !== id));
       setSelectedIds((prev) => {
@@ -238,15 +231,10 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
   // Bulk delete handlers
   const handleBulkDelete = async (ids: string[]) => {
     try {
-      const response = await fetch("/api/knowledge/memories/bulk", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
-      });
+      const result = await knowledgeApi.bulkDeleteMemories(ids);
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to delete memories");
+      if (!result.success) {
+        throw new Error("Failed to delete memories");
       }
 
       // Reload memories
@@ -262,15 +250,10 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
     ids: string[],
   ) => {
     try {
-      const response = await fetch("/api/knowledge/memories/bulk", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, role }),
-      });
+      const result = await knowledgeApi.bulkDeleteMemories(ids, role);
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to delete memories");
+      if (!result.success) {
+        throw new Error("Failed to delete memories");
       }
 
       // Reload memories
@@ -288,16 +271,11 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
 
   const handleSave = async (id: string, content: string) => {
     try {
-      const response = await fetch(`/api/knowledge/memories/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
-      });
-      if (!response.ok) throw new Error("Failed to update memory");
+      const result = await knowledgeApi.updateMemory(id, content);
+      if (!result.success) throw new Error("Failed to update memory");
 
-      const updated = await response.json();
       setMemories((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, content: updated.content } : m)),
+        prev.map((m) => (m.id === id ? { ...m, content: result.content || content } : m)),
       );
       setEditingMemory(null);
       toast.success(t("Knowledge.memoryUpdated"));
@@ -326,7 +304,7 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
       <div className="flex flex-col gap-4">
         {/* Search Bar */}
         <div className="relative flex-1 max-w-sm">
-          <Form action={pathname} ref={formRef}>
+          <form action={pathname} ref={formRef}>
             {page !== DEFAULT_PAGE && (
               <input type="hidden" name="page" value={DEFAULT_PAGE} />
             )}
@@ -352,7 +330,7 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
                   className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                   onClick={() => {
                     startTransition(() => {
-                      router.push(buildUrl({ search: "", page: 1 }));
+                      navigate({ to: buildUrl({ search: "", page: 1 }) });
                     });
                   }}
                 >
@@ -360,7 +338,7 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
                 </Button>
               )}
             </div>
-          </Form>
+          </form>
         </div>
 
         {/* Source and Role Filters */}
@@ -378,7 +356,7 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
                     e.preventDefault();
                     e.stopPropagation();
                     startTransition(() => {
-                      router.push(buildUrl({ source: "all", page: 1 }));
+                      navigate({ to: buildUrl({ source: "all", page: 1 }) });
                     });
                   }}
                   className={cn(
@@ -410,7 +388,9 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
                     e.preventDefault();
                     e.stopPropagation();
                     startTransition(() => {
-                      router.push(buildUrl({ source: "messages", page: 1 }));
+                      navigate({
+                        to: buildUrl({ source: "messages", page: 1 }),
+                      });
                     });
                   }}
                   className={cn(
@@ -442,7 +422,9 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
                     e.preventDefault();
                     e.stopPropagation();
                     startTransition(() => {
-                      router.push(buildUrl({ source: "knowledge", page: 1 }));
+                      navigate({
+                        to: buildUrl({ source: "knowledge", page: 1 }),
+                      });
                     });
                   }}
                   className={cn(
@@ -474,7 +456,9 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
                     e.preventDefault();
                     e.stopPropagation();
                     startTransition(() => {
-                      router.push(buildUrl({ source: "documents", page: 1 }));
+                      navigate({
+                        to: buildUrl({ source: "documents", page: 1 }),
+                      });
                     });
                   }}
                   className={cn(

@@ -1,5 +1,3 @@
-import "server-only";
-
 import { formatGroqDisplayName } from "../display-names";
 import { DynamicModelInfo } from "../types";
 import {

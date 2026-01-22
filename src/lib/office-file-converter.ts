@@ -82,13 +82,8 @@ async function contentToArrayBuffer(
     const timeoutId = setTimeout(() => controller.abort(), options.timeout);
 
     try {
-      // Use proxy endpoint to bypass CORS restrictions from Vercel Blob Storage
-      const isVercelBlob = content.includes("blob.vercel-storage.com");
-      const fetchUrl = isVercelBlob
-        ? `/api/proxy/content?url=${encodeURIComponent(content)}`
-        : content;
-
-      const response = await fetch(fetchUrl, {
+      // In desktop mode, we fetch directly - CORS is not an issue
+      const response = await fetch(content, {
         signal: controller.signal,
         headers: {
           "Cache-Control": "no-cache",
@@ -124,9 +119,9 @@ async function contentToArrayBuffer(
     }
   }
 
-  // Handle local file paths (sandbox paths like /sandbox/...)
+  // Handle local file paths (workspace paths like /workspace/...)
   if (content.startsWith("/")) {
-    // For sandbox paths, we need to fetch from the server
+    // For local paths, we need to fetch from the server
     // This assumes there's an API endpoint or the file is accessible
     const response = await fetch(content);
     if (!response.ok) {
@@ -560,8 +555,8 @@ export async function convertPptxToHtml(
       };
     }
 
-    // For local files (sandbox paths), parse PPTX directly
-    if (content.startsWith("/sandbox/") || content.startsWith("/")) {
+    // For local files (workspace paths), parse PPTX directly
+    if (content.startsWith("/workspace/") || content.startsWith("/")) {
       const arrayBuffer = await contentToArrayBuffer(content, opts);
       return await parsePptxToHtml(arrayBuffer);
     }

@@ -6,16 +6,16 @@ import {
   ChevronsLeftRightEllipsisIcon,
   Terminal,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 import { NodeIcon } from "./node-icon";
 
 export function WorkflowGreeting() {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const descriptions = useMemo(() => {
-    return t.raw("Workflow.kindsDescription") ?? {};
+    return t("Workflow.kindsDescription", { returnObjects: true }) ?? {};
   }, [t]);
 
   return (

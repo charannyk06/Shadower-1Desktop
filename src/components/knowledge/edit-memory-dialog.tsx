@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -33,7 +33,7 @@ export function EditMemoryDialog({
   onOpenChange,
   onSave,
 }: EditMemoryDialogProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const [content, setContent] = useState(memory.content);
   const [saving, setSaving] = useState(false);
 

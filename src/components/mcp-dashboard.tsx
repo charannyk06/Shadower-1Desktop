@@ -1,21 +1,19 @@
 "use client";
 import { MCPCard } from "@/components/mcp-card";
-
+import { MCPMarketplace } from "@/components/mcp-marketplace";
 import { MCPOverview, RECOMMENDED_MCPS } from "@/components/mcp-overview";
 import { SmitheryIntegration } from "@/components/smithery-integration";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
+import { Link, useNavigate } from "@tanstack/react-router";
 
 import { Skeleton } from "ui/skeleton";
 
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
 import { BasicUser } from "app-types/user";
-import { cn } from "lib/utils";
-import { InfoIcon, Loader2 } from "lucide-react";
-import { useTranslations } from "next-intl";
-import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import type { MCPServerInfo } from "app-types/mcp";
+import { Grid, InfoIcon, List, Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -25,10 +23,9 @@ import {
 } from "ui/dropdown-menu";
 import { MCPIcon } from "ui/mcp-icon";
 import { ScrollArea } from "ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "ui/tabs";
 
-const LightRays = dynamic(() => import("@/components/ui/light-rays"), {
-  ssr: false,
-});
+const LightRays = React.lazy(() => import("@/components/ui/light-rays"));
 
 interface MCPDashboardProps {
   message?: string;
@@ -36,8 +33,8 @@ interface MCPDashboardProps {
 }
 
 export default function MCPDashboard({ message, user }: MCPDashboardProps) {
-  const t = useTranslations("MCP");
-  const router = useRouter();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
 
   // All authenticated users can create MCP connections (roles/permissions removed)
   const canCreate = true;
@@ -50,22 +47,24 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
     refreshInterval: 10000,
   });
 
-  const { myServers, featuredServers } = useMemo(() => {
+  const [viewMode, setViewMode] = useState<"marketplace" | "list">(
+    "marketplace",
+  );
+
+  const { myServers, featuredServers } = useMemo((): { myServers: MCPServerInfo[]; featuredServers: MCPServerInfo[] } => {
     if (!mcpList) return { myServers: [], featuredServers: [] };
 
-    const sortFn = (a: any, b: any) => {
+    const sortFn = (a: MCPServerInfo, b: MCPServerInfo) => {
       if (a.status === b.status) return 0;
       if (a.status === "authorizing") return -1;
       if (b.status === "authorizing") return 1;
       return 0;
     };
 
-    const owned = mcpList.filter((s) => s.userId === user?.id).sort(sortFn);
-    const featured = mcpList
-      .filter((s) => s.userId !== user?.id && s.visibility === "public")
-      .sort(sortFn);
+    // In single-user mode, all servers belong to the user
+    const owned = mcpList.sort(sortFn);
 
-    return { myServers: owned, featuredServers: featured };
+    return { myServers: owned, featuredServers: [] };
   }, [mcpList]);
 
   const displayIcons = useMemo(() => {
@@ -77,17 +76,22 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
   const [showValidating, setShowValidating] = useState(false);
 
   const handleRecommendedSelect = (mcp: (typeof RECOMMENDED_MCPS)[number]) => {
-    const params = new URLSearchParams();
-    params.set("name", mcp.name);
-    params.set("config", JSON.stringify(mcp.config));
-    router.push(`/mcp/create?${params.toString()}`);
+    navigate({
+      to: "/mcp/create",
+      search: {
+        name: mcp.name,
+        config: JSON.stringify(mcp.config),
+      },
+    });
   };
 
   const particle = useMemo(() => {
     return (
       <>
         <div className="absolute opacity-30 pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
-          <LightRays className="bg-transparent" />
+          <Suspense fallback={null}>
+            <LightRays className="bg-transparent" />
+          </Suspense>
         </div>
 
         <div className="absolute pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
@@ -123,139 +127,165 @@ export default function MCPDashboard({ message, user }: MCPDashboardProps) {
   return (
     <>
       {particle}
-      <ScrollArea className="h-full w-full z-40 ">
-        <div className="pt-8 flex-1 relative flex flex-col gap-4 px-8 max-w-3xl h-full mx-auto pb-8">
-          <div className={cn("flex items-center  pb-8")}>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              {canCreate ? t("mcpServers") : t("availableMcpServers")}
+      <div className="h-full w-full z-40 relative">
+        <Tabs
+          value={viewMode}
+          onValueChange={(v) => setViewMode(v as "marketplace" | "list")}
+          className="h-full flex flex-col"
+        >
+          {/* Tab Header */}
+          <div className="flex items-center justify-between px-8 pt-8 pb-4">
+            <TabsList className="bg-secondary/50">
+              <TabsTrigger value="marketplace" className="gap-2">
+                <Grid className="size-4" />
+                Marketplace
+              </TabsTrigger>
+              <TabsTrigger value="list" className="gap-2">
+                <List className="size-4" />
+                My Servers
+              </TabsTrigger>
+            </TabsList>
+
+            <div className="flex items-center gap-2">
               {showValidating && isValidating && !isLoading && (
-                <Loader2 className="size-4 animate-spin" />
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
               )}
-            </h1>
-            <div className="flex-1" />
 
-            <div className="flex gap-2">
-              {canCreate && mcpList?.length ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      className="gap-1 data-[state=open]:bg-muted data-[state=open]:text-foreground text-muted-foreground"
-                    >
-                      <div className="flex -space-x-2">
-                        {displayIcons.map((mcp, index) => {
-                          const Icon = mcp.icon;
-                          return (
-                            <div
-                              key={mcp.name}
-                              className="relative rounded-full bg-background border-[1px] p-1"
-                              style={{
-                                zIndex: displayIcons.length - index,
-                              }}
-                            >
-                              <Icon className="size-3" />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    {RECOMMENDED_MCPS.map((mcp) => {
-                      const Icon = mcp.icon;
-                      return (
-                        <DropdownMenuItem
-                          key={mcp.name}
-                          onClick={() => handleRecommendedSelect(mcp)}
-                          className="cursor-pointer"
-                        >
-                          <Icon className="size-4 mr-2" />
-                          <span>{mcp.label}</span>
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-
-              {canCreate && (
+              {canCreate && viewMode === "list" && (
                 <div className="flex items-center gap-1">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        className="gap-1 data-[state=open]:bg-muted data-[state=open]:text-foreground text-muted-foreground"
+                      >
+                        <div className="flex -space-x-2">
+                          {displayIcons.map((mcp, index) => {
+                            const Icon = mcp.icon;
+                            return (
+                              <div
+                                key={mcp.name}
+                                className="relative rounded-full bg-background border-[1px] p-1"
+                                style={{
+                                  zIndex: displayIcons.length - index,
+                                }}
+                              >
+                                <Icon className="size-3" />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      {RECOMMENDED_MCPS.slice(0, 10).map((mcp) => {
+                        const Icon = mcp.icon;
+                        return (
+                          <DropdownMenuItem
+                            key={mcp.name}
+                            onClick={() => handleRecommendedSelect(mcp)}
+                            className="cursor-pointer"
+                          >
+                            <Icon className="size-4 mr-2" />
+                            <span>{mcp.label}</span>
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
                   <SmitheryIntegration>
                     <Button variant="ghost" size="icon" className="size-8">
                       <InfoIcon className="size-4" />
                     </Button>
                   </SmitheryIntegration>
-                  <Link href="/mcp/create">
+                  <Link to="/mcp/create" search={{ name: undefined, config: undefined }}>
                     <Button
                       className="font-semibold bg-input/20"
                       variant="outline"
                       data-testid="add-mcp-server-button"
                     >
                       <MCPIcon className="fill-foreground size-3.5" />
-                      {t("addMcpServer")}
+                      {t("MCP.addMcpServer")}
                     </Button>
                   </Link>
                 </div>
               )}
             </div>
           </div>
-          {isLoading ? (
-            <div className="flex flex-col gap-4">
-              <Skeleton className="h-60 w-full" />
-              <Skeleton className="h-60 w-full" />
-              <Skeleton className="h-60 w-full" />
-            </div>
-          ) : myServers?.length || featuredServers?.length ? (
-            <div
-              className="flex flex-col gap-8 mb-4"
-              data-testid="mcp-servers-section"
-            >
-              {myServers?.length > 0 && (
-                <div className="flex flex-col gap-4">
-                  <h2 className="text-lg font-semibold text-muted-foreground">
-                    {t("myMcpServers")}
-                  </h2>
-                  <div
-                    className="flex flex-col gap-6"
-                    data-testid="my-mcp-servers-section"
-                  >
-                    {myServers.map((mcp) => (
-                      <MCPCard key={mcp.id} {...mcp} user={user} />
-                    ))}
+
+          {/* Marketplace Tab */}
+          <TabsContent
+            value="marketplace"
+            className="flex-1 m-0 overflow-hidden"
+          >
+            <MCPMarketplace />
+          </TabsContent>
+
+          {/* List Tab (Original View) */}
+          <TabsContent value="list" className="flex-1 m-0 overflow-hidden">
+            <ScrollArea className="h-full w-full">
+              <div className="flex-1 relative flex flex-col gap-4 px-8 max-w-3xl h-full mx-auto pb-8">
+                {isLoading ? (
+                  <div className="flex flex-col gap-4">
+                    <Skeleton className="h-60 w-full" />
+                    <Skeleton className="h-60 w-full" />
+                    <Skeleton className="h-60 w-full" />
                   </div>
-                </div>
-              )}
-              {featuredServers?.length > 0 && (
-                <div className="flex flex-col gap-4">
-                  <h2 className="text-lg font-semibold text-muted-foreground">
-                    {t("featuredMcpServers")}
-                  </h2>
+                ) : myServers?.length || featuredServers?.length ? (
                   <div
-                    className="flex flex-col gap-6"
-                    data-testid="featured-mcp-servers-section"
+                    className="flex flex-col gap-8 mb-4"
+                    data-testid="mcp-servers-section"
                   >
-                    {featuredServers.map((mcp) => (
-                      <MCPCard key={mcp.id} {...mcp} user={user} />
-                    ))}
+                    {myServers?.length > 0 && (
+                      <div className="flex flex-col gap-4">
+                        <h2 className="text-lg font-semibold text-muted-foreground">
+                          {t("MCP.myMcpServers")}
+                        </h2>
+                        <div
+                          className="flex flex-col gap-6"
+                          data-testid="my-mcp-servers-section"
+                        >
+                          {myServers.map((mcp) => (
+                            <MCPCard key={mcp.id} {...mcp} user={user} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {featuredServers?.length > 0 && (
+                      <div className="flex flex-col gap-4">
+                        <h2 className="text-lg font-semibold text-muted-foreground">
+                          {t("MCP.featuredMcpServers")}
+                        </h2>
+                        <div
+                          className="flex flex-col gap-6"
+                          data-testid="featured-mcp-servers-section"
+                        >
+                          {featuredServers.map((mcp) => (
+                            <MCPCard key={mcp.id} {...mcp} user={user} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
-            </div>
-          ) : // When MCP list is empty
-          canCreate ? (
-            <MCPOverview />
-          ) : (
-            <div className="flex flex-col items-center justify-center space-y-4 my-20 text-center">
-              <h3 className="text-2xl md:text-4xl font-semibold">
-                {t("noMcpServersAvailable")}
-              </h3>
-              <p className="text-muted-foreground max-w-md">
-                {t("noMcpServersAvailableDescription")}
-              </p>
-            </div>
-          )}
-        </div>
-      </ScrollArea>
+                ) : // When MCP list is empty
+                canCreate ? (
+                  <MCPOverview />
+                ) : (
+                  <div className="flex flex-col items-center justify-center space-y-4 my-20 text-center">
+                    <h3 className="text-2xl md:text-4xl font-semibold">
+                      {t("MCP.noMcpServersAvailable")}
+                    </h3>
+                    <p className="text-muted-foreground max-w-md">
+                      {t("MCP.noMcpServersAvailableDescription")}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
+      </div>
     </>
   );
 }

@@ -28,7 +28,7 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { safe } from "ts-safe";
 import { Alert, AlertDescription, AlertTitle } from "ui/alert";
 import { Button } from "ui/button";
@@ -74,7 +74,7 @@ export function McpServerCustomizationContent({
   mcpServerInfo: MCPServerInfo & { id: string };
   title?: ReactNode;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   const [prompt, setPrompt] = useState("");
   const [search, setSearch] = useState("");

@@ -1,8 +1,7 @@
 "use client";
 
-import { ShareableActions, Visibility } from "@/components/shareable-actions";
+import { ShareableActions } from "@/components/shareable-actions";
 import { useMutateAgents } from "@/hooks/queries/use-agents";
-import { useBookmark } from "@/hooks/queries/use-bookmark";
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
 import { useWorkflowToolList } from "@/hooks/queries/use-workflow-tool-list";
 import { useObjectState } from "@/hooks/use-object-state";
@@ -21,8 +20,8 @@ import { notify } from "lib/notify";
 import { agentApi } from "@/lib/electron/agent-api";
 import { cn, objectFlow } from "lib/utils";
 import { Loader, WandSparklesIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { safe } from "ts-safe";
@@ -59,16 +58,12 @@ const defaultConfig = (): PartialBy<
       systemPrompt: "",
       mentions: [],
     },
-    visibility: "private",
   };
 };
 
 interface EditAgentProps {
   initialAgent?: Agent;
   userId: string;
-  isOwner?: boolean;
-  hasEditAccess?: boolean;
-  isBookmarked?: boolean;
   /** Whether this is a system agent (read-only, not stored in DB) */
   isSystemAgent?: boolean;
 }
@@ -76,18 +71,14 @@ interface EditAgentProps {
 export default function EditAgent({
   initialAgent,
   userId,
-  isOwner = true,
-  hasEditAccess = true,
   isSystemAgent = false,
 }: EditAgentProps) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const mutateAgents = useMutateAgents();
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const [openGenerateAgentDialog, setOpenGenerateAgentDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isVisibilityChangeLoading, setIsVisibilityChangeLoading] =
-    useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -123,16 +114,6 @@ export default function EditAgent({
     initialAgent?.icon,
     setAgent,
   ]);
-
-  const { toggleBookmark, isLoading: isBookmarkToggleLoadingFn } = useBookmark({
-    itemType: "agent",
-  });
-  const isBookmarkToggleLoading = useMemo(
-    () =>
-      (initialAgent?.id && isBookmarkToggleLoadingFn(initialAgent?.id)) ||
-      false,
-    [initialAgent?.id, isBookmarkToggleLoadingFn],
-  );
 
   const { data: mcpList, isLoading: isMcpLoading } = useMcpList();
   const { data: workflowToolList, isLoading: isWorkflowLoading } =
@@ -195,7 +176,7 @@ export default function EditAgent({
         .ifOk((updatedAgent) => {
           mutateAgents(updatedAgent);
           toast.success(t("Agent.updated"));
-          router.push(`/agents`);
+          navigate({ to: "/agents" });
         })
         .ifFail(handleErrorWithToast)
         .watch(() => setIsSaving(false));
@@ -206,32 +187,12 @@ export default function EditAgent({
         .ifOk((updatedAgent) => {
           mutateAgents(updatedAgent);
           toast.success(t("Agent.created"));
-          router.push(`/agents`);
+          navigate({ to: "/agents" });
         })
         .ifFail(handleErrorWithToast)
         .watch(() => setIsSaving(false));
     }
-  }, [agent, userId, mutateAgents, router, initialAgent, t]);
-
-  const updateVisibility = useCallback(
-    async (visibility: Visibility) => {
-      if (initialAgent?.id) {
-        safe(() => setIsVisibilityChangeLoading(true))
-          .map(() => AgentUpdateSchema.parse({ visibility }))
-          .map(async (data) => agentApi.update(initialAgent.id, data))
-          .ifOk(() => {
-            setAgent({ visibility });
-            mutateAgents({ id: initialAgent.id, visibility });
-            toast.success(t("Agent.visibilityUpdated"));
-          })
-          .ifFail(handleErrorWithToast)
-          .watch(() => setIsVisibilityChangeLoading(false));
-      } else {
-        setAgent({ visibility });
-      }
-    },
-    [initialAgent?.id, mutateAgents, setAgent, setIsVisibilityChangeLoading, t],
-  );
+  }, [agent, userId, mutateAgents, navigate, initialAgent, t]);
 
   const deleteAgent = useCallback(async () => {
     if (!initialAgent?.id) return;
@@ -244,30 +205,11 @@ export default function EditAgent({
       .ifOk(() => {
         mutateAgents({ id: initialAgent.id }, true);
         toast.success(t("Agent.deleted"));
-        router.push("/agents");
+        navigate({ to: "/agents" });
       })
       .ifFail(handleErrorWithToast)
       .watch(() => setIsSaving(false));
-  }, [initialAgent?.id, mutateAgents, router, t]);
-
-  const handleBookmarkToggle = useCallback(async () => {
-    if (!initialAgent?.id || isBookmarkToggleLoading) return;
-    safe(async () => {
-      await toggleBookmark({
-        id: initialAgent.id,
-        isBookmarked: agent.isBookmarked,
-      });
-    })
-      .ifOk(() => {
-        setAgent({ isBookmarked: !agent.isBookmarked });
-      })
-      .ifFail(handleErrorWithToast);
-  }, [
-    initialAgent?.id,
-    toggleBookmark,
-    agent.isBookmarked,
-    isBookmarkToggleLoading,
-  ]);
+  }, [initialAgent?.id, mutateAgents, navigate, t]);
 
   const handleAgentChange = useCallback((generatedData: any) => {
     if (textareaRef.current) {
@@ -307,14 +249,17 @@ export default function EditAgent({
 
   // Map snake_case tool names to camelCase DefaultToolName enum values
   const toolNameMap: Record<string, DefaultToolName> = {
+    browser_create_session: DefaultToolName.BrowserCreateSession,
+    browser_close_session: DefaultToolName.BrowserCloseSession,
     browser_navigate: DefaultToolName.BrowserNavigate,
-    browser_act: DefaultToolName.BrowserAct,
-    browser_observe: DefaultToolName.BrowserObserve,
-    browser_extract: DefaultToolName.BrowserExtract,
+    browser_click: DefaultToolName.BrowserClick,
+    browser_fill: DefaultToolName.BrowserFill,
+    browser_type: DefaultToolName.BrowserType,
+    browser_get_snapshot: DefaultToolName.BrowserGetSnapshot,
+    browser_get_content: DefaultToolName.BrowserGetContent,
     browser_screenshot: DefaultToolName.BrowserScreenshot,
-    browser_stealth: DefaultToolName.BrowserStealth,
     browser_wait: DefaultToolName.BrowserWait,
-    browser_close: DefaultToolName.BrowserClose,
+    browser_evaluate: DefaultToolName.BrowserEvaluate,
     desktop_create: DefaultToolName.DesktopCreate,
     desktop_screenshot: DefaultToolName.DesktopScreenshot,
     desktop_click: DefaultToolName.DesktopClick,
@@ -342,7 +287,7 @@ export default function EditAgent({
 
         const toolMentions: ChatMention[] = defaultTools
           .map((toolName) => {
-            // Try direct match first (for camelCase names like "webSearch", "sandbox")
+            // Try direct match first (for camelCase names like "webSearch", "terminal")
             if (
               Object.values(DefaultToolName).includes(
                 toolName as DefaultToolName,
@@ -392,20 +337,13 @@ export default function EditAgent({
   }, [agent.instructions?.mentions, isSystemAgent, initialAgent?.instructions]);
 
   const isLoading = useMemo(() => {
-    return (
-      isLoadingTool ||
-      isSaving ||
-      isVisibilityChangeLoading ||
-      isBookmarkToggleLoading
-    );
-  }, [
-    isLoadingTool,
-    isSaving,
-    isVisibilityChangeLoading,
-    isBookmarkToggleLoading,
-  ]);
+    return isLoadingTool || isSaving;
+  }, [isLoadingTool, isSaving]);
 
   const isGenerating = openGenerateAgentDialog;
+
+  // In single-user mode, the user always has edit access
+  const hasEditAccess = true;
 
   return (
     <ScrollArea className="h-full w-full relative">
@@ -438,40 +376,6 @@ export default function EditAgent({
                   <WandSparklesIcon className="size-3" />
                   {t("Common.generateWithAI")}
                 </Button>
-                {/* Hidden: Create With Example dropdown
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="justify-between data-[state=open]:bg-input"
-                      disabled={isLoading}
-                      data-testid="agent-create-with-example-button"
-                    >
-                      {t("Common.createWithExample")}
-                      <ChevronDownIcon className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-54" align="end">
-                    <DropdownMenuItem
-                      onClick={() => setAgent(RandomDataGeneratorExample)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span>🎲</span>
-                        <span>Generate Random Data</span>
-                      </div>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      data-testid="agent-create-with-example-weather-button"
-                      onClick={() => setAgent(WeatherExample)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span>🌤️</span>
-                        <span>Weather Checker</span>
-                      </div>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                */}
               </>
             )}
 
@@ -479,14 +383,11 @@ export default function EditAgent({
               <div className="flex items-center gap-2">
                 <ShareableActions
                   type="agent"
-                  visibility={agent.visibility || "private"}
-                  isBookmarked={agent?.isBookmarked || false}
-                  isOwner={isOwner}
-                  onVisibilityChange={updateVisibility}
-                  isVisibilityChangeLoading={isVisibilityChangeLoading}
+                  isOwner={true}
+                  editHref={`/agent/${initialAgent.id}`}
+                  onDelete={deleteAgent}
+                  isDeleteLoading={isSaving}
                   disabled={isLoading}
-                  onBookmarkToggle={handleBookmarkToggle}
-                  isBookmarkToggleLoading={isBookmarkToggleLoading}
                 />
               </div>
             )}
@@ -678,8 +579,8 @@ export default function EditAgent({
 
         {hasEditAccess && (
           <div className={cn("flex justify-end gap-2")}>
-            {/* Delete button - only for owners */}
-            {initialAgent && isOwner && (
+            {/* Delete button */}
+            {initialAgent && (
               <Button
                 className="mt-2 hover:text-destructive"
                 variant="ghost"
@@ -691,7 +592,7 @@ export default function EditAgent({
             )}
 
             <Button
-              className={cn("mt-2", !initialAgent || !isOwner ? "ml-auto" : "")}
+              className={cn("mt-2", !initialAgent ? "ml-auto" : "")}
               onClick={saveAgent}
               disabled={isLoading || !hasEditAccess}
               data-testid="agent-save-button"

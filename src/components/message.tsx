@@ -8,7 +8,7 @@ import type { UseChatHelpers } from "@ai-sdk/react";
 import { ChatMetadata } from "app-types/chat";
 import { cn, truncateString } from "lib/utils";
 import { ChevronDown, ChevronUp, TriangleAlertIcon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useTranslation } from "react-i18next";
 import { Button } from "ui/button";
 import {
   AssistMessagePart,
@@ -18,6 +18,7 @@ import {
   ToolMessagePart,
   UserMessagePart,
 } from "./message-parts";
+import { ContextCompressionToolBlock } from "./tool-invocation/context-compression";
 import { SubAgentTile } from "./sub-agent-tile";
 import type { SubAgentEvent } from "./tool-invocation/sub-agent-view";
 
@@ -252,6 +253,20 @@ const PurePreviewMessage = ({
               );
             }
 
+            // Handle context compression tool block
+            if (part.type === "tool-context-compression") {
+              return (
+                <ContextCompressionToolBlock
+                  key={key}
+                  state={(part as any).state}
+                  compactedCount={(part as any).compactedCount}
+                  tokensSaved={(part as any).tokensSaved}
+                  oldPercentage={(part as any).oldPercentage}
+                  newPercentage={(part as any).newPercentage}
+                />
+              );
+            }
+
             // Handle other part types
             if (part.type === "step-start") {
               return null;
@@ -326,7 +341,7 @@ export const ErrorMessage = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const maxLength = 200;
-  const t = useTranslations();
+  const { t } = useTranslation();
 
   // Default error message
   return (
