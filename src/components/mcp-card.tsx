@@ -18,12 +18,29 @@ import { Button } from "ui/button";
 import { Card, CardContent, CardHeader } from "ui/card";
 import JsonView from "ui/json-view";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
+import { MCPIcon } from "ui/mcp-icon";
 
 import { mcpApi } from "@/lib/electron/mcp-api";
 import { handleErrorWithToast } from "ui/shared-toast";
 import { ShareableActions } from "./shareable-actions";
+import { RECOMMENDED_MCPS } from "./mcp-overview";
 
 import type { MCPServerInfo, MCPToolInfo } from "app-types/mcp";
+
+// Helper to format server name for display (fallback when not in RECOMMENDED_MCPS)
+function formatServerName(name: string): string {
+  // Handle common patterns like "brave-search" -> "Brave Search"
+  return name
+    .split(/[-_]/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+// Helper to get MCP info from RECOMMENDED_MCPS
+function getMCPInfo(name: string) {
+  const normalizedName = name.toLowerCase();
+  return RECOMMENDED_MCPS.find((mcp) => mcp.name.toLowerCase() === normalizedName);
+}
 
 import { appStore } from "@/app/store";
 import { BasicUser } from "app-types/user";
@@ -53,6 +70,11 @@ export const MCPCard = memo(function MCPCard({
   const isLoading = useMemo(() => {
     return isProcessing || status === "loading";
   }, [isProcessing, status]);
+
+  // Get MCP info for icon and display label
+  const mcpInfo = useMemo(() => getMCPInfo(name), [name]);
+  const displayName = mcpInfo?.label || formatServerName(name);
+  const ServerIcon = mcpInfo?.icon || MCPIcon;
 
   const needsAuthorization = status === "authorizing";
   const isDisabled = isLoading || needsAuthorization;
@@ -103,8 +125,9 @@ export const MCPCard = memo(function MCPCard({
       >
         {isLoading && <Loader className="size-4 z-20 animate-spin mr-1" />}
 
-        <h4 className="font-bold text-xs sm:text-lg flex items-center gap-1">
-          {name}
+        <h4 className="font-bold text-xs sm:text-lg flex items-center gap-2">
+          <ServerIcon className="size-5" />
+          {displayName}
         </h4>
 
         <div className="flex-1" />
