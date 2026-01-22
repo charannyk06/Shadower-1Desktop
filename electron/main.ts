@@ -21,7 +21,6 @@ import { registerUserHandlers } from "./ipc/user";
 import { registerFileHandlers } from "./ipc/files";
 import { registerTerminalHandlers } from "./ipc/terminal";
 import { registerModelsHandlers } from "./ipc/models";
-import { registerArchiveHandlers } from "./ipc/archives";
 import { registerAIHandlers } from "./ipc/ai";
 import { registerVectorHandlers } from "./ipc/vector";
 import { registerMemoryHandlers } from "./ipc/memory";
@@ -253,7 +252,6 @@ app.whenReady().then(async () => {
   registerHandler("File", registerFileHandlers);
   registerHandler("Terminal", registerTerminalHandlers);
   registerHandler("Models", registerModelsHandlers);
-  registerHandler("Archive", registerArchiveHandlers);
   registerHandler("AI", registerAIHandlers);
   registerHandler("Browser", registerBrowserHandlers);
 

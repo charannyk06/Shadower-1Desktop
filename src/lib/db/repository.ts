@@ -145,11 +145,6 @@ const devModeChatRepository: ChatRepository = {
     }
   },
 
-  async deleteUnarchivedThreads(userId: string): Promise<void> {
-    // In dev mode, delete all threads (no archive support)
-    await this.deleteAllThreads(userId);
-  },
-
   async insertMessages(
     messages: Omit<ChatMessage, "createdAt">[],
   ): Promise<ChatMessage[]> {
@@ -213,11 +208,9 @@ export { sqliteAgentRepository as agentRepository } from "./sqlite/repositories/
 export { sqliteAgentStateRepository as agentStateRepository } from "./sqlite/repositories/agent-state-repository.sqlite";
 export { sqliteMcpRepository as mcpRepository } from "./sqlite/repositories/mcp-repository.sqlite";
 export { sqliteWorkflowRepository as workflowRepository } from "./sqlite/repositories/workflow-repository.sqlite";
-export { sqliteArchiveRepository as archiveRepository } from "./sqlite/repositories/archive-repository.sqlite";
 export { sqliteBrowserSessionRepository as browserSessionRepository } from "./sqlite/repositories/browser-session-repository.sqlite";
 
 // Newly migrated SQLite repositories
-export { sqliteChatExportRepository as chatExportRepository } from "./sqlite/repositories/chat-export-repository.sqlite";
 export { sqliteConversationSummaryRepository as conversationSummaryRepository } from "./sqlite/repositories/conversation-summary-repository.sqlite";
 export { sqliteMcpOAuthRepository as mcpOAuthRepository } from "./sqlite/repositories/mcp-oauth-repository.sqlite";
 export { sqliteMcpServerCustomizationRepository as mcpServerCustomizationRepository } from "./sqlite/repositories/mcp-server-customization-repository.sqlite";

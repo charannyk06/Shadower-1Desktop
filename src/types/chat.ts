@@ -162,8 +162,6 @@ export type ChatRepository = {
 
   deleteAllThreads(userId: string): Promise<void>;
 
-  deleteUnarchivedThreads(userId: string): Promise<void>;
-
   checkAccess(id: string, userId: string): Promise<boolean>;
 
   insertMessages(

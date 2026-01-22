@@ -23,22 +23,25 @@ import { ThreadDropdown } from "../thread-dropdown";
 
 export function AppHeader() {
   const { t } = useTranslation();
-  const [appStoreMutate, theaterMode] = appStore(
-    useShallow((state) => [state.mutate, state.theaterMode]),
+  const [appStoreMutate, theaterMode, currentThreadId] = appStore(
+    useShallow((state) => [state.mutate, state.theaterMode, state.currentThreadId]),
   );
   const { toggleSidebar, open, setOpen } = useSidebar();
   const location = useLocation();
   const currentPaths = location.pathname;
 
+  // Check if we're on a chat page OR if there's an active thread in the store
+  // The URL might stay at "/" during a new chat to avoid component remount
   const isOnChatPage = useMemo(() => {
-    return currentPaths.startsWith("/chat/");
-  }, [currentPaths]);
+    return currentPaths.startsWith("/chat/") || !!currentThreadId;
+  }, [currentPaths, currentThreadId]);
 
+  // Show thread dropdown if on /chat/ URL OR if there's an active thread
   const componentByPage = useMemo(() => {
-    if (currentPaths.startsWith("/chat/")) {
+    if (currentPaths.startsWith("/chat/") || currentThreadId) {
       return <ThreadDropdownComponent />;
     }
-  }, [currentPaths]);
+  }, [currentPaths, currentThreadId]);
 
   return (
     <header className="sticky top-0 z-50 flex items-center px-3 py-2 pt-8">
@@ -195,40 +198,50 @@ export function AppHeader() {
 }
 
 function ThreadDropdownComponent() {
+  const location = useLocation();
   // Subscribe to each field individually for more reliable updates
   const threadList = appStore((state) => state.threadList);
   const currentThreadId = appStore((state) => state.currentThreadId);
   const generatingTitleThreadIds = appStore((state) => state.generatingTitleThreadIds);
 
+  // Extract threadId from URL as fallback (URL is /chat/:threadId)
+  const urlThreadId = useMemo(() => {
+    const match = location.pathname.match(/^\/chat\/(.+)$/);
+    return match ? match[1] : null;
+  }, [location.pathname]);
+
+  // Use URL threadId as fallback when store hasn't been updated yet
+  const effectiveThreadId = currentThreadId || urlThreadId;
+
   // Find the current thread - recompute when threadList or currentThreadId changes
   const currentThread = useMemo(() => {
-    const found = threadList.find((thread) => thread.id === currentThreadId);
-    console.log("[AppHeader] currentThread lookup:", {
-      currentThreadId,
-      foundTitle: found?.title,
-      threadListLength: threadList.length,
-      threadTitles: threadList.slice(0, 3).map(t => ({ id: t.id.slice(0, 8), title: t.title })),
-    });
-    return found;
-  }, [threadList, currentThreadId]);
+    if (!effectiveThreadId) return null;
+    return threadList.find((thread) => thread.id === effectiveThreadId) ?? null;
+  }, [threadList, effectiveThreadId]);
+
+  // Determine title to display
+  const displayTitle = currentThread?.title || "New Chat";
+  const isGeneratingTitle = currentThread ? generatingTitleThreadIds.includes(currentThread.id) : false;
 
   useEffect(() => {
-    if (currentThread?.id) {
-      document.title = currentThread.title || "New Chat";
+    if (currentThread) {
+      document.title = displayTitle;
     }
-  }, [currentThread?.id, currentThread?.title]);
+  }, [currentThread, displayTitle]);
 
+  // Only show dropdown when the thread exists in threadList
+  // This means a message has been sent and the thread has started
   if (!currentThread) return null;
 
   return (
-    <div className="items-center gap-1 hidden md:flex">
+    <div className="flex items-center gap-1">
       <div className="w-1 h-4">
         <Separator orientation="vertical" />
       </div>
 
       <ThreadDropdown
         threadId={currentThread.id}
-        beforeTitle={currentThread.title}
+        beforeTitle={displayTitle}
       >
         <div>
           <Tooltip>
@@ -237,13 +250,13 @@ function ThreadDropdownComponent() {
                 variant="ghost"
                 className="data-[state=open]:bg-input! hover:text-foreground cursor-pointer flex gap-1 items-center px-2 py-1 rounded-md hover:bg-accent"
               >
-                {generatingTitleThreadIds.includes(currentThread.id) ? (
-                  <TextShimmer className="truncate max-w-60 min-w-0 mr-1">
-                    {currentThread.title || "New Chat"}
+                {isGeneratingTitle ? (
+                  <TextShimmer className="truncate max-w-40 sm:max-w-60 min-w-0 mr-1">
+                    {displayTitle}
                   </TextShimmer>
                 ) : (
-                  <p className="truncate max-w-60 min-w-0 mr-1">
-                    {currentThread.title || "New Chat"}
+                  <p className="truncate max-w-40 sm:max-w-60 min-w-0 mr-1">
+                    {displayTitle}
                   </p>
                 )}
 
@@ -251,7 +264,7 @@ function ThreadDropdownComponent() {
               </Button>
             </TooltipTrigger>
             <TooltipContent className="max-w-[200px] p-4 break-all overflow-y-auto max-h-[200px]">
-              {currentThread.title || "New Chat"}
+              {displayTitle}
             </TooltipContent>
           </Tooltip>
         </div>

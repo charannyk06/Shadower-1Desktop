@@ -43,13 +43,10 @@ const McpModifyPage = lazy(() => import("./routes/mcp.$serverId.modify"));
 const McpTestPage = lazy(() => import("./routes/mcp.$serverId.test"));
 const ModelsPage = lazy(() => import("./routes/models"));
 const KnowledgePage = lazy(() => import("./routes/knowledge"));
-const ArchivePage = lazy(() => import("./routes/archive.$archiveId"));
 const SignInPage = lazy(() => import("./routes/auth.sign-in"));
 const SignUpPage = lazy(() => import("./routes/auth.sign-up"));
 const SignUpEmailPage = lazy(() => import("./routes/auth.sign-up.email"));
 const SetupPage = lazy(() => import("./routes/setup"));
-const ExportPage = lazy(() => import("./routes/export.$exportId"));
-const SharePage = lazy(() => import("./routes/share.$shareId"));
 const McpOAuthCallbackPage = lazy(
   () => import("./routes/api.mcp.oauth.callback"),
 );
@@ -202,30 +199,12 @@ const knowledgeRoute = createRoute({
   component: withErrorBoundary(KnowledgePage),
 });
 
-const archiveRoute = createRoute({
-  getParentRoute: () => chatLayoutRoute,
-  path: "/archive/$archiveId",
-  component: withErrorBoundary(ArchivePage),
-});
-
 // ==================== PUBLIC ROUTES ====================
 
 const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup",
   component: withErrorBoundary(SetupPage),
-});
-
-const exportRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/export/$exportId",
-  component: withErrorBoundary(ExportPage),
-});
-
-const shareRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/f/$shareId",
-  component: withErrorBoundary(SharePage),
 });
 
 // MCP OAuth callback route (handles /api/mcp/oauth/callback)
@@ -255,13 +234,10 @@ const routeTree = rootRoute.addChildren([
     mcpTestRoute,
     modelsRoute,
     knowledgeRoute,
-    archiveRoute,
   ]),
 
   // Public routes
   setupRoute,
-  exportRoute,
-  shareRoute,
   mcpOAuthCallbackRoute,
 ]);
 

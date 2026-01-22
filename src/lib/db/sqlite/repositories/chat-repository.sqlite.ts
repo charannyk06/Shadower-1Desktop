@@ -1,11 +1,6 @@
 import { ChatMessage, ChatRepository, ChatThread } from "app-types/chat";
 import { sqliteDb as db } from "../db.sqlite";
-import {
-  ArchiveItemTable,
-  ChatMessageTable,
-  ChatThreadTable,
-  UserTable,
-} from "../schema.sqlite";
+import { ChatMessageTable, ChatThreadTable, UserTable } from "../schema.sqlite";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 
 export const sqliteChatRepository: ChatRepository = {
@@ -158,10 +153,7 @@ export const sqliteChatRepository: ChatRepository = {
     // 1. Delete all messages in the thread
     await db.delete(ChatMessageTable).where(eq(ChatMessageTable.threadId, id));
 
-    // 2. Remove thread from all archives
-    await db.delete(ArchiveItemTable).where(eq(ArchiveItemTable.itemId, id));
-
-    // 3. Delete the thread itself
+    // 2. Delete the thread itself
     await db.delete(ChatThreadTable).where(eq(ChatThreadTable.id, id));
   },
 
@@ -230,28 +222,6 @@ export const sqliteChatRepository: ChatRepository = {
       .where(eq(ChatThreadTable.userId, userId));
     await Promise.all(
       threadIds.map((threadId) =>
-        sqliteChatRepository.deleteThread(threadId.id),
-      ),
-    );
-  },
-
-  deleteUnarchivedThreads: async (userId: string): Promise<void> => {
-    const unarchivedThreadIds = await db
-      .select({ id: ChatThreadTable.id })
-      .from(ChatThreadTable)
-      .leftJoin(
-        ArchiveItemTable,
-        eq(ChatThreadTable.id, ArchiveItemTable.itemId),
-      )
-      .where(
-        and(
-          eq(ChatThreadTable.userId, userId),
-          sql`${ArchiveItemTable.id} IS NULL`,
-        ),
-      );
-
-    await Promise.all(
-      unarchivedThreadIds.map((threadId) =>
         sqliteChatRepository.deleteThread(threadId.id),
       ),
     );

@@ -2,8 +2,6 @@ import { sqliteDb as db } from "../../src/lib/db/sqlite/db.sqlite";
 import {
   AccountTable,
   AgentTable,
-  ArchiveItemTable,
-  ArchiveTable,
   ChatMessageTable,
   ChatThreadTable,
   McpServerTable,
@@ -25,13 +23,7 @@ export async function clearAllUsers() {
   console.log("🧹 Clearing all users for first-user testing...");
 
   // Clear in order of dependencies (most dependent first)
-  // 1. Clear archive items first (depends on archives)
-  await db.delete(ArchiveItemTable);
-
-  // 2. Clear archives (depends on users)
-  await db.delete(ArchiveTable);
-
-  // 3. Clear chat messages (depends on threads)
+  // 1. Clear chat messages (depends on threads)
   await db.delete(ChatMessageTable);
 
   // 4. Clear chat threads (depends on users)

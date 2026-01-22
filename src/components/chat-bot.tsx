@@ -471,6 +471,15 @@ function handlePlanCreatedEvent(
   event: PlanCreatedEvent,
   threadId: string,
 ): void {
+  // Skip storing error plans - they're just notifications that the AI will retry
+  // This prevents the UI from showing "error" as a valid plan
+  if (event.data.planId === "error") {
+    console.log(
+      "[Plan] Skipping error plan event - AI will retry with correct parameters",
+    );
+    return;
+  }
+
   appStore.getState().mutate((state) => ({
     threadPlans: {
       ...state.threadPlans,
@@ -999,26 +1008,13 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   // Set currentThreadId synchronously on mount/thread change
   // Using useLayoutEffect ensures child components have access
   // to the threadId before their effects run - critical for file persistence
+  // NOTE: We do NOT add the thread to threadList here - that happens when
+  // the first message is sent and the backend creates the thread
   useLayoutEffect(() => {
     clientLogger.debug("[ChatBot] Setting currentThreadId", { threadId });
     appStoreMutate((state) => {
       const prevThreadId = state.currentThreadId;
       const threadChanged = prevThreadId && prevThreadId !== threadId;
-
-      // If thread doesn't exist in list, add it with "New Chat" title
-      // This ensures the header can display the thread immediately
-      const threadExists = state.threadList.some((t) => t.id === threadId);
-      const newThreadList = threadExists
-        ? state.threadList
-        : [
-            {
-              id: threadId,
-              title: "New Chat",
-              userId: "",
-              createdAt: new Date(),
-            },
-            ...state.threadList,
-          ];
 
       // When switching threads, reset non-thread-scoped theater mode state
       // This prevents showing content from a different thread
@@ -1032,7 +1028,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         );
         return {
           currentThreadId: threadId,
-          threadList: newThreadList,
           theaterMode: {
             ...state.theaterMode,
             // Reset non-thread-scoped content when switching threads
@@ -1046,8 +1041,48 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         };
       }
 
-      return { currentThreadId: threadId, threadList: newThreadList };
+      return { currentThreadId: threadId };
     });
+  }, [threadId]);
+
+  // Track whether we've already added this thread to prevent race conditions
+  const threadAddedRef = useRef<string | null>(null);
+
+  // Add thread to threadList when the first message is being sent
+  // This ensures the title dropdown appears only after the chat actually starts
+  useEffect(() => {
+    // Only add once per threadId to prevent duplicates from rapid status changes
+    if (
+      (status === "streaming" || status === "submitted") &&
+      threadAddedRef.current !== threadId
+    ) {
+      appStoreMutate((state) => {
+        const threadExists = state.threadList.some((t) => t.id === threadId);
+        if (threadExists) return state;
+
+        // Mark as added before mutation to prevent race conditions
+        threadAddedRef.current = threadId;
+
+        return {
+          threadList: [
+            {
+              id: threadId,
+              title: "New Chat",
+              userId: "",
+              createdAt: new Date(),
+            },
+            ...state.threadList,
+          ],
+        };
+      });
+    }
+  }, [status, threadId]);
+
+  // Reset ref when threadId changes (navigating to a new chat)
+  useEffect(() => {
+    if (threadAddedRef.current !== threadId) {
+      threadAddedRef.current = null;
+    }
   }, [threadId]);
 
   // Clear sub-agent events when streaming completes

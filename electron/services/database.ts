@@ -319,15 +319,6 @@ const createTablesFromSchema = () => {
         updated_at INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS archive (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        description TEXT,
-        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        created_at INTEGER,
-        updated_at INTEGER
-      );
-
       CREATE TABLE IF NOT EXISTS subscription (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL UNIQUE REFERENCES user(id) ON DELETE CASCADE,
@@ -621,20 +612,7 @@ const createTablesFromSchema = () => {
     `);
     console.log("[Database] ✓ Created workflow-related tables");
 
-    // Level 8: Tables depending on archive
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS archive_item (
-        id TEXT PRIMARY KEY,
-        archive_id TEXT NOT NULL REFERENCES archive(id) ON DELETE CASCADE,
-        item_id TEXT NOT NULL,
-        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        added_at INTEGER
-      );
-      CREATE INDEX IF NOT EXISTS archive_item_item_id_idx ON archive_item(item_id);
-    `);
-    console.log("[Database] ✓ Created archive_item table");
-
-    // Level 9: Tables depending on chat_export
+    // Level 8: Tables depending on chat_export
     sqlite.exec(`
       CREATE TABLE IF NOT EXISTS chat_export_comment (
         id TEXT PRIMARY KEY,
@@ -816,20 +794,6 @@ const createTablesFromSchema = () => {
       );
       CREATE INDEX IF NOT EXISTS local_execution_usage_user_idx ON local_execution_usage(user_id);
       CREATE INDEX IF NOT EXISTS local_execution_usage_created_idx ON local_execution_usage(created_at);
-
-      CREATE TABLE IF NOT EXISTS fragment_shares (
-        id TEXT PRIMARY KEY,
-        fragment_id TEXT NOT NULL REFERENCES fragments(id) ON DELETE CASCADE,
-        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        share_id TEXT NOT NULL UNIQUE,
-        expires_at INTEGER,
-        is_active INTEGER NOT NULL DEFAULT 1,
-        view_count INTEGER NOT NULL DEFAULT 0,
-        last_viewed_at INTEGER,
-        created_at INTEGER
-      );
-      CREATE INDEX IF NOT EXISTS fragment_shares_fragment_idx ON fragment_shares(fragment_id);
-      CREATE INDEX IF NOT EXISTS fragment_shares_share_id_idx ON fragment_shares(share_id);
     `);
     console.log("[Database] ✓ Created vector_index and fragment tables");
 
@@ -942,9 +906,6 @@ const verifyTablesCreated = () => {
     "workflow",
     "workflow_node",
     "workflow_edge",
-    // Archive tables
-    "archive",
-    "archive_item",
     "bookmark",
     // User management tables
     "user_invitation",
@@ -967,7 +928,6 @@ const verifyTablesCreated = () => {
     "fragments",
     "fragment_executions",
     "local_execution_usage",
-    "fragment_shares",
     // Provider and model tables
     "provider_config",
     "api_key",

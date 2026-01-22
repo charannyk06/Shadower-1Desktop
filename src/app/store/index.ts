@@ -1,5 +1,4 @@
 import { AgentSummary } from "app-types/agent";
-import { ArchiveWithItemCount } from "app-types/archive";
 import { ChatMention, ChatModel, ChatThread } from "app-types/chat";
 import { AllowedMCPServer, MCPServerInfo } from "app-types/mcp";
 import { WorkflowSummary } from "app-types/workflow";
@@ -64,7 +63,6 @@ export interface AppState {
   allowedMcpServers?: Record<string, AllowedMCPServer>;
   allowedAppDefaultToolkit?: AppDefaultToolkit[];
   generatingTitleThreadIds: string[];
-  archiveList: ArchiveWithItemCount[];
   threadMentions: {
     [threadId: string]: ChatMention[];
   };
@@ -161,7 +159,6 @@ export interface AppDispatch {
 
 const initialState: AppState = {
   threadList: [],
-  archiveList: [],
   generatingTitleThreadIds: [],
   threadMentions: {},
   threadFiles: {},
