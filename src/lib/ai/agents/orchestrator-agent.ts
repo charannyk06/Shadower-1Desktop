@@ -4,6 +4,8 @@ import {
   ToolLoopAgent,
   type ToolLoopAgentSettings,
   type UIMessageStreamWriter,
+  type PrepareStepFunction,
+  type ToolSet,
   tool as createTool,
   generateText,
   stepCountIs,
@@ -19,6 +21,7 @@ import {
   workflowRepository,
 } from "lib/db/repository";
 import { jsonSchemaToZod } from "lib/json-schema-to-zod";
+import { z } from "zod";
 import globalLogger from "logger";
 import { customModelProvider } from "../models";
 import { mcpClientsManager } from "../mcp/mcp-manager";
@@ -40,35 +43,7 @@ import {
 import type { OrchestratorConfig } from "./types";
 
 // JSON Schema definitions for agent context tools
-const createPlanSchema: JSONSchema7 = {
-  type: "object",
-  properties: {
-    request: { type: "string", description: "The user's original request" },
-    tasks: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          description: {
-            type: "string",
-            description: "Clear description of the task",
-          },
-          assignedAgent: {
-            type: "string",
-            description: "ID of a specific agent to handle this task",
-          },
-          parentTaskId: {
-            type: "string",
-            description: "ID of a task this depends on",
-          },
-        },
-        required: ["description"],
-      },
-      description: "Array of tasks to complete the request",
-    },
-  },
-  required: ["request", "tasks"],
-};
+// NOTE: createPlan uses a direct Zod schema for better reliability
 
 const updateTaskStatusSchema: JSONSchema7 = {
   type: "object",
@@ -290,11 +265,24 @@ function wrapToolsWithCallTracking(
  */
 export const AGENT_ORCHESTRATOR_INSTRUCTIONS = `You are an autonomous AI orchestrator for Shadower.
 
-## CRITICAL: ALWAYS CREATE A PLAN FIRST
-**MANDATORY**: For EVERY user request, you MUST:
-1. FIRST call \`createPlan\` to create a structured plan with tasks
-2. THEN execute tasks one by one using \`updateTaskStatus\`
+## CRITICAL: YOU HAVE TOOLS - USE THEM!
+**IMPORTANT**: You have access to callable tools/functions. When the instructions say to "call" something like \`createPlan\`, you MUST invoke the actual tool function - do NOT output the call as text or JSON in your response. The tools will execute automatically when you invoke them.
+
+## MANDATORY FIRST ACTION: INVOKE THE createPlan TOOL
+For EVERY user request, your FIRST action must be to INVOKE the \`createPlan\` tool (not output text!):
+1. INVOKE \`createPlan\` tool to create a structured plan with tasks
+2. THEN execute tasks one by one using \`updateTaskStatus\` tool
 3. NEVER skip planning - even simple tasks need a plan for tracking
+
+The \`createPlan\` tool takes two REQUIRED parameters:
+- **request**: A string describing the user's request in your own words
+- **tasks**: An array of task objects, each with a "description" field
+
+Example of what the tool expects:
+- request: "Research and summarize topic X"
+- tasks: [{ description: "Search for information" }, { description: "Compile findings" }]
+
+**DO NOT** output this as JSON text - INVOKE the createPlan tool!
 
 ## CORE CAPABILITIES
 1. **PLANNING**: Break ALL requests into discrete, trackable tasks
@@ -472,25 +460,53 @@ User asks: "Find information about React hooks"
 - **updateTaskStatus**: Mark tasks as in-progress/completed
 - **webSearch**: Search the internet
 - **desktop_command**: Execute terminal commands and manage files
-- **browser_navigate**: Navigate to any website URL - USE THIS to visit websites, browse pages, and access web content
-- **browser_act**: Interact with web pages using natural language (click buttons, fill forms, etc.)
-- **browser_observe**: Analyze and understand web page structure
-- **browser_extract**: Extract structured data from web pages
-- **browser_screenshot**: Take screenshots of web pages
-- **desktop_screenshot**: Take screenshots of the desktop
-- **desktop_click**: Click on desktop UI elements
-- **desktop_type**: Type text on the desktop
 - **spawnSystemAgent**: Delegate to specialized agents (deep-research, web-automation, computer-use, etc.)
 - **setContext/getContext**: Store and retrieve information
 
-## BROWSER AUTOMATION - YOU CAN NAVIGATE TO WEBSITES
-**CRITICAL**: You HAVE browser automation tools available. When users ask to:
-- Navigate to a website → Use **browser_navigate** with the URL
-- Visit a page → Use **browser_navigate**
-- Browse the web → Use **browser_navigate** then **browser_observe** and **browser_act**
-- Extract data from a website → Use **browser_navigate** → **browser_extract**
+### Browser Automation Tools (Chrome DevTools Protocol)
+**IMPORTANT**: You must call **browser_create_session** FIRST before using any other browser tools!
 
-**DO NOT** say you cannot navigate to websites. You CAN and SHOULD use browser_navigate for any web navigation requests.
+- **browser_create_session**: Launch a new browser instance (CALL THIS FIRST!)
+- **browser_close_session**: Close a browser session when done
+- **browser_navigate**: Navigate to any website URL
+- **browser_get_snapshot**: Get AI-optimized element tree with refs (like @e1, @e2) - USE THIS to understand page structure
+- **browser_click**: Click elements using refs (@e1) or CSS selectors
+- **browser_fill**: Fill input fields (clears existing content first)
+- **browser_type**: Type text character by character
+- **browser_press_key**: Press keyboard keys (Enter, Tab, Escape, etc.)
+- **browser_wait**: Wait for elements to appear or page to load
+- **browser_screenshot**: Take screenshots of web pages
+- **browser_evaluate**: Execute JavaScript in page context
+- **browser_get_content**: Get HTML content of the page
+- **browser_get_context**: Get structured page context (forms, buttons, links)
+- **browser_analyze_forms**: Analyze all forms on the page
+- **browser_fill_form**: Fill multiple form fields at once
+
+### Desktop Tools
+- **desktop_screenshot**: Take screenshots of the desktop
+- **desktop_click**: Click on desktop UI elements
+- **desktop_type**: Type text on the desktop
+
+## BROWSER AUTOMATION - YOU CAN NAVIGATE TO WEBSITES
+**CRITICAL**: You HAVE browser automation tools available. Follow this workflow:
+
+1. **Start a session**: Call **browser_create_session** to launch browser
+2. **Navigate**: Use **browser_navigate** with the URL
+3. **Understand the page**: Call **browser_get_snapshot** to see elements with refs
+4. **Interact**: Use **browser_click** with refs like "@e1" or CSS selectors
+5. **Fill forms**: Use **browser_fill** or **browser_fill_form** for inputs
+6. **Extract data**: Use **browser_get_content** or **browser_evaluate** for data
+7. **Close**: Call **browser_close_session** when done
+
+**Example workflow to visit a website:**
+\`\`\`
+1. browser_create_session() → Gets sessionId
+2. browser_navigate({ url: "https://example.com" })
+3. browser_get_snapshot() → Shows elements like: button "Submit" [ref=e1]
+4. browser_click({ selector: "@e1" }) → Clicks the Submit button
+\`\`\`
+
+**DO NOT** say you cannot navigate to websites. You CAN and SHOULD use these browser tools!
 
 ## FILE OPERATIONS - IMPORTANT
 When creating files (documents, images, code, etc.):
@@ -518,21 +534,155 @@ function createAgentContextTools(
   ctx: AgentContextManager,
   dataStream?: UIMessageStreamWriter,
 ): Record<string, Tool> {
+  // Direct Zod schema for createPlan - basic type validation only
+  // NOTE: We intentionally use loose validation here (no .min(1)) so that malformed
+  // inputs reach our execute function where we provide helpful error messages
+  // that guide the AI to retry with correct parameters
+  const createPlanZodSchema = z.object({
+    request: z.string().optional(),
+    tasks: z.array(
+      z.object({
+        description: z.string().optional(),
+        assignedAgent: z.string().optional(),
+        parentTaskId: z.string().optional(),
+      })
+    ).optional(),
+  });
+
   const createPlanTool = createTool({
-    description:
-      "Create a structured execution plan for a complex request. Use for requests requiring 3+ steps. Do NOT call if a plan already exists.",
-    inputSchema: jsonSchemaToZod(createPlanSchema),
+    description: `CALLABLE FUNCTION: Creates a structured execution plan for completing the user's request.
+
+CALL THIS FUNCTION FIRST before doing anything else. This is NOT a text output - you must INVOKE this tool.
+
+Parameters:
+- request (string, REQUIRED): The user's request summarized in your own words
+- tasks (array, REQUIRED): Array of task objects with 'description' field
+
+Example invocation:
+createPlan({ request: "Research and summarize topic X", tasks: [{ description: "Search for information" }, { description: "Compile findings" }] })
+
+IMPORTANT: Do NOT output a plan as text - you MUST call this function to create the plan.`,
+    inputSchema: createPlanZodSchema,
     execute: async ({
       request,
       tasks,
     }: {
-      request: string;
-      tasks: Array<{
+      request?: string;
+      tasks?: Array<{
         description: string;
         assignedAgent?: string;
         parentTaskId?: string;
       }>;
     }) => {
+      // Log when this tool is actually called
+      logger.info("🎯 createPlan tool INVOKED", {
+        hasRequest: !!request,
+        requestType: typeof request,
+        requestPreview: typeof request === "string" ? request.slice(0, 100) : "N/A",
+        hasTasks: !!tasks,
+        tasksType: typeof tasks,
+        tasksCount: Array.isArray(tasks) ? tasks.length : "N/A",
+      });
+
+      // CRITICAL: Validate input parameters and provide helpful error messages
+      // This catches cases where the model calls the tool with empty/missing arguments
+      if (!request || typeof request !== "string" || request.trim() === "") {
+        logger.error(
+          "createPlan called without valid 'request' parameter",
+          { request, tasks },
+        );
+
+        // Emit error event for UI feedback
+        if (dataStream) {
+          dataStream.write({
+            type: "data-plan-created",
+            data: {
+              planId: "error",
+              request: "Error: Missing request parameter",
+              tasks: [],
+              status: "failed" as const,
+              progress: 0,
+              error: "The createPlan tool was called without required parameters. The AI will retry.",
+            },
+          });
+        }
+
+        return {
+          error: "MISSING_REQUIRED_PARAMETER",
+          message:
+            "The 'request' parameter is REQUIRED and must be a non-empty string describing the user's request.",
+          instruction:
+            "Call createPlan again with: { request: '<user request as string>', tasks: [{ description: '<task 1>' }, { description: '<task 2>' }] }",
+          example: {
+            request: "Research and create a presentation about renewable energy",
+            tasks: [
+              { description: "Research renewable energy sources" },
+              { description: "Create presentation slides" },
+            ],
+          },
+        };
+      }
+
+      if (!tasks || !Array.isArray(tasks) || tasks.length === 0) {
+        logger.error(
+          "createPlan called without valid 'tasks' parameter",
+          { request, tasks },
+        );
+
+        // Emit error event for UI feedback
+        if (dataStream) {
+          dataStream.write({
+            type: "data-plan-created",
+            data: {
+              planId: "error",
+              request: request,
+              tasks: [],
+              status: "failed" as const,
+              progress: 0,
+              error: "The createPlan tool was called without tasks. The AI will retry.",
+            },
+          });
+        }
+
+        return {
+          error: "MISSING_REQUIRED_PARAMETER",
+          message:
+            "The 'tasks' parameter is REQUIRED and must be a non-empty array of task objects with 'description' fields.",
+          instruction:
+            "Call createPlan again with: { request: '<user request>', tasks: [{ description: '<task 1>' }, { description: '<task 2>' }] }",
+          example: {
+            request: request,
+            tasks: [
+              { description: "First step to complete the request" },
+              { description: "Second step to complete the request" },
+            ],
+          },
+        };
+      }
+
+      // Validate each task has a description
+      const invalidTasks = tasks.filter(
+        (t) => !t || !t.description || typeof t.description !== "string",
+      );
+      if (invalidTasks.length > 0) {
+        logger.error("createPlan called with invalid tasks", { invalidTasks });
+        return {
+          error: "INVALID_TASK_FORMAT",
+          message:
+            "Each task must be an object with a 'description' field that is a non-empty string.",
+          instruction:
+            "Each task in the tasks array must have this format: { description: 'What to do' }",
+          example: {
+            request: request,
+            tasks: [
+              { description: "Research the topic" },
+              { description: "Analyze findings" },
+              { description: "Create summary" },
+            ],
+          },
+        };
+      }
+
       // Guard: Prevent creating duplicate plans
       const existingPlan = ctx.getPlan();
       if (existingPlan) {
@@ -1210,6 +1360,10 @@ function createSubAgentTools(
         const requirements = getSystemAgentRequirements(agentId);
         const systemAgentTools: Record<string, Tool> = { ...mcpTools };
 
+        // CRITICAL: Always add context tools for inter-agent context sharing
+        const contextToolsForSubAgent = createAgentContextTools(ctx);
+        Object.assign(systemAgentTools, contextToolsForSubAgent);
+
         if (availableTools) {
           if (requirements.browser) {
             // Use context-aware browser tools that pre-inject userId and threadId
@@ -1257,12 +1411,15 @@ function createSubAgentTools(
             }
           }
           if (requirements.codeExecution) {
-            // Local code execution: visualization and data analysis tools
+            // Local code execution: visualization, data analysis, and document tools
             for (const [name, tool] of Object.entries(availableTools)) {
               if (
-                name.startsWith("create") || // createVisualization, createPieChart, etc.
+                name.startsWith("create") || // createVisualization, createPieChart, createFragment, createPresentation, etc.
+                name.startsWith("edit") ||   // editFragment, editSpreadsheet, editPresentation, editDocument
                 name.startsWith("profile") || // profileData
-                name.startsWith("analyze") // analyzeData
+                name.startsWith("analyze") || // analyzeData
+                name.startsWith("list") ||   // listDocumentPalettes
+                name.includes("Fragment")    // createFragment, editFragment
               ) {
                 systemAgentTools[name] = tool;
               }
@@ -1330,12 +1487,17 @@ function createSubAgentTools(
       // Build tools for user agent - combine mcpTools with availableTools
       // This ensures user agents have access to webSearch, browser, desktop, etc.
       const userAgentTools: Record<string, Tool> = { ...mcpTools };
+
+      // CRITICAL: Add context tools for inter-agent context sharing
+      const contextToolsForSubAgent = createAgentContextTools(ctx);
+      Object.assign(userAgentTools, contextToolsForSubAgent);
+
       if (availableTools) {
         Object.assign(userAgentTools, availableTools);
       }
 
       logger.info(
-        `[User Agent ${agent.name}] Built ${Object.keys(userAgentTools).length} tools for execution`,
+        `[User Agent ${agent.name}] Built ${Object.keys(userAgentTools).length} tools (including context tools) for execution`,
       );
 
       const { result, steps, success, error } =
@@ -1370,7 +1532,8 @@ function createSubAgentTools(
     }) => {
       logger.info(`Spawning ${tasks.length} agents in parallel`);
 
-      const results = await Promise.all(
+      // Use Promise.allSettled to ensure partial failures don't crash all tasks
+      const settledResults = await Promise.allSettled(
         tasks.map(async ({ agentId, task, contextKeys }) => {
           const agent = await agentRepository.selectAgentById(agentId, userId);
           if (!agent) {
@@ -1399,7 +1562,10 @@ function createSubAgentTools(
             buildAgentSystemPrompt(agent.instructions) + contextPrompt;
 
           // Build tools for parallel user agent - combine mcpTools with availableTools
+          // Also add context tools for inter-agent communication
           const userAgentTools: Record<string, Tool> = { ...mcpTools };
+          const contextToolsForSubAgent = createAgentContextTools(ctx);
+          Object.assign(userAgentTools, contextToolsForSubAgent);
           if (availableTools) {
             Object.assign(userAgentTools, availableTools);
           }
@@ -1411,7 +1577,7 @@ function createSubAgentTools(
               task,
               systemPrompt,
               10,
-              userAgentTools, // Pass the full toolset!
+              userAgentTools, // Pass the full toolset with context tools!
             );
 
           return {
@@ -1424,6 +1590,30 @@ function createSubAgentTools(
           };
         }),
       );
+
+      // Extract results from settled promises, handling both fulfilled and rejected
+      const results = settledResults.map((settled, index) => {
+        if (settled.status === "fulfilled") {
+          return settled.value;
+        }
+        // Handle rejected promises
+        const task = tasks[index];
+        const errorMessage = settled.reason?.message || String(settled.reason);
+        logger.error(`Parallel agent ${task.agentId} failed:`, settled.reason);
+        if (dataStream) {
+          dataStream.write({
+            type: "data-sub-agent-error",
+            data: { agentId: task.agentId, error: errorMessage },
+          });
+        }
+        return {
+          agentId: task.agentId,
+          agentName: "unknown",
+          result: "",
+          error: errorMessage,
+          success: false,
+        };
+      });
 
       const completed = results.filter((r) => r.success).length;
       logger.info(
@@ -1485,6 +1675,14 @@ function createSubAgentTools(
       // Build tools for this system agent based on requirements
       // Start with mcpTools as base, then add required tools from availableTools
       const systemAgentTools: Record<string, Tool> = { ...mcpTools };
+
+      // CRITICAL: Always add context tools for inter-agent context sharing
+      // These are needed by ALL system agents for setContext/getContext operations
+      const contextToolsForSubAgent = createAgentContextTools(ctx);
+      Object.assign(systemAgentTools, contextToolsForSubAgent);
+      logger.info(
+        `[System Agent ${systemAgentId}] Added context tools: ${Object.keys(contextToolsForSubAgent).join(", ")}`,
+      );
 
       // Add tools from availableTools based on agent requirements
       if (availableTools) {
@@ -1549,19 +1747,23 @@ function createSubAgentTools(
         }
 
         // Fragment and visualization tools for local code execution requirement (data-analysis, coding, documents)
-        // Tool names: createFragment, editFragment, createVisualization, createPieChart, profileData, analyzeData, etc.
+        // Tool names: createFragment, editFragment, createVisualization, createPieChart, profileData, analyzeData,
+        // editSpreadsheet, editPresentation, editDocument, listDocumentPalettes, etc.
         if (requirements.codeExecution) {
           for (const [name, tool] of Object.entries(availableTools)) {
             if (
-              name.startsWith("create") || // createVisualization, createPieChart, etc.
-              name.startsWith("profile") ||
-              name.startsWith("analyze")
+              name.startsWith("create") || // createVisualization, createPieChart, createFragment, createPresentation, etc.
+              name.startsWith("edit") ||   // editFragment, editSpreadsheet, editPresentation, editDocument
+              name.startsWith("profile") || // profileData
+              name.startsWith("analyze") || // analyzeData
+              name.startsWith("list") ||   // listDocumentPalettes
+              name.includes("Fragment")    // createFragment, editFragment
             ) {
               systemAgentTools[name] = tool;
             }
           }
           logger.info(
-            `[System Agent ${systemAgentId}] Added visualization tools for local code execution requirement`,
+            `[System Agent ${systemAgentId}] Added code execution and document tools for local execution requirement`,
           );
         }
       }
@@ -2075,6 +2277,7 @@ export function createAutonomousAgent(config: AutonomousAgentConfig): {
     persistedState,
     onPersistState,
     dataStream,
+    continuousMode = false,
   } = config;
 
   // Create or restore context manager
@@ -2139,6 +2342,47 @@ ${systemPrompt}`;
   // Track step count for persistence
   let stepCount = persistedState?.stepsExecuted ?? 0;
 
+  /**
+   * AI SDK 6 prepareStep - Dynamic per-step configuration
+   * KEY FIX: Force createPlan on step 0 if no plan exists
+   */
+  const agentPrepareStep: PrepareStepFunction<ToolSet> = ({ steps, stepNumber }) => {
+    const plan = ctx.getPlan();
+
+    // Step 0: FORCE createPlan if no plan exists
+    if (stepNumber === 0 && !plan) {
+      logger.info("[Agent prepareStep] Step 0 - Forcing createPlan tool");
+      return {
+        toolChoice: { type: "tool", toolName: "createPlan" },
+      };
+    }
+
+    // If plan exists but status is "planning", encourage starting tasks
+    if (plan && plan.status === "planning") {
+      const pendingTasks = ctx.getTasksByStatus("pending");
+      const inProgressTasks = ctx.getTasksByStatus("in-progress");
+
+      if (pendingTasks.length > 0 && inProgressTasks.length === 0) {
+        logger.info("[Agent prepareStep] Plan has pending tasks - requiring tool use");
+        return { toolChoice: "required" as const };
+      }
+    }
+
+    // Check for STOP signals - force text-only response
+    const lastStep = steps.at(-1);
+    if (lastStep?.toolResults) {
+      const hasStop = lastStep.toolResults.some((r: any) =>
+        r.result?.STOP === true || r.result?.COMPLETED === true
+      );
+      if (hasStop) {
+        logger.info("[Agent prepareStep] STOP signal - forcing text response");
+        return { toolChoice: "none" as const };
+      }
+    }
+
+    return { toolChoice: "auto" as const };
+  };
+
   // Create the v6 ToolLoopAgent with proper callbacks
   const agentSettings: ToolLoopAgentSettings<never, Record<string, Tool>> = {
     id: persistedState?.id ?? `orchestrator-${Date.now()}`,
@@ -2146,108 +2390,60 @@ ${systemPrompt}`;
     instructions: systemPrompt,
     tools: allTools,
     toolChoice: "auto",
+    prepareStep: agentPrepareStep, // KEY: Add prepareStep for forced tool calling
     stopWhen: [
       stepCountIs(maxSteps),
-      // Custom stop condition: stop when plan is complete
-      (_options: { steps: StepResult<Record<string, Tool>>[] }) => {
-        const complete = isPlanComplete(ctx);
-        if (complete) {
-          logger.info("Plan complete - stopping agent loop");
-        }
-        return complete;
-      },
-      // Stop if STOP signal received from any tool result
-      (options: { steps: StepResult<Record<string, Tool>>[] }) => {
-        // Check last step first (most recent)
-        const lastStep = options.steps.at(-1);
-        if (lastStep?.toolResults) {
-          const hasStopSignal = lastStep.toolResults.some((r: any) => {
-            const result = r.result;
-            if (result?.STOP === true || result?.COMPLETED === true) {
-              logger.info(
-                `STOP signal received from tool result: ${JSON.stringify(result).slice(0, 100)}`,
-              );
-              return true;
-            }
-            return false;
-          });
-          if (hasStopSignal) {
-            logger.info("STOP signal received from tool - stopping agent loop");
-            return true;
-          }
-        }
-        return false;
-      },
-      // NEW: Stop if no plan created after 5 steps (agent is confused)
-      (options: { steps: StepResult<Record<string, Tool>>[] }) => {
-        if (options.steps.length >= 5 && !ctx.getPlan()) {
-          logger.warn(
-            "No plan created after 5 steps - stopping confused agent",
-          );
+
+      // Plan completion check
+      () => {
+        if (continuousMode) return false;
+        const plan = ctx.getPlan();
+        if (plan?.status === "completed" || plan?.status === "failed") {
+          logger.info(`[Agent stopWhen] Plan ${plan.status} - stopping`);
           return true;
         }
         return false;
       },
-      // NEW: Stop if agent keeps calling same tool repeatedly (loop detection)
+
+      // STOP signal detection
+      (options: { steps: StepResult<Record<string, Tool>>[] }) => {
+        const lastStep = options.steps.at(-1);
+        if (lastStep?.toolResults) {
+          for (const r of lastStep.toolResults) {
+            const result = (r as any).result;
+            if (result?.STOP === true || result?.COMPLETED === true) {
+              logger.info("[Agent stopWhen] STOP signal received");
+              return true;
+            }
+          }
+        }
+        return false;
+      },
+
+      // No plan after 5 steps
+      (options: { steps: StepResult<Record<string, Tool>>[] }) => {
+        if (options.steps.length >= 5 && !ctx.getPlan()) {
+          logger.warn("[Agent stopWhen] No plan after 5 steps - stopping");
+          return true;
+        }
+        return false;
+      },
+
+      // Loop detection - same tool 3+ times
       (options: { steps: StepResult<Record<string, Tool>>[] }) => {
         if (options.steps.length < 3) return false;
 
-        const recentSteps = options.steps.slice(-3);
-        const toolCalls = recentSteps
-          .map((step) => step.toolCalls?.map((tc: any) => tc.toolName))
-          .flat()
+        const toolCalls = options.steps.slice(-3)
+          .flatMap((step) => step.toolCalls?.map((tc: any) => tc.toolName) || [])
           .filter(Boolean);
 
-        // Check if same tool called 3+ times in a row
         if (toolCalls.length >= 3) {
-          const lastThree = toolCalls.slice(-3);
-          if (lastThree[0] === lastThree[1] && lastThree[1] === lastThree[2]) {
-            logger.warn(
-              `Agent loop detected: tool "${lastThree[0]}" called 3 times in a row - stopping`,
-            );
+          const last3 = toolCalls.slice(-3);
+          if (last3[0] === last3[1] && last3[1] === last3[2]) {
+            logger.warn(`[Agent stopWhen] Loop: "${last3[0]}" called 3x`);
             return true;
           }
         }
-
-        return false;
-      },
-      // NEW: Stop if agent makes no progress after many steps (all tasks stuck)
-      (options: { steps: StepResult<Record<string, Tool>>[] }) => {
-        if (options.steps.length < 10) return false;
-
-        const plan = ctx.getPlan();
-        if (!plan) return false;
-
-        // Check if plan progress hasn't changed in last 5 steps
-        // Store progress at each step to track changes
-        const recentSteps = options.steps.slice(-5);
-        const currentProgress = plan.progress;
-        const progressUnchanged = recentSteps.every(() => {
-          // Check if progress is the same as current
-          return plan.progress === currentProgress;
-        });
-
-        if (progressUnchanged && plan.progress < 100) {
-          const pendingTasks = ctx.getTasksByStatus("pending");
-          const inProgressTasks = ctx.getTasksByStatus("in-progress");
-
-          // If no pending tasks and no in-progress tasks, we're stuck
-          if (pendingTasks.length === 0 && inProgressTasks.length === 0) {
-            logger.warn(
-              `Agent stuck: no progress in ${recentSteps.length} steps, no active tasks - stopping`,
-            );
-            return true;
-          }
-
-          // Also check if we've been stuck for too long
-          if (plan.progress === 0 && options.steps.length >= 15) {
-            logger.warn(
-              `Agent stuck: 0% progress after ${options.steps.length} steps - stopping`,
-            );
-            return true;
-          }
-        }
-
         return false;
       },
     ],
@@ -2580,6 +2776,11 @@ export function createStreamingAgentConfig(config: OrchestratorConfig) {
  * Create a streaming autonomous agent config with state persistence
  * Returns tools and system prompt like createStreamingAgentConfig
  * but with state persistence callback integrated
+ *
+ * KEY AI SDK 6 PATTERNS IMPLEMENTED:
+ * 1. prepareStep - Forces createPlan tool on first step when no plan exists
+ * 2. stopWhen - Clean stop conditions with hasToolCall for plan completion
+ * 3. Proper toolChoice control per step
  */
 export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
   const {
@@ -2593,7 +2794,7 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
 
   const { agent, contextManager, agentStateId } = createAutonomousAgent(config);
 
-  // Build system prompt (same as createAutonomousAgent)
+  // Build system prompt - SIMPLIFIED for better model adherence
   let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS;
   if (userAgent?.instructions) {
     const agentPrompt = buildAgentSystemPrompt(userAgent.instructions);
@@ -2601,7 +2802,6 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
   }
 
   // Create tools WITH dataStream for plan/task streaming events
-  // This ensures the returned tools have the dataStream-aware context tools
   const contextTools = createAgentContextTools(contextManager, dataStream);
   const subAgentTools = createSubAgentTools(config, contextManager, dataStream);
   const workflowTools = createWorkflowTool(config, contextManager);
@@ -2618,73 +2818,121 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
   // Wrap ALL tools with call tracking to prevent infinite loops
   const allTools = wrapToolsWithCallTracking(combinedTools, contextManager);
 
-  // Create comprehensive stop conditions for proper agent loop control
-  // These conditions are evaluated after each step with tool results
-  // The loop stops when ANY condition returns true
+  /**
+   * AI SDK 6 prepareStep - Dynamic per-step configuration
+   * This is the KEY FIX for planning: Force createPlan on step 0 if no plan exists
+   *
+   * Pattern from docs: "Use toolChoice: { type: 'tool', toolName: 'search' }
+   * to mandate particular tool execution at designated steps"
+   */
+  const prepareStep: PrepareStepFunction<ToolSet> = ({ steps, stepNumber }) => {
+    const plan = contextManager.getPlan();
+
+    // Step 0: FORCE createPlan if no plan exists
+    if (stepNumber === 0 && !plan) {
+      logger.info("[prepareStep] Step 0 - Forcing createPlan tool (no plan exists)");
+      return {
+        toolChoice: { type: "tool", toolName: "createPlan" },
+      };
+    }
+
+    // After plan created, check if we should force updateTaskStatus
+    if (plan && plan.status === "planning") {
+      const pendingTasks = contextManager.getTasksByStatus("pending");
+      const inProgressTasks = contextManager.getTasksByStatus("in-progress");
+
+      // If plan exists but no tasks are in-progress, guide agent to start first task
+      if (pendingTasks.length > 0 && inProgressTasks.length === 0) {
+        logger.info("[prepareStep] Plan exists with pending tasks - suggesting updateTaskStatus");
+        // Don't force, just suggest - let agent pick the right task
+        return {
+          toolChoice: "required" as const, // Force a tool call, but any tool
+        };
+      }
+    }
+
+    // Check for recent STOP signals - if found, force text generation to conclude
+    const lastStep = steps.at(-1);
+    if (lastStep?.toolResults) {
+      const hasStopSignal = lastStep.toolResults.some((r: any) => {
+        const result = r.result;
+        return result?.STOP === true || result?.COMPLETED === true;
+      });
+      if (hasStopSignal) {
+        logger.info("[prepareStep] STOP signal detected - forcing text-only response");
+        return {
+          toolChoice: "none" as const, // Force text generation, no more tools
+        };
+      }
+    }
+
+    // Default: let model decide
+    return {
+      toolChoice: "auto" as const,
+    };
+  };
+
+  /**
+   * AI SDK 6 stopWhen conditions
+   * SIMPLIFIED: Using clean patterns from docs
+   */
   const stopConditions = [
     // 1. Maximum steps limit (backup safety)
     stepCountIs(maxSteps),
 
-    // 2. Plan completion check - stop when plan is done or failed (unless in continuous mode)
-    () => {
-      // In continuous mode, don't stop on plan completion - allow re-planning
-      if (continuousMode) {
-        return false;
-      }
-      const plan = contextManager.getPlan();
-      if (plan && (plan.status === "completed" || plan.status === "failed")) {
-        logger.info(
-          `[Streaming Agent] Plan ${plan.status} - stopping agent loop`,
-        );
-        return true;
-      }
-      return false;
-    },
-
-    // 3. No plan after threshold - enforce planning requirement (relaxed in continuous mode)
+    // 2. Plan completion - stop when all tasks done (unless continuous mode)
     (options: { steps: StepResult<any>[] }) => {
-      // In continuous mode, allow more steps without a plan
-      const threshold = continuousMode ? 20 : 5;
-      if (options.steps.length >= threshold && !contextManager.getPlan()) {
-        logger.warn(
-          `[Streaming Agent] No plan created after ${options.steps.length} steps - stopping`,
-        );
+      if (continuousMode) return false;
+
+      const plan = contextManager.getPlan();
+      if (plan?.status === "completed") {
+        logger.info("[stopWhen] Plan completed - stopping agent");
+        return true;
+      }
+      if (plan?.status === "failed") {
+        logger.info("[stopWhen] Plan failed - stopping agent");
         return true;
       }
       return false;
     },
 
-    // 4. STOP signal detection - check tool results for explicit stop signals
+    // 3. STOP signal from tool results
     (options: { steps: StepResult<any>[] }) => {
       const lastStep = options.steps.at(-1);
       if (lastStep?.toolResults) {
-        const hasStopSignal = lastStep.toolResults.some((r: any) => {
-          const result = r.result;
-          return result?.STOP === true || result?.COMPLETED === true;
-        });
-        if (hasStopSignal) {
-          logger.info(
-            `[Streaming Agent] STOP/COMPLETED signal received from tool - stopping`,
-          );
-          return true;
+        for (const r of lastStep.toolResults) {
+          const result = (r as any).result;
+          if (result?.STOP === true || result?.COMPLETED === true) {
+            logger.info("[stopWhen] STOP/COMPLETED signal received");
+            return true;
+          }
         }
       }
       return false;
     },
 
-    // 5. Infinite loop detection - same tool called too many times consecutively
+    // 4. No plan after 5 steps (agent confused) - but not in continuous mode
     (options: { steps: StepResult<any>[] }) => {
-      const recentSteps = options.steps.slice(-5);
-      if (recentSteps.length >= 5) {
-        const toolNames = recentSteps
-          .flatMap((s) => s.toolCalls?.map((tc: any) => tc.toolName) || [])
-          .filter(Boolean);
-        const uniqueTools = new Set(toolNames);
-        // If same single tool called 5+ times in a row, likely stuck
-        if (uniqueTools.size === 1 && toolNames.length >= 5) {
-          logger.warn(
-            `[Streaming Agent] Potential infinite loop detected - same tool "${toolNames[0]}" called ${toolNames.length} times`,
-          );
+      if (continuousMode) return false;
+      if (options.steps.length >= 5 && !contextManager.getPlan()) {
+        logger.warn("[stopWhen] No plan after 5 steps - stopping confused agent");
+        return true;
+      }
+      return false;
+    },
+
+    // 5. Loop detection - same tool 5+ times consecutively
+    (options: { steps: StepResult<any>[] }) => {
+      if (options.steps.length < 5) return false;
+
+      const recentCalls = options.steps.slice(-5)
+        .flatMap((s) => s.toolCalls?.map((tc: any) => tc.toolName) || [])
+        .filter(Boolean);
+
+      if (recentCalls.length >= 5) {
+        const unique = new Set(recentCalls);
+        if (unique.size === 1) {
+          logger.warn(`[stopWhen] Loop detected - "${recentCalls[0]}" called 5+ times`);
           return true;
         }
       }
@@ -2696,6 +2944,7 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     system: systemPrompt,
     tools: allTools,
     stopWhen: stopConditions,
+    prepareStep, // KEY: Include prepareStep for forced tool calling
     toolChoice: "auto" as const,
     // Additional fields for state management
     agent,
