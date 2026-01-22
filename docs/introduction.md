@@ -22,8 +22,8 @@ We believe in connectivity, not walled gardens.
 *   **MCP (Model Context Protocol)**: Connect any internal data source or tool using the open standard.
 *   **Native Ecosystem**: Instantly connect to Salesforce, GitHub, Gmail, and 200+ other SaaS platforms through our managed integration layer.
 
-### 3. Secure Execution
-Complex tasks require code. Shadower integrates **E2B** to provide secure, sandboxed execution environments. Your agents can write Python scripts to analyze data or generate files without ever putting your main server at risk.
+### 3. Local Execution
+Complex tasks require code. Shadower provides **local terminal access** for direct code execution. Your agents can write Python scripts to analyze data or generate files with full access to your local development environment.
 
 ## Getting Started
 

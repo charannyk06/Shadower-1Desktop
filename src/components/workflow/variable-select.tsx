@@ -198,7 +198,7 @@ function SchemaItem({
   name: string;
   schema: JSONSchema7;
   path: string[];
-  ref?: React.RefObject<HTMLDivElement | null>;
+  ref?: React.RefObject<HTMLDivElement>;
   allowedTypes?: string[];
   onChange: (path: string[]) => void;
 }) {

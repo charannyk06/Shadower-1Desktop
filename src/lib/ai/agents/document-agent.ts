@@ -31,7 +31,7 @@ import {
   isCollaboraSupported,
   getMimeTypeFromExtension,
 } from "lib/collabora";
-import { threadSandboxContextRepository } from "lib/db/repository";
+import { threadWorkspaceContextRepository } from "lib/db/repository";
 import { serverFileStorage } from "lib/file-storage";
 import {
   type ChartConfig,
@@ -458,7 +458,7 @@ export class DocumentAgent {
         // File already uploaded, extract storage key from URL or use URL as fileId
         finalFileUrl = fileUrl;
         // Try to get storage key from thread context
-        const context = await threadSandboxContextRepository.getByThreadId(
+        const context = await threadWorkspaceContextRepository.getByThreadId(
           this.threadId,
         );
         const fileMetadata = context?.fileMetadata?.find(
@@ -476,7 +476,7 @@ export class DocumentAgent {
         finalFileUrl = uploadResult.sourceUrl;
 
         // Add to thread context
-        await threadSandboxContextRepository.addFile(this.threadId, {
+        await threadWorkspaceContextRepository.addFile(this.threadId, {
           name: fileName,
           size: buffer.length,
           type: mimeType,
@@ -493,20 +493,27 @@ export class DocumentAgent {
       }
 
       // Generate Collabora editor URL
+      // Note: In desktop mode, this returns success: false
       const editorConfig = await generateEditorConfig(
         storageKey,
         fileName,
         mimeType,
-        this.userId,
         this.threadId,
-        true, // canWrite
       );
+
+      // Check if Collabora is available (not in desktop mode)
+      if (!editorConfig.success) {
+        logger.info(
+          `[DocumentAgent] Collabora editor not available: ${editorConfig.error}`,
+        );
+        return; // Skip Collabora - document creation still succeeded
+      }
 
       // Emit collabora-open event
       this.dataStream.write({
         type: "data-collabora-open",
         data: JSON.stringify({
-          editorUrl: editorConfig.collaboraUrl,
+          editorUrl: (editorConfig as any).collaboraUrl,
           fileUrl: finalFileUrl,
           fileName,
           documentType,

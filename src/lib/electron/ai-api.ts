@@ -78,7 +78,7 @@ export const aiApi = {
       throw new Error(result.error);
     }
 
-    return result.title;
+    return result.title || "Untitled Chat";
   },
 };
 

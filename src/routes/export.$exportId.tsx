@@ -16,6 +16,10 @@ function ExportPage() {
   );
 }
 
-export const Route = createFileRoute("/export/$exportId")({
+// Note: This file uses both createFileRoute pattern and default export for compatibility
+export const Route = createFileRoute("/export/$exportId" as any)({
   component: ExportPage,
 });
+
+// Default export for lazy loading in router.tsx
+export default ExportPage;

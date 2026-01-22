@@ -66,7 +66,7 @@ export function AgentsList({
         <h1 className="text-2xl font-bold" data-testid="agents-title">
           {t("Layout.agents")}
         </h1>
-        <Link to="/agent/new">
+        <Link to="/agent/$agentId" params={{ agentId: "new" }}>
           <Button variant="ghost" data-testid="create-agent-button">
             <Plus />
             {t("Agent.newAgent")}
@@ -106,7 +106,7 @@ export function AgentsList({
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <Link to="/agent/new">
+          <Link to="/agent/$agentId" params={{ agentId: "new" }}>
             <Card
               className="relative bg-secondary overflow-hidden cursor-pointer hover:bg-input transition-colors h-[196px]"
               data-testid="create-agent-card"

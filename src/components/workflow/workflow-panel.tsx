@@ -292,7 +292,7 @@ export const WorkflowPanel = memo(
     const [showExecutePanel, setShowExecutePanel] = useState(false);
     const [showBuilderChat, setShowBuilderChat] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
+    const [isSaving, _setIsSaving] = useState(false);
     const { t } = useTranslation();
 
     const handleArrangeNodes = useCallback(() => {

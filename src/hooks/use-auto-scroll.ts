@@ -34,7 +34,7 @@ interface UseAutoScrollReturn {
   /**
    * Ref to attach to the scrollable container
    */
-  containerRef: React.RefObject<HTMLDivElement | null>;
+  containerRef: React.RefObject<HTMLDivElement>;
   /**
    * Function to manually scroll to bottom
    */

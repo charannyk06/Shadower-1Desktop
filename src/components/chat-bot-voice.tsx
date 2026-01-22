@@ -92,7 +92,7 @@ export function ChatBotVoice() {
   const { agent } = useAgent(agentId);
 
   const [isClosing, setIsClosing] = useState(false);
-  const startAudio = useRef<HTMLAudioElement>(null);
+  const startAudio = useRef<HTMLAudioElement | null>(null);
   const [useCompactView, setUseCompactView] = useState(true);
 
   const toolMentions = useMemo<ChatMention[]>(() => {

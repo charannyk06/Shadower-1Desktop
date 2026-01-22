@@ -170,7 +170,7 @@ export default function ArchivePage() {
             </Card>
           ) : (
             archive.threads.map((thread) => (
-              <Link key={thread.id} to={`/chat/${thread.id}`}>
+              <Link key={thread.id} to="/chat/$threadId" params={{ threadId: thread.id }}>
                 <Card className="hover:bg-accent/30 transition-all duration-200 cursor-pointer">
                   <CardHeader className="py-4">
                     <div className="flex items-center justify-between gap-4">

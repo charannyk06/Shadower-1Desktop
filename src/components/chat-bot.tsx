@@ -25,8 +25,6 @@ import {
   SubAgentEvent,
   isSubAgentEvent,
 } from "./tool-invocation/sub-agent-view";
-import type { FragmentProgressEvent } from "@/types/fragment";
-
 import {
   TextUIPart,
   UIMessage,
@@ -218,6 +216,7 @@ function handleScreenshotEvent(
 
     if (lastMsg?.role === "assistant") {
       // Append screenshot part to the last assistant message
+      // Cast to UIMessage[] as screenshot-display is a custom part type
       return prev.map((msg, idx) => {
         if (idx === prev.length - 1) {
           return {
@@ -231,15 +230,16 @@ function handleScreenshotEvent(
                 width,
                 height,
                 description: description || "Screenshot captured",
-              },
+              } as any,
             ],
           };
         }
         return msg;
-      });
+      }) as UIMessage[];
     }
 
     // If no assistant message, create a new one with the screenshot
+    // Cast to UIMessage[] as screenshot-display is a custom part type
     return [
       ...prev,
       {
@@ -253,160 +253,10 @@ function handleScreenshotEvent(
             width,
             height,
             description: description || "Screenshot captured",
-          },
+          } as any,
         ],
       },
-    ];
-  });
-}
-
-function isFragmentProgressEvent(event: {
-  type: string;
-}): event is { type: "data-fragment-progress"; data: FragmentProgressEvent } {
-  return event.type === "data-fragment-progress";
-}
-
-function handleFragmentProgressEvent(
-  event: { type: "data-fragment-progress"; data: FragmentProgressEvent },
-  _setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>,
-): void {
-  const { data } = event;
-
-  // Debug logging
-  console.log("[FragmentProgress] Received event:", {
-    stage: data.stage,
-    message: data.message,
-    hasOperation: !!data.operation,
-    operationType: data.operation?.type,
-    operationsCount: data.operations?.length || 0,
-    workspaceFilesCount: data.workspaceFiles?.length || 0,
-    toolCallId: data.toolCallId,
-  });
-
-  // Update app store with fragment progress
-  // Use toolCallId if available, otherwise use 'current'
-  // NOTE: The AI SDK should provide toolCallId automatically, but if not, we use 'current'
-  const progressKey = data.toolCallId || "current";
-
-  appStore.getState().mutate((state) => {
-    const existingProgress = state.fragmentProgress[progressKey];
-    const operations = existingProgress?.operations || [];
-    const existingWorkspaceFiles = existingProgress?.workspaceFiles || [];
-
-    // Add current operation to history if it exists
-    if (data.operation) {
-      // Always add new operations - don't deduplicate
-      // Operations are unique by timestamp, so we can have multiple of the same type
-      // If status changed from "running" to "success", update the last matching one
-      if (
-        data.operation.status === "success" ||
-        data.operation.status === "error"
-      ) {
-        // Find the last "running" operation of the same type and update it
-        // Work backwards through the array to find the last matching operation
-        let lastRunningIndex = -1;
-        for (let i = operations.length - 1; i >= 0; i--) {
-          const op = operations[i];
-          if (
-            op.type === data.operation?.type &&
-            op.status === "running" &&
-            (!data.operation.command ||
-              op.command === data.operation.command) &&
-            (!data.operation.filePath ||
-              op.filePath === data.operation.filePath)
-          ) {
-            lastRunningIndex = i;
-            break;
-          }
-        }
-
-        if (lastRunningIndex >= 0) {
-          // Update existing running operation
-          operations[lastRunningIndex] = data.operation;
-        } else {
-          // Add as new operation
-          operations.push(data.operation);
-        }
-      } else {
-        // For "running" status, always add as new operation
-        operations.push(data.operation);
-      }
-
-      // Keep only last 100 operations to prevent memory issues
-      if (operations.length > 100) {
-        operations.shift();
-      }
-    }
-
-    // Also merge operations from data.operations if provided (for bulk updates)
-    if (data.operations && Array.isArray(data.operations)) {
-      // Merge new operations, avoiding duplicates by timestamp
-      const existingTimestamps = new Set(operations.map((op) => op.timestamp));
-      const newOperations = data.operations.filter(
-        (op) => !existingTimestamps.has(op.timestamp),
-      );
-      operations.push(...newOperations);
-
-      // Sort by timestamp
-      operations.sort((a, b) => a.timestamp - b.timestamp);
-
-      // Keep only last 100
-      if (operations.length > 100) {
-        operations.splice(0, operations.length - 100);
-      }
-    }
-
-    // Merge workspace files - don't overwrite, accumulate
-    let workspaceFiles = [...existingWorkspaceFiles];
-    if (data.workspaceFiles && Array.isArray(data.workspaceFiles)) {
-      // Merge new files, avoiding duplicates by path
-      const existingPaths = new Set(existingWorkspaceFiles.map((f) => f.path));
-      const newFiles = data.workspaceFiles.filter(
-        (f) => !existingPaths.has(f.path),
-      );
-      workspaceFiles = [...workspaceFiles, ...newFiles];
-
-      // Also update existing files if content changed
-      for (const newFile of data.workspaceFiles) {
-        const existingIndex = workspaceFiles.findIndex(
-          (f) => f.path === newFile.path,
-        );
-        if (existingIndex >= 0) {
-          // Update existing file with new content
-          workspaceFiles[existingIndex] = newFile;
-        }
-      }
-
-      console.log(
-        `[FragmentProgress] Workspace files updated: ${workspaceFiles.length} total`,
-        {
-          existing: existingWorkspaceFiles.length,
-          new: data.workspaceFiles.length,
-          paths: workspaceFiles.map((f) => f.path),
-        },
-      );
-    }
-
-    return {
-      fragmentProgress: {
-        ...state.fragmentProgress,
-        [progressKey]: {
-          stage: data.stage,
-          message: data.message,
-          template: data.template,
-          fragmentId: data.fragmentId,
-          previewUrl: data.previewUrl,
-          error: data.error,
-          codeChunk: data.codeChunk,
-          codeLength: data.codeLength,
-          generatedCode: data.generatedCode || existingProgress?.generatedCode,
-          timestamp: Date.now(),
-          operation: data.operation,
-          operations: operations,
-          workspaceFiles: workspaceFiles, // Use merged files
-        },
-      },
-    };
+    ] as UIMessage[];
   });
 }
 
@@ -1043,9 +893,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           ...lastMessage,
           parts: filteredParts.length > 0 ? filteredParts : [{ type: "text" as const, text: "" }],
         } as typeof lastMessage;
-        const _hasFilePart = lastMessage.parts?.some(
-          (p) => (p as any)?.type === "file",
-        );
 
         const requestBody: ChatApiSchemaRequestBody = {
           ...body,
@@ -1082,8 +929,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         handleContextEvent(dataPart, threadId, setMessages);
       } else if (isScreenshotEvent(dataPart)) {
         handleScreenshotEvent(dataPart, setMessages);
-      } else if (isFragmentProgressEvent(dataPart)) {
-        handleFragmentProgressEvent(dataPart, setMessages);
       } else if (
         isCollaboraOpenEvent(dataPart as { type: string; data?: unknown })
       ) {
@@ -1152,8 +997,8 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   }, [messages, status]);
 
   // Set currentThreadId synchronously on mount/thread change
-  // Using useLayoutEffect ensures child components (like sandbox executors) have access
-  // to the threadId before their effects run - critical for sandbox file persistence
+  // Using useLayoutEffect ensures child components have access
+  // to the threadId before their effects run - critical for file persistence
   useLayoutEffect(() => {
     clientLogger.debug("[ChatBot] Setting currentThreadId", { threadId });
     appStoreMutate((state) => {
@@ -1332,13 +1177,13 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   }, [threadId, initialMessages]);
 
   // Aggregate ALL artifacts from the entire conversation history
-  // Only include actual file artifacts from sandbox/code execution, not web search results
+  // Only include actual file artifacts from code execution, not web search results
   const allArtifacts = useMemo(() => {
     const extracted: any[] = [];
 
     // Tools that produce file artifacts
     const artifactProducingTools = new Set([
-      "sandbox",
+      "desktop_command",
       "code",
       "execute_code",
       "run_code",
@@ -1383,7 +1228,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         if (Array.isArray(result)) {
           items = result;
         }
-        // Case 2: Result is wrapped in 'results' property (sandbox execution pattern)
+        // Case 2: Result is wrapped in 'results' property (code execution pattern)
         else if (result.results && Array.isArray(result.results)) {
           items = result.results;
         }

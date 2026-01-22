@@ -33,6 +33,10 @@ const externalPackages = [
   "drizzle-orm/better-sqlite3",
   "@modelcontextprotocol/sdk",
   "@modelcontextprotocol/sdk/*",
+  // agent-browser uses playwright-core which has require.resolve() calls
+  // that break when bundled - keep external
+  "agent-browser",
+  "agent-browser/*",
 ];
 
 // Helper to resolve a path, trying .ts extension if needed

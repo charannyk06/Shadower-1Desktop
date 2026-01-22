@@ -142,23 +142,23 @@ export const DesktopConfig = {
     ),
   },
 
-  // Sandbox Settings (for code execution)
-  sandbox: {
-    /** Sandbox directory (relative to app data) */
-    directory: import.meta.env.DESKTOP_SANDBOX_DIR || "sandbox",
+  // Workspace Settings (for local file storage)
+  workspace: {
+    /** Workspace directory (relative to app data) */
+    directory: import.meta.env.DESKTOP_WORKSPACE_DIR || "workspace",
 
     /** Enable file persistence between sessions (default: true for local) */
-    enablePersistence: import.meta.env.DESKTOP_SANDBOX_PERSISTENCE !== "false",
+    enablePersistence: import.meta.env.DESKTOP_WORKSPACE_PERSISTENCE !== "false",
 
     /** Maximum file size in bytes (default: 100MB) */
     maxFileSize: parseInt(
-      import.meta.env.DESKTOP_SANDBOX_MAX_FILE_SIZE || "104857600",
+      import.meta.env.DESKTOP_WORKSPACE_MAX_FILE_SIZE || "104857600",
       10,
     ),
 
     /** Allowed languages for code execution */
     allowedLanguages: (
-      import.meta.env.DESKTOP_SANDBOX_LANGUAGES ||
+      import.meta.env.DESKTOP_WORKSPACE_LANGUAGES ||
       "python,javascript,typescript,bash"
     ).split(","),
   },

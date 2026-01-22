@@ -25,7 +25,7 @@ import { registerArchiveHandlers } from "./ipc/archives";
 import { registerAIHandlers } from "./ipc/ai";
 import { registerVectorHandlers } from "./ipc/vector";
 import { registerMemoryHandlers } from "./ipc/memory";
-import { registerChromeHandlers } from "./ipc/chrome";
+import { registerBrowserHandlers } from "./ipc/browser";
 
 // Static imports for services
 import { ElectronAuthService } from "./services/auth";
@@ -255,7 +255,7 @@ app.whenReady().then(async () => {
   registerHandler("Models", registerModelsHandlers);
   registerHandler("Archive", registerArchiveHandlers);
   registerHandler("AI", registerAIHandlers);
-  registerHandler("Chrome", registerChromeHandlers);
+  registerHandler("Browser", registerBrowserHandlers);
 
   // Vector handlers are optional (may fail if DuckDB not available)
   try {

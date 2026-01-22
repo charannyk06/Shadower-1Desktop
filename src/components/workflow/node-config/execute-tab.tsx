@@ -123,7 +123,7 @@ export function ExecuteTab({
         </div>
       ),
     });
-    if (!result) return;
+    if (!result || !model) return;
     toast.promise(
       aiApi
         .generateObject({

@@ -17,6 +17,7 @@ import { Textarea } from "./ui/textarea";
 
 export type MessageEditorProps = {
   message: UIMessage;
+  chatId?: string;
   setMode: Dispatch<SetStateAction<"view" | "edit">>;
   setMessages: UseChatHelpers<UIMessage>["setMessages"];
   sendMessage: UseChatHelpers<UIMessage>["sendMessage"];
@@ -24,6 +25,7 @@ export type MessageEditorProps = {
 
 export function MessageEditor({
   message,
+  chatId,
   setMode,
   setMessages,
   sendMessage,
@@ -54,7 +56,9 @@ export function MessageEditor({
   const handleSubmit = async () => {
     setIsSubmitting(true);
 
-    await threadApi.deleteMessagesAfterTimestamp(message.chatId, message.id);
+    if (chatId) {
+      await threadApi.deleteMessagesAfterTimestamp(chatId, message.id);
+    }
 
     setMessages((messages) => {
       const index = messages.findIndex((m) => m.id === message.id);

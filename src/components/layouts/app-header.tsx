@@ -111,7 +111,7 @@ export function AppHeader() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent align="end" side="bottom">
-                <div className="text-xs">Sandbox Files</div>
+                <div className="text-xs">Workspace Files</div>
               </TooltipContent>
             </Tooltip>
           )}

@@ -30,7 +30,7 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
     loading: true,
   });
   const containerRef = useRef<HTMLDivElement>(null);
-  const previousChartRef = useRef<string>(chart);
+  const previousChartRef = useRef<string | undefined>(chart);
   const debounce = useMemo(() => createDebounce(), []);
 
   useEffect(() => {

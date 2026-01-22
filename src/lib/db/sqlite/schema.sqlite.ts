@@ -763,8 +763,8 @@ export const ThreadFileContextTable = sqliteTable(
   }),
 );
 
-// Legacy alias for backwards compatibility
-export const ThreadSandboxContextTable = ThreadFileContextTable;
+// Legacy alias for backwards compatibility (deprecated - use ThreadFileContextTable)
+export const ThreadWorkspaceContextTable = ThreadFileContextTable;
 
 // ============================================================================
 // Browser Sessions
@@ -970,105 +970,6 @@ export const VectorIndexTable = sqliteTable(
 );
 
 // ============================================================================
-// Fragment Tables (for micro-app generation)
-// ============================================================================
-
-export const FragmentsTable = sqliteTable(
-  "fragments",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    threadId: text("thread_id")
-      .notNull()
-      .references(() => ChatThreadTable.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    template: text("template").notNull(),
-    title: text("title").notNull(),
-    description: text("description"),
-    code: text("code").notNull(),
-    filePath: text("file_path").notNull(),
-    port: integer("port"),
-    sessionId: text("session_id"),
-    previewUrl: text("preview_url"),
-    deploymentUrl: text("deployment_url"),
-    status: text("status", {
-      enum: ["draft", "generating", "ready", "deployed", "failed"],
-    })
-      .notNull()
-      .default("draft"),
-    errorMessage: text("error_message"),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    threadIdx: index("fragments_thread_idx").on(table.threadId),
-    userIdx: index("fragments_user_idx").on(table.userId),
-    statusIdx: index("fragments_status_idx").on(table.status),
-  }),
-);
-
-export const FragmentExecutionsTable = sqliteTable(
-  "fragment_executions",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    fragmentId: text("fragment_id")
-      .notNull()
-      .references(() => FragmentsTable.id, { onDelete: "cascade" }),
-    sessionId: text("session_id").notNull(),
-    template: text("template").notNull(),
-    stdout: text("stdout"),
-    stderr: text("stderr"),
-    runtimeError: text("runtime_error"),
-    previewUrl: text("preview_url"),
-    executionTimeMs: integer("execution_time_ms"),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    fragmentIdx: index("fragment_executions_fragment_idx").on(table.fragmentId),
-  }),
-);
-
-// SandboxUsageTable removed - local execution is free and doesn't need billing tracking
-
-export const FragmentSharesTable = sqliteTable(
-  "fragment_shares",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    fragmentId: text("fragment_id")
-      .notNull()
-      .references(() => FragmentsTable.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => UserTable.id, { onDelete: "cascade" }),
-    shareId: text("share_id").notNull().unique(),
-    expiresAt: integer("expires_at", { mode: "timestamp" }),
-    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
-    viewCount: integer("view_count").notNull().default(0),
-    lastViewedAt: integer("last_viewed_at", { mode: "timestamp" }),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    fragmentIdx: index("fragment_shares_fragment_idx").on(table.fragmentId),
-    shareIdIdx: index("fragment_shares_share_id_idx").on(table.shareId),
-  }),
-);
-
-// ============================================================================
 // Models & Provider Configuration Tables
 // ============================================================================
 
@@ -1246,16 +1147,12 @@ export type WorkflowNodeDataEntity = typeof WorkflowNodeDataTable.$inferSelect;
 export type WorkflowEdgeEntity = typeof WorkflowEdgeTable.$inferSelect;
 export type ArchiveEntity = typeof ArchiveTable.$inferSelect;
 export type ArchiveItemEntity = typeof ArchiveItemTable.$inferSelect;
-export type ThreadSandboxContextEntity =
-  typeof ThreadSandboxContextTable.$inferSelect;
-export type ThreadFileContextEntity = ThreadSandboxContextEntity;
+export type ThreadWorkspaceContextEntity =
+  typeof ThreadWorkspaceContextTable.$inferSelect;
+export type ThreadFileContextEntity = ThreadWorkspaceContextEntity;
 export type BrowserSessionEntity = typeof BrowserSessionTable.$inferSelect;
 export type ResearchTaskEntity = typeof ResearchTaskTable.$inferSelect;
 export type VectorIndexEntity = typeof VectorIndexTable.$inferSelect;
-export type FragmentsEntity = typeof FragmentsTable.$inferSelect;
-export type FragmentExecutionsEntity =
-  typeof FragmentExecutionsTable.$inferSelect;
-export type FragmentSharesEntity = typeof FragmentSharesTable.$inferSelect;
 export type ProviderConfigEntity = typeof ProviderConfigTable.$inferSelect;
 export type LocalModelEntity = typeof LocalModelTable.$inferSelect;
 export type ApiKeyEntity = typeof ApiKeyTable.$inferSelect;
@@ -1292,15 +1189,11 @@ export type WorkflowNodeDataInsert = typeof WorkflowNodeDataTable.$inferInsert;
 export type WorkflowEdgeInsert = typeof WorkflowEdgeTable.$inferInsert;
 export type ArchiveInsert = typeof ArchiveTable.$inferInsert;
 export type ArchiveItemInsert = typeof ArchiveItemTable.$inferInsert;
-export type ThreadSandboxContextInsert =
-  typeof ThreadSandboxContextTable.$inferInsert;
+export type ThreadWorkspaceContextInsert =
+  typeof ThreadWorkspaceContextTable.$inferInsert;
 export type BrowserSessionInsert = typeof BrowserSessionTable.$inferInsert;
 export type ResearchTaskInsert = typeof ResearchTaskTable.$inferInsert;
 export type VectorIndexInsert = typeof VectorIndexTable.$inferInsert;
-export type FragmentsInsert = typeof FragmentsTable.$inferInsert;
-export type FragmentExecutionsInsert =
-  typeof FragmentExecutionsTable.$inferInsert;
-export type FragmentSharesInsert = typeof FragmentSharesTable.$inferInsert;
 export type ProviderConfigInsert = typeof ProviderConfigTable.$inferInsert;
 export type LocalModelInsert = typeof LocalModelTable.$inferInsert;
 export type ApiKeyInsert = typeof ApiKeyTable.$inferInsert;

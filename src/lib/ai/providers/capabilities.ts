@@ -39,25 +39,26 @@ const RESPONSES_API_PATTERNS: RegExp[] = [/computer-use/i];
 
 /**
  * Patterns for LOCAL models that ACTUALLY support tool/function calling
- * NOT ALL LOCAL MODELS SUPPORT TOOL CALLS - this is the whitelist
+ *
+ * IMPORTANT: This is an INCLUSIVE whitelist - we err on the side of allowing tools
+ * because it's better to try and fail gracefully than to block capable models.
  *
  * Ollama/LM Studio models that support function calling:
- * - llama3.1, llama3.2, llama3.3 (Meta instruction-tuned)
+ * - llama3.1, llama3.2, llama3.3, llama4 (Meta instruction-tuned)
  * - deepseek-r1, deepseek-coder, deepseek-v3 (DeepSeek reasoning/coding models)
- * - qwen2, qwen2.5, qwen-coder (Alibaba models)
- * - mistral-nemo, mistral-large (Mistral with function calling - NOT base mistral)
- * - codestral (Mistral coding model)
+ * - qwen2, qwen2.5, qwen3, qwen-coder (Alibaba models)
+ * - mistral-nemo, mistral-large, mistral-small (Mistral with function calling)
+ * - mixtral (Mistral MoE models)
+ * - codestral, devstral (Mistral coding models)
  * - command-r, command-r-plus (Cohere)
- * - phi-4 (Microsoft - phi-3 is limited)
+ * - phi-3, phi-4 (Microsoft)
  * - hermes-3 (NousResearch instruction-tuned)
  * - nemotron (NVIDIA)
- *
- * Models that do NOT support tool calls (even if popular):
- * - llama2 (not instruction-tuned for function calling)
- * - mistral (base version without function calling)
- * - phi-3 (limited/inconsistent tool support)
- * - gemma (not function-tuned)
- * - yi (not function-tuned)
+ * - gemma2 (Google - gemma2 has better tool support)
+ * - yi (01.AI models)
+ * - solar (Upstage)
+ * - internlm (Shanghai AI Lab)
+ * - glm (Zhipu AI)
  */
 const LOCAL_TOOL_SUPPORTED_PATTERNS: RegExp[] = [
   // Meta Llama 3.x/4.x series - permissive patterns for various naming conventions
@@ -74,28 +75,44 @@ const LOCAL_TOOL_SUPPORTED_PATTERNS: RegExp[] = [
   /qwen/i,
   /qwq/i,
 
-  // Mistral with function calling
-  // Matches: mistral-nemo, mistral-large, mistral-small, codestral, devstral
+  // Mistral family with function calling
+  // Matches: mistral-nemo, mistral-large, mistral-small, mixtral, codestral, devstral
   /mistral[-_]?nemo/i,
   /mistral[-_]?large/i,
   /mistral[-_]?small/i,
+  /mixtral/i, // MoE models - added!
   /codestral/i,
   /devstral/i,
 
   // Cohere command models
   /command[-_]?r/i,
 
-  // Microsoft phi-4
-  /phi[-_]?4/i,
+  // Microsoft phi models (phi-3 and phi-4)
+  /phi[-_]?[34]/i, // Now supports both phi-3 and phi-4
 
-  // NousResearch Hermes
-  /hermes[-_]?3/i,
+  // NousResearch Hermes (all versions)
+  /hermes/i, // Expanded to include hermes-2 and other versions
 
   // NVIDIA Nemotron
   /nemotron/i,
 
   // IBM Granite models
   /granite/i,
+
+  // Google Gemma 2 (has better tool support than gemma 1)
+  /gemma[-_]?2/i,
+
+  // 01.AI Yi models
+  /yi[-_]/i,
+
+  // Upstage Solar
+  /solar/i,
+
+  // Shanghai AI Lab InternLM
+  /internlm/i,
+
+  // Zhipu AI GLM models (ChatGLM)
+  /glm/i,
 
   // Groq hosted models (always support tools)
   /groq/i,
@@ -105,6 +122,17 @@ const LOCAL_TOOL_SUPPORTED_PATTERNS: RegExp[] = [
 
   // Together AI hosted models with tool support
   /together/i,
+
+  // OpenRouter models (they handle tool support internally)
+  /openrouter/i,
+
+  // Any model with "instruct" or "chat" suffix typically supports tools
+  /[-_]instruct/i,
+  /[-_]chat/i,
+
+  // Function calling specific models
+  /function[-_]?call/i,
+  /tool[-_]?use/i,
 ];
 
 /**

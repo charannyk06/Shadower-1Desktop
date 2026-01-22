@@ -474,6 +474,7 @@ export function MCPOverview() {
     <div className="flex flex-col gap-4">
       <Link
         to="/mcp/create"
+        search={{ name: undefined, config: undefined }}
         className="rounded-lg overflow-hidden cursor-pointer p-12 text-center relative group transition-all duration-300 "
       >
         <div className="flex flex-col items-center justify-center space-y-4 my-20">

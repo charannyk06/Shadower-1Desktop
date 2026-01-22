@@ -1,27 +1,15 @@
-import deepmerge from "deepmerge";
-import { getRequestConfig } from "next-intl/server";
-import { safe } from "ts-safe";
-import { getLocaleAction } from "./get-locale";
+/**
+ * Next.js i18n request config
+ *
+ * Note: This file is stubbed for Electron builds since next-intl/server
+ * is not available in client-side environments. The actual i18n configuration
+ * is handled via react-i18next in src/lib/i18n.ts
+ */
 
-let defaultMessages: any = undefined;
-
-export default getRequestConfig(async () => {
-  const locale = await getLocaleAction();
-
-  if (!defaultMessages) {
-    defaultMessages = (await import(`../../messages/en.json`)).default;
-  }
-
-  const messages = await safe(() => import(`../../messages/${locale}.json`))
-    .map((m) => m.default)
-    .orElse(defaultMessages);
-
+// Export a no-op default for compatibility
+export default function getRequestConfig() {
   return {
-    locale,
-    messages:
-      locale === "en" ? defaultMessages : deepmerge(defaultMessages, messages),
-    getMessageFallback({ key, namespace }) {
-      return `${namespace}.${key}`;
-    },
+    locale: "en",
+    messages: {},
   };
-});
+}

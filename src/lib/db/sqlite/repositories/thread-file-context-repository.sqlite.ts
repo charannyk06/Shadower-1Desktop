@@ -220,6 +220,6 @@ export const sqliteThreadFileContextRepository: ThreadFileContextRepository = {
   },
 };
 
-// Legacy alias for backwards compatibility
-export const sqliteThreadSandboxContextRepository =
+// Alias for workspace context (formerly sandbox)
+export const sqliteThreadWorkspaceContextRepository =
   sqliteThreadFileContextRepository;

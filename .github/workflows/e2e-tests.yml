@@ -159,8 +159,8 @@ jobs:
         #   - Admin billing navigation
         #   - Non-admin access denial verification
         #
-        # === Sandbox Execution Tests ===
-        # - Unified Sandbox Execution tests (tests/features/sandbox-execution.spec.ts)
+        # === Local Terminal Execution Tests ===
+        # - Terminal execution tests (via desktop_command tool)
         #   - Python, JavaScript, TypeScript code execution
         #   - Shell command execution (bash, npm, pip, etc.)
         #   - File operations (read, write, list, delete)
@@ -170,9 +170,9 @@ jobs:
         #   - Error handling for invalid code/commands
         #   - Integration tests for multi-step operations
         #   - Timeout handling (60s CODE_EXECUTION_TIMEOUT_MS)
-        #   - File metadata with sandboxPath field
+        #   - File metadata with workspace path field
         #   - Execution metadata tracking
-        #   Note: Sandbox tests are skipped if E2B_API_KEY is not configured
+        #   Note: Tests run against local terminal
         #
         # === Document Agent Tests ===
         # - Document Agent tests (tests/features/document-agent.spec.ts)
@@ -182,7 +182,7 @@ jobs:
         #   - Custom color palettes for presentations
         #   - Document editing capabilities
         #   - Theater mode preview for documents
-        #   Note: Skipped if E2B_API_KEY is not configured
+        #   Note: Uses local terminal execution
         #
         # === Browser Automation Tests ===
         # - Browser Automation tests (tests/features/browser-automation.spec.ts)
@@ -200,7 +200,7 @@ jobs:
         #   - Desktop tool invocation display
         #   - Desktop preview in theater mode
         #   - Tool status badges
-        #   Note: Skipped if E2B_API_KEY is not configured
+        #   Note: Uses local terminal execution
         #
         # === Collabora Integration Tests ===
         # - Collabora Integration tests (tests/features/collabora-integration.spec.ts)

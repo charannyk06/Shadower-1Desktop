@@ -45,61 +45,6 @@ export interface ContextUsageState {
   };
 }
 
-// Operation types for granular logging
-export type FragmentOperationType =
-  | "bash" // Shell command execution
-  | "file-write" // Writing a file
-  | "file-read" // Reading a file
-  | "install" // Installing dependencies
-  | "ai-call" // AI model invocation
-  | "local-exec" // Local code execution
-  | "tool-call" // External tool invocation (MCP, system tools)
-  | "info"; // General info
-
-// Individual operation log entry
-export interface FragmentOperation {
-  type: FragmentOperationType;
-  command?: string; // For bash commands
-  filePath?: string; // For file operations
-  content?: string; // For file content (workspace files)
-  output?: string; // Command output or result
-  status: "running" | "success" | "error";
-  timestamp: number;
-  durationMs?: number;
-  // For tool calls
-  toolName?: string;
-  toolArgs?: Record<string, any>;
-  toolResult?: any;
-}
-
-// Fragment progress state for real-time updates
-export interface FragmentProgressData {
-  stage:
-    | "analyzing"
-    | "template-selected"
-    | "generating"
-    | "installing"
-    | "executing"
-    | "editing"
-    | "deploying"
-    | "complete"
-    | "error";
-  message: string;
-  template?: string;
-  fragmentId?: string;
-  previewUrl?: string;
-  error?: string;
-  codeChunk?: string;
-  codeLength?: number;
-  generatedCode?: string; // Accumulated code during generation
-  timestamp?: number;
-  // Granular operation logging
-  operation?: FragmentOperation; // Current operation
-  operations?: FragmentOperation[]; // All operations history
-  // Workspace files tracking
-  workspaceFiles?: { path: string; content: string; language?: string }[];
-}
-
 export interface PlanState {
   planId: string;
   request: string;
@@ -136,10 +81,6 @@ export interface AppState {
   // Context usage state keyed by threadId for token tracking
   threadContextUsage: {
     [threadId: string]: ContextUsageState | undefined;
-  };
-  // Fragment progress state keyed by toolCallId for real-time progress updates
-  fragmentProgress: {
-    [toolCallId: string]: FragmentProgressData | undefined;
   };
   toolPresets: {
     allowedMcpServers?: Record<string, AllowedMCPServer>;
@@ -227,7 +168,6 @@ const initialState: AppState = {
   threadImageToolModel: {},
   threadPlans: {},
   threadContextUsage: {},
-  fragmentProgress: {},
   mcpList: [],
   agentList: [],
   workflowToolList: [],
@@ -247,7 +187,6 @@ const initialState: AppState = {
     AppDefaultToolkit.DataAnalysis,
     AppDefaultToolkit.Documents,
     AppDefaultToolkit.Research,
-    AppDefaultToolkit.Fragments, // Autonomous app/dashboard/document generation
     AppDefaultToolkit.Memory,
   ],
   toolPresets: [],

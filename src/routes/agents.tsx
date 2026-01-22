@@ -24,12 +24,10 @@ export default function AgentsPage() {
   // In Electron mode, database access is handled via IPC in the client component
   // Don't fetch agents on the server - let the client component handle it via IPC
   const myAgents: any[] = [];
-  const sharedAgents: any[] = [];
 
   return (
     <AgentsList
       initialMyAgents={myAgents}
-      initialSharedAgents={sharedAgents}
       systemAgents={systemAgents}
       userId={session.user.id}
     />

@@ -36,7 +36,7 @@ export interface ImageProcessingOptions {
 
 /**
  * Generate code to fetch an image from URL and convert to base64
- * This code runs in the E2B sandbox
+ * This code runs locally via desktop_command
  */
 export function generateImageFetchCode(
   imageUrl: string,

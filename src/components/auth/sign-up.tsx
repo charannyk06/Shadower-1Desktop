@@ -14,7 +14,6 @@ import { cn } from "lib/utils";
 import { Mail } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "@tanstack/react-router";
-import { startTransition } from "react";
 import { toast } from "sonner";
 import SocialProviders from "./social-providers";
 
@@ -27,18 +26,16 @@ export default function SignUpPage({
   isFirstUser?: boolean;
 }) {
   const { t } = useTranslation();
-  const handleSocialSignIn = (provider: SocialAuthenticationProvider) => {
-    startTransition(async () => {
-      try {
-        await authClient.signIn.social({
-          provider,
-          callbackURL: "/", // Redirect to home after successful OAuth
-          errorCallbackURL: "/sign-up", // Redirect back to sign-up on error
-        });
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "OAuth sign-up failed");
-      }
-    });
+  const handleSocialSignIn = async (provider: SocialAuthenticationProvider) => {
+    try {
+      await authClient.signIn.social({
+        provider,
+        callbackURL: "/", // Redirect to home after successful OAuth
+        errorCallbackURL: "/sign-up", // Redirect back to sign-up on error
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "OAuth sign-up failed");
+    }
   };
   return (
     <Card className="w-full md:max-w-md bg-background border-none mx-auto shadow-none">

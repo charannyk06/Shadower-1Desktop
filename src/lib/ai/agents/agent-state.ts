@@ -105,7 +105,7 @@ const TOOL_CALL_LIMITS: Record<string, number> = {
   getAllContext: 10,
   getPlanStatus: 15,
   getNextTask: 15,
-  sandbox: 30, // Sandbox needs multiple calls for file operations, code execution, etc.
+  desktop_command: 30, // Desktop command needs multiple calls for file operations, code execution, etc.
   // All other tools default to MAX_TOOL_CALLS_PER_TOOL (10)
 };
 

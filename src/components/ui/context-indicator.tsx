@@ -3,7 +3,7 @@
 import { ContextUsageState, appStore } from "@/app/store";
 import { cn } from "lib/utils";
 import { Sparkles } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 import { useShallow } from "zustand/shallow";
 

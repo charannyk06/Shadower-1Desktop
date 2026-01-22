@@ -60,11 +60,16 @@ export function BrowserPreview({
     success: boolean;
   }> => {
     try {
-      // Use Electron IPC for chrome screenshot
-      if (window.electronAPI?.chrome?.screenshot) {
-        const result = await window.electronAPI.chrome.screenshot();
-        if (result?.data) {
-          return { data: result.data, url: result.url, success: true };
+      // Use Electron IPC for browser screenshot (agent-browser powered)
+      if (window.electronAPI?.browser?.screenshot) {
+        const result = await window.electronAPI.browser.screenshot();
+        if (result?.data?.base64) {
+          const urlResult = await window.electronAPI.browser.getUrl();
+          return {
+            data: result.data.base64,
+            url: urlResult?.url,
+            success: true,
+          };
         }
       }
       return { success: false };

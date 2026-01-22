@@ -1,6 +1,5 @@
 "use client";
 import { EditWorkflowPopup } from "@/components/workflow/edit-workflow-popup";
-import { authClient } from "auth/client";
 
 import { ArrowUpRight, MousePointer2 } from "lucide-react";
 
@@ -26,22 +25,16 @@ import { Skeleton } from "ui/skeleton";
 
 export default function WorkflowListPage() {
   const { t } = useTranslation();
-  const { data: session } = authClient.useSession();
-  // In Electron mode, we need the actual database user ID (UUID), not the hardcoded "local-user"
-  const [electronUserId, setElectronUserId] = useState<string | undefined>();
+  // In Electron mode, user ID loading is handled internally by workflow API
   const [isUserIdLoading, setIsUserIdLoading] = useState(isElectronMode());
 
   useEffect(() => {
-    // Fetch the actual user ID in Electron mode
+    // Initialize user ID loading state for Electron mode
     if (isElectronMode()) {
-      getCurrentUserId()
-        .then(setElectronUserId)
-        .finally(() => setIsUserIdLoading(false));
+      getCurrentUserId().finally(() => setIsUserIdLoading(false));
     }
   }, []);
 
-  // Use Electron user ID if available, otherwise fall back to session
-  const currentUserId = electronUserId || session?.user?.id;
   const [isDeleteLoading, setIsDeleteLoading] = useState(false);
 
   const { data: workflows, isLoading: isWorkflowsLoading } = useSWR<

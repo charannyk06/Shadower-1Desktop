@@ -425,14 +425,19 @@ export function registerWorkflowHandlers() {
         );
 
         // Create executor with nodes and edges
+        // Map null to undefined for optional fields
         const executor = createWorkflowExecutor({
           nodes: nodes.map((n) => ({
             ...n,
+            description: n.description ?? undefined,
+            createdAt: n.createdAt ?? new Date(),
+            updatedAt: n.updatedAt ?? new Date(),
             nodeConfig: n.nodeConfig as any,
             uiConfig: n.uiConfig as any,
           })),
           edges: edges.map((e) => ({
             ...e,
+            createdAt: e.createdAt ?? new Date(),
             uiConfig: e.uiConfig as any,
           })),
           userId: user.id,

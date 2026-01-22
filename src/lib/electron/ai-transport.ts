@@ -339,6 +339,14 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
                   );
                 }
 
+                // Track finish chunk for debugging title generation issues
+                if (chunkType === "finish") {
+                  console.log(
+                    `[AI Transport] *** FINISH CHUNK RECEIVED *** finishReason: ${parsed.finishReason}`,
+                    JSON.stringify(parsed, null, 2),
+                  );
+                }
+
                 // Full structure for first 15 chunks and important chunk types
                 if (
                   chunkCounter <= 15 ||
@@ -412,15 +420,20 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
               "finishReason:",
               data.finishReason,
             );
-            cleanup();
-            streamClosed = true;
-            if (!aborted && streamController) {
-              try {
-                streamController.close();
-              } catch {
-                // Controller may already be closed
+            // Don't close the stream immediately - give time for the finish chunk to be processed
+            // The finish chunk triggers onFinish callback in useChat, and we need to ensure
+            // it's fully processed before closing the stream
+            setTimeout(() => {
+              cleanup();
+              streamClosed = true;
+              if (!aborted && streamController) {
+                try {
+                  streamController.close();
+                } catch {
+                  // Controller may already be closed
+                }
               }
-            }
+            }, 100); // Small delay to ensure finish chunk is processed
           },
         );
 

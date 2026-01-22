@@ -34,7 +34,7 @@ i18n.use(initReactI18next).init({
   resources,
   lng: getSavedLanguage(),
   fallbackLng: "en",
-  debug: import.meta.env.DEV,
+  debug: Boolean(import.meta.env.DEV),
   interpolation: {
     escapeValue: false, // React already escapes
     // Use single curly braces {name} instead of default {{name}}

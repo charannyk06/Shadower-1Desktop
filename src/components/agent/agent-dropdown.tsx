@@ -50,7 +50,8 @@ export function AgentDropdown({ agent, children, side, align }: Props) {
               {isOwner && (
                 <CommandItem className="cursor-pointer p-0">
                   <Link
-                    to={`/agent/${agent.id}`}
+                    to="/agent/$agentId"
+                    params={{ agentId: agent.id }}
                     className="flex items-center gap-2 w-full px-2 py-1 rounded"
                   >
                     <PencilLine className="text-foreground" />

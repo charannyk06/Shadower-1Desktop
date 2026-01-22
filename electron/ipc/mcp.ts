@@ -522,12 +522,15 @@ export function registerMcpHandlers() {
               // The client will validate the state internally
               await client.finishAuth(code, state);
 
+              // Status changes after finishAuth - re-read it
+              // Cast is needed because TypeScript narrowed the type based on earlier check
+              const newStatus = client.status as string;
               console.log(
-                `[IPC] OAuth completed for ${server.name}, new status: ${client.status}`,
+                `[IPC] OAuth completed for ${server.name}, new status: ${newStatus}`,
               );
 
               // Refresh to get tools
-              if (client.status === "connected") {
+              if (newStatus === "connected") {
                 await client.updateToolInfo?.();
               }
 

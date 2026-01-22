@@ -128,7 +128,7 @@
         "visualization": "データ可視化",
         "webSearch": "ウェブを検索",
         "http": "HTTPリクエスト",
-        "sandbox": "コード実行",
+        "terminal": "ターミナル",
         "browser": "ブラウザ自動化",
         "desktop": "デスクトップ制御",
         "dataAnalysis": "データ分析",

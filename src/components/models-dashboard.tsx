@@ -284,7 +284,7 @@ export default function ModelsDashboard() {
           // Invalidate models cache to remove provider from model dropdown immediately
           await mutate("/api/chat/models");
         } else {
-          toast.error(result.error || "Failed to remove API key");
+          toast.error("Failed to remove API key");
         }
       } catch (_error) {
         toast.error("Failed to remove API key");

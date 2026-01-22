@@ -109,7 +109,7 @@ export function AppSidebarAgents() {
             {canCreate && (
               <SidebarMenuAction
                 className="group-hover/agents:opacity-100 opacity-0 transition-opacity"
-                onClick={() => navigate({ to: "/agent/new" })}
+                onClick={() => navigate({ to: "/agent/$agentId", params: { agentId: "new" } })}
                 data-testid="sidebar-create-agent-button"
               >
                 <Tooltip>
@@ -134,7 +134,8 @@ export function AppSidebarAgents() {
             <div className="px-2 mt-1">
               {canCreate ? (
                 <Link
-                  to={"/agent/new"}
+                  to="/agent/$agentId"
+                  params={{ agentId: "new" }}
                   className="bg-input/40 py-8 px-4 hover:bg-input/100 rounded-lg cursor-pointer flex justify-between items-center text-xs overflow-hidden"
                   data-testid="sidebar-create-agent-link"
                 >

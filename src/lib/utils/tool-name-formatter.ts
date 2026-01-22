@@ -23,14 +23,17 @@ const DEFAULT_TOOL_NAME_MAP: Record<string, string> = {
   [DefaultToolName.Http]: "HTTP Request",
 
   // Browser automation tools
+  [DefaultToolName.BrowserCreateSession]: "Create Browser Session",
+  [DefaultToolName.BrowserCloseSession]: "Close Browser Session",
   [DefaultToolName.BrowserNavigate]: "Navigate Browser",
-  [DefaultToolName.BrowserAct]: "Perform Browser Action",
-  [DefaultToolName.BrowserObserve]: "Observe Page",
-  [DefaultToolName.BrowserExtract]: "Extract Data",
+  [DefaultToolName.BrowserClick]: "Click Element",
+  [DefaultToolName.BrowserFill]: "Fill Input",
+  [DefaultToolName.BrowserType]: "Type Text",
+  [DefaultToolName.BrowserGetSnapshot]: "Get Page Snapshot",
+  [DefaultToolName.BrowserGetContent]: "Get Page Content",
   [DefaultToolName.BrowserScreenshot]: "Take Screenshot",
-  [DefaultToolName.BrowserStealth]: "Enable Stealth Mode",
   [DefaultToolName.BrowserWait]: "Wait for Condition",
-  [DefaultToolName.BrowserClose]: "Close Browser",
+  [DefaultToolName.BrowserEvaluate]: "Evaluate JavaScript",
 
   // Desktop/Computer Use tools
   [DefaultToolName.DesktopCreate]: "Create Desktop Session",
