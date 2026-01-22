@@ -166,18 +166,6 @@ const runMigrations = (sqliteInstance: SqliteDatabase) => {
     }
   }
 
-  // Archive table migrations
-  if (tableExists(sqliteInstance, "archive")) {
-    if (!columnExists(sqliteInstance, "archive", "description")) {
-      console.log("[SQLite] Adding description column to archive table...");
-      sqliteInstance.exec(`ALTER TABLE archive ADD COLUMN description TEXT`);
-    }
-    if (!columnExists(sqliteInstance, "archive", "updated_at")) {
-      console.log("[SQLite] Adding updated_at column to archive table...");
-      sqliteInstance.exec(`ALTER TABLE archive ADD COLUMN updated_at INTEGER`);
-    }
-  }
-
   // Workflow table migrations
   if (tableExists(sqliteInstance, "workflow")) {
     if (!columnExists(sqliteInstance, "workflow", "version")) {
@@ -318,15 +306,6 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
         updated_at INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS archive (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        description TEXT,
-        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        created_at INTEGER,
-        updated_at INTEGER
-      );
-
       CREATE TABLE IF NOT EXISTS subscription (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL UNIQUE REFERENCES user(id) ON DELETE CASCADE,
@@ -365,16 +344,6 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
         parts TEXT NOT NULL,
         metadata TEXT,
         created_at INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS chat_export (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        exporter_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        original_thread_id TEXT,
-        messages TEXT NOT NULL,
-        exported_at INTEGER,
-        expires_at INTEGER
       );
 
       CREATE TABLE IF NOT EXISTS conversation_summary (
@@ -541,30 +510,6 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
         target TEXT NOT NULL,
         ui_config TEXT DEFAULT '{}',
         created_at INTEGER
-      );
-    `);
-
-    // Level 9: Tables depending on archive
-    sqliteInstance.exec(`
-      CREATE TABLE IF NOT EXISTS archive_item (
-        id TEXT PRIMARY KEY,
-        archive_id TEXT NOT NULL REFERENCES archive(id) ON DELETE CASCADE,
-        item_id TEXT NOT NULL,
-        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        added_at INTEGER
-      );
-    `);
-
-    // Level 10: Tables depending on chat_export
-    sqliteInstance.exec(`
-      CREATE TABLE IF NOT EXISTS chat_export_comment (
-        id TEXT PRIMARY KEY,
-        export_id TEXT NOT NULL REFERENCES chat_export(id) ON DELETE CASCADE,
-        author_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        parent_id TEXT,
-        content TEXT NOT NULL,
-        created_at INTEGER,
-        updated_at INTEGER
       );
     `);
 
@@ -741,18 +686,6 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
         operation_type TEXT,
         created_at INTEGER
       );
-
-      CREATE TABLE IF NOT EXISTS fragment_shares (
-        id TEXT PRIMARY KEY,
-        fragment_id TEXT NOT NULL REFERENCES fragments(id) ON DELETE CASCADE,
-        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
-        share_id TEXT NOT NULL UNIQUE,
-        expires_at INTEGER,
-        is_active INTEGER NOT NULL DEFAULT 1,
-        view_count INTEGER NOT NULL DEFAULT 0,
-        last_viewed_at INTEGER,
-        created_at INTEGER
-      );
     `);
 
     // Level 15: Provider and model tables
@@ -831,7 +764,6 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       CREATE INDEX IF NOT EXISTS mcp_oauth_session_server_id_idx ON mcp_oauth_session(mcp_server_id);
       CREATE INDEX IF NOT EXISTS mcp_oauth_session_state_idx ON mcp_oauth_session(state);
       CREATE INDEX IF NOT EXISTS workflow_node_kind_idx ON workflow_node(kind);
-      CREATE INDEX IF NOT EXISTS archive_item_item_id_idx ON archive_item(item_id);
       CREATE INDEX IF NOT EXISTS browser_session_thread_idx ON browser_session(thread_id);
       CREATE INDEX IF NOT EXISTS browser_session_user_idx ON browser_session(user_id);
       CREATE INDEX IF NOT EXISTS browser_session_status_idx ON browser_session(status);
@@ -852,8 +784,6 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       CREATE INDEX IF NOT EXISTS fragments_status_idx ON fragments(status);
       CREATE INDEX IF NOT EXISTS fragment_executions_fragment_idx ON fragment_executions(fragment_id);
       CREATE INDEX IF NOT EXISTS local_execution_usage_user_idx ON local_execution_usage(user_id);
-      CREATE INDEX IF NOT EXISTS fragment_shares_fragment_idx ON fragment_shares(fragment_id);
-      CREATE INDEX IF NOT EXISTS fragment_shares_share_id_idx ON fragment_shares(share_id);
       CREATE INDEX IF NOT EXISTS thread_file_context_thread_idx ON thread_file_context(thread_id);
       CREATE INDEX IF NOT EXISTS thread_file_context_user_idx ON thread_file_context(user_id);
       CREATE INDEX IF NOT EXISTS idx_provider_config_user ON provider_config(user_id);
