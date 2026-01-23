@@ -389,6 +389,68 @@ export interface ElectronAPI {
     }) => Promise<{ html?: string; error?: string }>;
     getUrl: (sessionId?: string) => Promise<{ url?: string; error?: string }>;
     getTitle: (sessionId?: string) => Promise<{ title?: string; error?: string }>;
+
+    // Multi-tab support
+    newTab: (options?: {
+      url?: string;
+      sessionId?: string;
+    }) => Promise<{
+      index?: number;
+      total?: number;
+      url?: string;
+      error?: string;
+    }>;
+    newWindow: (options?: {
+      viewport?: { width: number; height: number };
+      sessionId?: string;
+    }) => Promise<{
+      index?: number;
+      total?: number;
+      error?: string;
+    }>;
+    switchTab: (
+      index: number,
+      sessionId?: string,
+    ) => Promise<{
+      index?: number;
+      url?: string;
+      title?: string;
+      error?: string;
+    }>;
+    closeTab: (options?: {
+      index?: number;
+      sessionId?: string;
+    }) => Promise<{
+      closed?: number;
+      remaining?: number;
+      error?: string;
+    }>;
+    listTabs: (sessionId?: string) => Promise<
+      Array<{ index: number; url: string; title: string; active: boolean }>
+    >;
+    getActiveTabIndex: (sessionId?: string) => Promise<{
+      index?: number;
+      error?: string;
+    }>;
+
+    // Additional actions
+    hover: (
+      selector: string,
+      options?: { sessionId?: string },
+    ) => Promise<{ success?: boolean; error?: string }>;
+    select: (
+      selector: string,
+      values: string | string[],
+      options?: { sessionId?: string },
+    ) => Promise<{ success?: boolean; error?: string }>;
+    check: (
+      selector: string,
+      options?: { sessionId?: string },
+    ) => Promise<{ success?: boolean; error?: string }>;
+    uncheck: (
+      selector: string,
+      options?: { sessionId?: string },
+    ) => Promise<{ success?: boolean; error?: string }>;
   };
 
   // Terminal operations (for computer use agent)
@@ -739,7 +801,8 @@ export interface ElectronAPI {
       id?: string;
       modelName?: string;
       providerId?: string;
-    }) => Promise<{ success: boolean }>;
+      deleteFromProvider?: boolean;
+    }) => Promise<{ success: boolean; error?: string }>;
 
     // Combined status
     getAvailableModels: () => Promise<{
@@ -755,6 +818,114 @@ export interface ElectronAPI {
       availableLocalModels: number;
       downloadingModels: number;
     }>;
+
+    // Ollama-specific
+    ollamaIsInstalled: () => Promise<{
+      installed: boolean;
+      path?: string;
+      version?: string;
+    }>;
+    ollamaCheckHealth: () => Promise<{
+      installed: boolean;
+      running: boolean;
+      version?: string;
+      error?: string;
+      installPath?: string;
+    }>;
+    ollamaTryStart: () => Promise<{
+      success: boolean;
+      message: string;
+    }>;
+    ollamaInstall: () => Promise<{
+      success: boolean;
+      message: string;
+    }>;
+    ollamaGetModels: () => Promise<{
+      success: boolean;
+      models?: any[];
+      error?: string;
+    }>;
+    ollamaShowModel: (data: { modelName: string }) => Promise<{
+      success: boolean;
+      model?: any;
+      error?: string;
+    }>;
+    ollamaGetLibraryModels: () => Promise<{
+      success: boolean;
+      models?: Array<{
+        name: string;
+        description: string;
+        tags?: string[];
+        pulls?: number;
+        updated?: string;
+      }>;
+      error?: string;
+    }>;
+    ollamaSearchLibrary: (data: { query: string }) => Promise<{
+      success: boolean;
+      models?: Array<{
+        name: string;
+        description: string;
+        tags?: string[];
+      }>;
+      error?: string;
+    }>;
+
+    // LM Studio-specific
+    lmstudioCheckHealth: () => Promise<{
+      installed: boolean;
+      running: boolean;
+      version?: string;
+      error?: string;
+      installPath?: string;
+    }>;
+    lmstudioGetModels: () => Promise<{
+      success: boolean;
+      models?: any[];
+      error?: string;
+    }>;
+
+    // Curated models
+    getCuratedModels: () => Promise<{
+      success: boolean;
+      models?: any[];
+      error?: string;
+    }>;
+
+    // Cancel download
+    cancelDownload: (data: { modelId: string }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+
+    // Event listeners
+    onDownloadProgress: (
+      callback: (data: {
+        modelId: string;
+        modelName: string;
+        progress: number;
+        status?: string;
+        total?: number;
+        completed?: number;
+      }) => void,
+    ) => () => void;
+    onDownloadComplete: (
+      callback: (data: { modelId: string; modelName: string }) => void,
+    ) => () => void;
+    onDownloadError: (
+      callback: (data: {
+        modelId: string;
+        modelName: string;
+        error: string;
+      }) => void,
+    ) => () => void;
+    onOllamaInstallProgress: (
+      callback: (data: {
+        stage: string;
+        percent: number;
+        message: string;
+      }) => void,
+    ) => () => void;
   };
 }
 
@@ -1092,6 +1263,26 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("browser:getContent", options),
     getUrl: (sessionId) => ipcRenderer.invoke("browser:getUrl", sessionId),
     getTitle: (sessionId) => ipcRenderer.invoke("browser:getTitle", sessionId),
+
+    // Multi-tab support
+    newTab: (options) => ipcRenderer.invoke("browser:newTab", options),
+    newWindow: (options) => ipcRenderer.invoke("browser:newWindow", options),
+    switchTab: (index, sessionId) =>
+      ipcRenderer.invoke("browser:switchTab", index, sessionId),
+    closeTab: (options) => ipcRenderer.invoke("browser:closeTab", options),
+    listTabs: (sessionId) => ipcRenderer.invoke("browser:listTabs", sessionId),
+    getActiveTabIndex: (sessionId) =>
+      ipcRenderer.invoke("browser:getActiveTabIndex", sessionId),
+
+    // Additional actions
+    hover: (selector, options) =>
+      ipcRenderer.invoke("browser:hover", selector, options),
+    select: (selector, values, options) =>
+      ipcRenderer.invoke("browser:select", selector, values, options),
+    check: (selector, options) =>
+      ipcRenderer.invoke("browser:check", selector, options),
+    uncheck: (selector, options) =>
+      ipcRenderer.invoke("browser:uncheck", selector, options),
   },
 
   // Terminal operations
@@ -1337,11 +1528,59 @@ const electronAPI: ElectronAPI = {
       id?: string;
       modelName?: string;
       providerId?: string;
+      deleteFromProvider?: boolean;
     }) => ipcRenderer.invoke("models:deleteLocalModel", data),
 
     // Combined status
     getAvailableModels: () => ipcRenderer.invoke("models:getAvailableModels"),
     getStatus: () => ipcRenderer.invoke("models:getStatus"),
+
+    // Ollama-specific
+    ollamaIsInstalled: () => ipcRenderer.invoke("models:ollama:isInstalled"),
+    ollamaCheckHealth: () => ipcRenderer.invoke("models:ollama:checkHealth"),
+    ollamaTryStart: () => ipcRenderer.invoke("models:ollama:tryStart"),
+    ollamaInstall: () => ipcRenderer.invoke("models:ollama:install"),
+    ollamaGetModels: () => ipcRenderer.invoke("models:ollama:getModels"),
+    ollamaShowModel: (data: { modelName: string }) =>
+      ipcRenderer.invoke("models:ollama:showModel", data),
+    ollamaGetLibraryModels: () =>
+      ipcRenderer.invoke("models:ollama:getLibraryModels"),
+    ollamaSearchLibrary: (data: { query: string }) =>
+      ipcRenderer.invoke("models:ollama:searchLibrary", data),
+
+    // LM Studio-specific
+    lmstudioCheckHealth: () => ipcRenderer.invoke("models:lmstudio:checkHealth"),
+    lmstudioGetModels: () => ipcRenderer.invoke("models:lmstudio:getModels"),
+
+    // Curated models
+    getCuratedModels: () => ipcRenderer.invoke("models:getCuratedModels"),
+
+    // Cancel download
+    cancelDownload: (data: { modelId: string }) =>
+      ipcRenderer.invoke("models:cancelDownload", data),
+
+    // Event listeners
+    onDownloadProgress: (callback) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("models:download:progress", handler);
+      return () => ipcRenderer.removeListener("models:download:progress", handler);
+    },
+    onDownloadComplete: (callback) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("models:download:complete", handler);
+      return () => ipcRenderer.removeListener("models:download:complete", handler);
+    },
+    onDownloadError: (callback) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("models:download:error", handler);
+      return () => ipcRenderer.removeListener("models:download:error", handler);
+    },
+    onOllamaInstallProgress: (callback) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("models:ollama:install:progress", handler);
+      return () =>
+        ipcRenderer.removeListener("models:ollama:install:progress", handler);
+    },
   },
 };
 
