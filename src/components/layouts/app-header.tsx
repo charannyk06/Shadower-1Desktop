@@ -20,21 +20,30 @@ import { useEffect, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 import { useShallow } from "zustand/shallow";
 import { ThreadDropdown } from "../thread-dropdown";
+import { WorkingDirectoryDisplay } from "../working-directory-display";
 
 export function AppHeader() {
   const { t } = useTranslation();
-  const [appStoreMutate, theaterMode, currentThreadId] = appStore(
-    useShallow((state) => [state.mutate, state.theaterMode, state.currentThreadId]),
+  const [appStoreMutate, theaterMode, currentThreadId, threadList] = appStore(
+    useShallow((state) => [state.mutate, state.theaterMode, state.currentThreadId, state.threadList]),
   );
   const { toggleSidebar, open, setOpen } = useSidebar();
   const location = useLocation();
   const currentPaths = location.pathname;
 
-  // Check if we're on a chat page OR if there's an active thread in the store
-  // The URL might stay at "/" during a new chat to avoid component remount
-  const isOnChatPage = useMemo(() => {
-    return currentPaths.startsWith("/chat/") || !!currentThreadId;
-  }, [currentPaths, currentThreadId]);
+  // Check if we're on a chat page with an active conversation
+  // Thread must exist in threadList (meaning a message has been sent)
+  const hasActiveConversation = useMemo(() => {
+    if (currentPaths.startsWith("/chat/")) {
+      // Check if this thread exists in the list (has started)
+      const urlThreadId = currentPaths.replace("/chat/", "");
+      return threadList.some((t) => t.id === urlThreadId);
+    }
+    if (currentThreadId) {
+      return threadList.some((t) => t.id === currentThreadId);
+    }
+    return false;
+  }, [currentPaths, currentThreadId, threadList]);
 
   // Show thread dropdown if on /chat/ URL OR if there's an active thread
   const componentByPage = useMemo(() => {
@@ -88,12 +97,19 @@ export function AppHeader() {
         </TooltipContent>
       </Tooltip>
 
+      <div className="w-1 h-4">
+        <Separator orientation="vertical" />
+      </div>
+
       {componentByPage}
 
       <div className="flex-1" />
+
+      <WorkingDirectoryDisplay />
+
       {
         <div className="flex items-center gap-2">
-          {isOnChatPage && (
+          {hasActiveConversation && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
