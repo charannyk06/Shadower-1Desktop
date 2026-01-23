@@ -29,7 +29,6 @@ import { useShallow } from "zustand/shallow";
 import { ThreadDropdown } from "../thread-dropdown";
 
 import { ChatThread } from "app-types/chat";
-import { deduplicateByKey, groupBy } from "lib/utils";
 import { useTranslation } from "react-i18next";
 import { TextShimmer } from "ui/text-shimmer";
 
@@ -77,41 +76,47 @@ export function AppSidebarThreads() {
   const { data: threadList, isLoading } = useSWR("/api/thread", threadFetcher, {
     onError: handleErrorWithToast,
     fallbackData: [],
+    // Disable automatic revalidation on focus/reconnect to reduce flicker
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    // Keep previous data while revalidating to prevent flash
+    keepPreviousData: true,
     onSuccess: (data) => {
       console.log(
         "[Sidebar] threadFetcher onSuccess, received threads:",
         data?.length,
-        data?.map((t: any) => ({ id: t.id?.slice(0, 8), title: t.title })),
       );
       storeMutate((prev) => {
-        const groupById = groupBy(prev.threadList, "id");
-
-        const generatingTitleThreads = prev.generatingTitleThreadIds
-          .map((id) => {
-            return groupById[id]?.[0];
-          })
-          .filter(Boolean) as ChatThread[];
-        const list = deduplicateByKey(
-          generatingTitleThreads.concat(data),
-          "id",
+        // Create a map of current store threads for quick lookup
+        const storeThreadsById = new Map(
+          prev.threadList.map((t) => [t.id, t]),
         );
-        return {
-          threadList: list.map((v) => {
-            const target = groupById[v.id]?.[0];
-            if (!target) return v;
-            // Preserve the store title if:
-            // 1. Store has a real title (not "New Chat" or empty)
-            // 2. AND DB has no title or "New Chat"
-            // This prevents SWR from overwriting a generated title with stale DB data
-            if (target.title && target.title !== "New Chat" && (!v.title || v.title === "New Chat")) {
-              return {
-                ...v,
-                title: target.title,
-              };
-            }
-            return v;
-          }),
-        };
+
+        // For threads currently generating titles, preserve the store's title
+        // This prevents DB data (which may be stale) from overwriting recently generated titles
+        const mergedList = data.map((dbThread: ChatThread) => {
+          const storeThread = storeThreadsById.get(dbThread.id);
+
+          // If this thread is actively generating a title, keep store version
+          if (prev.generatingTitleThreadIds.includes(dbThread.id) && storeThread) {
+            return storeThread;
+          }
+
+          // If store has a real title but DB still shows "New Chat", keep store title
+          // This handles the brief window between store update and DB sync
+          if (
+            storeThread?.title &&
+            storeThread.title !== "New Chat" &&
+            (!dbThread.title || dbThread.title === "New Chat")
+          ) {
+            return { ...dbThread, title: storeThread.title };
+          }
+
+          // Otherwise use the DB version (source of truth)
+          return dbThread;
+        });
+
+        return { threadList: mergedList };
       });
     },
   });
