@@ -1,10 +1,12 @@
 "use client";
 
+import { useCopy } from "@/hooks/use-copy";
 import { cn } from "@/lib/utils";
 import { getFriendlyToolName } from "@/lib/utils/tool-name-formatter";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Copy } from "lucide-react";
 import { memo, useMemo, useState } from "react";
+import { Button } from "ui/button";
 import { ToolStatus, ToolStatusBadge } from "ui/tool-status-badge";
 import { FormattedToolData } from "./formatted-tool-data";
 
@@ -91,6 +93,8 @@ const ToolCallTimelineItem = memo(function ToolCallTimelineItem({
   status,
 }: ToolCallTimelineItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const { copied: copiedInput, copy: copyInput } = useCopy();
+  const { copied: copiedOutput, copy: copyOutput } = useCopy();
 
   const friendlyName = useMemo(() => {
     try {
@@ -115,6 +119,16 @@ const ToolCallTimelineItem = memo(function ToolCallTimelineItem({
         return "border-border";
     }
   }, [status]);
+
+  const handleCopyInput = () => {
+    copyInput(JSON.stringify(toolCall.args, null, 2));
+  };
+
+  const handleCopyOutput = () => {
+    if (toolCall.result !== null && toolCall.result !== undefined) {
+      copyOutput(JSON.stringify(toolCall.result, null, 2));
+    }
+  };
 
   return (
     <div
@@ -161,9 +175,26 @@ const ToolCallTimelineItem = memo(function ToolCallTimelineItem({
             <div className="px-2 pb-2 space-y-2 border-t">
               {toolCall.args !== null && toolCall.args !== undefined && (
                 <div className="pt-2 space-y-1">
-                  <h6 className="text-xs font-medium text-muted-foreground">
-                    Arguments
-                  </h6>
+                  <div className="flex items-center justify-between">
+                    <h6 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Request
+                    </h6>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCopyInput();
+                      }}
+                    >
+                      {copiedInput ? (
+                        <Check className="h-2.5 w-2.5" />
+                      ) : (
+                        <Copy className="h-2.5 w-2.5" />
+                      )}
+                    </Button>
+                  </div>
                   <div className="rounded border bg-muted/30 p-2">
                     <FormattedToolData
                       data={toolCall.args}
@@ -176,9 +207,26 @@ const ToolCallTimelineItem = memo(function ToolCallTimelineItem({
               )}
               {toolCall.result !== null && toolCall.result !== undefined && (
                 <div className="space-y-1">
-                  <h6 className="text-xs font-medium text-muted-foreground">
-                    Result
-                  </h6>
+                  <div className="flex items-center justify-between">
+                    <h6 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Response
+                    </h6>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCopyOutput();
+                      }}
+                    >
+                      {copiedOutput ? (
+                        <Check className="h-2.5 w-2.5" />
+                      ) : (
+                        <Copy className="h-2.5 w-2.5" />
+                      )}
+                    </Button>
+                  </div>
                   <div className="rounded border bg-muted/30 p-2">
                     <FormattedToolData
                       data={toolCall.result}
