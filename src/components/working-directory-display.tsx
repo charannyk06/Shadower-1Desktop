@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Folder, FolderOpen, FolderSync } from "lucide-react";
+import { ChevronDown, Folder, FolderSync } from "lucide-react";
+import { FinderIcon } from "ui/finder-icon";
 import { Button } from "ui/button";
 import {
   DropdownMenu,
@@ -140,7 +141,12 @@ export function WorkingDirectoryDisplay() {
             className="cursor-pointer"
             disabled={!workingDirectory?.path}
           >
-            <FolderOpen className="size-4 mr-2" />
+            {typeof window !== "undefined" &&
+            window.electronAPI?.platform === "darwin" ? (
+              <FinderIcon className="size-4 mr-2" />
+            ) : (
+              <Folder className="size-4 mr-2" />
+            )}
             <span>
               {typeof window !== "undefined" &&
               window.electronAPI?.platform === "darwin"
