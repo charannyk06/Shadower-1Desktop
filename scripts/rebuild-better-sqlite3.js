@@ -32,7 +32,7 @@ function findBetterSqlite3Path() {
           }
         }
       }
-    } catch (e) {
+    } catch (_e) {
       // Ignore errors
     }
   }
@@ -91,7 +91,7 @@ function getArchitecture() {
 }
 
 // Check if rebuild is already done and valid
-function isRebuildValid(betterSqlite3Path, electronVersion) {
+function isRebuildValid(betterSqlite3Path, _electronVersion) {
   const buildPath = join(betterSqlite3Path, "build", "Release", "better_sqlite3.node");
   if (existsSync(buildPath)) {
     try {
@@ -101,7 +101,7 @@ function isRebuildValid(betterSqlite3Path, electronVersion) {
         console.log("[Rebuild] Found existing build, checking if rebuild is needed...");
         return true; // Assume it's valid if it exists
       }
-    } catch (e) {
+    } catch (_e) {
       // Ignore errors
     }
   }

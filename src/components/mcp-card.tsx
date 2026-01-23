@@ -60,7 +60,7 @@ export const MCPCard = memo(function MCPCard({
   toolInfo,
   enabled,
   userId,
-  user,
+  user: _user,
 }: MCPServerInfo & { user: BasicUser }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const { t } = useTranslation();

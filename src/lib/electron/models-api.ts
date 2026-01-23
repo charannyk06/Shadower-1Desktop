@@ -270,7 +270,7 @@ export const modelsApi = {
   /**
    * Refresh local models (Ollama, LM Studio) for a provider
    */
-  async refreshLocalModels(providerId: string) {
+  async refreshLocalModels(_providerId: string) {
     try {
       const { localModels } =
         await window.electronAPI.models.getAvailableModels();

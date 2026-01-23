@@ -754,7 +754,7 @@ export function TheaterPanel() {
 
 function PreviewContent({
   theaterMode,
-  threadId,
+  threadId: _threadId,
 }: {
   readonly theaterMode: any;
   threadId?: string | null;
