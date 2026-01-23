@@ -93,16 +93,6 @@
       "whereWouldYouLikeToStart": "您想从哪里开始？",
       "whatAreYouThinking": "您在想什么，{name}？"
     },
-    "TemporaryChat": {
-      "toggleTemporaryChat": "切换临时聊天",
-      "temporaryChat": "临时聊天",
-      "resetChat": "重置聊天",
-      "thisChatWontBeSaved": "此聊天不会被保存。",
-      "feelFreeToAskAnythingTemporarily": "请随时临时询问任何问题",
-      "temporaryChatInstructions": "临时聊天说明",
-      "temporaryChatInstructionsPlaceholder": "在此输入您的说明",
-      "temporaryChatInstructionsDescription": "您可以为临时聊天设置说明。这将用作临时聊天的系统提示。"
-    },
     "placeholder": "询问任何问题或 @mention",
     "Tool": {
       "webSearching": "正在搜索网络...",
@@ -316,7 +306,6 @@
   "KeyboardShortcuts": {
     "title": "键盘快捷键",
     "newChat": "新聊天",
-    "toggleTemporaryChat": "切换临时聊天",
     "toggleSidebar": "切换侧边栏",
     "toolMode": "工具模式",
     "lastMessageCopy": "复制最后一条消息",

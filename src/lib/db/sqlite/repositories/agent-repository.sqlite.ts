@@ -111,7 +111,7 @@ export const sqliteAgentRepository: AgentRepository = {
 
   async selectAgents(
     currentUserId,
-    filters = ["all"],
+    _filters = ["all"],
     limit = 50,
   ): Promise<AgentSummary[]> {
     // Single-user mode: always return only user's own agents

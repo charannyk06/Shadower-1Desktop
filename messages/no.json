@@ -212,16 +212,6 @@
       "whereWouldYouLikeToStart": "Hvor vil du begynne?",
       "whatAreYouThinking": "Hva tenker du på, {name}?"
     },
-    "TemporaryChat": {
-      "toggleTemporaryChat": "Åpne midlertidig chat",
-      "temporaryChat": "Midlertidig chat",
-      "resetChat": "Tilbakestill chat",
-      "thisChatWontBeSaved": "Denne chatten blir ikke lagret.",
-      "feelFreeToAskAnythingTemporarily": "Spør om hva som helst midlertidig",
-      "temporaryChatInstructions": "Instruksjoner for midlertidig chat",
-      "temporaryChatInstructionsPlaceholder": "Skriv inn instruksjonene dine her",
-      "temporaryChatInstructionsDescription": "Du kan sette instruksjoner for den midlertidige chatten. Dette vil bli brukt som systemledetekst for den midlertidige chatten."
-    },
     "placeholder": "Spør om hva som helst eller @nevn",
     "Tool": {
       "webSearching": "Søker på nettet...",
@@ -448,7 +438,6 @@
   "KeyboardShortcuts": {
     "title": "Tastatursnarveier",
     "newChat": "Ny chat",
-    "toggleTemporaryChat": "Åpne midlertidig chat",
     "toggleSidebar": "Åpne sidefelt",
     "toolMode": "Verktøymodus",
     "lastMessageCopy": "Kopier siste melding",

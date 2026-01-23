@@ -298,9 +298,9 @@ Example of what the tool expects:
 2. **STEP 2 - START FIRST TASK**: Call \`updateTaskStatus\` with status "in-progress" for task 1
    - **CRITICAL**: ALWAYS include \`taskDescription\` with the human-readable task name (e.g., "Research X online")
 3. **STEP 3 - EXECUTE TASK**:
-   - **For research tasks**: Use \`spawnSystemAgent\` with agentType "deep-research" (NOT webSearch)
+   - **For research tasks**: Use \`spawnSystemAgent\` with agentType "deep-research" OR use browser tools directly
    - **For other specialized tasks**: Use appropriate \`spawnSystemAgent\` or tools
-   - **For simple tasks**: Use direct tools (webSearch, desktop_command, etc.)
+   - **For simple web searches**: Use browser tools directly (browser_create_session → browser_navigate → browser_get_snapshot)
 4. **STEP 4 - COMPLETE TASK**: Call \`updateTaskStatus\` with status "completed", \`taskDescription\`, and results
    - **CRITICAL**: ALWAYS include \`taskDescription\` with the human-readable task name
 5. **STEP 5 - REPEAT**: Continue until all tasks are done
@@ -315,9 +315,10 @@ Example of what the tool expects:
 - "Help me with Y" → ["Understand requirements", "Research solutions", "Implement/explain solution"]
   - For "Research solutions": Use spawnSystemAgent with agentType="deep-research" and task="Research solutions for Y"
 
-## DELEGATION RULES - CRITICAL: USE SUB-AGENTS FOR SPECIALIZED TASKS
-**MANDATORY**: For tasks requiring specialized capabilities, ALWAYS delegate to sub-agents:
-- **Research tasks** → ALWAYS use \`spawnSystemAgent\` with agentType "deep-research" (NOT webSearch directly)
+## DELEGATION RULES - CRITICAL: USE SUB-AGENTS OR BROWSER FOR SPECIALIZED TASKS
+**MANDATORY**: For tasks requiring specialized capabilities:
+- **Research tasks** → Use \`spawnSystemAgent\` with agentType "deep-research" OR use browser tools directly
+- **Quick web search** → Use browser tools directly: browser_create_session → browser_navigate to Google → browser_get_snapshot
 - **Data analysis** → Use \`spawnSystemAgent\` with agentType "data-analysis"
 - **Code generation** → Use \`spawnSystemAgent\` with agentType "coding"
 - **Document creation** → Use \`spawnSystemAgent\` with agentType "documents"
@@ -326,7 +327,7 @@ Example of what the tool expects:
 - **Independent tasks** → Use \`spawnParallelAgents\` for efficiency
 - **Sequential tasks** → Execute one-by-one with status updates
 
-**IMPORTANT**: Do NOT use webSearch directly for research tasks. Instead, delegate to the "deep-research" agent which provides better results with citations and multi-step research.
+**IMPORTANT**: This is a LOCAL desktop app - use BROWSER TOOLS for web searching! Browser tools connect to the user's REAL Chrome browser via CDP, preserving cookies and sessions. NO bot detection!
 
 ## SYSTEM AGENTS (Always Available)
 Use \`spawnSystemAgent\` with agentType to delegate to specialized system agents:
@@ -366,6 +367,8 @@ When creating files (documents, presentations, images, code files, etc.):
 3. Files are saved to the local filesystem and accessible immediately
 4. The user's workspace is the local machine
 5. Generate content and use terminal commands to save it
+6. **IMPORTANT**: ALWAYS save files to the user's WORKING DIRECTORY unless they specify otherwise
+7. The working directory path is provided in the system context - use it as the base for all file operations
 
 ## CRITICAL: TEXT OUTPUT TIMING
 **DO NOT output explanatory text while tools or sub-agents are executing.**
@@ -403,11 +406,11 @@ When users ask to create workflows, automate processes, or set up multi-step aut
 - Provide your response and end the conversation
 
 ## REMEMBER
-- **NEVER** use tools like webSearch without first creating a plan
 - **ALWAYS** call createPlan as your FIRST action
 - **ALWAYS** update task status before and after each task
 - **Use** desktop_command for terminal operations and file management
-- **FOR RESEARCH TASKS**: Use \`spawnSystemAgent\` with agentType "deep-research" instead of webSearch directly
+- **FOR WEB SEARCHING**: Use browser tools directly OR \`spawnSystemAgent\` with agentType "deep-research"
+- **BROWSER SEARCH WORKFLOW**: browser_create_session → browser_navigate to Google → browser_get_snapshot
 - **NEVER** output text explanations while waiting for tool/sub-agent results
 - **FOR WORKFLOW CREATION**: Use \`createWorkflow\` tool when users want to automate processes
 - **STOP IMMEDIATELY** when you receive STOP signals from tools
@@ -434,7 +437,8 @@ For EVERY user request, you MUST follow these steps IN ORDER:
 
 **Step 2: Execute Each Task**
 - Call \`updateTaskStatus\` with "in-progress" before starting a task
-- **For research tasks**: Use \`spawnSystemAgent\` with agentType "deep-research" (NOT webSearch directly)
+- **For research tasks**: Use \`spawnSystemAgent\` with agentType "deep-research" OR browser tools directly
+- **For quick web searches**: Use browser tools: browser_create_session → browser_navigate → browser_get_snapshot
 - **For other tasks**: Use appropriate tools (desktop_command, spawnSystemAgent, etc.)
 - Call \`updateTaskStatus\` with "completed" when done
 
@@ -446,22 +450,48 @@ For EVERY user request, you MUST follow these steps IN ORDER:
 User asks: "Find information about React hooks"
 1. Call createPlan with tasks: ["Search for React hooks info", "Compile key points"]
 2. Call updateTaskStatus(taskId=task1, taskDescription="Search for React hooks info", status="in-progress")
-3. Call webSearch for React hooks
-4. Call updateTaskStatus(taskId=task1, taskDescription="Search for React hooks info", status="completed", result=searchResults)
-5. Call updateTaskStatus(taskId=task2, taskDescription="Compile key points", status="in-progress")
-6. Summarize the findings
-7. Call updateTaskStatus(taskId=task2, taskDescription="Compile key points", status="completed", result=summary)
-8. Respond to user with the summary
+3. Call browser_create_session to connect to Chrome
+4. Call browser_navigate with url "https://www.google.com/search?q=React+hooks"
+5. Call browser_get_snapshot to see search results
+6. Call browser_click to visit relevant pages
+7. Call browser_get_snapshot to read content
+8. Call browser_close_session when done
+9. Call updateTaskStatus(taskId=task1, taskDescription="Search for React hooks info", status="completed", result=searchResults)
+10. Call updateTaskStatus(taskId=task2, taskDescription="Compile key points", status="in-progress")
+11. Summarize the findings
+12. Call updateTaskStatus(taskId=task2, taskDescription="Compile key points", status="completed", result=summary)
+13. Respond to user with the summary
 
 **IMPORTANT**: ALWAYS include \`taskDescription\` in every updateTaskStatus call for proper UI display!
 
 ## AVAILABLE TOOLS
 - **createPlan**: Create your task plan (ALWAYS call this first!)
 - **updateTaskStatus**: Mark tasks as in-progress/completed
-- **webSearch**: Search the internet
+- **browser_search**: ONE-SHOT web search using real Chrome (RECOMMENDED for quick searches!)
+- **browser_create_session**: Connect to user's real Chrome browser (for multi-step browsing)
+- **browser_navigate**: Navigate to any URL (Google, websites, etc.)
+- **browser_get_snapshot**: Read page content with clickable refs
+- **browser_click**: Click on elements
+- **browser_close_session**: Close browser when done
 - **desktop_command**: Execute terminal commands and manage files
 - **spawnSystemAgent**: Delegate to specialized agents (deep-research, web-automation, computer-use, etc.)
 - **setContext/getContext**: Store and retrieve information
+
+## WEB SEARCH - USE BROWSER TOOLS!
+This is a LOCAL desktop app. For web searches, you have TWO options:
+
+**Option 1: browser_search (RECOMMENDED for quick searches)**
+Just call browser_search with your query - it handles everything automatically!
+\`\`\`
+browser_search({ query: "charannyan kannan", engine: "google" })
+\`\`\`
+
+**Option 2: Manual browser control (for complex browsing)**
+1. browser_create_session → Connect to Chrome
+2. browser_navigate url="https://www.google.com/search?q=YOUR+QUERY" → Search Google directly
+3. browser_get_snapshot → Read results
+4. browser_click → Visit pages
+5. browser_close_session → Done
 
 ### Browser Automation Tools (Chrome DevTools Protocol)
 **IMPORTANT**: You must call **browser_create_session** FIRST before using any other browser tools!
@@ -562,7 +592,7 @@ Example invocation:
 createPlan({ request: "Research and summarize topic X", tasks: [{ description: "Search for information" }, { description: "Compile findings" }] })
 
 IMPORTANT: Do NOT output a plan as text - you MUST call this function to create the plan.`,
-    inputSchema: createPlanZodSchema,
+    inputSchema: createPlanZodSchema as z.ZodType<any>,
     execute: async ({
       request,
       tasks,
@@ -1071,7 +1101,8 @@ function createSubAgentTools(
   const { userId, threadId, mcpTools, availableTools, chatModel, model: configModel } = config;
 
   /**
-   * Helper to execute a sub-agent with streaming and emit events
+   * Helper to execute a sub-agent with streamText for real-time streaming
+   * Uses stopWhen for multi-step tool loop execution
    * @param tools - The tools to make available to this sub-agent
    */
   async function executeSubAgentWithStreaming(
@@ -1088,7 +1119,6 @@ function createSubAgentTools(
     error?: string;
   }> {
     // CRITICAL: Use pre-configured model with API keys from config
-    // Fall back to customModelProvider only if no model is passed (legacy behavior)
     const model = configModel || customModelProvider.getModel(chatModel);
 
     if (!configModel) {
@@ -1109,22 +1139,63 @@ function createSubAgentTools(
     // Log the tools being passed to the sub-agent
     const toolNames = Object.keys(tools);
     logger.info(
-      `[Sub-Agent ${agentName}] Starting with ${toolNames.length} tools: ${toolNames.slice(0, 10).join(", ")}${toolNames.length > 10 ? "..." : ""}`,
+      `[Sub-Agent ${agentName}] Starting streamText with ${toolNames.length} tools: ${toolNames.slice(0, 10).join(", ")}${toolNames.length > 10 ? "..." : ""}`,
     );
 
     try {
-      // Track accumulated text and tool results for fallback
+      // Track accumulated text and tool results
       let accumulatedText = "";
       let lastToolResults: any[] = [];
+      let stepCount = 0;
 
+      // Helper to serialize tool results for streaming
+      const serializeResult = (toolName: string, result: any): string | undefined => {
+        if (result === undefined || result === null) {
+          return undefined;
+        }
+
+        const toolNameLower = (toolName || "").toLowerCase();
+        const isBrowserOrDesktop =
+          (toolNameLower.startsWith("browser") && toolNameLower !== "browser") ||
+          (toolNameLower.startsWith("desktop") && toolNameLower !== "desktop");
+        const isWebSearch =
+          toolNameLower === "websearch" || toolNameLower === "web_search" ||
+          toolNameLower === "webcontent" || toolNameLower === "web_content";
+
+        try {
+          if (typeof result === "string") {
+            try {
+              const parsed = JSON.parse(result);
+              return JSON.stringify(parsed);
+            } catch {
+              return result;
+            }
+          }
+
+          if (typeof result === "object") {
+            if (isBrowserOrDesktop || isWebSearch) {
+              return JSON.stringify(result);
+            }
+            return JSON.stringify(result).slice(0, 1000);
+          }
+
+          return String(result);
+        } catch (err) {
+          logger.error(`[Sub-Agent ${agentName}] Serialization error for ${toolName}:`, err);
+          return JSON.stringify({ success: true, message: "Result exists" });
+        }
+      };
+
+      // Use streamText with stopWhen for multi-step tool loop
       const streamResult = streamText({
         model,
         system: systemPrompt,
         prompt: task,
-        tools: tools,
+        tools,
+        toolChoice: "auto",
         stopWhen: stepCountIs(maxSteps),
         onChunk: ({ chunk }) => {
-          // Forward text deltas to parent stream
+          // Forward text deltas to parent stream in real-time
           if (dataStream && chunk.type === "text-delta") {
             accumulatedText += chunk.text;
             dataStream.write({
@@ -1134,62 +1205,38 @@ function createSubAgentTools(
           }
         },
         onStepFinish: async ({ toolCalls, toolResults }) => {
-          // Store tool results for fallback if no text is generated
+          stepCount++;
+          logger.info(
+            `[Sub-Agent ${agentName}] Step ${stepCount}: ${toolCalls?.length || 0} tool calls, ` +
+            `${toolResults?.length || 0} tool results`
+          );
+
+          // Store tool results for fallback
           if (toolResults && toolResults.length > 0) {
             lastToolResults = toolResults;
           }
 
-          // Forward tool calls with full details
+          // Forward tool calls with results to parent stream
           if (dataStream && toolCalls && toolCalls.length > 0) {
             for (let i = 0; i < toolCalls.length; i++) {
               const toolCall = toolCalls[i];
+              // In streamText, toolResults[i] is the direct result value
               const toolResult = toolResults?.[i];
 
-              // Serialize result properly - keep full structure for browser/desktop tools
-              let serializedResult: string | undefined;
-              if (toolResult) {
-                if (typeof toolResult === "string") {
-                  // Try to parse as JSON first, if it fails use as-is
-                  try {
-                    const parsed = JSON.parse(toolResult);
-                    serializedResult = JSON.stringify(parsed);
-                  } catch {
-                    serializedResult = toolResult;
-                  }
-                } else {
-                  // For objects, stringify fully (don't truncate browser/desktop/web search results)
-                  const toolName = toolCall.toolName || "";
-                  const toolNameLower = toolName.toLowerCase();
-                  const isBrowserOrDesktop =
-                    (toolNameLower.startsWith("browser") &&
-                      toolNameLower !== "browser") ||
-                    (toolNameLower.startsWith("desktop") &&
-                      toolNameLower !== "desktop");
-                  const isWebSearch =
-                    toolNameLower === "websearch" ||
-                    toolNameLower === "web_search" ||
-                    toolNameLower === "webcontent" ||
-                    toolNameLower === "web_content";
+              const serializedResult = serializeResult(toolCall.toolName, toolResult);
 
-                  if (isBrowserOrDesktop || isWebSearch) {
-                    // Keep full result for these tools (they need images, articles, screenshots, artifacts, etc.)
-                    serializedResult = JSON.stringify(toolResult);
-                  } else {
-                    // Truncate other tool results to prevent overflow
-                    serializedResult = JSON.stringify(toolResult).slice(
-                      0,
-                      1000,
-                    );
-                  }
-                }
-              }
+              logger.info(
+                `[Sub-Agent ${agentName}] Tool: ${toolCall.toolName}, ` +
+                `hasResult: ${toolResult !== undefined}, ` +
+                `serialized: ${serializedResult ? serializedResult.slice(0, 100) : 'none'}...`
+              );
 
               dataStream.write({
                 type: "data-sub-agent-tool-call",
                 data: {
                   agentId,
                   toolName: toolCall.toolName,
-                  args: "input" in toolCall ? toolCall.input : undefined,
+                  args: "args" in toolCall ? toolCall.args : undefined,
                   result: serializedResult,
                   timestamp: Date.now(),
                 },
@@ -1199,12 +1246,11 @@ function createSubAgentTools(
         },
       });
 
-      // Consume the stream properly - wait for both text and steps
+      // Wait for stream completion
       let finalResult: string;
       let steps: number;
 
       try {
-        // Wait for stream to complete
         const [textResult, stepsResult] = await Promise.all([
           streamResult.text,
           streamResult.steps,
@@ -1213,82 +1259,45 @@ function createSubAgentTools(
         finalResult = textResult || "";
         steps = stepsResult.length;
 
-        // If no text was generated but we have tool results, extract result from them
+        // If no text but have tool results, build result from them
         if (!finalResult && lastToolResults.length > 0) {
-          // Try to extract meaningful result from tool results
           const resultStrings = lastToolResults
             .map((tr: any) => {
-              if (typeof tr === "string") {
-                return tr;
-              }
+              if (typeof tr === "string") return tr;
               if (tr && typeof tr === "object") {
-                // Try to extract a result field or stringify
                 if (tr.result !== undefined) {
-                  return typeof tr.result === "string"
-                    ? tr.result
-                    : JSON.stringify(tr.result);
+                  return typeof tr.result === "string" ? tr.result : JSON.stringify(tr.result);
                 }
-                if (tr.error) {
-                  return `Error: ${tr.error}`;
-                }
+                if (tr.message) return tr.message;
+                if (tr.error) return `Error: ${tr.error}`;
                 return JSON.stringify(tr).slice(0, 500);
               }
               return String(tr);
             })
             .filter(Boolean);
 
-          if (resultStrings.length > 0) {
-            finalResult =
-              resultStrings.join("\n\n") ||
-              "Sub-agent completed successfully with tool calls.";
-          } else {
-            finalResult =
-              accumulatedText ||
-              `Sub-agent completed ${steps} step(s) successfully.`;
-          }
+          finalResult = resultStrings.length > 0
+            ? resultStrings.join("\n\n")
+            : accumulatedText || `Sub-agent completed ${steps} step(s) successfully.`;
         } else if (!finalResult) {
-          // Fallback: use accumulated text or a default message
-          finalResult =
-            accumulatedText ||
-            `Sub-agent completed ${steps} step(s) successfully.`;
+          finalResult = accumulatedText || `Sub-agent completed ${steps} step(s) successfully.`;
         }
       } catch (streamError: any) {
-        // Handle stream consumption errors
-        logger.warn(
-          `[Sub-Agent ${agentName}] Stream consumption error:`,
-          streamError,
-        );
-
-        // Try to get steps even if text failed
-        try {
-          const stepsResult = await streamResult.steps;
-          steps = stepsResult.length;
-        } catch {
-          steps = 0;
-        }
-
-        // Use fallback result
-        if (lastToolResults.length > 0) {
-          finalResult = `Sub-agent executed ${steps} step(s) with tool calls. ${
-            streamError?.message || "Stream completed."
-          }`;
-        } else {
-          finalResult =
-            accumulatedText ||
-            `Sub-agent completed. ${streamError?.message || ""}`;
-        }
+        logger.warn(`[Sub-Agent ${agentName}] Stream error:`, streamError);
+        steps = stepCount;
+        finalResult = accumulatedText || `Sub-agent completed with stream error: ${streamError?.message || 'unknown'}`;
       }
 
       // Emit completion event
       if (dataStream) {
         dataStream.write({
           type: "data-sub-agent-complete",
-          data: { agentId, agentName, success: true },
+          data: { agentId, agentName, success: true, result: finalResult },
         });
       }
 
       logger.info(
-        `Agent ${agentName} completed with ${steps} steps, result length: ${finalResult.length}`,
+        `[Sub-Agent ${agentName}] Completed with ${steps} steps, result length: ${finalResult.length}`,
       );
 
       return {
@@ -1308,9 +1317,8 @@ function createSubAgentTools(
         });
       }
 
-      logger.error(`Agent ${agentName} failed:`, err);
+      logger.error(`[Sub-Agent ${agentName}] Failed:`, err);
 
-      // Provide more detailed error message
       const errorMessage =
         err?.message ||
         err?.toString() ||
@@ -1360,9 +1368,15 @@ function createSubAgentTools(
         const requirements = getSystemAgentRequirements(agentId);
         const systemAgentTools: Record<string, Tool> = { ...mcpTools };
 
-        // CRITICAL: Always add context tools for inter-agent context sharing
+        // CRITICAL: Add ONLY context-sharing tools (setContext/getContext) for inter-agent communication
+        // Sub-agents should NOT have planning tools (createPlan, updateTaskStatus) - only the main orchestrator plans
         const contextToolsForSubAgent = createAgentContextTools(ctx);
-        Object.assign(systemAgentTools, contextToolsForSubAgent);
+        const safeContextTools = {
+          setContext: contextToolsForSubAgent.setContext,
+          getContext: contextToolsForSubAgent.getContext,
+          getAllContext: contextToolsForSubAgent.getAllContext,
+        };
+        Object.assign(systemAgentTools, safeContextTools);
 
         if (availableTools) {
           if (requirements.browser) {
@@ -1414,12 +1428,11 @@ function createSubAgentTools(
             // Local code execution: visualization, data analysis, and document tools
             for (const [name, tool] of Object.entries(availableTools)) {
               if (
-                name.startsWith("create") || // createVisualization, createPieChart, createFragment, createPresentation, etc.
-                name.startsWith("edit") ||   // editFragment, editSpreadsheet, editPresentation, editDocument
+                name.startsWith("create") || // createVisualization, createPieChart, createPresentation, etc.
+                name.startsWith("edit") ||   // editSpreadsheet, editPresentation, editDocument
                 name.startsWith("profile") || // profileData
                 name.startsWith("analyze") || // analyzeData
-                name.startsWith("list") ||   // listDocumentPalettes
-                name.includes("Fragment")    // createFragment, editFragment
+                name.startsWith("list")       // listDocumentPalettes
               ) {
                 systemAgentTools[name] = tool;
               }
@@ -1488,9 +1501,15 @@ function createSubAgentTools(
       // This ensures user agents have access to webSearch, browser, desktop, etc.
       const userAgentTools: Record<string, Tool> = { ...mcpTools };
 
-      // CRITICAL: Add context tools for inter-agent context sharing
+      // CRITICAL: Add ONLY context-sharing tools (setContext/getContext) for inter-agent communication
+      // Sub-agents should NOT have planning tools (createPlan, updateTaskStatus) - only the main orchestrator plans
       const contextToolsForSubAgent = createAgentContextTools(ctx);
-      Object.assign(userAgentTools, contextToolsForSubAgent);
+      const safeContextTools = {
+        setContext: contextToolsForSubAgent.setContext,
+        getContext: contextToolsForSubAgent.getContext,
+        getAllContext: contextToolsForSubAgent.getAllContext,
+      };
+      Object.assign(userAgentTools, safeContextTools);
 
       if (availableTools) {
         Object.assign(userAgentTools, availableTools);
@@ -1562,10 +1581,15 @@ function createSubAgentTools(
             buildAgentSystemPrompt(agent.instructions) + contextPrompt;
 
           // Build tools for parallel user agent - combine mcpTools with availableTools
-          // Also add context tools for inter-agent communication
+          // Add ONLY context-sharing tools (setContext/getContext), NOT planning tools
           const userAgentTools: Record<string, Tool> = { ...mcpTools };
           const contextToolsForSubAgent = createAgentContextTools(ctx);
-          Object.assign(userAgentTools, contextToolsForSubAgent);
+          const safeContextTools = {
+            setContext: contextToolsForSubAgent.setContext,
+            getContext: contextToolsForSubAgent.getContext,
+            getAllContext: contextToolsForSubAgent.getAllContext,
+          };
+          Object.assign(userAgentTools, safeContextTools);
           if (availableTools) {
             Object.assign(userAgentTools, availableTools);
           }
@@ -1676,12 +1700,19 @@ function createSubAgentTools(
       // Start with mcpTools as base, then add required tools from availableTools
       const systemAgentTools: Record<string, Tool> = { ...mcpTools };
 
-      // CRITICAL: Always add context tools for inter-agent context sharing
-      // These are needed by ALL system agents for setContext/getContext operations
+      // CRITICAL: Add ONLY context-sharing tools (setContext/getContext) for inter-agent communication
+      // Sub-agents should NOT have planning tools (createPlan, updateTaskStatus) - only the main orchestrator plans
+      // Giving sub-agents createPlan causes them to create nested plans and get stuck without prepareStep guidance
       const contextToolsForSubAgent = createAgentContextTools(ctx);
-      Object.assign(systemAgentTools, contextToolsForSubAgent);
+      // Only include context-sharing tools, NOT planning tools
+      const safeContextTools = {
+        setContext: contextToolsForSubAgent.setContext,
+        getContext: contextToolsForSubAgent.getContext,
+        getAllContext: contextToolsForSubAgent.getAllContext,
+      };
+      Object.assign(systemAgentTools, safeContextTools);
       logger.info(
-        `[System Agent ${systemAgentId}] Added context tools: ${Object.keys(contextToolsForSubAgent).join(", ")}`,
+        `[System Agent ${systemAgentId}] Added context-sharing tools (no planning): ${Object.keys(safeContextTools).join(", ")}`,
       );
 
       // Add tools from availableTools based on agent requirements
@@ -1746,18 +1777,17 @@ function createSubAgentTools(
           );
         }
 
-        // Fragment and visualization tools for local code execution requirement (data-analysis, coding, documents)
-        // Tool names: createFragment, editFragment, createVisualization, createPieChart, profileData, analyzeData,
+        // Visualization and document tools for local code execution requirement (data-analysis, coding, documents)
+        // Tool names: createVisualization, createPieChart, profileData, analyzeData,
         // editSpreadsheet, editPresentation, editDocument, listDocumentPalettes, etc.
         if (requirements.codeExecution) {
           for (const [name, tool] of Object.entries(availableTools)) {
             if (
-              name.startsWith("create") || // createVisualization, createPieChart, createFragment, createPresentation, etc.
-              name.startsWith("edit") ||   // editFragment, editSpreadsheet, editPresentation, editDocument
+              name.startsWith("create") || // createVisualization, createPieChart, createPresentation, etc.
+              name.startsWith("edit") ||   // editSpreadsheet, editPresentation, editDocument
               name.startsWith("profile") || // profileData
               name.startsWith("analyze") || // analyzeData
-              name.startsWith("list") ||   // listDocumentPalettes
-              name.includes("Fragment")    // createFragment, editFragment
+              name.startsWith("list")       // listDocumentPalettes
             ) {
               systemAgentTools[name] = tool;
             }
@@ -2618,6 +2648,32 @@ export async function resumeAgentState(
 }
 
 /**
+ * Build the working directory context section for system prompts
+ * This is used by both createAgentOrchestratorConfig and createStreamingAutonomousAgent
+ *
+ * @param workingDirectory - Optional working directory configuration
+ * @returns A string to append to the system prompt, or empty string if no directory set
+ */
+function buildWorkingDirectorySection(workingDirectory?: { path: string; name: string }): string {
+  if (!workingDirectory?.path) {
+    return "";
+  }
+
+  return `
+
+## WORKING DIRECTORY
+**Current Working Directory**: ${workingDirectory.path}
+**Directory Name**: ${workingDirectory.name}
+
+CRITICAL: All file operations and terminal commands MUST use this working directory as the base path.
+- When creating files, save them to: ${workingDirectory.path}
+- When running terminal commands, use this as the current directory (cwd)
+- When reading files, look in this directory first
+- The user expects ALL work to happen within this directory
+`;
+}
+
+/**
  * Configuration options for the agent orchestrator
  */
 export interface AgentOrchestratorOptions {
@@ -2637,17 +2693,20 @@ export interface AgentOrchestratorOptions {
  * @returns Configuration object for generateText/streamText with all tools
  */
 export function createAgentOrchestratorConfig(config: OrchestratorConfig) {
-  const { availableTools, mcpTools, userAgent, maxSteps = 50 } = config;
+  const { availableTools, mcpTools, userAgent, maxSteps = 50, workingDirectory } = config;
 
   // Create context manager for this orchestrator instance
   const ctx = createAgentContext();
 
+  // Build working directory context section using shared helper
+  const workingDirSection = buildWorkingDirectorySection(workingDirectory);
+
   // Build system prompt
-  let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS;
+  let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS + workingDirSection;
 
   if (userAgent?.instructions) {
     const agentPrompt = buildAgentSystemPrompt(userAgent.instructions);
-    systemPrompt = `${agentPrompt}\n\n---\n\n${AGENT_ORCHESTRATOR_INSTRUCTIONS}`;
+    systemPrompt = `${agentPrompt}\n\n---\n\n${AGENT_ORCHESTRATOR_INSTRUCTIONS}${workingDirSection}`;
   }
 
   // Create all tools
@@ -2790,15 +2849,19 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     maxSteps = 50,
     dataStream,
     continuousMode = false,
+    workingDirectory,
   } = config;
 
   const { agent, contextManager, agentStateId } = createAutonomousAgent(config);
 
+  // Build working directory context section
+  const workingDirSection = buildWorkingDirectorySection(workingDirectory);
+
   // Build system prompt - SIMPLIFIED for better model adherence
-  let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS;
+  let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS + workingDirSection;
   if (userAgent?.instructions) {
     const agentPrompt = buildAgentSystemPrompt(userAgent.instructions);
-    systemPrompt = `${agentPrompt}\n\n---\n\n${AGENT_ORCHESTRATOR_INSTRUCTIONS}`;
+    systemPrompt = `${agentPrompt}\n\n---\n\n${AGENT_ORCHESTRATOR_INSTRUCTIONS}${workingDirSection}`;
   }
 
   // Create tools WITH dataStream for plan/task streaming events
@@ -2881,7 +2944,7 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     stepCountIs(maxSteps),
 
     // 2. Plan completion - stop when all tasks done (unless continuous mode)
-    (options: { steps: StepResult<any>[] }) => {
+    (_options: { steps: StepResult<any>[] }) => {
       if (continuousMode) return false;
 
       const plan = contextManager.getPlan();

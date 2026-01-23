@@ -200,7 +200,7 @@ export const knowledgeApi = {
    */
   async bulkDeleteMemories(
     ids: string[],
-    role?: "user" | "assistant",
+    _role?: "user" | "assistant",
   ): Promise<{ success: boolean; deleted: number }> {
     try {
       const result = await window.electronAPI.memory.delete(ids, "messages");
@@ -240,7 +240,7 @@ export const knowledgeApi = {
    * Create a knowledge base
    * Note: Knowledge bases feature is limited in desktop mode
    */
-  async createKnowledgeBase(data: {
+  async createKnowledgeBase(_data: {
     name: string;
     description?: string;
   }): Promise<KnowledgeBase | null> {

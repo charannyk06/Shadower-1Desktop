@@ -7,26 +7,45 @@ import { useCallback, useEffect, useRef } from "react";
 import { mutate } from "swr";
 import { toast } from "sonner";
 
+// Debounce timer for SWR revalidation to prevent multiple rapid calls
+let revalidationTimer: ReturnType<typeof setTimeout> | null = null;
+const REVALIDATION_DELAY = 300;
+
+function debouncedRevalidate() {
+  if (revalidationTimer) {
+    clearTimeout(revalidationTimer);
+  }
+  revalidationTimer = setTimeout(() => {
+    console.log("[Title] Debounced SWR revalidation triggered");
+    mutate("/api/thread", undefined, { revalidate: true });
+    revalidationTimer = null;
+  }, REVALIDATION_DELAY);
+}
+
 export function useGenerateThreadTitle(option: {
   threadId: string;
   chatModel?: ChatModel;
 }) {
-  const cleanupRef = useRef<(() => void) | null>(null);
+  // Track if we've already processed a title for this thread to prevent double updates
+  const processedTitleRef = useRef<string | null>(null);
 
   const updateTitle = useCallback(
     (title: string) => {
-      console.log("[Title Update] START - Updating title for thread:", option.threadId, "to:", title);
+      // Skip if we've already processed this exact title
+      if (processedTitleRef.current === title) {
+        console.log("[Title Update] Skipping duplicate title update:", title);
+        return;
+      }
+
+      console.log("[Title Update] Updating title for thread:", option.threadId, "to:", title);
+      processedTitleRef.current = title;
 
       // Get current state
       const currentState = appStore.getState();
       const { threadList } = currentState;
 
-      console.log("[Title Update] Current threadList length:", threadList.length);
-      console.log("[Title Update] Looking for thread:", option.threadId);
-
       // Check if thread exists
       const threadExists = threadList.some((v) => v.id === option.threadId);
-      console.log("[Title Update] Thread exists:", threadExists);
 
       let newList: typeof threadList;
 
@@ -41,24 +60,15 @@ export function useGenerateThreadTitle(option: {
           },
           ...threadList,
         ];
-        console.log("[Title Update] Adding new thread, new list length:", newList.length);
       } else {
         // Thread exists - update its title
         newList = threadList.map((v) =>
           v.id === option.threadId ? { ...v, title } : v,
         );
-        console.log("[Title Update] Updating existing thread");
       }
 
       // Use Zustand's native setState with replace: false (merge mode)
-      console.log("[Title Update] Calling appStore.setState with new threadList");
       appStore.setState({ threadList: newList }, false);
-
-      // Verify the update
-      const updatedState = appStore.getState();
-      const updatedThread = updatedState.threadList.find(t => t.id === option.threadId);
-      console.log("[Title Update] VERIFY - Updated thread title:", updatedThread?.title);
-      console.log("[Title Update] END");
     },
     [option.threadId],
   );
@@ -90,16 +100,7 @@ export function useGenerateThreadTitle(option: {
           console.log("[Title Generation] Using Electron IPC");
           const api = (window as any).electronAPI;
 
-          // Set up listener for title generation
-          cleanupRef.current = api.ai.onTitleGenerated(
-            (data: { threadId: string; title: string }) => {
-              if (data.threadId === threadId && data.title) {
-                updateTitle(data.title);
-              }
-            },
-          );
-
-          // Call the IPC handler
+          // Call the IPC handler - the persistent listener in useEffect will handle the response
           console.log("[Title Generation] Calling IPC generateTitle...");
           const result = await api.ai.generateTitle({
             threadId,
@@ -108,15 +109,8 @@ export function useGenerateThreadTitle(option: {
           });
           console.log("[Title Generation] IPC result:", result);
 
-          if (result.title) {
-            console.log("[Title Generation] Got title:", result.title);
-            try {
-              updateTitle(result.title);
-              console.log("[Title Generation] updateTitle completed successfully");
-            } catch (err) {
-              console.error("[Title Generation] updateTitle threw error:", err);
-            }
-          } else if (result.error) {
+          // Only handle errors here - successful titles are handled by the persistent listener
+          if (result.error) {
             console.error("[Title Generation] Error from IPC:", result.error);
             // Use fallback title from first few words of the message
             const fallbackTitle =
@@ -129,31 +123,21 @@ export function useGenerateThreadTitle(option: {
             ) {
               toast.error("Title generation failed: " + result.error);
             }
+            // Trigger debounced revalidation for fallback
+            debouncedRevalidate();
           }
+          // Note: successful title updates are handled by the persistent listener below
         } else {
           // Desktop mode - IPC should always be available
           console.error("[Title Generation] Electron IPC not available");
           const fallbackTitle =
             message.slice(0, 50).trim() + (message.length > 50 ? "..." : "");
           updateTitle(fallbackTitle);
+          debouncedRevalidate();
         }
-
-        console.log(
-          "[Title Generation] Calling mutate('/api/thread') to refresh sidebar",
-        );
-        // Use revalidate: true to force a refetch from the database
-        // Add a small delay to ensure the database write has completed
-        setTimeout(() => {
-          console.log("[Title Generation] Triggering SWR revalidation now");
-          mutate("/api/thread", undefined, { revalidate: true });
-        }, 500);
       } catch (error) {
         console.error("[Title Generation] Caught error:", error);
       } finally {
-        // Cleanup listener
-        cleanupRef.current?.();
-        cleanupRef.current = null;
-
         const state = appStore.getState();
         state.mutate({
           generatingTitleThreadIds: state.generatingTitleThreadIds.filter(
@@ -165,16 +149,14 @@ export function useGenerateThreadTitle(option: {
     [option, updateTitle],
   );
 
-  // Cleanup on unmount
+  // Reset processed title when threadId changes
   useEffect(() => {
-    return () => {
-      cleanupRef.current?.();
-    };
-  }, []);
+    processedTitleRef.current = null;
+  }, [option.threadId]);
 
   // CRITICAL: Set up a PERSISTENT listener for auto-generated titles from main process
   // This catches titles generated by maybeAutoGenerateTitle() after stream completion
-  // even if onFinish callback isn't called (which can happen with IPC transport)
+  // This is the SINGLE source of truth for title updates to prevent duplicate processing
   useEffect(() => {
     if (!isElectronWithIPC()) return;
 
@@ -185,16 +167,6 @@ export function useGenerateThreadTitle(option: {
     // Listen for auto-generated titles from main process
     const cleanup = api.ai.onTitleGenerated(
       (data: { threadId: string; title: string }) => {
-        console.log(
-          "[Title] RECEIVED IPC event - data.threadId:",
-          data.threadId,
-          "option.threadId:",
-          option.threadId,
-          "title:",
-          data.title,
-          "matches:",
-          data.threadId === option.threadId,
-        );
         if (data.threadId === option.threadId && data.title) {
           console.log(
             "[Title] Received auto-generated title for thread:",
@@ -203,10 +175,8 @@ export function useGenerateThreadTitle(option: {
             data.title,
           );
           updateTitle(data.title);
-          // Trigger SWR revalidation to refresh sidebar
-          setTimeout(() => {
-            mutate("/api/thread", undefined, { revalidate: true });
-          }, 100);
+          // Use debounced revalidation to prevent multiple rapid SWR calls
+          debouncedRevalidate();
         }
       },
     );

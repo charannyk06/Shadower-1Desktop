@@ -19,7 +19,7 @@ export function registerVectorHandlers() {
   });
 
   // Search for similar documents/messages
-  ipcMain.handle('vector:search', async (event, queryEmbedding: number[], options: any) => {
+  ipcMain.handle('vector:search', async (_event, queryEmbedding: number[], options: any) => {
     try {
       const results = await vectorStore.search(
         queryEmbedding,
@@ -36,7 +36,7 @@ export function registerVectorHandlers() {
   });
 
   // Insert embeddings
-  ipcMain.handle('vector:insert', async (event, documents: any[]) => {
+  ipcMain.handle('vector:insert', async (_event, documents: any[]) => {
     try {
       await vectorStore.insert(
         documents[0]?.collection || 'documents',
@@ -51,7 +51,7 @@ export function registerVectorHandlers() {
   });
 
   // Delete embeddings
-  ipcMain.handle('vector:delete', async (event, ids: string[]) => {
+  ipcMain.handle('vector:delete', async (_event, ids: string[]) => {
     try {
       await vectorStore.delete('documents', ids);
       return { success: true };
@@ -62,7 +62,7 @@ export function registerVectorHandlers() {
   });
 
   // Delete by thread
-  ipcMain.handle('vector:deleteByThread', async (event, threadId: string) => {
+  ipcMain.handle('vector:deleteByThread', async (_event, threadId: string) => {
     try {
       await vectorStore.deleteByThread(threadId);
       return { success: true };
@@ -84,7 +84,7 @@ export function registerVectorHandlers() {
   });
 
   // Generate embeddings
-  ipcMain.handle('embeddings:generate', async (event, texts: string[]) => {
+  ipcMain.handle('embeddings:generate', async (_event, texts: string[]) => {
     try {
       const embeddings = await embeddingService.embed(texts);
       return embeddings;
@@ -95,7 +95,7 @@ export function registerVectorHandlers() {
   });
 
   // Generate embeddings in batches
-  ipcMain.handle('embeddings:generateBatch', async (event, texts: string[], batchSize?: number) => {
+  ipcMain.handle('embeddings:generateBatch', async (_event, texts: string[], batchSize?: number) => {
     try {
       const embeddings = await embeddingService.embedBatch(texts, batchSize);
       return embeddings;
@@ -106,7 +106,7 @@ export function registerVectorHandlers() {
   });
 
   // Calculate cosine similarity
-  ipcMain.handle('embeddings:cosineSimilarity', async (event, embedding1: number[], embedding2: number[]) => {
+  ipcMain.handle('embeddings:cosineSimilarity', async (_event, embedding1: number[], embedding2: number[]) => {
     try {
       const similarity = embeddingService.cosineSimilarity(embedding1, embedding2);
       return similarity;

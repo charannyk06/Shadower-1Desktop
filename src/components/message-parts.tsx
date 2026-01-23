@@ -542,8 +542,12 @@ export const AssistMessagePart = memo(function AssistMessagePart({
                                 Input
                               </span>
                               <span className="text-xs font-mono font-medium">
-                                {metadata.usage?.inputTokens?.toLocaleString() ||
-                                  "0"}
+                                {/* Handle both flat (number) and nested ({ total: number }) structures */}
+                                {(() => {
+                                  const val = metadata.usage?.inputTokens as any;
+                                  const num = typeof val === "number" ? val : (val?.total ?? 0);
+                                  return num.toLocaleString();
+                                })()}
                               </span>
                             </div>
                           )}
@@ -553,19 +557,33 @@ export const AssistMessagePart = memo(function AssistMessagePart({
                                 Output
                               </span>
                               <span className="text-xs font-mono font-medium">
-                                {metadata.usage?.outputTokens?.toLocaleString() ||
-                                  "0"}
+                                {/* Handle both flat (number) and nested ({ total: number }) structures */}
+                                {(() => {
+                                  const val = metadata.usage?.outputTokens as any;
+                                  const num = typeof val === "number" ? val : (val?.total ?? 0);
+                                  return num.toLocaleString();
+                                })()}
                               </span>
                             </div>
                           )}
-                          {metadata.usage?.totalTokens !== undefined && (
+                          {(metadata.usage?.totalTokens !== undefined ||
+                            (metadata.usage?.inputTokens !== undefined && metadata.usage?.outputTokens !== undefined)) && (
                             <div className="flex items-center justify-between py-1.5 px-2 rounded-md bg-primary/10 border border-primary/20">
                               <span className="text-xs font-medium text-primary">
                                 Total
                               </span>
                               <span className="text-xs font-mono font-bold text-primary">
-                                {metadata.usage?.totalTokens?.toLocaleString() ||
-                                  "0"}
+                                {/* Calculate total from inputTokens + outputTokens if totalTokens not present */}
+                                {(() => {
+                                  if (metadata.usage?.totalTokens !== undefined) {
+                                    return metadata.usage.totalTokens.toLocaleString();
+                                  }
+                                  const inputVal = metadata.usage?.inputTokens as any;
+                                  const outputVal = metadata.usage?.outputTokens as any;
+                                  const input = typeof inputVal === "number" ? inputVal : (inputVal?.total ?? 0);
+                                  const output = typeof outputVal === "number" ? outputVal : (outputVal?.total ?? 0);
+                                  return (input + output).toLocaleString();
+                                })()}
                               </span>
                             </div>
                           )}

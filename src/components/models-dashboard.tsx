@@ -27,26 +27,39 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "lib/utils";
+import { Progress } from "@/components/ui/progress";
 import {
   AlertCircle,
   Check,
   CheckCircle2,
   Cloud,
+  Cpu,
+  Download,
   Eye,
   EyeOff,
   HardDrive,
   Key,
   Loader2,
+  Play,
   Plus,
   RefreshCw,
   Server,
   Box,
   Trash2,
   X,
+  Zap,
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
+import { LocalModelSetupWizard } from "@/components/local-model-setup-wizard";
+import {
+  findCuratedModel,
+  getTopFastModels,
+  getFastModels,
+  getRecommendedSLMs,
+} from "@/lib/ai/curated-local-models";
+import { ModelFamilyIcon } from "@/components/ui/model-family-icon";
 
 const LightRays = lazy(() => import("@/components/ui/light-rays"));
 
@@ -163,6 +176,14 @@ const PROVIDER_REGISTRY: Record<string, ProviderInfo> = {
   },
 };
 
+// Types for Ollama health
+interface OllamaHealth {
+  installed: boolean;
+  running: boolean;
+  version?: string;
+  error?: string;
+}
+
 export default function ModelsDashboard() {
   const [activeTab, setActiveTab] = useState("api-keys");
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
@@ -175,6 +196,16 @@ export default function ModelsDashboard() {
     success: boolean;
     message: string;
   } | null>(null);
+
+  // Ollama-specific state
+  const [ollamaHealth, setOllamaHealth] = useState<OllamaHealth | null>(null);
+  const [checkingHealth, setCheckingHealth] = useState(false);
+  const [startingOllama, setStartingOllama] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [modelToDelete, setModelToDelete] = useState<LocalModel | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<Map<string, number>>(
+    new Map(),
+  );
 
   // Fetch data using SWR
   const {
@@ -312,6 +343,158 @@ export default function ModelsDashboard() {
     },
     [mutateLocalModels],
   );
+
+  // Check Ollama health
+  const checkOllamaHealth = useCallback(async () => {
+    setCheckingHealth(true);
+    try {
+      const result = await modelsApi.ollamaCheckHealth?.();
+      if (result) {
+        setOllamaHealth(result);
+      }
+    } catch (error) {
+      console.error("Failed to check Ollama health:", error);
+    } finally {
+      setCheckingHealth(false);
+    }
+  }, []);
+
+  // Check health on mount and tab change
+  useEffect(() => {
+    if (activeTab === "local-models") {
+      checkOllamaHealth();
+    }
+  }, [activeTab, checkOllamaHealth]);
+
+  // Start Ollama service
+  const handleStartOllama = useCallback(async () => {
+    setStartingOllama(true);
+    try {
+      const result = await modelsApi.ollamaTryStart?.();
+      if (result?.success) {
+        toast.success("Ollama started successfully");
+        // Re-check health after starting
+        await checkOllamaHealth();
+        // Refresh models
+        mutateLocalModels();
+      } else {
+        toast.error(result?.message || "Failed to start Ollama");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to start Ollama");
+    } finally {
+      setStartingOllama(false);
+    }
+  }, [checkOllamaHealth, mutateLocalModels]);
+
+  // Delete a local model
+  const handleDeleteModel = useCallback(
+    async (model: LocalModel) => {
+      try {
+        const result = await modelsApi.deleteLocalModel({
+          id: model.id,
+          modelName: model.name,
+          providerId: model.providerId,
+          deleteFromProvider: true,
+        });
+
+        if (result.success) {
+          toast.success(`Deleted ${model.displayName || model.name}`);
+          mutateLocalModels();
+        } else {
+          toast.error(result.error || "Failed to delete model");
+        }
+      } catch (error: any) {
+        toast.error(error.message || "Failed to delete model");
+      } finally {
+        setModelToDelete(null);
+      }
+    },
+    [mutateLocalModels],
+  );
+
+  // Download a curated model
+  const handleDownloadCuratedModel = useCallback(
+    async (modelName: string) => {
+      try {
+        const result = await modelsApi.downloadModel?.({
+          modelName,
+        });
+
+        if (result?.success) {
+          toast.success(`Started downloading ${modelName}`);
+          mutateLocalModels();
+        } else {
+          toast.error(result?.error || "Failed to start download");
+        }
+      } catch (error: any) {
+        toast.error(error.message || "Failed to start download");
+      }
+    },
+    [mutateLocalModels],
+  );
+
+  // Restore download progress state from database on mount/data change
+  // This fixes the issue where download progress is lost on refresh
+  useEffect(() => {
+    if (localModelsData?.models) {
+      const downloadingModels = localModelsData.models.filter(
+        (m: LocalModel) => m.status === "downloading"
+      );
+      if (downloadingModels.length > 0) {
+        setDownloadProgress((prev) => {
+          const next = new Map(prev);
+          for (const model of downloadingModels) {
+            // Only set if not already tracked (to avoid overwriting live progress)
+            if (!next.has(model.name)) {
+              next.set(model.name, model.downloadProgress || 0);
+            }
+          }
+          return next;
+        });
+      }
+    }
+  }, [localModelsData]);
+
+  // Listen for download progress events via IPC
+  useEffect(() => {
+    // Set up IPC listeners for download events
+    const unsubProgress = modelsApi.onDownloadProgress?.((data) => {
+      const { modelName, progress } = data;
+      setDownloadProgress((prev) => {
+        const next = new Map(prev);
+        next.set(modelName, progress);
+        return next;
+      });
+    });
+
+    const unsubComplete = modelsApi.onDownloadComplete?.((data) => {
+      const { modelName } = data;
+      setDownloadProgress((prev) => {
+        const next = new Map(prev);
+        next.delete(modelName);
+        return next;
+      });
+      mutateLocalModels();
+      toast.success(`Downloaded ${modelName} successfully`);
+    });
+
+    const unsubError = modelsApi.onDownloadError?.((data) => {
+      const { modelName, error } = data;
+      setDownloadProgress((prev) => {
+        const next = new Map(prev);
+        next.delete(modelName);
+        return next;
+      });
+      toast.error(`Failed to download ${modelName}: ${error}`);
+    });
+
+    return () => {
+      unsubProgress?.();
+      unsubComplete?.();
+      unsubError?.();
+    };
+  }, [mutateLocalModels]);
 
   // Check if provider has API key
   const hasApiKey = useCallback(
@@ -514,114 +697,586 @@ export default function ModelsDashboard() {
                 Manage models from local providers like Ollama and LM Studio.
               </div>
 
-              {/* Local Providers */}
-              <div className="space-y-4">
-                {localProviders.map((provider) => (
-                  <Card key={provider.id}>
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-lg bg-muted">
-                            <ModelProviderIcon
-                              provider={provider.id}
-                              className="size-5"
-                            />
-                          </div>
-                          <div>
-                            <CardTitle className="text-lg">
-                              {provider.name}
-                            </CardTitle>
-                            <CardDescription>
-                              {provider.description}
-                            </CardDescription>
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRefreshLocalModels(provider.id)}
-                        >
-                          <RefreshCw className="size-4 mr-1" />
-                          Refresh
-                        </Button>
+              {/* Ollama Status Card */}
+              <Card
+                className={cn(
+                  "transition-all",
+                  ollamaHealth?.running &&
+                    "border-green-500/30 bg-green-500/5",
+                )}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-4">
+                    <div className="p-2 rounded-lg bg-muted">
+                      <ModelProviderIcon provider="ollama" className="size-6" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold">Ollama</h3>
+                        {ollamaHealth?.running ? (
+                          <Badge
+                            variant="outline"
+                            className="text-green-600 border-green-600/30"
+                          >
+                            <CheckCircle2 className="size-3 mr-1" />
+                            Running
+                          </Badge>
+                        ) : ollamaHealth?.installed ? (
+                          <Badge
+                            variant="outline"
+                            className="text-muted-foreground"
+                          >
+                            Not Running
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive">
+                            <AlertCircle className="size-3 mr-1" />
+                            Not Installed
+                          </Badge>
+                        )}
+                        {ollamaHealth?.version && (
+                          <Badge variant="secondary" className="text-xs">
+                            v{ollamaHealth.version}
+                          </Badge>
+                        )}
                       </div>
-                    </CardHeader>
-                    <CardContent>
-                      {isLoadingLocalModels ? (
-                        <div className="space-y-2">
-                          <Skeleton className="h-12 w-full" />
-                          <Skeleton className="h-12 w-full" />
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {localModels
-                            .filter((m) => m.providerId === provider.id)
-                            .map((model) => (
-                              <div
-                                key={model.id}
-                                className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <Server className="size-4 text-muted-foreground" />
-                                  <div>
-                                    <p className="font-medium">
-                                      {model.displayName || model.name}
+                      <p className="text-sm text-muted-foreground truncate">
+                        {ollamaHealth?.running
+                          ? "Local model hosting and inference"
+                          : ollamaHealth?.installed
+                            ? "Click Start to run Ollama"
+                            : "Click Setup to install Ollama"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!ollamaHealth?.installed && (
+                        <Button size="sm" onClick={() => setWizardOpen(true)}>
+                          Setup
+                        </Button>
+                      )}
+                      {ollamaHealth?.installed && !ollamaHealth?.running && (
+                        <Button
+                          size="sm"
+                          onClick={handleStartOllama}
+                          disabled={startingOllama}
+                        >
+                          {startingOllama ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Play className="size-4 mr-1" />
+                              Start
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={checkOllamaHealth}
+                        disabled={checkingHealth}
+                      >
+                        {checkingHealth ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="size-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Compact Models (SLMs) */}
+              {ollamaHealth?.running && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Zap className="size-5 text-muted-foreground" />
+                          Compact Models
+                        </CardTitle>
+                        <CardDescription>
+                          Lightweight models optimized for speed. Ideal for quick tasks with lower resource usage.
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {getRecommendedSLMs().map((curatedModel) => {
+                        const isInstalled = localModels.some(
+                          (m) =>
+                            (m.name === curatedModel.name ||
+                             m.name === curatedModel.name.split(":")[0] ||
+                             m.name.startsWith(curatedModel.name + ":")) &&
+                            m.providerId === "ollama",
+                        );
+                        const isDownloading = downloadProgress.has(
+                          curatedModel.name,
+                        );
+                        const progress =
+                          downloadProgress.get(curatedModel.name) || 0;
+
+                        return (
+                          <div
+                            key={curatedModel.name}
+                            className={cn(
+                              "flex items-center justify-between p-3 rounded-lg",
+                              isInstalled
+                                ? "bg-green-500/10 border border-green-500/30"
+                                : "bg-muted/50"
+                            )}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <div className="p-1.5 rounded-md bg-muted shrink-0">
+                                <ModelFamilyIcon family={curatedModel.family} className="size-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-medium">
+                                    {curatedModel.displayName}
+                                  </p>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {curatedModel.size}
+                                  </Badge>
+                                  {curatedModel.toolCalling && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      Tools
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {curatedModel.description}
+                                </p>
+                                {isDownloading && (
+                                  <div className="mt-2">
+                                    <Progress value={progress} className="h-1.5" />
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Downloading... {progress}%
                                     </p>
-                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                      {model.size && (
-                                        <span>
-                                          {(
-                                            model.size /
-                                            1024 /
-                                            1024 /
-                                            1024
-                                          ).toFixed(1)}{" "}
-                                          GB
-                                        </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 ml-2">
+                              {isInstalled ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-green-600 border-green-600/30"
+                                >
+                                  <CheckCircle2 className="size-3 mr-1" />
+                                  Installed
+                                </Badge>
+                              ) : isDownloading ? (
+                                <Badge variant="secondary">{progress}%</Badge>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    handleDownloadCuratedModel(curatedModel.name)
+                                  }
+                                >
+                                  <Download className="size-4 mr-1" />
+                                  Download
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Recommended Models */}
+              {ollamaHealth?.running && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Cpu className="size-5 text-muted-foreground" />
+                          Recommended Models
+                        </CardTitle>
+                        <CardDescription>
+                          Balanced models with good quality and performance. Requires 8GB+ RAM.
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {getTopFastModels().filter(m => !m.isSLM).slice(0, 4).map((curatedModel) => {
+                        const isInstalled = localModels.some(
+                          (m) =>
+                            (m.name === curatedModel.name ||
+                             m.name === curatedModel.name.split(":")[0] ||
+                             m.name.startsWith(curatedModel.name + ":")) &&
+                            m.providerId === "ollama",
+                        );
+                        const isDownloading = downloadProgress.has(
+                          curatedModel.name,
+                        );
+                        const progress =
+                          downloadProgress.get(curatedModel.name) || 0;
+
+                        return (
+                          <div
+                            key={curatedModel.name}
+                            className={cn(
+                              "flex items-center justify-between p-3 rounded-lg",
+                              isInstalled
+                                ? "bg-green-500/10 border border-green-500/30"
+                                : "bg-muted/50"
+                            )}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <div className="p-1.5 rounded-md bg-muted shrink-0">
+                                <ModelFamilyIcon family={curatedModel.family} className="size-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-medium">
+                                    {curatedModel.displayName}
+                                  </p>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {curatedModel.size}
+                                  </Badge>
+                                  {curatedModel.toolCalling && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      Tools
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {curatedModel.description}
+                                </p>
+                                {isDownloading && (
+                                  <div className="mt-2">
+                                    <Progress value={progress} className="h-1.5" />
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Downloading... {progress}%
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 ml-2">
+                              {isInstalled ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-green-600 border-green-600/30"
+                                >
+                                  <CheckCircle2 className="size-3 mr-1" />
+                                  Installed
+                                </Badge>
+                              ) : isDownloading ? (
+                                <Badge variant="secondary">{progress}%</Badge>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    handleDownloadCuratedModel(curatedModel.name)
+                                  }
+                                >
+                                  <Download className="size-4 mr-1" />
+                                  Download
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* More Models */}
+              {ollamaHealth?.running && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Server className="size-5 text-muted-foreground" />
+                          More Models
+                        </CardTitle>
+                        <CardDescription>
+                          Additional models with tool support
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {getFastModels()
+                        .filter((m) => !m.recommended)
+                        .slice(0, 6)
+                        .map((curatedModel) => {
+                          const isInstalled = localModels.some(
+                            (m) =>
+                              (m.name === curatedModel.name ||
+                               m.name === curatedModel.name.split(":")[0] ||
+                               m.name.startsWith(curatedModel.name + ":")) &&
+                              m.providerId === "ollama",
+                          );
+                          const isDownloading = downloadProgress.has(
+                            curatedModel.name,
+                          );
+                          const progress =
+                            downloadProgress.get(curatedModel.name) || 0;
+
+                          return (
+                            <div
+                              key={curatedModel.name}
+                              className={cn(
+                                "flex items-center justify-between p-3 rounded-lg",
+                                isInstalled
+                                  ? "bg-green-500/10 border border-green-500/30"
+                                  : "bg-muted/50"
+                              )}
+                            >
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div className="p-1.5 rounded-md bg-muted shrink-0">
+                                  <ModelFamilyIcon family={curatedModel.family} className="size-4" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="font-medium">
+                                      {curatedModel.displayName}
+                                    </p>
+                                    <Badge variant="secondary" className="text-xs">
+                                      {curatedModel.size}
+                                    </Badge>
+                                    {curatedModel.toolCalling && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs"
+                                      >
+                                        Tools
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {curatedModel.description}
+                                  </p>
+                                  {isDownloading && (
+                                    <div className="mt-2">
+                                      <Progress
+                                        value={progress}
+                                        className="h-1.5"
+                                      />
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        Downloading... {progress}%
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0 ml-2">
+                                {isInstalled ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-green-600 border-green-600/30"
+                                  >
+                                    <CheckCircle2 className="size-3 mr-1" />
+                                    Installed
+                                  </Badge>
+                                ) : isDownloading ? (
+                                  <Badge variant="secondary">{progress}%</Badge>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleDownloadCuratedModel(curatedModel.name)
+                                    }
+                                  >
+                                    <Download className="size-4 mr-1" />
+                                    Download
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Installed Local Models */}
+              <div className="space-y-4">
+                {localProviders.map((provider) => {
+                  const providerModels = localModels.filter(
+                    (m) => m.providerId === provider.id,
+                  );
+
+                  return (
+                    <Card key={provider.id}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-lg bg-muted">
+                              <ModelProviderIcon
+                                provider={provider.id}
+                                className="size-5"
+                              />
+                            </div>
+                            <div>
+                              <CardTitle className="text-lg">
+                                {provider.name} Models
+                              </CardTitle>
+                              <CardDescription>
+                                {providerModels.length} model
+                                {providerModels.length !== 1 ? "s" : ""}{" "}
+                                installed
+                              </CardDescription>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              handleRefreshLocalModels(provider.id)
+                            }
+                          >
+                            <RefreshCw className="size-4 mr-1" />
+                            Refresh
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {isLoadingLocalModels ? (
+                          <div className="space-y-2">
+                            <Skeleton className="h-12 w-full" />
+                            <Skeleton className="h-12 w-full" />
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {providerModels.map((model) => {
+                              const curatedInfo = findCuratedModel(model.name);
+                              const isDownloading =
+                                model.status === "downloading" ||
+                                downloadProgress.has(model.name);
+                              const progress =
+                                downloadProgress.get(model.name) ||
+                                model.downloadProgress ||
+                                0;
+
+                              return (
+                                <div
+                                  key={model.id}
+                                  className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
+                                >
+                                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                                    <div className="p-1.5 rounded-md bg-background shrink-0">
+                                      {model.family ? (
+                                        <ModelFamilyIcon family={model.family} className="size-4" />
+                                      ) : curatedInfo?.family ? (
+                                        <ModelFamilyIcon family={curatedInfo.family} className="size-4" />
+                                      ) : (
+                                        <Server className="size-4 text-muted-foreground" />
                                       )}
-                                      {model.quantization && (
-                                        <Badge
-                                          variant="secondary"
-                                          className="text-xs"
-                                        >
-                                          {model.quantization}
-                                        </Badge>
-                                      )}
-                                      {model.family && (
-                                        <span>{model.family}</span>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-medium">
+                                        {model.displayName || model.name}
+                                      </p>
+                                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                        {model.size && (
+                                          <span>
+                                            {(
+                                              model.size /
+                                              1024 /
+                                              1024 /
+                                              1024
+                                            ).toFixed(1)}{" "}
+                                            GB
+                                          </span>
+                                        )}
+                                        {model.quantization && (
+                                          <Badge
+                                            variant="secondary"
+                                            className="text-xs"
+                                          >
+                                            {model.quantization}
+                                          </Badge>
+                                        )}
+                                        {curatedInfo?.toolCalling && (
+                                          <Badge
+                                            variant="outline"
+                                            className="text-xs"
+                                          >
+                                            Tools
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      {isDownloading && (
+                                        <div className="mt-2">
+                                          <Progress
+                                            value={progress}
+                                            className="h-1.5"
+                                          />
+                                          <p className="text-xs text-muted-foreground mt-1">
+                                            Downloading... {progress}%
+                                          </p>
+                                        </div>
                                       )}
                                     </div>
                                   </div>
+                                  <div className="flex items-center gap-2 shrink-0 ml-2">
+                                    {model.status === "available" && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="text-destructive hover:text-destructive"
+                                        onClick={() => setModelToDelete(model)}
+                                      >
+                                        <Trash2 className="size-4" />
+                                      </Button>
+                                    )}
+                                    <Badge
+                                      variant={
+                                        model.status === "available"
+                                          ? "default"
+                                          : model.status === "downloading"
+                                            ? "secondary"
+                                            : "destructive"
+                                      }
+                                    >
+                                      {isDownloading
+                                        ? `${progress}%`
+                                        : model.status}
+                                    </Badge>
+                                  </div>
                                 </div>
-                                <Badge
-                                  variant={
-                                    model.status === "available"
-                                      ? "default"
-                                      : model.status === "downloading"
-                                        ? "secondary"
-                                        : "destructive"
-                                  }
-                                >
-                                  {model.status === "downloading" &&
-                                  model.downloadProgress
-                                    ? `${model.downloadProgress}%`
-                                    : model.status}
-                                </Badge>
-                              </div>
-                            ))}
-                          {localModels.filter(
-                            (m) => m.providerId === provider.id,
-                          ).length === 0 && (
-                            <p className="text-sm text-muted-foreground text-center py-4">
-                              No models found. Click Refresh to scan for
-                              available models.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
+                              );
+                            })}
+                            {providerModels.length === 0 && (
+                              <p className="text-sm text-muted-foreground text-center py-4">
+                                No models found. Click Refresh to scan for
+                                available models.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </TabsContent>
 
@@ -792,6 +1447,49 @@ export default function ModelsDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={!!modelToDelete}
+        onOpenChange={(open) => !open && setModelToDelete(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="size-5 text-destructive" />
+              Delete {modelToDelete?.displayName || modelToDelete?.name}?
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete the model from your computer
+              {modelToDelete?.size &&
+                ` and free up ${(modelToDelete.size / 1024 / 1024 / 1024).toFixed(1)} GB`}
+              . This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModelToDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => modelToDelete && handleDeleteModel(modelToDelete)}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Local Model Setup Wizard */}
+      <LocalModelSetupWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onComplete={() => {
+          mutateLocalModels();
+          checkOllamaHealth();
+        }}
+        skipOllamaInstall={ollamaHealth?.installed || false}
+      />
     </>
   );
 }

@@ -63,6 +63,11 @@ export interface AppState {
   allowedMcpServers?: Record<string, AllowedMCPServer>;
   allowedAppDefaultToolkit?: AppDefaultToolkit[];
   generatingTitleThreadIds: string[];
+  // Working directory for local file system operations
+  workingDirectory: {
+    path: string;
+    name: string;
+  } | null;
   threadMentions: {
     [threadId: string]: ChatMention[];
   };
@@ -92,11 +97,6 @@ export interface AppState {
   openBilling: boolean;
   openKnowledge: boolean;
   mcpCustomizationPopup?: MCPServerInfo & { id: string };
-  temporaryChat: {
-    isOpen: boolean;
-    instructions: string;
-    chatModel?: ChatModel;
-  };
   voiceChat: {
     isOpen: boolean;
     agentId?: string;
@@ -172,6 +172,7 @@ const initialState: AppState = {
   toolChoice: "auto",
   chatMode: "regular",
   allowedMcpServers: undefined,
+  workingDirectory: null,
   openUserSettings: false,
   openBilling: false,
   openKnowledge: false,
@@ -191,10 +192,6 @@ const initialState: AppState = {
   openShortcutsPopup: false,
   openChatPreferences: false,
   mcpCustomizationPopup: undefined,
-  temporaryChat: {
-    isOpen: false,
-    instructions: "",
-  },
   voiceChat: {
     isOpen: false,
     options: {
@@ -257,6 +254,9 @@ export const appStore = create<AppState & AppDispatch>()(
             persisted.threadContextUsage ||
             currentState.threadContextUsage ||
             {},
+          // Preserve workingDirectory from persisted state
+          workingDirectory:
+            persisted.workingDirectory || currentState.workingDirectory || null,
         };
       },
       partialize: (state) => ({
@@ -265,6 +265,7 @@ export const appStore = create<AppState & AppDispatch>()(
         chatMode: state.chatMode || initialState.chatMode,
         allowedMcpServers:
           state.allowedMcpServers || initialState.allowedMcpServers,
+        workingDirectory: state.workingDirectory || initialState.workingDirectory,
         // Ensure all valid toolkits are preserved AND new toolkits are auto-enabled
         allowedAppDefaultToolkit: (() => {
           const stored = state.allowedAppDefaultToolkit ?? [];
@@ -281,11 +282,6 @@ export const appStore = create<AppState & AppDispatch>()(
           );
           return [...validStored, ...newToolkits];
         })(),
-        temporaryChat: {
-          ...initialState.temporaryChat,
-          ...state.temporaryChat,
-          isOpen: false,
-        },
         toolPresets: state.toolPresets || initialState.toolPresets,
         voiceChat: {
           ...initialState.voiceChat,

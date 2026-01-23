@@ -93,16 +93,6 @@
       "whereWouldYouLikeToStart": "어디서부터 시작할까요?",
       "whatAreYouThinking": "{name}님, 무엇을 생각하고 있어요?"
     },
-    "TemporaryChat": {
-      "toggleTemporaryChat": "임시 채팅 토글",
-      "temporaryChat": "임시 채팅",
-      "resetChat": "채팅 초기화",
-      "thisChatWontBeSaved": "이 채팅은 저장되지 않습니다.",
-      "feelFreeToAskAnythingTemporarily": "임시로 무엇이든 물어보세요",
-      "temporaryChatInstructions": "임시 채팅 지침",
-      "temporaryChatInstructionsPlaceholder": "지침을 입력하세요",
-      "temporaryChatInstructionsDescription": "임시 채팅에 대한 지침을 설정할 수 있습니다. 이것은 임시 채팅에 대한 시스템 프롬프트로 사용됩니다."
-    },
     "placeholder": "아무거나 물어보거나 @mention 하세요",
     "Tool": {
       "webSearching": "웹에서 찾아보는 중...",
@@ -317,7 +307,6 @@
   "KeyboardShortcuts": {
     "title": "키보드 단축키",
     "newChat": "새 채팅",
-    "toggleTemporaryChat": "임시 채팅 토글",
     "toggleSidebar": "사이드바 토글",
     "toolMode": "도구 사용 모드",
     "lastMessageCopy": "마지막 메시지 복사",

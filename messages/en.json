@@ -235,16 +235,6 @@
       "whereWouldYouLikeToStart": "Where would you like to start?",
       "whatAreYouThinking": "What are you thinking? {name}"
     },
-    "TemporaryChat": {
-      "toggleTemporaryChat": "Toggle Temporary Chat",
-      "temporaryChat": "Temporary Chat",
-      "resetChat": "Reset Chat",
-      "thisChatWontBeSaved": "This chat won't be saved.",
-      "feelFreeToAskAnythingTemporarily": "Feel free to ask anything temporarily",
-      "temporaryChatInstructions": "Temporary Chat Instructions",
-      "temporaryChatInstructionsPlaceholder": "Enter your instructions here",
-      "temporaryChatInstructionsDescription": "You can set instructions for the temporary chat. This will be used as a system prompt for the temporary chat."
-    },
     "placeholder": "Ask anything or @mention",
     "Tool": {
       "webSearching": "Searching the Web...",
@@ -547,9 +537,9 @@
   "KeyboardShortcuts": {
     "title": "Keyboard Shortcuts",
     "newChat": "New Chat",
-    "toggleTemporaryChat": "Toggle Temporary Chat",
     "toggleSidebar": "Toggle Sidebar",
     "toolMode": "Tool Mode",
+    "chatMode": "Toggle Chat Mode",
     "lastMessageCopy": "Copy Last Message",
     "openChatPreferences": "Open Chat Preferences",
     "deleteThread": "Delete Chat",

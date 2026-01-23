@@ -9,6 +9,15 @@ import {
 } from "../../browser/page-context";
 
 /**
+ * Extract alternative URLs from a suggestion string
+ */
+function extractAlternativeUrls(suggestion: string): string[] {
+  const urlRegex = /https?:\/\/[^\s\n)]+/g;
+  const matches = suggestion.match(urlRegex);
+  return matches ? [...new Set(matches)] : [];
+}
+
+/**
  * Local Browser Automation Tools using agent-browser
  *
  * These tools use agent-browser's BrowserManager for AI-optimized browser automation.
@@ -27,20 +36,42 @@ import {
 /**
  * Interface for browser service - used for type safety when interacting with
  * the EnhancedBrowserService from the main process
+ *
+ * CDP-ONLY MODE: Always connects to user's real Chrome browser via CDP.
+ * This preserves cookies, sessions, and avoids bot detection entirely.
  */
 export interface BrowserServiceInterface {
-  createSession(options: { headless?: boolean; cdpPort?: number }): Promise<{
+  createSession(options: {
+    cdpPort?: number;
+    executablePath?: string;
+    viewport?: { width: number; height: number };
+  }): Promise<{
     sessionId: string;
-    url: string;
-    title: string;
+    url?: string;
+    title?: string;
+    stealth?: boolean; // Always false - not needed with real browser
+    userBrowser: true; // Always true - CDP only
+    cdpUrl?: string;
   }>;
   closeSession(sessionId?: string): Promise<void>;
-  listSessions(): { sessionId: string; url: string; isActive: boolean }[];
+  listSessions(): { id: string; createdAt: Date; isActive: boolean }[];
   switchSession(sessionId: string): void;
   navigate(
     url: string,
-    options?: { waitUntil?: string; sessionId?: string }
-  ): Promise<{ url: string; title: string }>;
+    options?: {
+      waitUntil?: string;
+      timeout?: number;
+      retries?: number;
+      sessionId?: string;
+    }
+  ): Promise<{
+    url: string;
+    title: string;
+    captchaDetected?: boolean;
+    captchaType?: string;
+    blocked?: boolean;
+    suggestion?: string;
+  }>;
   goBack(sessionId?: string): Promise<{ url: string }>;
   goForward(sessionId?: string): Promise<{ url: string }>;
   reload(sessionId?: string): Promise<{ url: string }>;
@@ -55,6 +86,7 @@ export interface BrowserServiceInterface {
       type: string;
       selector?: string;
       value?: string;
+      values?: string | string[]; // For select action
       text?: string;
       key?: string;
       delay?: number;
@@ -72,10 +104,17 @@ export interface BrowserServiceInterface {
     loadState?: string;
     timeout?: number;
     sessionId?: string;
-  }): Promise<void>;
+  }): Promise<{ success: boolean }>;
   getContent(options?: { selector?: string; sessionId?: string }): Promise<string>;
   getUrl(sessionId?: string): Promise<string>;
   getTitle(sessionId?: string): Promise<string>;
+  // Multi-tab support
+  newTab(sessionId?: string, url?: string): Promise<{ index: number; total: number; url?: string }>;
+  newWindow(sessionId?: string, options?: { viewport?: { width: number; height: number } }): Promise<{ index: number; total: number }>;
+  switchTab(index: number, sessionId?: string): Promise<{ index: number; url: string; title: string }>;
+  closeTab(index?: number, sessionId?: string): Promise<{ closed: number; remaining: number }>;
+  listTabs(sessionId?: string): Promise<Array<{ index: number; url: string; title: string; active: boolean }>>;
+  getActiveTabIndex(sessionId?: string): number;
 }
 
 /**
@@ -157,46 +196,76 @@ async function callBrowserAPI<T>(
       // Map method names to service methods
       switch (method) {
         case "createSession":
-          return await service.createSession(args[0]) as T;
-        case "closeSession":
-          return { success: true, ...(await service.closeSession(args[0])) } as T;
+          return await service.createSession(args[0] as Parameters<BrowserServiceInterface["createSession"]>[0]) as T;
+        case "closeSession": {
+          await service.closeSession(args[0] as string | undefined);
+          return { success: true } as T;
+        }
         case "listSessions":
           return service.listSessions() as T;
         case "switchSession":
           service.switchSession(args[0] as string);
           return { success: true } as T;
         case "navigate":
-          return await service.navigate(args[0] as string, args[1]) as T;
+          return await service.navigate(args[0] as string, args[1] as Parameters<BrowserServiceInterface["navigate"]>[1]) as T;
         case "goBack":
-          return await service.goBack(args[0] as string) as T;
+          return await service.goBack(args[0] as string | undefined) as T;
         case "goForward":
-          return await service.goForward(args[0] as string) as T;
+          return await service.goForward(args[0] as string | undefined) as T;
         case "reload":
-          return await service.reload(args[0] as string) as T;
+          return await service.reload(args[0] as string | undefined) as T;
         case "getSnapshot":
-          return await service.getSnapshot(args[0]) as T;
+          return await service.getSnapshot(args[0] as Parameters<BrowserServiceInterface["getSnapshot"]>[0]) as T;
         case "click":
-          return await service.executeAction({ type: "click", selector: args[0] as string }, args[1]) as T;
+          return await service.executeAction({ type: "click", selector: args[0] as string }, args[1] as { sessionId?: string }) as T;
         case "fill":
-          return await service.executeAction({ type: "fill", selector: args[0] as string, value: args[1] as string }, args[2]) as T;
+          return await service.executeAction({ type: "fill", selector: args[0] as string, value: args[1] as string }, args[2] as { sessionId?: string }) as T;
         case "type":
-          return await service.executeAction({ type: "type", selector: args[0] as string, text: args[1] as string, delay: (args[2] as any)?.delay }, { sessionId: (args[2] as any)?.sessionId }) as T;
+          return await service.executeAction({ type: "type", selector: args[0] as string, text: args[1] as string, delay: (args[2] as { delay?: number })?.delay }, { sessionId: (args[2] as { sessionId?: string })?.sessionId }) as T;
         case "press":
-          return await service.executeAction({ type: "press", key: args[0] as string, selector: (args[1] as any)?.selector }, { sessionId: (args[1] as any)?.sessionId }) as T;
+          return await service.executeAction({ type: "press", key: args[0] as string, selector: (args[1] as { selector?: string })?.selector }, { sessionId: (args[1] as { sessionId?: string })?.sessionId }) as T;
         case "screenshot":
-          return await service.executeAction({ type: "screenshot", fullPage: (args[0] as any)?.fullPage, path: (args[0] as any)?.path }, { sessionId: (args[0] as any)?.sessionId }) as T;
+          return await service.executeAction({ type: "screenshot", fullPage: (args[0] as { fullPage?: boolean })?.fullPage, path: (args[0] as { path?: string })?.path }, { sessionId: (args[0] as { sessionId?: string })?.sessionId }) as T;
         case "scroll":
-          return await service.executeAction({ type: "scroll", direction: (args[0] as any)?.direction, amount: (args[0] as any)?.amount, selector: (args[0] as any)?.selector }, { sessionId: (args[0] as any)?.sessionId }) as T;
+          return await service.executeAction({ type: "scroll", direction: (args[0] as { direction?: string })?.direction, amount: (args[0] as { amount?: number })?.amount, selector: (args[0] as { selector?: string })?.selector }, { sessionId: (args[0] as { sessionId?: string })?.sessionId }) as T;
         case "evaluate":
-          return { result: await service.evaluate(args[0] as string, args[1]) } as T;
+          return { result: await service.evaluate(args[0] as string, args[1] as { sessionId?: string }) } as T;
         case "wait":
-          return await service.wait(args[0] as any) as T;
+          return await service.wait(args[0] as Parameters<BrowserServiceInterface["wait"]>[0]) as T;
         case "getContent":
-          return { html: await service.getContent(args[0]) } as T;
+          return { html: await service.getContent(args[0] as { selector?: string; sessionId?: string }) } as T;
         case "getUrl":
-          return { url: await service.getUrl((args[0] as any)?.sessionId) } as T;
+          return { url: await service.getUrl((args[0] as { sessionId?: string })?.sessionId) } as T;
         case "getTitle":
-          return { title: await service.getTitle((args[0] as any)?.sessionId) } as T;
+          return { title: await service.getTitle((args[0] as { sessionId?: string })?.sessionId) } as T;
+        // Multi-tab support
+        case "newTab": {
+          const opts = args[0] as { url?: string; sessionId?: string } | undefined;
+          return await service.newTab(opts?.sessionId, opts?.url) as T;
+        }
+        case "newWindow": {
+          const opts = args[0] as { viewport?: { width: number; height: number }; sessionId?: string } | undefined;
+          return await service.newWindow(opts?.sessionId, { viewport: opts?.viewport }) as T;
+        }
+        case "switchTab":
+          return await service.switchTab(args[0] as number, args[1] as string | undefined) as T;
+        case "closeTab": {
+          const opts = args[0] as { index?: number; sessionId?: string } | undefined;
+          return await service.closeTab(opts?.index, opts?.sessionId) as T;
+        }
+        case "listTabs":
+          return await service.listTabs(args[0] as string | undefined) as T;
+        case "getActiveTabIndex":
+          return { index: service.getActiveTabIndex(args[0] as string | undefined) } as T;
+        // Additional actions
+        case "hover":
+          return await service.executeAction({ type: "hover", selector: args[0] as string }, args[1] as { sessionId?: string }) as T;
+        case "select":
+          return await service.executeAction({ type: "select", selector: args[0] as string, values: args[1] as string | string[] }, args[2] as { sessionId?: string }) as T;
+        case "check":
+          return await service.executeAction({ type: "check", selector: args[0] as string }, args[1] as { sessionId?: string }) as T;
+        case "uncheck":
+          return await service.executeAction({ type: "uncheck", selector: args[0] as string }, args[1] as { sessionId?: string }) as T;
         default:
           throw new Error(`Unknown browser method: ${method}`);
       }
@@ -219,28 +288,27 @@ async function callBrowserAPI<T>(
 }
 
 /**
- * Create a browser session
+ * Create a browser session (CDP-ONLY MODE)
+ *
+ * Connects to the user's REAL Chrome browser via CDP (Chrome DevTools Protocol).
+ * This preserves cookies, sessions, and completely avoids bot detection.
+ *
+ * If Chrome is not running, it will be launched with remote debugging enabled.
+ * If Chrome is running without CDP, the user will be asked to close it first.
  */
 export const browserCreateSessionTool = createTool({
   description:
-    "Create a new browser session for automation. Returns a session ID that can be used for subsequent actions. " +
-    "Can optionally connect to an existing Chrome browser via CDP.",
+    "Create a new browser session by connecting to the USER'S REAL CHROME BROWSER via CDP. " +
+    "This preserves cookies, sessions, and history - completely avoiding bot detection! " +
+    "No CAPTCHAs, no blocks from Google/LinkedIn/etc. " +
+    "Chrome will be launched automatically if not running. " +
+    "If Chrome is already running without debugging, close ALL Chrome windows first.",
   inputSchema: z.object({
-    headless: z
-      .boolean()
-      .optional()
-      .default(false)
-      .describe("Run browser in headless mode (default: false)"),
     cdpPort: z
       .number()
       .optional()
-      .describe(
-        "Connect to existing Chrome via CDP port (e.g., 9222). Chrome must be running with --remote-debugging-port=9222",
-      ),
-    cdpUrl: z
-      .string()
-      .optional()
-      .describe("Connect to existing Chrome via CDP WebSocket URL"),
+      .default(9222)
+      .describe("CDP port for Chrome remote debugging (default: 9222)"),
     viewport: z
       .object({
         width: z.number().default(1280),
@@ -249,17 +317,18 @@ export const browserCreateSessionTool = createTool({
       .optional()
       .describe("Browser viewport dimensions"),
   }),
-  execute: async ({ headless, cdpPort, cdpUrl, viewport }) => {
+  execute: async ({ cdpPort, viewport }) => {
     try {
       const result = await callBrowserAPI<{
         sessionId?: string;
         url?: string;
         title?: string;
+        stealth?: boolean;
+        userBrowser: true;
+        cdpUrl?: string;
         error?: string;
       }>("createSession", {
-        headless,
         cdpPort,
-        cdpUrl,
         viewport,
       });
 
@@ -267,9 +336,11 @@ export const browserCreateSessionTool = createTool({
         return {
           success: false,
           error: result.error || "Failed to create browser session",
-          hint: cdpPort
-            ? "Make sure Chrome is running with --remote-debugging-port=9222"
-            : undefined,
+          hint:
+            "Common fixes:\n" +
+            "1. Close ALL Chrome windows and try again\n" +
+            "2. Check if Chrome is installed\n" +
+            `3. Manually start Chrome with: chrome --remote-debugging-port=${cdpPort || 9222}`,
         };
       }
 
@@ -278,14 +349,25 @@ export const browserCreateSessionTool = createTool({
         sessionId: result.sessionId,
         url: result.url,
         title: result.title,
+        userBrowserMode: true,
+        cdpUrl: result.cdpUrl,
         message:
-          "Browser session created. Use browser_get_snapshot to see page elements with refs.",
+          "Connected to USER'S REAL CHROME BROWSER via CDP. " +
+          "All cookies, sessions, and history are preserved. " +
+          "Bot detection is impossible since this is your actual browser! " +
+          "Use browser_get_snapshot to see page elements with refs.",
       };
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Session creation failed";
+
       return {
         success: false,
-        error:
-          error instanceof Error ? error.message : "Session creation failed",
+        error: errorMsg,
+        hint:
+          "To fix this:\n" +
+          "1. Close ALL Chrome windows (check Task Manager/Activity Monitor)\n" +
+          "2. Wait a few seconds\n" +
+          "3. Try again - Chrome will launch automatically with debugging enabled",
       };
     }
   },
@@ -387,33 +469,63 @@ export const browserSwitchSessionTool = createTool({
  * Navigate to a URL in the current tab
  */
 export const browserNavigateTool = createTool({
-  description: "Navigate to a URL in the browser.",
+  description: "Navigate to a URL in the browser with automatic retry on failure and CAPTCHA detection.",
   inputSchema: z.object({
     url: z.string().url().describe("The URL to navigate to"),
     waitUntil: z
       .enum(["load", "domcontentloaded", "networkidle"])
       .optional()
       .default("domcontentloaded")
-      .describe("When to consider navigation complete"),
+      .describe("When to consider navigation complete. 'domcontentloaded' is recommended for reliability."),
+    timeout: z
+      .number()
+      .optional()
+      .default(30000)
+      .describe("Navigation timeout in milliseconds (default: 30000)"),
+    retries: z
+      .number()
+      .optional()
+      .default(2)
+      .describe("Number of retry attempts on navigation failure (default: 2)"),
   }),
-  execute: async ({ url, waitUntil }) => {
+  execute: async ({ url, waitUntil, timeout, retries }) => {
     try {
       const result = await callBrowserAPI<{
         url?: string;
         title?: string;
+        captchaDetected?: boolean;
+        captchaType?: string;
+        blocked?: boolean;
+        suggestion?: string;
         error?: string;
-      }>("navigate", url, { waitUntil });
+      }>("navigate", url, { waitUntil, timeout, retries });
 
       if (result.error) {
         return { success: false, error: result.error };
       }
 
-      return {
-        success: true,
+      const response: Record<string, unknown> = {
+        success: !result.blocked, // Mark as failed if blocked
         title: result.title,
         currentUrl: result.url,
-        message: `Navigated to ${url}`,
+        message: result.blocked ? `Navigation blocked by ${result.captchaType || "bot detection"}` : `Navigated to ${url}`,
       };
+
+      // Report CAPTCHA/block detection with suggestions
+      if (result.captchaDetected || result.blocked) {
+        response.captchaDetected = result.captchaDetected;
+        response.captchaType = result.captchaType;
+        response.blocked = result.blocked;
+        response.warning = `BLOCKED by ${result.captchaType || "bot detection"}. Page cannot be scraped.`;
+
+        // Include suggestion for alternatives
+        if (result.suggestion) {
+          response.suggestion = result.suggestion;
+          response.alternativeUrls = extractAlternativeUrls(result.suggestion);
+        }
+      }
+
+      return response;
     } catch (error) {
       return {
         success: false,
@@ -988,6 +1100,365 @@ export const browserReloadTool = createTool({
 });
 
 // ============================================================================
+// MULTI-TAB TOOLS
+// ============================================================================
+
+/**
+ * Open a new browser tab
+ */
+export const browserNewTabTool = createTool({
+  description: "Open a new browser tab, optionally navigating to a URL. Returns the tab index.",
+  inputSchema: z.object({
+    url: z.string().url().optional().describe("Optional URL to navigate to in the new tab"),
+  }),
+  execute: async ({ url }) => {
+    try {
+      const result = await callBrowserAPI<{
+        index?: number;
+        total?: number;
+        url?: string;
+        error?: string;
+      }>("newTab", { url });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        tabIndex: result.index,
+        totalTabs: result.total,
+        url: result.url || "about:blank",
+        message: `Opened new tab ${(result.index || 0) + 1}/${result.total}${url ? ` at ${url}` : ""}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to open new tab",
+      };
+    }
+  },
+});
+
+/**
+ * Open a new browser window
+ */
+export const browserNewWindowTool = createTool({
+  description: "Open a new browser window. Useful for multi-window workflows.",
+  inputSchema: z.object({
+    viewport: z
+      .object({
+        width: z.number().default(1280),
+        height: z.number().default(720),
+      })
+      .optional()
+      .describe("Optional viewport size for the new window"),
+  }),
+  execute: async ({ viewport }) => {
+    try {
+      const result = await callBrowserAPI<{
+        index?: number;
+        total?: number;
+        error?: string;
+      }>("newWindow", { viewport });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        tabIndex: result.index,
+        totalTabs: result.total,
+        message: `Opened new window (tab ${(result.index || 0) + 1}/${result.total})`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to open new window",
+      };
+    }
+  },
+});
+
+/**
+ * Switch to a different browser tab
+ */
+export const browserSwitchTabTool = createTool({
+  description: "Switch to a different browser tab by index. Use browser_list_tabs to see available tabs.",
+  inputSchema: z.object({
+    index: z.number().describe("Tab index to switch to (0-based)"),
+  }),
+  execute: async ({ index }) => {
+    try {
+      const result = await callBrowserAPI<{
+        index?: number;
+        url?: string;
+        title?: string;
+        error?: string;
+      }>("switchTab", index);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        activeTabIndex: result.index,
+        url: result.url,
+        title: result.title,
+        message: `Switched to tab ${(result.index || 0) + 1}: ${result.title}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to switch tab",
+      };
+    }
+  },
+});
+
+/**
+ * Close a browser tab
+ */
+export const browserCloseTabTool = createTool({
+  description: "Close a browser tab. If no index provided, closes the current tab.",
+  inputSchema: z.object({
+    index: z.number().optional().describe("Tab index to close. If not provided, closes active tab."),
+  }),
+  execute: async ({ index }) => {
+    try {
+      const result = await callBrowserAPI<{
+        closed?: number;
+        remaining?: number;
+        error?: string;
+      }>("closeTab", { index });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        closedTabIndex: result.closed,
+        remainingTabs: result.remaining,
+        message: `Closed tab, ${result.remaining} tab${result.remaining === 1 ? "" : "s"} remaining`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to close tab",
+      };
+    }
+  },
+});
+
+/**
+ * List all browser tabs
+ */
+export const browserListTabsTool = createTool({
+  description: "List all open browser tabs with their URLs and titles.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const tabs = await callBrowserAPI<
+        Array<{ index: number; url: string; title: string; active: boolean }>
+      >("listTabs");
+
+      if (!Array.isArray(tabs)) {
+        return {
+          success: false,
+          error: "Failed to list tabs",
+        };
+      }
+
+      return {
+        success: true,
+        tabs: tabs.map((tab) => ({
+          index: tab.index,
+          url: tab.url,
+          title: tab.title || "(untitled)",
+          active: tab.active,
+        })),
+        totalTabs: tabs.length,
+        activeTabIndex: tabs.find((t) => t.active)?.index,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to list tabs",
+      };
+    }
+  },
+});
+
+/**
+ * Get active tab index
+ */
+export const browserGetActiveTabIndexTool = createTool({
+  description: "Get the index of the currently active browser tab.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const result = await callBrowserAPI<{
+        index?: number;
+        error?: string;
+      }>("getActiveTabIndex");
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        activeTabIndex: result.index,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to get active tab index",
+      };
+    }
+  },
+});
+
+// ============================================================================
+// ADDITIONAL ACTION TOOLS
+// ============================================================================
+
+/**
+ * Hover over an element
+ */
+export const browserHoverTool = createTool({
+  description: "Hover over an element to trigger hover states, tooltips, or dropdown menus.",
+  inputSchema: z.object({
+    selector: z.string().describe("CSS selector or ref (e.g., @e1) for the element to hover over"),
+  }),
+  execute: async ({ selector }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("hover", selector);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        message: `Hovered over ${selector}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Hover failed",
+      };
+    }
+  },
+});
+
+/**
+ * Select options from a dropdown
+ */
+export const browserSelectTool = createTool({
+  description: "Select one or more options from a dropdown/select element.",
+  inputSchema: z.object({
+    selector: z.string().describe("CSS selector or ref for the select element"),
+    values: z
+      .union([z.string(), z.array(z.string())])
+      .describe("Value(s) to select. For multi-select, provide an array."),
+  }),
+  execute: async ({ selector, values }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("select", selector, values);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      const selectedValues = Array.isArray(values) ? values.join(", ") : values;
+      return {
+        success: true,
+        message: `Selected "${selectedValues}" in ${selector}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Select failed",
+      };
+    }
+  },
+});
+
+/**
+ * Check a checkbox or radio button
+ */
+export const browserCheckTool = createTool({
+  description: "Check a checkbox or radio button.",
+  inputSchema: z.object({
+    selector: z.string().describe("CSS selector or ref for the checkbox/radio element"),
+  }),
+  execute: async ({ selector }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("check", selector);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        message: `Checked ${selector}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Check failed",
+      };
+    }
+  },
+});
+
+/**
+ * Uncheck a checkbox
+ */
+export const browserUncheckTool = createTool({
+  description: "Uncheck a checkbox.",
+  inputSchema: z.object({
+    selector: z.string().describe("CSS selector or ref for the checkbox element"),
+  }),
+  execute: async ({ selector }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("uncheck", selector);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        message: `Unchecked ${selector}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Uncheck failed",
+      };
+    }
+  },
+});
+
+// ============================================================================
 // CONTEXT-BASED TOOLS (Legacy compat - uses evaluate for page context)
 // ============================================================================
 
@@ -1198,6 +1669,14 @@ export const localBrowserTools = {
   browser_go_forward: browserGoForwardTool,
   browser_reload: browserReloadTool,
 
+  // === MULTI-TAB MANAGEMENT ===
+  browser_new_tab: browserNewTabTool,
+  browser_new_window: browserNewWindowTool,
+  browser_switch_tab: browserSwitchTabTool,
+  browser_close_tab: browserCloseTabTool,
+  browser_list_tabs: browserListTabsTool,
+  browser_get_active_tab_index: browserGetActiveTabIndexTool,
+
   // === AI-OPTIMIZED TOOLS (PRIMARY) ===
   browser_get_snapshot: browserGetSnapshotTool, // PRIMARY - ref-based element tree
   browser_get_context: browserGetContextTool, // Structured context extraction
@@ -1211,6 +1690,10 @@ export const localBrowserTools = {
   browser_press_key: browserPressKeyTool,
   browser_scroll: browserScrollTool,
   browser_wait: browserWaitTool,
+  browser_hover: browserHoverTool,
+  browser_select: browserSelectTool,
+  browser_check: browserCheckTool,
+  browser_uncheck: browserUncheckTool,
 
   // Page Info
   browser_screenshot: browserScreenshotTool,

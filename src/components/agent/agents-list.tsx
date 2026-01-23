@@ -26,7 +26,7 @@ interface AgentsListProps {
 export function AgentsList({
   initialMyAgents,
   systemAgents,
-  userId,
+  userId: _userId,
 }: AgentsListProps) {
   const { t } = useTranslation();
   const mutateAgents = useMutateAgents();

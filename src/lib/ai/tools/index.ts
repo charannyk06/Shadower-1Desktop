@@ -44,6 +44,18 @@ export enum DefaultToolName {
   BrowserGetUrl = "browserGetUrl",
   BrowserGetTitle = "browserGetTitle",
   BrowserEvaluate = "browserEvaluate",
+  // Multi-tab management tools
+  BrowserNewTab = "browserNewTab",
+  BrowserNewWindow = "browserNewWindow",
+  BrowserSwitchTab = "browserSwitchTab",
+  BrowserCloseTab = "browserCloseTab",
+  BrowserListTabs = "browserListTabs",
+  BrowserGetActiveTabIndex = "browserGetActiveTabIndex",
+  // Additional browser action tools
+  BrowserHover = "browserHover",
+  BrowserSelect = "browserSelect",
+  BrowserCheck = "browserCheck",
+  BrowserUncheck = "browserUncheck",
   // Desktop/Computer Use tools (Local Terminal)
   DesktopCreate = "desktopCreate",
   DesktopCommand = "desktopCommand", // Shell/terminal command execution

@@ -21,7 +21,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 export default function EmailSignUp({
-  isFirstUser,
+  isFirstUser: _isFirstUser,
 }: {
   isFirstUser?: boolean;
 }) {

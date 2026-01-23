@@ -17,7 +17,7 @@ export function isCollaboraConfigured(): boolean {
  * Check if a MIME type is supported by Collabora (always false in desktop)
  */
 export function isCollaboraSupported(
-  mimeType: string,
+  _mimeType: string,
   _fileName?: string
 ): boolean {
   return false;
