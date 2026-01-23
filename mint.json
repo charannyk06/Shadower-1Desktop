@@ -29,7 +29,6 @@
       "group": "Features",
       "pages": [
         "docs/feature-summaries/avatar-removal",
-        "docs/tips-guides/temporary_chat",
         "docs/tips-guides/system-prompts-and-customization"
       ]
     },

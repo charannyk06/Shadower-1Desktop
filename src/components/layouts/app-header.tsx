@@ -3,7 +3,6 @@
 import {
   ChevronDown,
   FolderOpen,
-  MessageCircleDashed,
   MicIcon,
   PanelLeft,
 } from "lucide-react";
@@ -166,43 +165,6 @@ export function AppHeader() {
                       {key}
                     </span>
                   ))}
-                </div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size={"icon"}
-                variant={"secondary"}
-                className="bg-secondary/40"
-                onClick={() => {
-                  appStoreMutate((state) => ({
-                    temporaryChat: {
-                      ...state.temporaryChat,
-                      isOpen: !state.temporaryChat.isOpen,
-                    },
-                  }));
-                }}
-              >
-                <MessageCircleDashed className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent align="end" side="bottom">
-              <div className="text-xs flex items-center gap-2">
-                {t("KeyboardShortcuts.toggleTemporaryChat")}
-                <div className="text-xs text-muted-foreground flex items-center gap-1">
-                  {getShortcutKeyList(Shortcuts.toggleTemporaryChat).map(
-                    (key) => (
-                      <span
-                        className="w-5 h-5 flex items-center justify-center bg-muted rounded "
-                        key={key}
-                      >
-                        {key}
-                      </span>
-                    ),
-                  )}
                 </div>
               </div>
             </TooltipContent>

@@ -97,11 +97,6 @@ export interface AppState {
   openBilling: boolean;
   openKnowledge: boolean;
   mcpCustomizationPopup?: MCPServerInfo & { id: string };
-  temporaryChat: {
-    isOpen: boolean;
-    instructions: string;
-    chatModel?: ChatModel;
-  };
   voiceChat: {
     isOpen: boolean;
     agentId?: string;
@@ -197,10 +192,6 @@ const initialState: AppState = {
   openShortcutsPopup: false,
   openChatPreferences: false,
   mcpCustomizationPopup: undefined,
-  temporaryChat: {
-    isOpen: false,
-    instructions: "",
-  },
   voiceChat: {
     isOpen: false,
     options: {
@@ -291,11 +282,6 @@ export const appStore = create<AppState & AppDispatch>()(
           );
           return [...validStored, ...newToolkits];
         })(),
-        temporaryChat: {
-          ...initialState.temporaryChat,
-          ...state.temporaryChat,
-          isOpen: false,
-        },
         toolPresets: state.toolPresets || initialState.toolPresets,
         voiceChat: {
           ...initialState.voiceChat,
