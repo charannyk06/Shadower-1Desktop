@@ -186,14 +186,115 @@ const components: Partial<Components> = {
   },
 };
 
-const NonMemoizedMarkdown = ({ children }: { children: string }) => {
+// Compact components for inline/tight markdown rendering (e.g., subagent output)
+const compactComponents: Partial<Components> = {
+  ...components,
+  p: ({ children }) => {
+    return (
+      <p className="leading-5 my-1 break-words">
+        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+      </p>
+    );
+  },
+  ul: ({ node, children, ...props }) => {
+    return (
+      <ul className="pl-4 list-outside list-disc my-1" {...props}>
+        {children}
+      </ul>
+    );
+  },
+  ol: ({ node, children, ...props }) => {
+    return (
+      <ol className="pl-4 list-decimal list-outside my-1" {...props}>
+        {children}
+      </ol>
+    );
+  },
+  li: ({ node, children, ...props }) => {
+    return (
+      <li className="py-0.5 break-words" {...props}>
+        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+      </li>
+    );
+  },
+  h1: ({ node, children, ...props }) => {
+    return (
+      <h1 className="text-base font-semibold mt-2 mb-1" {...props}>
+        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+      </h1>
+    );
+  },
+  h2: ({ node, children, ...props }) => {
+    return (
+      <h2 className="text-sm font-semibold mt-2 mb-1" {...props}>
+        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+      </h2>
+    );
+  },
+  h3: ({ node, children, ...props }) => {
+    return (
+      <h3 className="text-sm font-semibold mt-1.5 mb-0.5" {...props}>
+        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+      </h3>
+    );
+  },
+  h4: ({ node, children, ...props }) => {
+    return (
+      <h4 className="text-xs font-semibold mt-1.5 mb-0.5" {...props}>
+        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+      </h4>
+    );
+  },
+  h5: ({ node, children, ...props }) => {
+    return (
+      <h5 className="text-xs font-semibold mt-1 mb-0.5" {...props}>
+        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+      </h5>
+    );
+  },
+  h6: ({ node, children, ...props }) => {
+    return (
+      <h6 className="text-xs font-semibold mt-1 mb-0.5" {...props}>
+        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+      </h6>
+    );
+  },
+  blockquote: ({ children }) => {
+    return (
+      <blockquote className="relative bg-accent/30 p-2 rounded-md my-1 overflow-hidden border-l-2 border-accent">
+        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+      </blockquote>
+    );
+  },
+  pre: ({ children }) => {
+    return (
+      <div className="py-1">
+        <PreBlock>{children}</PreBlock>
+      </div>
+    );
+  },
+  table: ({ node, children, ...props }) => {
+    return (
+      <div className="my-2">
+        <Table {...props}>{children}</Table>
+      </div>
+    );
+  },
+};
+
+interface MarkdownProps {
+  children: string;
+  compact?: boolean;
+}
+
+const NonMemoizedMarkdown = ({ children, compact = false }: MarkdownProps) => {
   return (
     <article className="w-full h-full relative">
       {isJson(children) ? (
         <JsonView data={children} />
       ) : (
         <ReactMarkdown
-          components={components}
+          components={compact ? compactComponents : components}
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
         >
@@ -206,5 +307,7 @@ const NonMemoizedMarkdown = ({ children }: { children: string }) => {
 
 export const Markdown = memo(
   NonMemoizedMarkdown,
-  (prevProps, nextProps) => prevProps.children === nextProps.children,
+  (prevProps, nextProps) =>
+    prevProps.children === nextProps.children &&
+    prevProps.compact === nextProps.compact,
 );
