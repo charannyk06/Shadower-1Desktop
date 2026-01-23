@@ -21,6 +21,7 @@ import type {
   ChatRequestOptions,
 } from "ai";
 import type { ChatApiSchemaRequestBody } from "app-types/chat";
+import { appStore } from "@/app/store";
 
 // Type for prepare request function
 type PrepareSendMessagesRequestFn = (params: {
@@ -36,6 +37,12 @@ export interface ElectronIPCTransportOptions {
   credentials?: RequestCredentials;
   body?: Record<string, unknown>;
   prepareSendMessagesRequest?: PrepareSendMessagesRequestFn;
+  /**
+   * Working directory to use for file operations.
+   * Pass this explicitly to avoid potential stale state issues when reading from the store
+   * during async callbacks.
+   */
+  workingDirectory?: { path: string; name: string };
 }
 
 /**
@@ -238,8 +245,12 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
       ctrl: ReadableStreamDefaultController<UIMessageChunk>,
     ) => {
       try {
+        // Use the working directory passed via options (preferred) or fall back to store
+        // Using options is more reliable as it avoids potential stale state in async callbacks
+        const workingDirectory = this.options.workingDirectory ?? appStore.getState().workingDirectory;
+
         // Prepare the stream (sets up model, tools, but doesn't start streaming)
-        console.log("[AI Transport] Preparing stream for thread:", id);
+        console.log("[AI Transport] Preparing stream for thread:", id, "with working directory:", workingDirectory?.path || "not set");
         const prepareResult = await api.ai.stream({
           threadId: id,
           messages,
@@ -252,6 +263,7 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
           message: requestBody.message,
           imageTool: requestBody.imageTool,
           attachments: requestBody.attachments,
+          workingDirectory, // Pass the working directory to the AI
         });
 
         if (prepareResult?.error) {

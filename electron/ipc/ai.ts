@@ -210,6 +210,7 @@ interface StreamContext {
   chatModel?: { provider: string; model: string };
   chatMode?: "regular" | "agent";
   originalUIMessages?: UIMessage[]; // Store original UIMessages for follow-up calls
+  workingDirectory?: { path: string; name: string }; // Working directory for file operations
 }
 const preparedStreams = new Map<string, StreamContext>();
 
@@ -714,6 +715,11 @@ interface StreamRequest {
   message: UIMessage;
   imageTool?: { model?: string };
   attachments?: any[];
+  // Working directory for file operations
+  workingDirectory?: {
+    path: string;
+    name: string;
+  };
 }
 
 // Decrypt API key using Electron's safeStorage
@@ -727,9 +733,28 @@ function decryptApiKey(encryptedKey: string): string {
 }
 
 /**
- * System prompt for agentic behavior
+ * Build system prompt for agentic behavior
+ * @param workingDirectory - Optional working directory context
  */
-const AGENT_SYSTEM_PROMPT = `You are Shadower, an autonomous AI assistant running as a desktop application.
+function buildAgentSystemPrompt(workingDirectory?: { path: string; name: string }): string {
+  const workingDirSection = workingDirectory?.path
+    ? `
+## WORKING DIRECTORY
+**Current Working Directory**: ${workingDirectory.path}
+**Directory Name**: ${workingDirectory.name}
+
+IMPORTANT: All file operations and terminal commands should use this working directory as the base path.
+- When creating files, save them to: ${workingDirectory.path}
+- When running terminal commands, use this as the current directory (cwd)
+- When reading files, look in this directory first
+- The user expects all work to happen within this directory
+`
+    : `
+## WORKING DIRECTORY
+**Current Working Directory**: ${os.homedir()} (default - user's home directory)
+`;
+
+  return `You are Shadower, an autonomous AI assistant running as a desktop application.
 
 ## CAPABILITIES
 You have FULL ACCESS to the user's computer through tools:
@@ -739,7 +764,7 @@ You have FULL ACCESS to the user's computer through tools:
 - **Desktop Automation**: Click, type, scroll, and interact with any application
 - **Clipboard**: Read and write to clipboard
 - **Browser**: Open URLs in the default browser
-
+${workingDirSection}
 ## BEHAVIOR
 1. **Be Proactive**: When given a task, break it down and execute it step by step
 2. **Use Tools**: Don't just describe what you would do - actually DO it using tools
@@ -752,33 +777,42 @@ You have FULL ACCESS to the user's computer through tools:
 - You can see and interact with the user's desktop
 - You have permission to execute commands and modify files when asked
 - Always confirm before making destructive changes (deleting files, etc.)
+- **ALWAYS use the working directory for file operations unless the user specifies otherwise**
 
 ## PLATFORM
 Operating System: ${os.platform()} (${os.release()})
 Architecture: ${os.arch()}
 Home Directory: ${os.homedir()}
 `;
+}
 
 /**
  * Create desktop tools that work in Electron main process
  * Note: event parameter is optional for sending screenshots to UI
+ * @param threadId - Thread ID for the current conversation
+ * @param event - IPC event for sending data to renderer
+ * @param workingDirectory - Optional working directory for file/terminal operations
  */
 function createElectronTools(
   threadId: string,
   event?: Electron.IpcMainInvokeEvent,
+  workingDirectory?: { path: string; name: string },
 ) {
+  // Default cwd is the working directory if set, otherwise home directory
+  const defaultCwd = workingDirectory?.path || os.homedir();
+
   return {
     // Terminal command execution
     terminal_execute: createTool({
       description:
-        "Execute a shell command in the terminal. Returns stdout, stderr, and exit code.",
+        `Execute a shell command in the terminal. Returns stdout, stderr, and exit code. Default working directory: ${defaultCwd}`,
       inputSchema: z
         .object({
           command: z.string().describe("The command to execute"),
           cwd: z
             .string()
             .optional()
-            .describe("Working directory (defaults to home directory)"),
+            .describe(`Working directory (defaults to ${defaultCwd})`),
           timeout: z
             .number()
             .optional()
@@ -786,10 +820,10 @@ function createElectronTools(
         })
         .describe("Terminal execution parameters"),
       execute: async ({ command, cwd, timeout = 30000 }) => {
-        // console.log(`[AI Tools] Executing command: ${command}`);
+        // console.log(`[AI Tools] Executing command: ${command} in ${cwd || defaultCwd}`);
         try {
           const { stdout, stderr } = await execAsync(command, {
-            cwd: cwd || os.homedir(),
+            cwd: cwd || defaultCwd,
             timeout,
             maxBuffer: 10 * 1024 * 1024, // 10MB buffer
           });
@@ -1435,26 +1469,48 @@ function createElectronTools(
     // ============================================
     // Browser Automation Tools (using agent-browser)
     // ============================================
+    //
+    // BREAKING CHANGE (v2.0):
+    // The browser tools now operate in CDP-ONLY mode. Previous headless mode
+    // options (headless: true, stealth: true, etc.) are NO LONGER SUPPORTED.
+    //
+    // Why this change?
+    // - CDP mode connects to the user's REAL Chrome browser
+    // - This preserves cookies, sessions, and browsing history
+    // - Completely avoids bot detection (no CAPTCHAs, no blocks)
+    // - Works with sites that block headless browsers (Google, LinkedIn, etc.)
+    //
+    // Migration guide for code using the old API:
+    // - Remove any `headless: true` options - this is now always the user's real browser
+    // - Remove any `stealth: true` options - not needed with real browser
+    // - Remove any `userAgent` options - uses real browser's user agent
+    // - The `cdpPort` option (default: 9222) is the only required option
+    //
+    // If you need to run automation while Chrome is already open:
+    // - Use `useSeparateProfile: true` in LaunchOptions
+    // - Note: This creates a fresh profile without your main Chrome's cookies
 
-    // Create a new browser session
+    // Create a new browser session (CDP-ONLY MODE)
+    // Connects to user's REAL Chrome browser to preserve cookies and avoid bot detection
     browser_create_session: createTool({
       description:
-        "Create a new browser session for web automation. This launches a browser instance that you can control. " +
-        "Use headless=false (default) to see the browser window.",
+        "Create a new browser session by connecting to the USER'S REAL CHROME BROWSER via CDP. " +
+        "This preserves cookies, sessions, and history - completely avoiding bot detection! " +
+        "No CAPTCHAs, no blocks from Google/LinkedIn/etc. " +
+        "Chrome will be launched automatically if not running. " +
+        "If Chrome is already running without debugging, close ALL Chrome windows first. " +
+        "NOTE: This is CDP-ONLY mode - headless mode is no longer supported.",
       inputSchema: z.object({
-        headless: z
-          .boolean()
-          .optional()
-          .describe("Run in headless mode (default: false for visibility)"),
         cdpPort: z
           .number()
           .optional()
-          .describe("Connect to existing Chrome via CDP port"),
+          .default(9222)
+          .describe("CDP port for Chrome remote debugging (default: 9222)"),
       }),
-      execute: async ({ headless = false, cdpPort }) => {
+      execute: async ({ cdpPort }) => {
         try {
           const service = EnhancedBrowserService.getInstance();
-          const result = await service.createSession({ headless, cdpPort });
+          const result = await service.createSession({ cdpPort });
           if (!result || !result.sessionId) {
             return { success: false, error: "Browser session creation returned empty result" };
           }
@@ -1463,10 +1519,20 @@ function createElectronTools(
             sessionId: result.sessionId,
             url: result.url,
             title: result.title,
-            message: `Browser session created: ${result.sessionId}`,
+            userBrowser: result.userBrowser,
+            cdpUrl: result.cdpUrl,
+            message: `Connected to USER'S REAL CHROME BROWSER via CDP: ${result.sessionId}. Bot detection is impossible!`,
           };
         } catch (error: any) {
-          return { success: false, error: error.message };
+          return {
+            success: false,
+            error: error.message,
+            hint:
+              "To fix this:\n" +
+              "1. Close ALL Chrome windows\n" +
+              "2. Wait a few seconds\n" +
+              "3. Try again - Chrome will launch automatically with debugging enabled",
+          };
         }
       },
     }),
@@ -1854,6 +1920,7 @@ export function registerAIHandlers() {
       message,
       allowedMcpServers,
       chatMode,
+      workingDirectory,
     } = request;
 
     console.log(
@@ -1969,7 +2036,7 @@ export function registerAIHandlers() {
       );
 
       // Create desktop tools for this thread
-      const allDesktopTools = createElectronTools(threadId, event);
+      const allDesktopTools = createElectronTools(threadId, event, workingDirectory);
 
       // IMPORTANT: Desktop tools should ALWAYS be available alongside MCP tools
       // Terminal/shell execution is fundamental and should never be filtered out
@@ -2073,19 +2140,24 @@ export function registerAIHandlers() {
         toolsToUse = tools;
       }
 
+      // Build system prompt with working directory context
+      const systemPrompt = buildAgentSystemPrompt(workingDirectory);
+      console.log(`[AI IPC] Working directory for thread ${threadId}: ${workingDirectory?.path || 'not set (using home)'}`);
+
       // Store prepared context - DON'T start streaming yet!
       preparedStreams.set(threadId, {
         model,
         messages: modelMessages,
         tools: toolsToUse,
         abortController,
-        systemPrompt: AGENT_SYSTEM_PROMPT,
+        systemPrompt,
         threadId,
         event,
         userMessage: message, // Store user message for saving
         chatModel,
         chatMode,
         originalUIMessages: allMessages, // Store original UIMessages for follow-up tool calls
+        workingDirectory, // Store working directory for later use
       });
 
       // console.log(`[AI IPC] Stream prepared for thread: ${threadId}, waiting for start signal`);
@@ -2150,6 +2222,7 @@ export function registerAIHandlers() {
         userMessage,
         chatModel,
         chatMode,
+        workingDirectory,
       } = context;
 
       console.log(
@@ -2457,6 +2530,7 @@ export function registerAIHandlers() {
             maxSteps: agentMaxSteps, // Configurable limit for long-running agent mode
             continuousMode, // Allow agent to continue after plan completion
             dataStream: ipcDataStream as any, // Cast to any since we're only implementing write()
+            workingDirectory, // Pass working directory for file operations
           });
 
           // Verify model supports tool calling in agent mode
@@ -2837,7 +2911,7 @@ export function registerAIHandlers() {
                 // Step 1: Try direct parsing
                 try {
                   args = JSON.parse(trimmedJson);
-                } catch (parseError) {
+                } catch (_parseError) {
                   console.warn(
                     `[AI IPC] Initial JSON parse failed for ${toolName}, attempting recovery. JSON snippet: ${trimmedJson.slice(0, 100)}...`,
                   );
@@ -2860,7 +2934,7 @@ export function registerAIHandlers() {
                     console.log(
                       `[AI IPC] JSON recovery successful for ${toolName}`,
                     );
-                  } catch (recoveryError) {
+                  } catch (_recoveryError) {
                     // Step 3: Try to extract just the first complete JSON object
                     try {
                       const jsonMatch = trimmedJson.match(/\{[\s\S]*\}/);

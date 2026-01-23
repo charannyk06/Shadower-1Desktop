@@ -42,6 +42,11 @@ export type OrchestratorConfig = {
   maxSteps?: number;
   /** Continuous mode: don't stop on plan completion, run until maxSteps (for long-running tasks) */
   continuousMode?: boolean;
+  /** Working directory for file operations */
+  workingDirectory?: {
+    path: string;
+    name: string;
+  };
 };
 
 /**

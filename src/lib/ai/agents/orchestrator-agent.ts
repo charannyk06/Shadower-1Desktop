@@ -366,6 +366,8 @@ When creating files (documents, presentations, images, code files, etc.):
 3. Files are saved to the local filesystem and accessible immediately
 4. The user's workspace is the local machine
 5. Generate content and use terminal commands to save it
+6. **IMPORTANT**: ALWAYS save files to the user's WORKING DIRECTORY unless they specify otherwise
+7. The working directory path is provided in the system context - use it as the base for all file operations
 
 ## CRITICAL: TEXT OUTPUT TIMING
 **DO NOT output explanatory text while tools or sub-agents are executing.**
@@ -562,7 +564,7 @@ Example invocation:
 createPlan({ request: "Research and summarize topic X", tasks: [{ description: "Search for information" }, { description: "Compile findings" }] })
 
 IMPORTANT: Do NOT output a plan as text - you MUST call this function to create the plan.`,
-    inputSchema: createPlanZodSchema,
+    inputSchema: createPlanZodSchema as z.ZodType<any>,
     execute: async ({
       request,
       tasks,
@@ -1279,11 +1281,11 @@ function createSubAgentTools(
         }
       }
 
-      // Emit completion event
+      // Emit completion event with the final result
       if (dataStream) {
         dataStream.write({
           type: "data-sub-agent-complete",
-          data: { agentId, agentName, success: true },
+          data: { agentId, agentName, success: true, result: finalResult },
         });
       }
 
@@ -2618,6 +2620,32 @@ export async function resumeAgentState(
 }
 
 /**
+ * Build the working directory context section for system prompts
+ * This is used by both createAgentOrchestratorConfig and createStreamingAutonomousAgent
+ *
+ * @param workingDirectory - Optional working directory configuration
+ * @returns A string to append to the system prompt, or empty string if no directory set
+ */
+function buildWorkingDirectorySection(workingDirectory?: { path: string; name: string }): string {
+  if (!workingDirectory?.path) {
+    return "";
+  }
+
+  return `
+
+## WORKING DIRECTORY
+**Current Working Directory**: ${workingDirectory.path}
+**Directory Name**: ${workingDirectory.name}
+
+CRITICAL: All file operations and terminal commands MUST use this working directory as the base path.
+- When creating files, save them to: ${workingDirectory.path}
+- When running terminal commands, use this as the current directory (cwd)
+- When reading files, look in this directory first
+- The user expects ALL work to happen within this directory
+`;
+}
+
+/**
  * Configuration options for the agent orchestrator
  */
 export interface AgentOrchestratorOptions {
@@ -2637,17 +2665,20 @@ export interface AgentOrchestratorOptions {
  * @returns Configuration object for generateText/streamText with all tools
  */
 export function createAgentOrchestratorConfig(config: OrchestratorConfig) {
-  const { availableTools, mcpTools, userAgent, maxSteps = 50 } = config;
+  const { availableTools, mcpTools, userAgent, maxSteps = 50, workingDirectory } = config;
 
   // Create context manager for this orchestrator instance
   const ctx = createAgentContext();
 
+  // Build working directory context section using shared helper
+  const workingDirSection = buildWorkingDirectorySection(workingDirectory);
+
   // Build system prompt
-  let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS;
+  let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS + workingDirSection;
 
   if (userAgent?.instructions) {
     const agentPrompt = buildAgentSystemPrompt(userAgent.instructions);
-    systemPrompt = `${agentPrompt}\n\n---\n\n${AGENT_ORCHESTRATOR_INSTRUCTIONS}`;
+    systemPrompt = `${agentPrompt}\n\n---\n\n${AGENT_ORCHESTRATOR_INSTRUCTIONS}${workingDirSection}`;
   }
 
   // Create all tools
@@ -2790,15 +2821,19 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     maxSteps = 50,
     dataStream,
     continuousMode = false,
+    workingDirectory,
   } = config;
 
   const { agent, contextManager, agentStateId } = createAutonomousAgent(config);
 
+  // Build working directory context section
+  const workingDirSection = buildWorkingDirectorySection(workingDirectory);
+
   // Build system prompt - SIMPLIFIED for better model adherence
-  let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS;
+  let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS + workingDirSection;
   if (userAgent?.instructions) {
     const agentPrompt = buildAgentSystemPrompt(userAgent.instructions);
-    systemPrompt = `${agentPrompt}\n\n---\n\n${AGENT_ORCHESTRATOR_INSTRUCTIONS}`;
+    systemPrompt = `${agentPrompt}\n\n---\n\n${AGENT_ORCHESTRATOR_INSTRUCTIONS}${workingDirSection}`;
   }
 
   // Create tools WITH dataStream for plan/task streaming events
@@ -2881,7 +2916,7 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     stepCountIs(maxSteps),
 
     // 2. Plan completion - stop when all tasks done (unless continuous mode)
-    (options: { steps: StepResult<any>[] }) => {
+    (_options: { steps: StepResult<any>[] }) => {
       if (continuousMode) return false;
 
       const plan = contextManager.getPlan();
