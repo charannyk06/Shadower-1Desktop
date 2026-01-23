@@ -239,6 +239,15 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
     let streamClosed = false;
     let chunkCounter = 0;
 
+    // Track active reasoning parts to synthesize missing reasoning-start chunks
+    // This prevents the "Received reasoning-delta for missing reasoning part" error
+    const activeReasoningIds = new Set<string>();
+
+    // Track active text parts to synthesize missing text-start chunks
+    // This prevents text-delta chunks from being ignored when text-start is missing
+    // (common with thinking models like qwen3 that use extractReasoningMiddleware)
+    const activeTextIds = new Set<string>();
+
     // Async function that ONLY handles prepare/start calls
     // NO listener setup here - that's done synchronously in start()
     const startStreamingAsync = async (
@@ -357,6 +366,110 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
                     `[AI Transport] *** FINISH CHUNK RECEIVED *** finishReason: ${parsed.finishReason}`,
                     JSON.stringify(parsed, null, 2),
                   );
+                }
+
+                // FIX: Ensure finish and finish-step chunks always have valid usage data to prevent
+                // "Cannot read properties of undefined (reading 'inputTokens')" error
+                // AI SDK v6 expects nested usage structure: { inputTokens: { total: number }, outputTokens: { total: number } }
+                if (chunkType === "finish" || chunkType === "finish-step") {
+                  if (!parsed.usage) {
+                    parsed.usage = {
+                      inputTokens: { total: 0 },
+                      outputTokens: { total: 0 },
+                    };
+                    console.log(
+                      `[AI Transport] Added default usage data to ${chunkType} chunk`,
+                    );
+                  } else {
+                    // Ensure inputTokens has the nested structure
+                    if (!parsed.usage.inputTokens) {
+                      parsed.usage.inputTokens = { total: 0 };
+                    } else if (typeof parsed.usage.inputTokens === "number") {
+                      parsed.usage.inputTokens = { total: parsed.usage.inputTokens };
+                    } else if (!parsed.usage.inputTokens.total) {
+                      parsed.usage.inputTokens.total = 0;
+                    }
+                    // Ensure outputTokens has the nested structure
+                    if (!parsed.usage.outputTokens) {
+                      parsed.usage.outputTokens = { total: 0 };
+                    } else if (typeof parsed.usage.outputTokens === "number") {
+                      parsed.usage.outputTokens = { total: parsed.usage.outputTokens };
+                    } else if (!parsed.usage.outputTokens.total) {
+                      parsed.usage.outputTokens.total = 0;
+                    }
+                  }
+                }
+
+                // REASONING CHUNK FIX: Track reasoning-start and synthesize missing starts
+                // The AI SDK throws an error if reasoning-delta arrives before reasoning-start
+                // This can happen with some models or when chunks arrive out of order
+                if (chunkType === "reasoning-start" && chunkId) {
+                  activeReasoningIds.add(chunkId);
+                  console.log(
+                    `[AI Transport] *** REASONING-START CHUNK *** id: ${chunkId}`,
+                  );
+                } else if (chunkType === "reasoning-delta" && chunkId) {
+                  // Check if we've seen the reasoning-start for this ID
+                  if (!activeReasoningIds.has(chunkId)) {
+                    // Synthesize a reasoning-start chunk BEFORE processing this delta
+                    console.log(
+                      `[AI Transport] *** SYNTHESIZING MISSING REASONING-START *** id: ${chunkId}`,
+                    );
+                    const syntheticStart = {
+                      type: "reasoning-start",
+                      id: chunkId,
+                    };
+                    if (streamController && !streamClosed) {
+                      try {
+                        streamController.enqueue(syntheticStart as UIMessageChunk);
+                      } catch (e) {
+                        console.error(
+                          "[AI Transport] Failed to enqueue synthetic reasoning-start:",
+                          e,
+                        );
+                      }
+                    }
+                    activeReasoningIds.add(chunkId);
+                  }
+                } else if (chunkType === "reasoning-end" && chunkId) {
+                  // Clean up tracking for completed reasoning
+                  activeReasoningIds.delete(chunkId);
+                }
+
+                // TEXT CHUNK FIX: Track text-start and synthesize missing starts
+                // The AI SDK ignores text-delta if there's no text-start for that part
+                // This can happen with thinking models using extractReasoningMiddleware
+                if (chunkType === "text-start" && chunkId) {
+                  activeTextIds.add(chunkId);
+                  console.log(
+                    `[AI Transport] *** TEXT-START TRACKED *** id: ${chunkId}`,
+                  );
+                } else if (chunkType === "text-delta" && chunkId) {
+                  // Check if we've seen the text-start for this ID
+                  if (!activeTextIds.has(chunkId)) {
+                    // Synthesize a text-start chunk BEFORE processing this delta
+                    console.log(
+                      `[AI Transport] *** SYNTHESIZING MISSING TEXT-START *** id: ${chunkId}`,
+                    );
+                    const syntheticStart = {
+                      type: "text-start",
+                      id: chunkId,
+                    };
+                    if (streamController && !streamClosed) {
+                      try {
+                        streamController.enqueue(syntheticStart as UIMessageChunk);
+                      } catch (e) {
+                        console.error(
+                          "[AI Transport] Failed to enqueue synthetic text-start:",
+                          e,
+                        );
+                      }
+                    }
+                    activeTextIds.add(chunkId);
+                  }
+                } else if (chunkType === "text-end" && chunkId) {
+                  // Clean up tracking for completed text
+                  activeTextIds.delete(chunkId);
                 }
 
                 // Full structure for first 15 chunks and important chunk types
@@ -520,6 +633,48 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
   }
 
   /**
+   * Ensure finish/finish-step chunks have valid usage data
+   * Prevents "Cannot read properties of undefined (reading 'inputTokens')" error
+   *
+   * AI SDK v6 expects nested usage structure:
+   * {
+   *   inputTokens: { total: number, noCache?: number, cacheRead?: number, cacheWrite?: number },
+   *   outputTokens: { total: number, reasoning?: number }
+   * }
+   */
+  private ensureUsageData(parsed: any): void {
+    if (parsed?.type === "finish" || parsed?.type === "finish-step") {
+      if (!parsed.usage) {
+        // Create the full nested structure that AI SDK v6 expects
+        parsed.usage = {
+          inputTokens: { total: 0 },
+          outputTokens: { total: 0 },
+        };
+      } else {
+        // Ensure inputTokens has the nested structure
+        if (!parsed.usage.inputTokens) {
+          parsed.usage.inputTokens = { total: 0 };
+        } else if (typeof parsed.usage.inputTokens === "number") {
+          // Convert flat number to nested structure
+          parsed.usage.inputTokens = { total: parsed.usage.inputTokens };
+        } else if (!parsed.usage.inputTokens.total) {
+          parsed.usage.inputTokens.total = 0;
+        }
+
+        // Ensure outputTokens has the nested structure
+        if (!parsed.usage.outputTokens) {
+          parsed.usage.outputTokens = { total: 0 };
+        } else if (typeof parsed.usage.outputTokens === "number") {
+          // Convert flat number to nested structure
+          parsed.usage.outputTokens = { total: parsed.usage.outputTokens };
+        } else if (!parsed.usage.outputTokens.total) {
+          parsed.usage.outputTokens.total = 0;
+        }
+      }
+    }
+  }
+
+  /**
    * Parse SSE stream into UIMessageChunks
    */
   private parseSSEStream(
@@ -530,7 +685,7 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
     let buffer = "";
 
     return new ReadableStream<UIMessageChunk>({
-      async pull(controller) {
+      pull: async (controller) => {
         try {
           const { done, value } = await reader.read();
 
@@ -552,6 +707,8 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
               }
               try {
                 const parsed = JSON.parse(jsonStr);
+                // FIX: Ensure usage data exists on finish chunks
+                this.ensureUsageData(parsed);
                 controller.enqueue(parsed as UIMessageChunk);
               } catch {
                 // Skip invalid JSON
