@@ -94,6 +94,18 @@ export const APP_DEFAULT_TOOL_KIT: Record<
     [DefaultToolName.BrowserGetUrl]: localBrowserTools.browser_get_url,
     [DefaultToolName.BrowserGetTitle]: localBrowserTools.browser_get_title,
     [DefaultToolName.BrowserEvaluate]: localBrowserTools.browser_evaluate,
+    // Multi-Tab Management
+    [DefaultToolName.BrowserNewTab]: localBrowserTools.browser_new_tab,
+    [DefaultToolName.BrowserNewWindow]: localBrowserTools.browser_new_window,
+    [DefaultToolName.BrowserSwitchTab]: localBrowserTools.browser_switch_tab,
+    [DefaultToolName.BrowserCloseTab]: localBrowserTools.browser_close_tab,
+    [DefaultToolName.BrowserListTabs]: localBrowserTools.browser_list_tabs,
+    [DefaultToolName.BrowserGetActiveTabIndex]: localBrowserTools.browser_get_active_tab_index,
+    // Additional Actions
+    [DefaultToolName.BrowserHover]: localBrowserTools.browser_hover,
+    [DefaultToolName.BrowserSelect]: localBrowserTools.browser_select,
+    [DefaultToolName.BrowserCheck]: localBrowserTools.browser_check,
+    [DefaultToolName.BrowserUncheck]: localBrowserTools.browser_uncheck,
   },
   // Desktop/Computer Use tools (Local Terminal)
   // IMPORTANT: desktop_command is the shell/terminal execution tool - essential for all agents
@@ -199,6 +211,18 @@ export function createAppDefaultToolKit(
         [DefaultToolName.BrowserGetUrl]: localBrowserTools.browser_get_url,
         [DefaultToolName.BrowserGetTitle]: localBrowserTools.browser_get_title,
         [DefaultToolName.BrowserEvaluate]: localBrowserTools.browser_evaluate,
+        // Multi-Tab Management
+        [DefaultToolName.BrowserNewTab]: localBrowserTools.browser_new_tab,
+        [DefaultToolName.BrowserNewWindow]: localBrowserTools.browser_new_window,
+        [DefaultToolName.BrowserSwitchTab]: localBrowserTools.browser_switch_tab,
+        [DefaultToolName.BrowserCloseTab]: localBrowserTools.browser_close_tab,
+        [DefaultToolName.BrowserListTabs]: localBrowserTools.browser_list_tabs,
+        [DefaultToolName.BrowserGetActiveTabIndex]: localBrowserTools.browser_get_active_tab_index,
+        // Additional Actions
+        [DefaultToolName.BrowserHover]: localBrowserTools.browser_hover,
+        [DefaultToolName.BrowserSelect]: localBrowserTools.browser_select,
+        [DefaultToolName.BrowserCheck]: localBrowserTools.browser_check,
+        [DefaultToolName.BrowserUncheck]: localBrowserTools.browser_uncheck,
       },
       // Desktop tools work without thread context
       // IMPORTANT: desktop_command (shell execution) is essential for all agents
@@ -302,6 +326,18 @@ export function createAppDefaultToolKit(
       [DefaultToolName.BrowserGetUrl]: contextAwareBrowserTools.browser_get_url,
       [DefaultToolName.BrowserGetTitle]: contextAwareBrowserTools.browser_get_title,
       [DefaultToolName.BrowserEvaluate]: contextAwareBrowserTools.browser_evaluate,
+      // Multi-Tab Management
+      [DefaultToolName.BrowserNewTab]: contextAwareBrowserTools.browser_new_tab,
+      [DefaultToolName.BrowserNewWindow]: contextAwareBrowserTools.browser_new_window,
+      [DefaultToolName.BrowserSwitchTab]: contextAwareBrowserTools.browser_switch_tab,
+      [DefaultToolName.BrowserCloseTab]: contextAwareBrowserTools.browser_close_tab,
+      [DefaultToolName.BrowserListTabs]: contextAwareBrowserTools.browser_list_tabs,
+      [DefaultToolName.BrowserGetActiveTabIndex]: contextAwareBrowserTools.browser_get_active_tab_index,
+      // Additional Actions
+      [DefaultToolName.BrowserHover]: contextAwareBrowserTools.browser_hover,
+      [DefaultToolName.BrowserSelect]: contextAwareBrowserTools.browser_select,
+      [DefaultToolName.BrowserCheck]: contextAwareBrowserTools.browser_check,
+      [DefaultToolName.BrowserUncheck]: contextAwareBrowserTools.browser_uncheck,
     },
     // Desktop/Computer Use tools (Local Terminal)
     // IMPORTANT: desktop_command (shell execution) is essential for all agents
