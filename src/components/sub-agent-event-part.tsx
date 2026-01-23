@@ -3,29 +3,27 @@
 import { ToolUIPart } from "ai";
 import { DefaultToolName } from "lib/ai/tools";
 import {
-  ChevronRight,
   CheckIcon,
   Circle,
-  FileCode,
-  FileText,
-  GitBranch,
-  Globe,
-  Terminal,
-  Wrench,
   XIcon,
 } from "lucide-react";
-import { lazy, memo, Suspense, useState } from "react";
+import { lazy, memo, Suspense } from "react";
 import { BrowserToolInvocation } from "./tool-invocation/browser-tool-invocation";
 import { DesktopToolInvocation } from "./tool-invocation/desktop-tool-invocation";
 import type { SubAgentEvent } from "./tool-invocation/sub-agent-view";
-import { cn } from "lib/utils";
 import { TextShimmer } from "ui/text-shimmer";
-import { AnimatePresence, motion } from "framer-motion";
+import type { ToolStatus } from "ui/tool-status-badge";
 
 // Lazy load tool invocation components
 const WebSearchToolInvocation = lazy(() =>
   import("./tool-invocation/web-search").then((mod) => ({
     default: mod.WebSearchToolInvocation,
+  }))
+);
+
+const ToolCallCard = lazy(() =>
+  import("./tool-invocation/tool-call-card").then((mod) => ({
+    default: mod.ToolCallCard,
   }))
 );
 
@@ -37,54 +35,17 @@ const WebSearchLoadingFallback = () => (
   </div>
 );
 
+const ToolCallLoadingFallback = () => (
+  <div className="h-16 w-full flex items-center justify-center rounded-md bg-muted/50">
+    <span className="text-muted-foreground text-sm">Loading...</span>
+  </div>
+);
+
 interface SubAgentEventPartProps {
   event: SubAgentEvent;
   isLast?: boolean;
   threadId?: string;
   isAgentRunning?: boolean;
-}
-
-/**
- * Get an appropriate icon for a tool based on its name
- */
-function getToolIcon(toolName: string) {
-  const name = toolName.toLowerCase();
-
-  if (name.includes("read") || name.includes("file") || name.includes("glob") || name.includes("grep")) {
-    return FileText;
-  }
-  if (name.includes("write") || name.includes("edit")) {
-    return FileCode;
-  }
-  if (name.includes("bash") || name.includes("terminal") || name.includes("exec")) {
-    return Terminal;
-  }
-  if (name.includes("git") || name.includes("diff")) {
-    return GitBranch;
-  }
-  if (name.includes("web") || name.includes("browser")) {
-    return Globe;
-  }
-
-  return Wrench;
-}
-
-/**
- * Format a tool name for display
- */
-function formatToolName(toolName: string): string {
-  let name = toolName
-    .replace(/^mcp__[^_]+__/, "")
-    .replace(/^tool_/, "")
-    .replace(/^sub_agent_/, "");
-
-  name = name
-    .replace(/_/g, " ")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-
-  return name;
 }
 
 /**
@@ -95,7 +56,6 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
   threadId,
   isAgentRunning = true,
 }: SubAgentEventPartProps) {
-  const [isToolExpanded, setIsToolExpanded] = useState(false);
   const { type, data } = event;
 
   switch (type) {
@@ -193,7 +153,7 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
             } catch {}
           }
         }
-      } catch (err) {
+      } catch (_err) {
         parsedResult = { raw: data.result, error: "Failed to parse" };
         actualResult = parsedResult;
       }
@@ -269,92 +229,54 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
         );
       }
 
-      // Default tool call - collapsible
-      const ToolIcon = getToolIcon(originalToolName);
-      const displayName = formatToolName(originalToolName);
+      // Default tool call - use consistent ToolCallCard component (same as main agent)
+      // Determine tool status based on whether we have a result
+      const getToolStatus = (): ToolStatus => {
+        if (actualResult?.error || parsedResult?.error) return "error";
+        if (parsedResult !== null) return "success";
+        return "running";
+      };
 
-      // Extract relevant info from args
-      let argsSummary: string | null = null;
-      if (data.args) {
-        try {
-          const args = typeof data.args === "string" ? JSON.parse(data.args) : data.args;
-          argsSummary = args.file_path || args.filePath || args.path || args.pattern || args.command || null;
-          if (argsSummary && argsSummary.length > 40) {
-            argsSummary = "..." + argsSummary.slice(-37);
+      // Parse input if it's a string
+      const getParsedInput = () => {
+        if (!data.args) return undefined;
+        if (typeof data.args === "string") {
+          try {
+            return JSON.parse(data.args);
+          } catch {
+            return data.args;
           }
-        } catch {}
-      }
+        }
+        return data.args;
+      };
 
       return (
-        <div className="py-0.5">
-          <button
-            type="button"
-            onClick={() => setIsToolExpanded(!isToolExpanded)}
-            className="w-full flex items-center gap-2 py-1 hover:bg-muted/30 rounded transition-colors text-left"
-          >
-            <ToolIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-            <span className="text-xs font-medium text-foreground">
-              {displayName}
-            </span>
-            {argsSummary && (
-              <span className="text-xs text-muted-foreground font-mono truncate flex-1 min-w-0">
-                {argsSummary}
-              </span>
-            )}
-            {(data.args || parsedResult) && (
-              <ChevronRight
-                className={cn(
-                  "h-3 w-3 text-muted-foreground transition-transform flex-shrink-0",
-                  isToolExpanded && "rotate-90"
-                )}
-              />
-            )}
-          </button>
-
-          <AnimatePresence initial={false}>
-            {isToolExpanded && (data.args || parsedResult) && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.1 }}
-                className="overflow-hidden"
-              >
-                <div className="ml-5 mt-1 space-y-2 text-xs">
-                  {data.args && (
-                    <div>
-                      <span className="text-muted-foreground font-medium">Input:</span>
-                      <pre className="mt-0.5 p-2 bg-muted/50 rounded text-xs overflow-x-auto max-h-24 overflow-y-auto">
-                        {typeof data.args === "string"
-                          ? data.args
-                          : JSON.stringify(data.args, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  {parsedResult && (
-                    <div>
-                      <span className="text-muted-foreground font-medium">Output:</span>
-                      <pre className="mt-0.5 p-2 bg-muted/50 rounded text-xs overflow-x-auto max-h-24 overflow-y-auto">
-                        {typeof parsedResult === "string"
-                          ? parsedResult
-                          : JSON.stringify(parsedResult, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        <div className="w-full my-1">
+          <Suspense fallback={<ToolCallLoadingFallback />}>
+            <ToolCallCard
+              toolName={originalToolName}
+              input={getParsedInput()}
+              output={actualResult ?? parsedResult ?? undefined}
+              status={getToolStatus()}
+            />
+          </Suspense>
         </div>
       );
 
     case "data-sub-agent-complete":
       return (
-        <div className="flex items-center gap-2 py-1">
-          <CheckIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-          <span className="text-xs text-muted-foreground">
-            {data.agentName || "Agent"} completed
-          </span>
+        <div className="py-1 space-y-1">
+          <div className="flex items-center gap-2">
+            <CheckIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+            <span className="text-xs text-muted-foreground">
+              {data.agentName || "Agent"} completed
+            </span>
+          </div>
+          {data.result && (
+            <div className="ml-5 text-xs text-foreground whitespace-pre-wrap">
+              {data.result}
+            </div>
+          )}
         </div>
       );
 
