@@ -42,6 +42,7 @@ import { ensureClientConnected } from "../services/mcp-client-service";
 import {
   getModelCapabilities,
   localModelSupportsTools,
+  getLocalModelToolSupportInfo,
 } from "../../src/lib/ai/providers/capabilities";
 import {
   calculateContextUsageAsync,
@@ -54,6 +55,165 @@ import { EnhancedBrowserService } from "../services/browser-service";
 import { setBrowserServiceInstance } from "../../src/lib/ai/tools/browser/local-browser-tools";
 
 const execAsync = promisify(exec);
+
+// ============================================
+// LOCAL MODEL ARGUMENT COERCION HELPERS
+// These help fix common mistakes local models make when calling tools
+// ============================================
+
+/**
+ * Coerce tool arguments to match expected schema types
+ * Local models often output malformed arguments like:
+ * - {"pattern": {}} instead of {"pattern": "*.ts"}
+ * - {"path": undefined} instead of {"path": "/some/path"}
+ * - {"maxResults": "50"} instead of {"maxResults": 50}
+ */
+function coerceToolArguments(args: any, schema: z.ZodSchema<any>): any {
+  if (!args || typeof args !== 'object') {
+    return args;
+  }
+
+  // Get the schema shape if it's a ZodObject
+  const shape = (schema as any)._def?.shape?.();
+  if (!shape) {
+    return args;
+  }
+
+  const coerced: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(args)) {
+    const fieldSchema = shape[key];
+    if (!fieldSchema) {
+      // Unknown field - pass through
+      coerced[key] = value;
+      continue;
+    }
+
+    // Get the underlying type (unwrap optionals)
+    let innerSchema = fieldSchema;
+    while (innerSchema._def?.innerType) {
+      innerSchema = innerSchema._def.innerType;
+    }
+    const typeName = innerSchema._def?.typeName;
+
+    // Coerce based on expected type
+    if (typeName === 'ZodString') {
+      // Expected string
+      if (value === undefined || value === null) {
+        // Skip undefined/null - let schema handle defaults
+        continue;
+      } else if (typeof value === 'object' && Object.keys(value).length === 0) {
+        // Empty object {} -> empty string
+        coerced[key] = '';
+      } else if (typeof value === 'object') {
+        // Non-empty object -> try to stringify meaningfully
+        coerced[key] = JSON.stringify(value);
+      } else if (typeof value !== 'string') {
+        // Convert to string
+        coerced[key] = String(value);
+      } else {
+        coerced[key] = value;
+      }
+    } else if (typeName === 'ZodNumber') {
+      // Expected number
+      if (value === undefined || value === null) {
+        continue;
+      } else if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        if (!isNaN(parsed)) {
+          coerced[key] = parsed;
+        }
+      } else if (typeof value === 'number') {
+        coerced[key] = value;
+      }
+    } else if (typeName === 'ZodBoolean') {
+      // Expected boolean
+      if (value === undefined || value === null) {
+        continue;
+      } else if (typeof value === 'string') {
+        coerced[key] = value.toLowerCase() === 'true' || value === '1';
+      } else if (typeof value === 'number') {
+        coerced[key] = value !== 0;
+      } else if (typeof value === 'boolean') {
+        coerced[key] = value;
+      }
+    } else {
+      // Other types - pass through
+      coerced[key] = value;
+    }
+  }
+
+  return coerced;
+}
+
+/**
+ * Extract valid args and fill missing required fields with sensible defaults
+ * Used when schema validation fails to salvage what we can
+ */
+function extractValidArgsWithDefaults(
+  args: any,
+  schema: z.ZodSchema<any>,
+  toolName: string
+): any {
+  const shape = (schema as any)._def?.shape?.();
+  if (!shape) {
+    return args;
+  }
+
+  const result: Record<string, any> = {};
+
+  for (const [key, fieldSchema] of Object.entries(shape)) {
+    const value = args?.[key];
+
+    // Check if field is optional
+    const isOptional = (fieldSchema as any)._def?.typeName === 'ZodOptional';
+
+    // Get inner type for optionals
+    let innerSchema = fieldSchema as any;
+    while (innerSchema._def?.innerType) {
+      innerSchema = innerSchema._def.innerType;
+    }
+    const typeName = innerSchema._def?.typeName;
+
+    if (value !== undefined && value !== null && typeof value !== 'object') {
+      // Valid primitive value - use it
+      result[key] = value;
+    } else if (value !== undefined && typeof value === 'object' && Object.keys(value).length > 0) {
+      // Non-empty object - try to use or stringify
+      if (typeName === 'ZodString') {
+        result[key] = JSON.stringify(value);
+      } else if (typeName === 'ZodObject' || typeName === 'ZodArray') {
+        result[key] = value;
+      }
+    } else if (!isOptional) {
+      // Required field with bad/missing value - use sensible defaults
+      if (typeName === 'ZodString') {
+        // For path/directory fields, use current working directory or home
+        if (key === 'path' || key === 'directory' || key === 'dir') {
+          result[key] = os.homedir();
+        } else if (key === 'pattern' || key === 'query') {
+          result[key] = '*'; // Wildcard for search patterns
+        } else if (key === 'command') {
+          result[key] = 'echo "No command specified"';
+        } else if (key === 'text' || key === 'content') {
+          result[key] = '';
+        } else if (key === 'url') {
+          result[key] = 'https://example.com';
+        } else {
+          result[key] = '';
+        }
+        console.log(`[AI IPC] Using default value for ${toolName}.${key}: "${result[key]}"`);
+      } else if (typeName === 'ZodNumber') {
+        result[key] = 0;
+      } else if (typeName === 'ZodBoolean') {
+        result[key] = false;
+      }
+    }
+    // Optional fields with bad values are simply omitted
+  }
+
+  return result;
+}
 
 // Track active streams for abort functionality
 const activeStreams = new Map<string, AbortController>();
@@ -735,8 +895,12 @@ function decryptApiKey(encryptedKey: string): string {
 /**
  * Build system prompt for agentic behavior
  * @param workingDirectory - Optional working directory context
+ * @param isLocalModel - Whether this is a local model (Ollama, LM Studio)
  */
-function buildAgentSystemPrompt(workingDirectory?: { path: string; name: string }): string {
+function buildAgentSystemPrompt(
+  workingDirectory?: { path: string; name: string },
+  isLocalModel: boolean = false
+): string {
   const workingDirSection = workingDirectory?.path
     ? `
 ## WORKING DIRECTORY
@@ -753,6 +917,31 @@ IMPORTANT: All file operations and terminal commands should use this working dir
 ## WORKING DIRECTORY
 **Current Working Directory**: ${os.homedir()} (default - user's home directory)
 `;
+
+  // Extra guidance for local models to help with tool calling
+  const localModelGuidance = isLocalModel ? `
+## CRITICAL: TOOL USAGE IS MANDATORY
+You MUST use tools to complete user requests. DO NOT just describe what you would do - ACTUALLY DO IT.
+
+**WHEN USER ASKS TO:**
+- List files/directory → CALL file_list tool
+- Read a file → CALL file_read tool
+- Write/create a file → CALL file_write tool
+- Run a command → CALL terminal_execute tool
+- Take a screenshot → CALL desktop_screenshot tool
+- Open browser/URL → CALL browser_open tool
+
+**HOW TO CALL TOOLS:**
+1. Identify the correct tool from the tools available to you
+2. Call the tool with required parameters
+3. Wait for the result
+4. Report the result to the user
+
+**EXAMPLE - User says "list files in current directory":**
+You should IMMEDIATELY call file_list with path="${workingDirectory?.path || os.homedir()}"
+
+**NEVER SAY "I can't do that" or "I don't have access"** - You have FULL access through tools!
+` : '';
 
   return `You are Shadower, an autonomous AI assistant running as a desktop application.
 
@@ -771,7 +960,7 @@ ${workingDirSection}
 3. **Show Progress**: After each tool call, explain what you did and what's next
 4. **Handle Errors**: If a tool fails, try alternative approaches
 5. **Ask When Needed**: If you need clarification, ask - but prefer to make reasonable assumptions
-
+${localModelGuidance}
 ## IMPORTANT
 - You are running on the user's LOCAL machine - file paths and commands are LOCAL
 - You can see and interact with the user's desktop
@@ -1898,6 +2087,102 @@ function createElectronTools(
         }
       },
     }),
+
+    // ============================================
+    // CONVENIENCE TOOL: browser_search
+    // ============================================
+    // One-shot web search using the user's real Chrome browser
+    // This replaces the old Exa API webSearch tool with REAL browser search
+    browser_search: createTool({
+      description:
+        "Search the web using the user's REAL Chrome browser. " +
+        "This is the PRIMARY tool for web searching - connects to Chrome via CDP, " +
+        "searches Google/DuckDuckGo, and returns results. " +
+        "No API keys needed, no bot detection, preserves user's cookies/sessions. " +
+        "Use this instead of any webSearch API!",
+      inputSchema: z.object({
+        query: z.string().describe("Search query"),
+        engine: z
+          .enum(["google", "duckduckgo", "bing"])
+          .optional()
+          .default("google")
+          .describe("Search engine to use (default: google)"),
+        maxResults: z
+          .number()
+          .optional()
+          .default(10)
+          .describe("Max results to return (default: 10)"),
+      }),
+      execute: async ({ query, engine = "google", maxResults = 10 }) => {
+        const service = EnhancedBrowserService.getInstance();
+        let sessionId: string | undefined;
+
+        try {
+          // Step 1: Create session
+          console.log(`[browser_search] Starting search for: "${query}" on ${engine}`);
+          const sessionResult = await service.createSession({ cdpPort: 9222 });
+          if (!sessionResult?.sessionId) {
+            return {
+              success: false,
+              error: "Failed to create browser session",
+              hint: "Close all Chrome windows and try again"
+            };
+          }
+          sessionId = sessionResult.sessionId;
+
+          // Step 2: Build search URL
+          const encodedQuery = encodeURIComponent(query);
+          let searchUrl: string;
+          switch (engine) {
+            case "duckduckgo":
+              searchUrl = `https://duckduckgo.com/?q=${encodedQuery}`;
+              break;
+            case "bing":
+              searchUrl = `https://www.bing.com/search?q=${encodedQuery}`;
+              break;
+            case "google":
+            default:
+              searchUrl = `https://www.google.com/search?q=${encodedQuery}`;
+          }
+
+          // Step 3: Navigate to search
+          console.log(`[browser_search] Navigating to: ${searchUrl}`);
+          await service.navigate(searchUrl, { waitUntil: "load", sessionId });
+
+          // Step 4: Get snapshot of results
+          const snapshot = await service.getSnapshot({
+            interactive: false,
+            compact: true,
+            sessionId
+          });
+
+          // Step 5: Close session
+          await service.closeSession(sessionId);
+
+          return {
+            success: true,
+            query,
+            engine,
+            searchUrl,
+            results: snapshot.tree?.substring(0, 15000) || "No results found", // Limit size
+            stats: snapshot.stats,
+            message: `Searched "${query}" on ${engine} using user's real Chrome browser`,
+          };
+        } catch (error: any) {
+          // Try to close session on error
+          if (sessionId) {
+            try { await service.closeSession(sessionId); } catch {}
+          }
+          return {
+            success: false,
+            error: error.message,
+            query,
+            engine,
+            hint: "Close all Chrome windows, wait a few seconds, then try again",
+          };
+        }
+      },
+    }),
   };
 }
 
@@ -1971,6 +2256,21 @@ export function registerAIHandlers() {
         return { error: errorMsg, threadId };
       }
 
+      // DEBUG: Send model info to renderer (visible in browser console)
+      event.sender.send("ai:stream:chunk", {
+        threadId,
+        chunk: JSON.stringify({
+          type: "data-debug-model-info",
+          data: {
+            provider: chatModel.provider,
+            model: chatModel.model,
+            modelType: model?.constructor?.name || "unknown",
+            isWrapped: !!model?.middleware,
+            timestamp: new Date().toISOString(),
+          },
+        }),
+      });
+
       // Prepare messages for the model
       const allMessages = [...messages];
       if (message && allMessages[allMessages.length - 1]?.id !== message.id) {
@@ -2035,6 +2335,16 @@ export function registerAIHandlers() {
           name.includes("exa"),
       );
 
+      // Detect specific MCP browser automation tools that should be filtered out
+      // We want to use LOCAL browser tools (CDP mode) which connect to user's REAL Chrome
+      // MCP Puppeteer/Playwright launch SEPARATE browser instances (no cookies/sessions)
+      const mcpPuppeteerPlaywrightTools = mcpToolNames.filter(
+        (name) =>
+          name.includes("puppeteer") ||
+          name.includes("playwright"),
+      );
+      const hasMcpPuppeteerPlaywright = mcpPuppeteerPlaywrightTools.length > 0;
+
       // Create desktop tools for this thread
       const allDesktopTools = createElectronTools(threadId, event, workingDirectory);
 
@@ -2094,29 +2404,68 @@ export function registerAIHandlers() {
       );
       console.log(`[AI IPC] MCP tools: ${mcpToolNames.join(", ") || "none"}`);
 
-      // Merge all tools - MCP tools listed first for priority in model context
-      const tools = { ...mcpTools, ...desktopTools };
+      // Filter out MCP Puppeteer/Playwright tools - prefer local browser tools (CDP mode)
+      // Local browser tools connect to user's REAL Chrome browser via CDP
+      // This preserves cookies, sessions, and avoids bot detection entirely
+      // MCP Puppeteer/Playwright launch SEPARATE browser instances which don't have user data
+      let filteredMcpTools = mcpTools;
+      if (hasMcpPuppeteerPlaywright) {
+        filteredMcpTools = { ...mcpTools };
+        for (const toolName of mcpPuppeteerPlaywrightTools) {
+          if (filteredMcpTools[toolName]) {
+            delete filteredMcpTools[toolName];
+            console.log(
+              `[AI IPC] Filtered out ${toolName} - using local browser tools (CDP) instead`,
+            );
+          }
+        }
+        console.log(
+          `[AI IPC] Local browser tools active (CDP mode) - filtered ${mcpPuppeteerPlaywrightTools.length} MCP browser tools`,
+        );
+        console.log(
+          `[AI IPC] Available local browser tools: browser_create_session, browser_navigate, browser_click, browser_get_snapshot, etc.`,
+        );
+      }
+
+      // Merge all tools - filtered MCP tools + desktop tools
+      const tools = { ...filteredMcpTools, ...desktopTools };
 
       // Check model capabilities before passing tools
       const capabilities = getModelCapabilities(chatModel.model);
       const isLocal = isLocalProvider(chatModel.provider);
 
-      // For local models, check if the model is in the known whitelist
-      // But we now TRY tools anyway for unknown models - better to try and fail gracefully
-      const isKnownToolSupport = isLocal
-        ? localModelSupportsTools(chatModel.model)
-        : true;
-
-      const modelSupportsTools = capabilities.isToolCallSupported;
-
-      // Handle empty tools or definitely unsupported models
+      // ============================================
+      // TOOL AVAILABILITY LOGIC
+      // Check if the model actually supports tool calling
+      // Determine which tools to pass based on model capabilities
+      // ============================================
       let toolsToUse: typeof tools | undefined;
+
       if (Object.keys(tools).length === 0) {
         toolsToUse = undefined;
-      } else if (!modelSupportsTools) {
-        // Model has built-in tools or requires Responses API - can't use our tools
+        console.log(`[AI IPC] No tools available to pass`);
+      } else if (isLocal) {
+        // LOCAL MODELS: Always pass tools - let the model try to use them
+        // Most modern models support tools when given proper context (num_ctx)
+        toolsToUse = tools;
+        const toolNames = Object.keys(tools);
+        console.log(
+          `[AI IPC] LOCAL MODEL (${chatModel.provider}/${chatModel.model}) - ALL ${toolNames.length} tools enabled:`,
+          toolNames.slice(0, 15).join(", ") + (toolNames.length > 15 ? "..." : ""),
+        );
+
+        // Only log a note if model family isn't in our recognized list
+        // But still pass tools - models can surprise us!
+        const toolSupportInfo = getLocalModelToolSupportInfo(chatModel.model);
+        if (!toolSupportInfo.supported) {
+          console.log(
+            `[AI IPC] Note: ${chatModel.model} not in recognized tool-supporting families, but tools enabled anyway`,
+          );
+        }
+      } else if (!capabilities.isToolCallSupported) {
+        // Cloud model with conflicting tool requirements (built-in tools or Responses API)
         console.warn(
-          `[AI IPC] Model ${chatModel.provider}/${chatModel.model} has conflicting tool requirements, proceeding without tools`,
+          `[AI IPC] Cloud model ${chatModel.provider}/${chatModel.model} has conflicting tool requirements, proceeding without tools`,
         );
         event.sender.send("ai:stream:warning", {
           threadId,
@@ -2124,25 +2473,18 @@ export function registerAIHandlers() {
           type: "tool-unsupported",
         });
         toolsToUse = undefined;
-      } else if (isLocal && !isKnownToolSupport) {
-        // Local model not in whitelist - TRY ANYWAY with warning
-        // Better UX to try and fail than to preemptively disable
-        console.log(
-          `[AI IPC] Local model ${chatModel.model} not in known tool-support whitelist, but trying tools anyway`,
-        );
-        event.sender.send("ai:stream:warning", {
-          threadId,
-          message: `Model "${chatModel.model}" may have limited tool support. If tools fail, consider using a model like Llama 3, Qwen, or DeepSeek.`,
-          type: "tool-experimental",
-        });
-        toolsToUse = tools; // TRY ANYWAY!
       } else {
+        // Cloud model with standard tool support
         toolsToUse = tools;
+        console.log(
+          `[AI IPC] Cloud model (${chatModel.provider}/${chatModel.model}) - ${Object.keys(tools).length} tools enabled`,
+        );
       }
 
-      // Build system prompt with working directory context
-      const systemPrompt = buildAgentSystemPrompt(workingDirectory);
+      // Build system prompt with working directory context (pass isLocal for better guidance)
+      const systemPrompt = buildAgentSystemPrompt(workingDirectory, isLocal);
       console.log(`[AI IPC] Working directory for thread ${threadId}: ${workingDirectory?.path || 'not set (using home)'}`);
+      console.log(`[AI IPC] System prompt built for ${isLocal ? 'local' : 'cloud'} model`);
 
       // Store prepared context - DON'T start streaming yet!
       preparedStreams.set(threadId, {
@@ -2460,7 +2802,35 @@ export function registerAIHandlers() {
         // These events need to be saved to the database so they persist across conversation switches
         const currentSubAgentEvents: any[] = [];
 
-        if (chatMode === "agent") {
+        // Local models now have full access to agent mode with all tools
+        // No restrictions - local models can handle the orchestrator with proper tool-calling models
+        const effectiveChatMode = chatMode;
+
+        // WARNING: Large local models (20B+) are very slow, especially on CPU
+        // Check model name for size indicators
+        if (isLocal) {
+          const modelName = chatModel?.model?.toLowerCase() || "";
+          const isVeryLargeModel =
+            modelName.includes(":32b") ||
+            modelName.includes(":70b") ||
+            modelName.includes(":72b") ||
+            modelName.includes(":110b") ||
+            modelName.includes(":405b") ||
+            modelName.match(/\d{2,3}b/i); // Match patterns like "32b", "70b", etc.
+
+          if (isVeryLargeModel) {
+            console.warn(
+              `[AI IPC] WARNING: Large model detected (${chatModel?.model}). Response times may be very slow.`,
+            );
+            event.sender.send("ai:stream:warning", {
+              threadId,
+              message: `Large model detected (${chatModel?.model}). This may be slow. For faster responses, try a smaller model like Qwen 2.5 7B or Llama 3.2 3B.`,
+              type: "large-model-warning",
+            });
+          }
+        }
+
+        if (effectiveChatMode === "agent") {
           // AGENT MODE: Use the orchestrator with planning and sub-agent capabilities
           console.log(
             `[AI IPC] Starting AGENT mode streaming for thread: ${threadId}`,
@@ -2630,18 +3000,53 @@ export function registerAIHandlers() {
             }
           });
 
-          // EXTENDED STEP LIMIT: Allow 200 steps for regular mode with tools
-          // This enables more complex multi-step workflows
+          // STEP LIMIT: Same for all models - full agentic capabilities
+          // No restrictions on local models - they get the same max steps as cloud models
           const regularMaxSteps = tools ? 200 : 1;
+
+          console.log(`[AI IPC] ${isLocal ? 'Local' : 'Cloud'} model: maxSteps=${regularMaxSteps}, tools=${tools ? Object.keys(tools).length : 0}`);
+
+          // Tool choice settings:
+          // - Both local and cloud models use "auto" for automatic tool selection
+          // - This enables full agentic capabilities for all models
+          const useToolChoice = tools && Object.keys(tools).length > 0 ? "auto" : undefined;
+
+          // ============================================
+          // CRITICAL DEBUG: Log EXACTLY what we're passing to streamText
+          // This helps diagnose why local models aren't using tools
+          // ============================================
+          const toolKeys = tools ? Object.keys(tools) : [];
+          console.log(`[AI IPC] ===== STREAMTEXT CONFIGURATION =====`);
+          console.log(`[AI IPC] Provider: ${chatModel?.provider}, Model: ${chatModel?.model}`);
+          console.log(`[AI IPC] Is Local: ${isLocal}`);
+          console.log(`[AI IPC] Tool Count: ${toolKeys.length}`);
+          console.log(`[AI IPC] Tool Names: ${toolKeys.slice(0, 20).join(', ')}${toolKeys.length > 20 ? '...' : ''}`);
+          console.log(`[AI IPC] Tool Choice: ${useToolChoice || 'undefined (provider default)'}`);
+          console.log(`[AI IPC] Max Steps: ${regularMaxSteps}`);
+
+          // Log first tool's structure to verify schema format
+          if (toolKeys.length > 0) {
+            const firstToolName = toolKeys[0];
+            const firstTool = tools![firstToolName];
+            console.log(`[AI IPC] Sample tool (${firstToolName}):`, {
+              hasDescription: !!(firstTool as any)?.description,
+              hasInputSchema: !!(firstTool as any)?.inputSchema,
+              hasParameters: !!(firstTool as any)?.parameters,
+              hasExecute: typeof (firstTool as any)?.execute === 'function',
+            });
+          }
+
+          console.log(`[AI IPC] =====================================`);
 
           result = streamText({
             model,
             system: systemPrompt,
             messages: sanitizedMessages, // Use sanitized messages (large data stripped)
             tools,
+            toolChoice: useToolChoice,
             maxSteps: regularMaxSteps, // Extended: 200 for tools, 1 for text-only
             abortSignal: abortController.signal,
-            maxRetries: 2,
+            maxRetries: isLocal ? 3 : 2, // More retries for local models
             onStepFinish: ({
               toolCalls,
               toolResults,
@@ -2680,6 +3085,19 @@ export function registerAIHandlers() {
           sendUsage: true,
           messageMetadata: () => ({}),
         });
+
+        // DEBUG: Send stream created notification to renderer
+        event.sender.send("ai:stream:chunk", {
+          threadId,
+          chunk: JSON.stringify({
+            type: "data-debug-stream-created",
+            data: {
+              message: "Stream created successfully, starting read loop...",
+              timestamp: new Date().toISOString(),
+            },
+          }),
+        });
+        console.log(`[AI IPC] DEBUG: Stream created for thread ${threadId}, about to start reading...`);
 
         // console.log(`[AI IPC] UI stream created, getting reader...`);
 
@@ -2721,20 +3139,68 @@ export function registerAIHandlers() {
         // EXTENDED TIMEOUT: 5 minutes for initial response (browser automation, complex reasoning)
         const TIMEOUT_MS = 300000; // 5 minute timeout
 
-        // Add a heartbeat to detect if we're stuck (disabled to reduce noise)
-        // const heartbeatInterval = setInterval(() => {
-        //   const elapsed = Date.now() - startTime;
-        //   console.log(`[AI IPC] Stream heartbeat - elapsed: ${elapsed}ms, chunks: ${chunkCount}`);
-        // }, 5000);
+        // Add a heartbeat to detect if we're stuck (also sends to renderer for debugging)
+        // For local models, provide more specific warnings after extended wait times
+        const heartbeatInterval = setInterval(() => {
+          const elapsed = Date.now() - startTime;
+          const elapsedSec = Math.floor(elapsed / 1000);
+          console.log(`[AI IPC] Stream heartbeat - elapsed: ${elapsed}ms, chunks: ${_chunkCount}`);
+
+          // Build appropriate message based on wait time and model type
+          let heartbeatMessage = `Waiting for model response... (${elapsedSec}s)`;
+
+          if (isLocal && elapsedSec >= 30 && _chunkCount <= 1) {
+            // Local model taking >30s with no real output
+            if (elapsedSec >= 60) {
+              heartbeatMessage = `⚠️ Local model very slow (${elapsedSec}s). Large models may need 1-2+ minutes to start. Consider using a smaller model (7B-8B) for faster responses.`;
+            } else {
+              heartbeatMessage = `Local model loading... (${elapsedSec}s). First response can be slow while the model loads into memory.`;
+            }
+          }
+
+          // Send heartbeat to renderer so we can see it in browser console
+          try {
+            event.sender.send("ai:stream:chunk", {
+              threadId,
+              chunk: JSON.stringify({
+                type: "data-debug-heartbeat",
+                data: {
+                  elapsed,
+                  chunks: _chunkCount,
+                  message: heartbeatMessage,
+                  isLocal,
+                  modelName: chatModel?.model,
+                },
+              }),
+            });
+          } catch (e) {
+            // Ignore send errors during heartbeat
+          }
+        }, 5000);
 
         try {
+          let lastChunkTime = Date.now();
+
           while (true) {
-            // Check for timeout
-            if (Date.now() - startTime > TIMEOUT_MS) {
-              console.error(
-                `[AI IPC] Stream timeout after ${TIMEOUT_MS}ms, no chunks received`,
-              );
-              throw new Error("Stream timeout - no chunks received");
+            // Check for initial timeout (no first chunk received)
+            // Only timeout if we haven't received ANY chunks yet
+            if (_chunkCount === 0 && Date.now() - startTime > TIMEOUT_MS) {
+              const timeoutMsg = isLocal
+                ? `Local model didn't respond in ${TIMEOUT_MS / 1000}s. The model may need to load or be too large.`
+                : `Stream timeout after ${TIMEOUT_MS / 1000}s - no response from model`;
+              console.error(`[AI IPC] ${timeoutMsg}`);
+              throw new Error(timeoutMsg);
+            }
+
+            // Check for stall timeout (chunks were being received but stopped)
+            // This handles cases where the model starts responding but then hangs
+            const stallTimeoutMs = isLocal ? 120000 : 60000; // 2 min for local, 1 min for cloud
+            if (_chunkCount > 0 && Date.now() - lastChunkTime > stallTimeoutMs) {
+              const stallMsg = isLocal
+                ? `Local model stopped responding after ${_chunkCount} chunks. Model may be overloaded.`
+                : `Stream stalled after ${_chunkCount} chunks`;
+              console.error(`[AI IPC] ${stallMsg}`);
+              throw new Error(stallMsg);
             }
 
             const readPromise = reader.read();
@@ -2761,30 +3227,26 @@ export function registerAIHandlers() {
             }
 
             _chunkCount++;
+            lastChunkTime = Date.now(); // Track when we last received a chunk
 
             // Send each stream part to renderer
             if (value) {
-              // Log important chunk types for debugging
-              if (
-                value.type === "tool-call" ||
-                value.type === "tool-result" ||
-                value.type === "tool-input-start" ||
-                value.type === "finish-step" ||
+              // Log ALL chunk types for debugging Ollama streaming issues
+              console.log(
+                `[AI IPC] Stream chunk #${_chunkCount}: type=${value.type}`,
+                value.type === "tool-call"
+                  ? `toolName=${value.toolName}`
+                  : "",
+                value.type === "tool-result"
+                  ? `toolCallId=${value.toolCallId}`
+                  : "",
                 value.type === "finish"
-              ) {
-                console.log(
-                  `[AI IPC] Stream chunk #${_chunkCount}: type=${value.type}`,
-                  value.type === "tool-call"
-                    ? `toolName=${value.toolName}`
-                    : "",
-                  value.type === "tool-result"
-                    ? `toolCallId=${value.toolCallId}`
-                    : "",
-                  value.type === "finish"
-                    ? `finishReason=${value.finishReason}`
-                    : "",
-                );
-              }
+                  ? `finishReason=${value.finishReason}`
+                  : "",
+                value.type === "text-delta"
+                  ? `delta="${(value.delta || value.textDelta || "").substring(0, 50)}..."`
+                  : "",
+              );
 
               try {
                 event.sender.send("ai:stream:chunk", {
@@ -2968,12 +3430,55 @@ export function registerAIHandlers() {
                 { args: JSON.stringify(args).slice(0, 500), synthesized: true },
               );
 
-              // Send synthetic tool-call chunk to renderer
+              // ============================================
+              // ARGUMENT VALIDATION & COERCION FOR LOCAL MODELS
+              // Local models often output malformed arguments like:
+              // - {"pattern": {}} instead of {"pattern": "*.ts"}
+              // - {"path": undefined} instead of {"path": "/some/path"}
+              // We need to coerce and validate before execution
+              // ============================================
+
+              // Get the tool's input schema for validation
+              const toolSchema = (tool as any).inputSchema || (tool as any).parameters;
+              let validatedArgs = args;
+
+              if (toolSchema) {
+                try {
+                  // Step 1: Coerce common local model argument mistakes
+                  const coercedArgs = coerceToolArguments(args, toolSchema);
+
+                  // Step 2: Validate against schema using safeParse
+                  const validationResult = toolSchema.safeParse(coercedArgs);
+
+                  if (validationResult.success) {
+                    validatedArgs = validationResult.data;
+                    console.log(`[AI IPC] Schema validation passed for ${toolName}`);
+                  } else {
+                    // Validation failed - log details and try with defaults
+                    console.warn(
+                      `[AI IPC] Schema validation failed for ${toolName}:`,
+                      validationResult.error.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', ')
+                    );
+
+                    // Try to extract valid fields and fill with defaults
+                    validatedArgs = extractValidArgsWithDefaults(coercedArgs, toolSchema, toolName);
+                    console.log(`[AI IPC] Using coerced/default args for ${toolName}:`, JSON.stringify(validatedArgs).slice(0, 200));
+                  }
+                } catch (validationError: any) {
+                  console.warn(
+                    `[AI IPC] Argument validation error for ${toolName}, using original args:`,
+                    validationError.message
+                  );
+                  // Fall through with original args
+                }
+              }
+
+              // Send synthetic tool-call chunk to renderer (with validated args)
               const syntheticToolCall = {
                 type: "tool-call",
                 toolCallId,
                 toolName,
-                input: args,
+                input: validatedArgs,
               };
               event.sender.send("ai:stream:chunk", {
                 threadId,
@@ -2990,7 +3495,7 @@ export function registerAIHandlers() {
 
               for (let attempt = 0; attempt <= MAX_TOOL_RETRIES; attempt++) {
                 try {
-                  toolResult = await (tool as any).execute(args);
+                  toolResult = await (tool as any).execute(validatedArgs);
                   const duration = Date.now() - toolStartTime;
                   console.log(
                     `[AI IPC] Tool ${toolName} completed in ${duration}ms`,
@@ -3029,7 +3534,7 @@ export function registerAIHandlers() {
                 }
               }
 
-              // If all retries failed, send error result
+              // If all retries failed, send error result with helpful guidance
               if (lastError) {
                 const duration = Date.now() - toolStartTime;
                 console.error(
@@ -3037,13 +3542,34 @@ export function registerAIHandlers() {
                   lastError,
                 );
 
-                // Send error result
+                // Build helpful error message for the model
+                let errorMessage = lastError.message || "Tool execution failed";
+                let guidance = "";
+
+                // Detect common argument errors and provide specific guidance
+                if (errorMessage.includes("received as a JSON object") ||
+                    errorMessage.includes("should be a string")) {
+                  guidance = " HINT: You passed an object {} where a string was expected. Use a string value like \"example\".";
+                } else if (errorMessage.includes("undefined") ||
+                           errorMessage.includes("required")) {
+                  guidance = " HINT: A required parameter was missing or undefined. Check the tool parameters and provide all required values.";
+                } else if (errorMessage.includes("ENOENT") ||
+                           errorMessage.includes("no such file")) {
+                  guidance = " HINT: The path does not exist. Try listing the directory first to see available files.";
+                } else if (errorMessage.includes("EACCES") ||
+                           errorMessage.includes("permission denied")) {
+                  guidance = " HINT: Permission denied. Try a different path or check file permissions.";
+                }
+
+                // Send error result with guidance
                 const errorResult = {
                   type: "tool-result",
                   toolCallId,
                   toolName, // Include toolName for ModelMessage format
                   output: {
-                    error: lastError.message || "Tool execution failed",
+                    success: false,
+                    error: errorMessage + guidance,
+                    suggestion: "Please check your arguments and try again with correct parameter types.",
                   },
                 };
                 event.sender.send("ai:stream:chunk", {
@@ -3347,7 +3873,7 @@ export function registerAIHandlers() {
           throw streamError;
         } finally {
           // Clean up
-          // clearInterval(heartbeatInterval);
+          clearInterval(heartbeatInterval);
           activeStreams.delete(threadId);
           preparedStreams.delete(threadId);
           streamBuffers.delete(threadId);
@@ -3358,10 +3884,52 @@ export function registerAIHandlers() {
         console.error("[AI IPC] Stream error:", error);
         console.error("[AI IPC] Stream error stack:", error.stack);
 
-        // Send error to renderer
+        // Provide better error messages for local models
+        const isLocalError = isLocalProvider(chatModel!.provider);
+        let errorMessage = error.message || "Stream failed";
+        let errorTips: string[] = [];
+
+        if (isLocalError) {
+          // Add specific tips for local model errors
+          if (error.message?.includes("timeout") || error.message?.includes("Timeout")) {
+            errorMessage = `Local model timed out. The model may be too slow or overloaded.`;
+            errorTips = [
+              "Try a smaller model (e.g., Llama 3.2 3B instead of 70B)",
+              "Ensure your computer has enough RAM for the model",
+              "Check if Ollama/LM Studio is running and responsive",
+            ];
+          } else if (error.message?.includes("tool") || error.message?.includes("function")) {
+            errorMessage = `Local model had trouble with tool calls.`;
+            errorTips = [
+              "Some local models have limited tool support",
+              "Try a model known for good tool support: Llama 3.1/3.2, Qwen, or DeepSeek",
+              "Try asking a simple question first to verify the model works",
+            ];
+          } else if (error.message?.includes("fetch") || error.message?.includes("network")) {
+            errorMessage = `Could not connect to local model server.`;
+            errorTips = [
+              "Make sure Ollama or LM Studio is running",
+              "Check that the model is loaded and ready",
+              "Verify the server URL in settings",
+            ];
+          } else {
+            errorMessage = `Local model error: ${error.message}`;
+            errorTips = [
+              "Check if the model is properly loaded",
+              "Try a different model",
+              "Restart Ollama/LM Studio and try again",
+            ];
+          }
+
+          console.log(`[AI IPC] Local model error tips:`, errorTips);
+        }
+
+        // Send error to renderer with tips
         event.sender.send("ai:stream:error", {
           threadId,
-          error: error.message || "Stream failed",
+          error: errorMessage,
+          isLocalModel: isLocalError,
+          tips: errorTips,
         });
 
         // Clean up
@@ -3369,7 +3937,7 @@ export function registerAIHandlers() {
         preparedStreams.delete(threadId);
         streamBuffers.delete(threadId);
 
-        return { error: error.message };
+        return { error: errorMessage };
       }
     },
   );
@@ -3654,9 +4222,21 @@ async function getModelInstance(
       }
 
       case "ollama": {
-        const { createOllama } = await import("ollama-ai-provider-v2");
+        // ============================================
+        // USE NATIVE OLLAMA PROVIDER FOR TOOL CALLING
+        // The ai-sdk-ollama package has proper tool calling support with
+        // response synthesis. Using OpenAI-compatible endpoint (/v1)
+        // does NOT support tool calling properly!
+        // See: https://github.com/vercel/ai/issues/4700
+        //
+        // CRITICAL: We set num_ctx to 16384 for tool calling!
+        // The default Ollama context window is only 2048 tokens which is
+        // too small for tool schemas and conversations. Without proper
+        // context, tools won't work properly.
+        // ============================================
+        const { createOllama } = await import("ai-sdk-ollama");
+
         // Get base URL from provider config or use default
-        // NOTE: ollama-ai-provider-v2 handles /api endpoint internally, don't include it
         const [providerConfig] = await db
           .select()
           .from(schema.ProviderConfigTable)
@@ -3664,13 +4244,49 @@ async function getModelInstance(
           .limit(1);
 
         let baseUrl = providerConfig?.baseUrl || "http://localhost:11434";
-        // Remove trailing /api if user accidentally included it (backwards compatibility)
+        // Normalize base URL - remove trailing /api or /v1 if present
         if (baseUrl.endsWith("/api")) {
           baseUrl = baseUrl.slice(0, -4);
         }
-        console.log(`[AI IPC] Creating Ollama model: ${model} at ${baseUrl}`);
-        const ollama = createOllama({ baseURL: baseUrl });
-        return ollama(model);
+        if (baseUrl.endsWith("/v1")) {
+          baseUrl = baseUrl.slice(0, -3);
+        }
+
+        console.log(`[AI IPC] Creating Ollama model via native provider: ${model} at ${baseUrl}`);
+
+        // Quick health check
+        try {
+          const healthCheck = await fetch(`${baseUrl}/api/tags`, {
+            method: "GET",
+            signal: AbortSignal.timeout(5000),
+          });
+          if (healthCheck.ok) {
+            const data = await healthCheck.json();
+            const availableModels = data.models?.map((m: any) => m.name) || [];
+            console.log(`[AI IPC] Ollama running. Available models: ${availableModels.join(', ')}`);
+          }
+        } catch (e: any) {
+          console.warn(`[AI IPC] Ollama health check skipped: ${e.message}`);
+        }
+
+        // Create native Ollama provider with tool calling support
+        // ai-sdk-ollama v3 has enhanced response synthesis for reliable tool execution
+        const ollamaProvider = createOllama({
+          baseURL: baseUrl, // Native Ollama base URL (not /api or /v1)
+        });
+
+        // CRITICAL: Set num_ctx for proper tool calling support!
+        // Default Ollama context is 2048 which is too small for tool schemas.
+        // 16384 provides enough room for tool definitions + conversation history.
+        // This is the key fix for making tools work with local models.
+        const ollamaModel = ollamaProvider(model, {
+          options: {
+            num_ctx: 16384, // Adequate context window for tool calling
+          },
+        });
+
+        console.log(`[AI IPC] Ollama model created with num_ctx=16384 for tool calling support`);
+        return ollamaModel;
       }
 
       case "lmstudio": {
@@ -3687,6 +4303,7 @@ async function getModelInstance(
           baseURL: baseUrl,
           apiKey: "lm-studio", // LM Studio doesn't need a real key
         });
+        console.log(`[AI IPC] LM Studio model created via OpenAI-compatible API`);
         return lmstudio(model);
       }
 
