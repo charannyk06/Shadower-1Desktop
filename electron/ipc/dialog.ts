@@ -14,7 +14,6 @@ import fs from "fs-extra";
  * @returns true if the path is allowed, false otherwise
  */
 function isPathAllowed(filePath: string): boolean {
-  const normalizedPath = path.normalize(filePath);
   const resolvedPath = path.resolve(filePath);
 
   // Check for null bytes (path traversal attack vector)
