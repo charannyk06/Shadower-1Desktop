@@ -86,6 +86,7 @@ export interface BrowserServiceInterface {
       type: string;
       selector?: string;
       value?: string;
+      values?: string | string[]; // For select action
       text?: string;
       key?: string;
       delay?: number;
@@ -107,6 +108,13 @@ export interface BrowserServiceInterface {
   getContent(options?: { selector?: string; sessionId?: string }): Promise<string>;
   getUrl(sessionId?: string): Promise<string>;
   getTitle(sessionId?: string): Promise<string>;
+  // Multi-tab support
+  newTab(sessionId?: string, url?: string): Promise<{ index: number; total: number; url?: string }>;
+  newWindow(sessionId?: string, options?: { viewport?: { width: number; height: number } }): Promise<{ index: number; total: number }>;
+  switchTab(index: number, sessionId?: string): Promise<{ index: number; url: string; title: string }>;
+  closeTab(index?: number, sessionId?: string): Promise<{ closed: number; remaining: number }>;
+  listTabs(sessionId?: string): Promise<Array<{ index: number; url: string; title: string; active: boolean }>>;
+  getActiveTabIndex(sessionId?: string): number;
 }
 
 /**
@@ -230,6 +238,34 @@ async function callBrowserAPI<T>(
           return { url: await service.getUrl((args[0] as { sessionId?: string })?.sessionId) } as T;
         case "getTitle":
           return { title: await service.getTitle((args[0] as { sessionId?: string })?.sessionId) } as T;
+        // Multi-tab support
+        case "newTab": {
+          const opts = args[0] as { url?: string; sessionId?: string } | undefined;
+          return await service.newTab(opts?.sessionId, opts?.url) as T;
+        }
+        case "newWindow": {
+          const opts = args[0] as { viewport?: { width: number; height: number }; sessionId?: string } | undefined;
+          return await service.newWindow(opts?.sessionId, { viewport: opts?.viewport }) as T;
+        }
+        case "switchTab":
+          return await service.switchTab(args[0] as number, args[1] as string | undefined) as T;
+        case "closeTab": {
+          const opts = args[0] as { index?: number; sessionId?: string } | undefined;
+          return await service.closeTab(opts?.index, opts?.sessionId) as T;
+        }
+        case "listTabs":
+          return await service.listTabs(args[0] as string | undefined) as T;
+        case "getActiveTabIndex":
+          return { index: service.getActiveTabIndex(args[0] as string | undefined) } as T;
+        // Additional actions
+        case "hover":
+          return await service.executeAction({ type: "hover", selector: args[0] as string }, args[1] as { sessionId?: string }) as T;
+        case "select":
+          return await service.executeAction({ type: "select", selector: args[0] as string, values: args[1] as string | string[] }, args[2] as { sessionId?: string }) as T;
+        case "check":
+          return await service.executeAction({ type: "check", selector: args[0] as string }, args[1] as { sessionId?: string }) as T;
+        case "uncheck":
+          return await service.executeAction({ type: "uncheck", selector: args[0] as string }, args[1] as { sessionId?: string }) as T;
         default:
           throw new Error(`Unknown browser method: ${method}`);
       }
@@ -1064,6 +1100,365 @@ export const browserReloadTool = createTool({
 });
 
 // ============================================================================
+// MULTI-TAB TOOLS
+// ============================================================================
+
+/**
+ * Open a new browser tab
+ */
+export const browserNewTabTool = createTool({
+  description: "Open a new browser tab, optionally navigating to a URL. Returns the tab index.",
+  inputSchema: z.object({
+    url: z.string().url().optional().describe("Optional URL to navigate to in the new tab"),
+  }),
+  execute: async ({ url }) => {
+    try {
+      const result = await callBrowserAPI<{
+        index?: number;
+        total?: number;
+        url?: string;
+        error?: string;
+      }>("newTab", { url });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        tabIndex: result.index,
+        totalTabs: result.total,
+        url: result.url || "about:blank",
+        message: `Opened new tab ${(result.index || 0) + 1}/${result.total}${url ? ` at ${url}` : ""}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to open new tab",
+      };
+    }
+  },
+});
+
+/**
+ * Open a new browser window
+ */
+export const browserNewWindowTool = createTool({
+  description: "Open a new browser window. Useful for multi-window workflows.",
+  inputSchema: z.object({
+    viewport: z
+      .object({
+        width: z.number().default(1280),
+        height: z.number().default(720),
+      })
+      .optional()
+      .describe("Optional viewport size for the new window"),
+  }),
+  execute: async ({ viewport }) => {
+    try {
+      const result = await callBrowserAPI<{
+        index?: number;
+        total?: number;
+        error?: string;
+      }>("newWindow", { viewport });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        tabIndex: result.index,
+        totalTabs: result.total,
+        message: `Opened new window (tab ${(result.index || 0) + 1}/${result.total})`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to open new window",
+      };
+    }
+  },
+});
+
+/**
+ * Switch to a different browser tab
+ */
+export const browserSwitchTabTool = createTool({
+  description: "Switch to a different browser tab by index. Use browser_list_tabs to see available tabs.",
+  inputSchema: z.object({
+    index: z.number().describe("Tab index to switch to (0-based)"),
+  }),
+  execute: async ({ index }) => {
+    try {
+      const result = await callBrowserAPI<{
+        index?: number;
+        url?: string;
+        title?: string;
+        error?: string;
+      }>("switchTab", index);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        activeTabIndex: result.index,
+        url: result.url,
+        title: result.title,
+        message: `Switched to tab ${(result.index || 0) + 1}: ${result.title}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to switch tab",
+      };
+    }
+  },
+});
+
+/**
+ * Close a browser tab
+ */
+export const browserCloseTabTool = createTool({
+  description: "Close a browser tab. If no index provided, closes the current tab.",
+  inputSchema: z.object({
+    index: z.number().optional().describe("Tab index to close. If not provided, closes active tab."),
+  }),
+  execute: async ({ index }) => {
+    try {
+      const result = await callBrowserAPI<{
+        closed?: number;
+        remaining?: number;
+        error?: string;
+      }>("closeTab", { index });
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        closedTabIndex: result.closed,
+        remainingTabs: result.remaining,
+        message: `Closed tab, ${result.remaining} tab${result.remaining === 1 ? "" : "s"} remaining`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to close tab",
+      };
+    }
+  },
+});
+
+/**
+ * List all browser tabs
+ */
+export const browserListTabsTool = createTool({
+  description: "List all open browser tabs with their URLs and titles.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const tabs = await callBrowserAPI<
+        Array<{ index: number; url: string; title: string; active: boolean }>
+      >("listTabs");
+
+      if (!Array.isArray(tabs)) {
+        return {
+          success: false,
+          error: "Failed to list tabs",
+        };
+      }
+
+      return {
+        success: true,
+        tabs: tabs.map((tab) => ({
+          index: tab.index,
+          url: tab.url,
+          title: tab.title || "(untitled)",
+          active: tab.active,
+        })),
+        totalTabs: tabs.length,
+        activeTabIndex: tabs.find((t) => t.active)?.index,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to list tabs",
+      };
+    }
+  },
+});
+
+/**
+ * Get active tab index
+ */
+export const browserGetActiveTabIndexTool = createTool({
+  description: "Get the index of the currently active browser tab.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    try {
+      const result = await callBrowserAPI<{
+        index?: number;
+        error?: string;
+      }>("getActiveTabIndex");
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        activeTabIndex: result.index,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to get active tab index",
+      };
+    }
+  },
+});
+
+// ============================================================================
+// ADDITIONAL ACTION TOOLS
+// ============================================================================
+
+/**
+ * Hover over an element
+ */
+export const browserHoverTool = createTool({
+  description: "Hover over an element to trigger hover states, tooltips, or dropdown menus.",
+  inputSchema: z.object({
+    selector: z.string().describe("CSS selector or ref (e.g., @e1) for the element to hover over"),
+  }),
+  execute: async ({ selector }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("hover", selector);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        message: `Hovered over ${selector}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Hover failed",
+      };
+    }
+  },
+});
+
+/**
+ * Select options from a dropdown
+ */
+export const browserSelectTool = createTool({
+  description: "Select one or more options from a dropdown/select element.",
+  inputSchema: z.object({
+    selector: z.string().describe("CSS selector or ref for the select element"),
+    values: z
+      .union([z.string(), z.array(z.string())])
+      .describe("Value(s) to select. For multi-select, provide an array."),
+  }),
+  execute: async ({ selector, values }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("select", selector, values);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      const selectedValues = Array.isArray(values) ? values.join(", ") : values;
+      return {
+        success: true,
+        message: `Selected "${selectedValues}" in ${selector}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Select failed",
+      };
+    }
+  },
+});
+
+/**
+ * Check a checkbox or radio button
+ */
+export const browserCheckTool = createTool({
+  description: "Check a checkbox or radio button.",
+  inputSchema: z.object({
+    selector: z.string().describe("CSS selector or ref for the checkbox/radio element"),
+  }),
+  execute: async ({ selector }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("check", selector);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        message: `Checked ${selector}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Check failed",
+      };
+    }
+  },
+});
+
+/**
+ * Uncheck a checkbox
+ */
+export const browserUncheckTool = createTool({
+  description: "Uncheck a checkbox.",
+  inputSchema: z.object({
+    selector: z.string().describe("CSS selector or ref for the checkbox element"),
+  }),
+  execute: async ({ selector }) => {
+    try {
+      const result = await callBrowserAPI<{
+        success?: boolean;
+        error?: string;
+      }>("uncheck", selector);
+
+      if (result.error) {
+        return { success: false, error: result.error };
+      }
+
+      return {
+        success: true,
+        message: `Unchecked ${selector}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Uncheck failed",
+      };
+    }
+  },
+});
+
+// ============================================================================
 // CONTEXT-BASED TOOLS (Legacy compat - uses evaluate for page context)
 // ============================================================================
 
@@ -1274,6 +1669,14 @@ export const localBrowserTools = {
   browser_go_forward: browserGoForwardTool,
   browser_reload: browserReloadTool,
 
+  // === MULTI-TAB MANAGEMENT ===
+  browser_new_tab: browserNewTabTool,
+  browser_new_window: browserNewWindowTool,
+  browser_switch_tab: browserSwitchTabTool,
+  browser_close_tab: browserCloseTabTool,
+  browser_list_tabs: browserListTabsTool,
+  browser_get_active_tab_index: browserGetActiveTabIndexTool,
+
   // === AI-OPTIMIZED TOOLS (PRIMARY) ===
   browser_get_snapshot: browserGetSnapshotTool, // PRIMARY - ref-based element tree
   browser_get_context: browserGetContextTool, // Structured context extraction
@@ -1287,6 +1690,10 @@ export const localBrowserTools = {
   browser_press_key: browserPressKeyTool,
   browser_scroll: browserScrollTool,
   browser_wait: browserWaitTool,
+  browser_hover: browserHoverTool,
+  browser_select: browserSelectTool,
+  browser_check: browserCheckTool,
+  browser_uncheck: browserUncheckTool,
 
   // Page Info
   browser_screenshot: browserScreenshotTool,

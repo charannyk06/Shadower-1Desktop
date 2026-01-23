@@ -28,11 +28,15 @@ const DEFAULT_CDP_PORT = 9222;
 // Track spawned Chrome processes for cleanup
 const spawnedChromeProcesses: Map<number, { pid: number; port: number }> = new Map();
 
+// Track cloned profile directories for cleanup
+const clonedProfileDirs: Set<string> = new Set();
+
 /**
- * Clean up all spawned Chrome processes
- * Call this on app shutdown to ensure no orphaned Chrome processes
+ * Clean up all spawned Chrome processes and cloned profile directories
+ * Call this on app shutdown to ensure no orphaned Chrome processes or temp files
  */
 export function cleanupSpawnedChromeProcesses(): void {
+  // Clean up Chrome processes
   log.info(`[Browser] Cleaning up ${spawnedChromeProcesses.size} spawned Chrome processes`);
   for (const [pid] of spawnedChromeProcesses) {
     try {
@@ -46,6 +50,20 @@ export function cleanupSpawnedChromeProcesses(): void {
     }
   }
   spawnedChromeProcesses.clear();
+
+  // Clean up cloned profile directories
+  log.info(`[Browser] Cleaning up ${clonedProfileDirs.size} cloned profile directories`);
+  for (const dir of clonedProfileDirs) {
+    try {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        log.debug(`[Browser] Removed cloned profile: ${dir}`);
+      }
+    } catch (err: any) {
+      log.warn(`[Browser] Could not remove cloned profile ${dir}: ${err.message}`);
+    }
+  }
+  clonedProfileDirs.clear();
 }
 
 // Register cleanup on app shutdown
@@ -199,32 +217,102 @@ async function checkCdpHasPages(port: number): Promise<boolean> {
   });
 }
 
+// NOTE: Helper function to check if Chrome is running via lock files
+// Kept for potential future use but currently not needed since we use CDP port check
+// function isChromeRunning(): boolean { ... }
+
 /**
- * Check if Chrome is running (without CDP) by checking for lock file
+ * Clone essential Chrome profile data (cookies, sessions) to a temp directory.
+ * This allows launching Chrome with user's login sessions even when Chrome is already running.
+ *
+ * @param sourceProfileDir - Path to user's Chrome profile directory
+ * @param port - CDP port (used to create unique temp directory name)
+ * @returns Path to the cloned profile directory
  */
-function isChromeRunning(): boolean {
-  const platform = os.platform();
-  const userDataPath = CHROME_USER_DATA_PATHS[platform];
+async function cloneChromeProfile(sourceProfileDir: string, port: number): Promise<string> {
+  const tempProfileDir = path.join(os.tmpdir(), `chrome-cloned-profile-${port}-${Date.now()}`);
 
-  if (!userDataPath) return false;
+  log.info(`[Browser] Cloning Chrome profile to preserve login sessions...`);
+  log.info(`[Browser] Source: ${sourceProfileDir}`);
+  log.info(`[Browser] Target: ${tempProfileDir}`);
 
-  // Check for Chrome's lock files
-  const lockFiles = [
-    path.join(userDataPath, "SingletonLock"),
-    path.join(userDataPath, "lockfile"),
-  ];
+  try {
+    // Create temp directory and Default subdirectory
+    fs.mkdirSync(path.join(tempProfileDir, "Default"), { recursive: true });
 
-  for (const lockFile of lockFiles) {
-    try {
-      if (fs.existsSync(lockFile)) {
-        return true;
+    // Files/folders to copy for session preservation
+    // These contain cookies, saved passwords, localStorage, etc.
+    const itemsToCopy = [
+      "Default/Cookies",           // Login cookies (critical!)
+      "Default/Login Data",        // Saved passwords (encrypted)
+      "Default/Web Data",          // Form autofill data
+      "Default/Local Storage",     // localStorage data
+      "Default/Session Storage",   // sessionStorage data
+      "Default/IndexedDB",         // IndexedDB data
+      "Default/Preferences",       // User preferences
+      "Default/Secure Preferences",// Secure preferences
+      "Local State",               // Chrome state
+      "First Run",                 // Prevent first-run dialog
+    ];
+
+    let copiedCount = 0;
+    let failedCount = 0;
+
+    for (const item of itemsToCopy) {
+      const sourcePath = path.join(sourceProfileDir, item);
+      const targetPath = path.join(tempProfileDir, item);
+
+      try {
+        if (fs.existsSync(sourcePath)) {
+          const stat = fs.statSync(sourcePath);
+
+          if (stat.isDirectory()) {
+            // Copy directory recursively
+            fs.cpSync(sourcePath, targetPath, { recursive: true });
+          } else {
+            // Copy file - ensure parent directory exists
+            fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+            fs.copyFileSync(sourcePath, targetPath);
+          }
+          log.debug(`[Browser] Copied: ${item}`);
+          copiedCount++;
+        }
+      } catch (err: any) {
+        // Some files may be locked by Chrome, but cookies should usually work
+        log.warn(`[Browser] Could not copy ${item}: ${err.message}`);
+        failedCount++;
       }
-    } catch {
-      // Continue
     }
-  }
 
-  return false;
+    // Create "First Run" file to prevent welcome dialog
+    try {
+      fs.writeFileSync(path.join(tempProfileDir, "First Run"), "");
+    } catch {
+      // Ignore errors
+    }
+
+    log.info(`[Browser] Profile cloned: ${copiedCount} items copied, ${failedCount} skipped`);
+
+    if (copiedCount === 0) {
+      log.warn(`[Browser] WARNING: No profile data was copied - sessions may not be preserved`);
+    } else {
+      log.info(`[Browser] Login sessions should be preserved!`);
+    }
+
+    // Track for cleanup
+    clonedProfileDirs.add(tempProfileDir);
+
+    return tempProfileDir;
+  } catch (err: any) {
+    log.error(`[Browser] Failed to clone profile: ${err.message}`);
+    // Return a fresh temp profile as fallback
+    const fallbackDir = path.join(os.tmpdir(), `chrome-fresh-profile-${port}-${Date.now()}`);
+    fs.mkdirSync(path.join(fallbackDir, "Default"), { recursive: true });
+    fs.writeFileSync(path.join(fallbackDir, "First Run"), "");
+    clonedProfileDirs.add(fallbackDir);
+    log.warn(`[Browser] Using fresh profile as fallback: ${fallbackDir}`);
+    return fallbackDir;
+  }
 }
 
 /**
@@ -249,36 +337,42 @@ async function launchChromeWithUserProfile(
     );
   }
 
-  // Check if Chrome is already running (without CDP)
-  if (isChromeRunning() && !useSeparateProfile) {
-    log.warn("[Browser] Chrome is already running without CDP enabled");
-    throw new Error(
-      "Chrome is already running without remote debugging enabled.\n\n" +
-      "Options to fix this:\n" +
-      "1. Close ALL Chrome windows and try again (recommended - preserves cookies)\n" +
-      "2. Keep Chrome open and use a separate profile by passing useSeparateProfile: true\n" +
-      "3. Manually start Chrome with: --remote-debugging-port=9222"
-    );
-  }
-
   // Determine which profile to use
   let profileDir: string | null = null;
+  let isClonedProfile = false;
+
+  // CRITICAL FIX: ALWAYS clone the profile!
+  // Using the real profile directly causes issues:
+  // 1. Chrome background processes may lock the profile
+  // 2. Chrome may refuse to start with "profile in use" error
+  // 3. Even if Chrome isn't "running", stale locks can cause issues
+  //
+  // Cloning the profile:
+  // - PRESERVES all cookies, sessions, and login state
+  // - AVOIDS all conflicts with existing Chrome
+  // - Works regardless of Chrome state
 
   if (useSeparateProfile) {
-    // Use a separate profile directory for automation when user wants to keep their Chrome open
+    // User explicitly wants a fresh profile (no sessions)
     profileDir = path.join(os.tmpdir(), `chrome-automation-${port}`);
-    log.info(`[Browser] Using SEPARATE PROFILE to allow running alongside main Chrome`);
-    log.info(`[Browser] Note: Cookies and sessions from your main Chrome will NOT be available`);
+    log.info(`[Browser] Using separate profile (no login sessions)`);
   } else {
-    // Use the user's REAL Chrome profile
-    profileDir = getUserChromeProfilePath();
-    if (!profileDir) {
-      log.warn("[Browser] User's Chrome profile not found, using temp profile");
+    // ALWAYS clone the profile to preserve sessions AND avoid conflicts
+    const userProfileDir = getUserChromeProfilePath();
+    if (userProfileDir) {
+      log.info(`[Browser] Cloning Chrome profile to preserve login sessions...`);
+      profileDir = await cloneChromeProfile(userProfileDir, port);
+      isClonedProfile = true;
+      log.info(`[Browser] Using CLONED profile - your login sessions are preserved!`);
+    } else {
+      // Fallback to temp profile if user profile not found
+      profileDir = path.join(os.tmpdir(), `chrome-automation-${port}`);
+      log.warn(`[Browser] Could not find Chrome profile to clone, using temp profile`);
     }
   }
 
   log.info(`[Browser] Launching Chrome on port ${port}...`);
-  log.info(`[Browser] Profile: ${useSeparateProfile ? "separate automation profile" : (profileDir || "temp")}`);
+  log.info(`[Browser] Profile mode: ${isClonedProfile ? "cloned (sessions preserved)" : "separate (no sessions)"}`);
 
   const args = [
     `--remote-debugging-port=${port}`,
@@ -289,17 +383,19 @@ async function launchChromeWithUserProfile(
     "--disable-renderer-backgrounding",
   ];
 
-  // Add user-data-dir if using a separate profile OR if no user profile found
-  if (useSeparateProfile) {
+  // Add user-data-dir - this should ALWAYS be set now
+  if (profileDir) {
     args.push(`--user-data-dir=${profileDir}`);
-    log.info("[Browser] Using separate profile - cookies/sessions will NOT be shared with main Chrome");
-  } else if (!profileDir) {
-    const tempDir = path.join(os.tmpdir(), `chrome-cdp-${port}`);
-    args.push(`--user-data-dir=${tempDir}`);
-    log.warn("[Browser] Using temp profile - cookies/sessions will NOT be preserved");
+    if (isClonedProfile) {
+      log.info("[Browser] Using CLONED profile - cookies and sessions preserved!");
+    } else {
+      log.info("[Browser] Using separate profile - no sessions from main Chrome");
+    }
+  } else {
+    // This should never happen now, but just in case
+    log.error("[Browser] CRITICAL: No profile directory set - this is a bug!");
+    throw new Error("Browser profile directory not configured");
   }
-  // When profileDir exists and NOT useSeparateProfile, we DON'T add --user-data-dir
-  // This lets Chrome use the default profile automatically
 
   const chromeProcess = spawn(execPath, args, {
     detached: true,
@@ -355,6 +451,39 @@ async function launchChromeWithUserProfile(
 }
 
 /**
+ * Kill any process using a specific port (to clear zombie Chrome instances)
+ */
+async function killProcessOnPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const platform = os.platform();
+    let cmd: string;
+    let args: string[];
+
+    if (platform === "win32") {
+      // Windows: netstat to find PID, then taskkill
+      cmd = "cmd";
+      args = ["/c", `for /f "tokens=5" %a in ('netstat -aon ^| findstr :${port}') do taskkill /F /PID %a`];
+    } else {
+      // macOS/Linux: lsof + kill
+      cmd = "sh";
+      args = ["-c", `lsof -ti:${port} | xargs kill -9 2>/dev/null`];
+    }
+
+    const proc = spawn(cmd, args, { stdio: "ignore" });
+    proc.on("close", (code) => {
+      if (code === 0) {
+        log.info(`[Browser] Killed process on port ${port}`);
+      }
+      resolve(code === 0);
+    });
+    proc.on("error", () => resolve(false));
+
+    // Timeout after 3 seconds
+    setTimeout(() => resolve(false), 3000);
+  });
+}
+
+/**
  * Get or launch Chrome with CDP - uses user's REAL browser
  * This is CDP-ONLY mode - no fallbacks!
  *
@@ -369,7 +498,7 @@ async function getOrLaunchChromeWithCdp(
 ): Promise<string> {
   // PRIORITY 1: Check if Chrome is already running with CDP
   log.info(`[Browser] Checking for existing Chrome CDP on port ${port}...`);
-  const existingWsUrl = await checkCdpAvailable(port);
+  let existingWsUrl = await checkCdpAvailable(port);
 
   if (existingWsUrl) {
     log.info(`[Browser] Found existing Chrome CDP at ${existingWsUrl}`);
@@ -377,9 +506,13 @@ async function getOrLaunchChromeWithCdp(
     return existingWsUrl;
   }
 
-  // PRIORITY 2: Launch Chrome with user's profile + CDP (or separate profile if requested)
-  const profileMode = useSeparateProfile ? "separate automation profile" : "user's profile";
-  log.info(`[Browser] No existing Chrome with CDP found. Launching Chrome with ${profileMode}...`);
+  // PRIORITY 2: Kill any zombie process on the CDP port
+  log.info(`[Browser] No CDP found. Checking for zombie processes on port ${port}...`);
+  await killProcessOnPort(port);
+  await new Promise((resolve) => setTimeout(resolve, 500)); // Wait for port to free up
+
+  // PRIORITY 3: Launch Chrome with cloned profile + CDP
+  log.info(`[Browser] Launching Chrome with cloned profile (sessions preserved)...`);
   const result = await launchChromeWithUserProfile(port, chromePath, useSeparateProfile);
 
   if (!result?.wsUrl) {
@@ -671,17 +804,6 @@ export class EnhancedBrowserService {
           "BROWSER ERROR: Google Chrome is not installed.\n\n" +
           "Please install Chrome from: https://www.google.com/chrome\n\n" +
           "After installing, try again."
-        );
-      }
-
-      if (message.includes("already running")) {
-        throw new Error(
-          "BROWSER ERROR: Chrome is already running without remote debugging.\n\n" +
-          "To fix this:\n" +
-          "1. Close ALL Chrome windows completely\n" +
-          "2. Try again - Chrome will be launched with debugging enabled\n\n" +
-          "OR manually start Chrome with debugging:\n" +
-          `  chrome --remote-debugging-port=${cdpPort}`
         );
       }
 
@@ -1274,6 +1396,100 @@ export class EnhancedBrowserService {
       createdAt: session.createdAt,
       isActive: id === this.activeSessionId,
     }));
+  }
+
+  // ============================================================================
+  // MULTI-TAB SUPPORT
+  // Uses agent-browser's built-in tab management within a single session
+  // ============================================================================
+
+  /**
+   * Create a new tab in the current session
+   * @returns Tab info with index and total tabs
+   */
+  async newTab(sessionId?: string, url?: string): Promise<{ index: number; total: number; url?: string }> {
+    const session = this.getSession(sessionId);
+    const result = await session.manager.newTab();
+
+    // Navigate to URL if provided
+    if (url) {
+      const page = session.manager.getPage();
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+    }
+
+    log.info(`[Browser] Created new tab ${result.index + 1}/${result.total}`);
+    return { ...result, url: url || "about:blank" };
+  }
+
+  /**
+   * Create a new window (new browser context)
+   * @returns Window info with index and total
+   */
+  async newWindow(
+    sessionId?: string,
+    options?: { viewport?: { width: number; height: number } }
+  ): Promise<{ index: number; total: number }> {
+    const session = this.getSession(sessionId);
+    const result = await session.manager.newWindow(options?.viewport);
+    log.info(`[Browser] Created new window ${result.index + 1}/${result.total}`);
+    return result;
+  }
+
+  /**
+   * Switch to a specific tab by index
+   * @returns Info about the switched-to tab
+   */
+  async switchTab(
+    index: number,
+    sessionId?: string
+  ): Promise<{ index: number; url: string; title: string }> {
+    const session = this.getSession(sessionId);
+    const result = await session.manager.switchTo(index);
+    log.info(`[Browser] Switched to tab ${result.index}: ${result.url}`);
+    return result;
+  }
+
+  /**
+   * Close a specific tab (or current tab if no index provided)
+   * @returns Info about remaining tabs
+   */
+  async closeTab(
+    index?: number,
+    sessionId?: string
+  ): Promise<{ closed: number; remaining: number }> {
+    const session = this.getSession(sessionId);
+    const result = await session.manager.closeTab(index);
+    log.info(`[Browser] Closed tab, ${result.remaining} tabs remaining`);
+    return result;
+  }
+
+  /**
+   * List all tabs in the current session
+   * @returns Array of tab info with index, url, title, and active status
+   */
+  async listTabs(sessionId?: string): Promise<
+    Array<{ index: number; url: string; title: string; active: boolean }>
+  > {
+    const session = this.getSession(sessionId);
+    const tabs = await session.manager.listTabs();
+    log.debug(`[Browser] Listed ${tabs.length} tabs`);
+    return tabs;
+  }
+
+  /**
+   * Get the active tab index
+   */
+  getActiveTabIndex(sessionId?: string): number {
+    const session = this.getSession(sessionId);
+    return session.manager.getActiveIndex();
+  }
+
+  /**
+   * Get all pages (for advanced multi-tab operations)
+   */
+  getPages(sessionId?: string): Page[] {
+    const session = this.getSession(sessionId);
+    return session.manager.getPages();
   }
 
   /**
