@@ -464,6 +464,54 @@ export interface ElectronAPI {
     quit: () => void;
   };
 
+  // Dialog operations
+  dialog: {
+    openDirectory: (options?: {
+      title?: string;
+      defaultPath?: string;
+      buttonLabel?: string;
+    }) => Promise<{
+      success: boolean;
+      canceled?: boolean;
+      path?: string;
+      name?: string;
+      error?: string;
+    }>;
+    openInFileManager: (directoryPath: string) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    showInFileManager: (filePath: string) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    openPath: (filePath: string) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    saveFile: (options: {
+      filename: string;
+      content: string;
+      defaultPath?: string;
+      filters?: { name: string; extensions: string[] }[];
+    }) => Promise<{
+      success: boolean;
+      canceled?: boolean;
+      path?: string;
+      filename?: string;
+      error?: string;
+    }>;
+    writeToPath: (options: {
+      filePath: string;
+      content: string;
+    }) => Promise<{
+      success: boolean;
+      path?: string;
+      filename?: string;
+      error?: string;
+    }>;
+  };
+
   // Workflow execution (streaming events)
   workflow: {
     execute: (
@@ -488,12 +536,17 @@ export interface ElectronAPI {
       messages: any[];
       chatModel: { provider: string; model: string };
       toolChoice?: string;
+      chatMode?: "regular" | "agent";
       allowedAppDefaultToolkit?: string[];
       allowedMcpServers?: Record<string, any>;
       mentions?: any[];
       message: any;
       imageTool?: { model?: string };
       attachments?: any[];
+      workingDirectory?: {
+        path: string;
+        name: string;
+      };
     }) => Promise<{
       success?: boolean;
       error?: string;
@@ -1070,6 +1123,29 @@ const electronAPI: ElectronAPI = {
     getVersion: () => ipcRenderer.invoke("app:getVersion"),
     getPath: (name: string) => ipcRenderer.invoke("app:getPath", name),
     quit: () => ipcRenderer.send("app:quit"),
+  },
+
+  // Dialog operations
+  dialog: {
+    openDirectory: (options?: {
+      title?: string;
+      defaultPath?: string;
+      buttonLabel?: string;
+    }) => ipcRenderer.invoke("dialog:openDirectory", options),
+    openInFileManager: (directoryPath: string) =>
+      ipcRenderer.invoke("dialog:openInFileManager", directoryPath),
+    showInFileManager: (filePath: string) =>
+      ipcRenderer.invoke("dialog:showInFileManager", filePath),
+    openPath: (filePath: string) =>
+      ipcRenderer.invoke("shell:openPath", filePath),
+    saveFile: (options: {
+      filename: string;
+      content: string;
+      defaultPath?: string;
+      filters?: { name: string; extensions: string[] }[];
+    }) => ipcRenderer.invoke("dialog:saveFile", options),
+    writeToPath: (options: { filePath: string; content: string }) =>
+      ipcRenderer.invoke("files:writeToPath", options),
   },
 
   // AI streaming (IPC-based, no HTTP server needed)
