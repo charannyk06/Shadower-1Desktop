@@ -202,6 +202,93 @@ function isScreenshotEvent(event: { type: string }): event is ScreenshotEvent {
   return event.type === "data-screenshot";
 }
 
+// Document-ready event - file ready for desktop saving
+interface DocumentReadyEvent {
+  type: "data-document-ready";
+  data: {
+    fileName: string;
+    fileBase64: string;
+    documentType: "presentation" | "document" | "spreadsheet" | "pdf";
+    timestamp: string;
+  };
+}
+
+function isDocumentReadyEvent(event: { type: string }): event is DocumentReadyEvent {
+  return event.type === "data-document-ready";
+}
+
+/**
+ * Handle document-ready event for desktop mode
+ * Saves the document to the working directory and auto-opens it
+ */
+async function handleDocumentReadyEvent(event: DocumentReadyEvent): Promise<void> {
+  // Parse the data if it's a string (JSON.stringify was used when writing to stream)
+  const eventData = typeof event.data === "string"
+    ? JSON.parse(event.data)
+    : event.data;
+  const { fileName, fileBase64, documentType } = eventData as DocumentReadyEvent["data"];
+
+  // Check if we're in Electron mode with file API support
+  if (typeof window === "undefined" || !window.electronAPI) {
+    console.log("[DocumentReady] Not in Electron mode, skipping save");
+    return;
+  }
+
+  // Get the working directory from the store
+  const workingDirectory = appStore.getState().workingDirectory;
+
+  if (!workingDirectory?.path) {
+    console.log("[DocumentReady] No working directory set, skipping save");
+    toast.warning("No working directory set", {
+      description: "Select a working directory to save documents automatically.",
+    });
+    return;
+  }
+
+  try {
+    // Build the full file path
+    const filePath = `${workingDirectory.path}/${fileName}`;
+
+    console.log(`[DocumentReady] Saving ${documentType} to: ${filePath}`);
+
+    // Save the file using the IPC handler
+    const writeResult = await window.electronAPI.dialog.writeToPath({
+      filePath,
+      content: fileBase64,
+    });
+
+    if (!writeResult.success) {
+      console.error("[DocumentReady] Failed to save file:", writeResult.error);
+      toast.error(`Failed to save ${fileName}`, {
+        description: writeResult.error || "Unknown error occurred while saving the file.",
+      });
+      return;
+    }
+
+    console.log(`[DocumentReady] File saved successfully: ${filePath}`);
+    toast.success(`Saved ${fileName}`, {
+      description: `Document saved to ${workingDirectory.name}`,
+    });
+
+    // Auto-open the file in the system's default application
+    const openResult = await window.electronAPI.dialog.openPath(filePath);
+
+    if (!openResult.success) {
+      console.warn("[DocumentReady] Failed to open file:", openResult.error);
+      toast.warning(`Could not open ${fileName}`, {
+        description: "File was saved but could not be opened automatically.",
+      });
+    } else {
+      console.log(`[DocumentReady] Opened ${fileName} in default application`);
+    }
+  } catch (error) {
+    console.error("[DocumentReady] Error handling document:", error);
+    toast.error("Error saving document", {
+      description: error instanceof Error ? error.message : "An unexpected error occurred.",
+    });
+  }
+}
+
 function handleScreenshotEvent(
   event: ScreenshotEvent,
   setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>,
@@ -747,6 +834,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     threadMentions,
     pendingThreadMention,
     threadImageToolModel,
+    workingDirectory,
   ] = appStore(
     useShallow((state) => [
       state.mutate,
@@ -759,6 +847,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       state.threadMentions,
       state.pendingThreadMention,
       state.threadImageToolModel,
+      state.workingDirectory,
     ]),
   );
 
@@ -976,6 +1065,9 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             },
           },
         }));
+      } else if (isDocumentReadyEvent(dataPart as { type: string })) {
+        // Handle document ready for desktop mode (save to working directory + auto-open)
+        handleDocumentReadyEvent(dataPart as DocumentReadyEvent);
       }
     },
   });
@@ -1405,6 +1497,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     threadId,
     mentions: threadMentions[threadId],
     threadImageToolModel,
+    workingDirectory,
   });
 
   const isLoading = useMemo(

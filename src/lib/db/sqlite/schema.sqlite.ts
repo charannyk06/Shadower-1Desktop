@@ -4,7 +4,6 @@ import type { ChatMetadata } from "app-types/chat";
 import type { MCPServerConfig } from "app-types/mcp";
 import type { UserPreferences } from "app-types/user";
 import type { DBEdge, DBNode, DBWorkflow } from "app-types/workflow";
-import type { TipTapMentionJsonContent } from "@/types/util";
 import {
   integer,
   sqliteTable,

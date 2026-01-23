@@ -3,7 +3,6 @@
 import {
   ChevronDown,
   FolderOpen,
-  MessageCircleDashed,
   MicIcon,
   PanelLeft,
 } from "lucide-react";
@@ -20,21 +19,30 @@ import { useEffect, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 import { useShallow } from "zustand/shallow";
 import { ThreadDropdown } from "../thread-dropdown";
+import { WorkingDirectoryDisplay } from "../working-directory-display";
 
 export function AppHeader() {
   const { t } = useTranslation();
-  const [appStoreMutate, theaterMode, currentThreadId] = appStore(
-    useShallow((state) => [state.mutate, state.theaterMode, state.currentThreadId]),
+  const [appStoreMutate, theaterMode, currentThreadId, threadList] = appStore(
+    useShallow((state) => [state.mutate, state.theaterMode, state.currentThreadId, state.threadList]),
   );
   const { toggleSidebar, open, setOpen } = useSidebar();
   const location = useLocation();
   const currentPaths = location.pathname;
 
-  // Check if we're on a chat page OR if there's an active thread in the store
-  // The URL might stay at "/" during a new chat to avoid component remount
-  const isOnChatPage = useMemo(() => {
-    return currentPaths.startsWith("/chat/") || !!currentThreadId;
-  }, [currentPaths, currentThreadId]);
+  // Check if we're on a chat page with an active conversation
+  // Thread must exist in threadList (meaning a message has been sent)
+  const hasActiveConversation = useMemo(() => {
+    if (currentPaths.startsWith("/chat/")) {
+      // Check if this thread exists in the list (has started)
+      const urlThreadId = currentPaths.replace("/chat/", "");
+      return threadList.some((t) => t.id === urlThreadId);
+    }
+    if (currentThreadId) {
+      return threadList.some((t) => t.id === currentThreadId);
+    }
+    return false;
+  }, [currentPaths, currentThreadId, threadList]);
 
   // Show thread dropdown if on /chat/ URL OR if there's an active thread
   const componentByPage = useMemo(() => {
@@ -88,12 +96,19 @@ export function AppHeader() {
         </TooltipContent>
       </Tooltip>
 
+      <div className="w-1 h-4">
+        <Separator orientation="vertical" />
+      </div>
+
       {componentByPage}
 
       <div className="flex-1" />
+
+      <WorkingDirectoryDisplay />
+
       {
         <div className="flex items-center gap-2">
-          {isOnChatPage && (
+          {hasActiveConversation && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -150,43 +165,6 @@ export function AppHeader() {
                       {key}
                     </span>
                   ))}
-                </div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size={"icon"}
-                variant={"secondary"}
-                className="bg-secondary/40"
-                onClick={() => {
-                  appStoreMutate((state) => ({
-                    temporaryChat: {
-                      ...state.temporaryChat,
-                      isOpen: !state.temporaryChat.isOpen,
-                    },
-                  }));
-                }}
-              >
-                <MessageCircleDashed className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent align="end" side="bottom">
-              <div className="text-xs flex items-center gap-2">
-                {t("KeyboardShortcuts.toggleTemporaryChat")}
-                <div className="text-xs text-muted-foreground flex items-center gap-1">
-                  {getShortcutKeyList(Shortcuts.toggleTemporaryChat).map(
-                    (key) => (
-                      <span
-                        className="w-5 h-5 flex items-center justify-center bg-muted rounded "
-                        key={key}
-                      >
-                        {key}
-                      </span>
-                    ),
-                  )}
                 </div>
               </div>
             </TooltipContent>

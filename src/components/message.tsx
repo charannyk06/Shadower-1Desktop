@@ -27,65 +27,56 @@ type RenderUnit =
   | { type: "subAgentTile"; events: SubAgentEvent[]; index: number };
 
 /**
- * Groups consecutive sub-agent events for the same agent and merges them
- * with regular parts in chronological order
+ * Groups ALL sub-agent events into a single SubAgentTile, placed at the position
+ * of the first sub-agent event. This prevents multiple tiles when events are
+ * interleaved with regular parts (e.g., orchestrator text while sub-agent runs).
+ *
+ * The SubAgentTile component internally groups events by agentId.
  */
 function mergeAndGroupParts(parts: any[]): RenderUnit[] {
   const result: RenderUnit[] = [];
-  let currentSubAgentGroup: SubAgentEvent[] = [];
-  let currentAgentId: string | null = null;
+  const allSubAgentEvents: SubAgentEvent[] = [];
+  let firstSubAgentIndex = -1;
   let partIndex = 0;
+
+  // First pass: collect all sub-agent events and find position of first one
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const partType = typeof part.type === "string" ? part.type : "";
+
+    if (partType.startsWith("data-sub-agent-")) {
+      if (firstSubAgentIndex === -1) {
+        firstSubAgentIndex = i;
+      }
+      allSubAgentEvents.push(part as SubAgentEvent);
+    }
+  }
+
+  // Second pass: build render units, inserting single SubAgentTile at first sub-agent position
+  let subAgentTileInserted = false;
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
     const partType = typeof part.type === "string" ? part.type : "";
 
-    // Check if this is a sub-agent event
+    // Skip all sub-agent events (they're grouped into one tile)
     if (partType.startsWith("data-sub-agent-")) {
-      const event = part as SubAgentEvent;
-      const agentId = event.data?.agentId || "";
-
-      // If this is a new agent or we're starting a new group, flush previous group
-      if (currentAgentId !== null && currentAgentId !== agentId) {
-        if (currentSubAgentGroup.length > 0) {
-          result.push({
-            type: "subAgentTile",
-            events: [...currentSubAgentGroup],
-            index: partIndex++,
-          });
-          currentSubAgentGroup = [];
-        }
-      }
-
-      // Add to current group
-      currentSubAgentGroup.push(event);
-      currentAgentId = agentId;
-    } else {
-      // Flush any pending sub-agent group before processing regular part
-      if (currentSubAgentGroup.length > 0) {
+      // Insert the single SubAgentTile at the position of the first sub-agent event
+      if (!subAgentTileInserted && allSubAgentEvents.length > 0) {
         result.push({
           type: "subAgentTile",
-          events: [...currentSubAgentGroup],
+          events: allSubAgentEvents,
           index: partIndex++,
         });
-        currentSubAgentGroup = [];
-        currentAgentId = null;
+        subAgentTileInserted = true;
       }
-
-      // Add regular part
-      result.push({
-        type: "part",
-        part,
-        index: partIndex++,
-      });
+      continue;
     }
-  }
 
-  // Flush any remaining sub-agent group
-  if (currentSubAgentGroup.length > 0) {
+    // Add regular part
     result.push({
-      type: "subAgentTile",
-      events: [...currentSubAgentGroup],
+      type: "part",
+      part,
       index: partIndex++,
     });
   }

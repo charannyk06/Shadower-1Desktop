@@ -3,7 +3,6 @@
 import { cn } from "lib/utils";
 import {
   ChevronRight,
-  FileText,
   MessageSquare,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,6 +10,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { SubAgentEventPart } from "./sub-agent-event-part";
 import type { SubAgentEvent } from "./tool-invocation/sub-agent-view";
 import { TextShimmer } from "ui/text-shimmer";
+import { getToolIcon } from "./tool-invocation/tool-call-row";
 
 interface SubAgentTileProps {
   events: SubAgentEvent[];
@@ -62,16 +62,20 @@ function consolidateTextEvents(events: SubAgentEvent[]): SubAgentEvent[] {
 }
 
 /**
- * Counts the stats for a subagent's events
+ * Counts the stats for a subagent's events and collects tool names
  */
 function getEventStats(events: SubAgentEvent[]) {
   let toolCalls = 0;
   let messages = 0;
+  const toolNames: string[] = [];
 
   for (const event of events) {
     switch (event.type) {
       case "data-sub-agent-tool-call":
         toolCalls++;
+        if (event.data?.toolName) {
+          toolNames.push(event.data.toolName);
+        }
         break;
       case "data-sub-agent-text":
         if (event.data?.text?.trim()) {
@@ -81,7 +85,7 @@ function getEventStats(events: SubAgentEvent[]) {
     }
   }
 
-  return { toolCalls, messages };
+  return { toolCalls, messages, toolNames };
 }
 
 /**
@@ -210,6 +214,23 @@ export const SubAgentTile = memo(function SubAgentTile({
           (event) => event.type !== "data-sub-agent-start"
         );
 
+        // Get unique tool icons for collapsed view (computed inline, not using useMemo in render)
+        const uniqueToolIcons = (() => {
+          const seen = new Set<string>();
+          const icons: Array<{ icon: ReturnType<typeof getToolIcon>["icon"]; color: string; name: string }> = [];
+
+          for (const name of stats.toolNames) {
+            if (!seen.has(name)) {
+              seen.add(name);
+              const { icon, color } = getToolIcon(name);
+              icons.push({ icon, color, name });
+            }
+            if (icons.length >= 5) break; // Limit to 5 unique icons
+          }
+
+          return icons;
+        })();
+
         return (
           <div key={agentId} className="w-full my-1">
             <div className="rounded-lg border border-border/50 bg-background overflow-hidden">
@@ -240,37 +261,45 @@ export const SubAgentTile = memo(function SubAgentTile({
                     )}
                   </div>
                 ) : (
-                  /* Completed State: Show summary */
+                  /* Completed State: Show agent name + summary stats */
                   <div className="flex-1 min-w-0 flex items-center gap-2">
+                    <span className="text-sm font-medium text-foreground">
+                      {agentName}
+                    </span>
                     <span className="text-sm text-muted-foreground">
-                      {stats.toolCalls > 0 && stats.messages > 0 ? (
+                      {stats.toolCalls > 0 || stats.messages > 0 ? (
                         <>
-                          {stats.toolCalls} tool call{stats.toolCalls !== 1 ? "s" : ""},{" "}
-                          {stats.messages} message{stats.messages !== 1 ? "s" : ""}
-                        </>
-                      ) : stats.toolCalls > 0 ? (
-                        <>
-                          {stats.toolCalls} tool call{stats.toolCalls !== 1 ? "s" : ""}
-                        </>
-                      ) : stats.messages > 0 ? (
-                        <>
-                          {stats.messages} message{stats.messages !== 1 ? "s" : ""}
+                          — {stats.toolCalls > 0 && (
+                            <>{stats.toolCalls} tool{stats.toolCalls !== 1 ? "s" : ""}</>
+                          )}
+                          {stats.toolCalls > 0 && stats.messages > 0 && ", "}
+                          {stats.messages > 0 && (
+                            <>{stats.messages} message{stats.messages !== 1 ? "s" : ""}</>
+                          )}
                         </>
                       ) : (
-                        `${agentName} ${isComplete ? "completed" : "failed"}`
+                        isComplete ? "— completed" : "— failed"
                       )}
                     </span>
                   </div>
                 )}
 
-                {/* Right-side icons for collapsed view */}
+                {/* Right-side icons for collapsed view - show actual tool icons */}
                 {!isExpanded && !isRunning && (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    {stats.toolCalls > 0 && (
-                      <FileText className="h-4 w-4" />
-                    )}
-                    {stats.messages > 0 && (
-                      <MessageSquare className="h-4 w-4" />
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    {uniqueToolIcons.length > 0 ? (
+                      // Show actual tool icons that were used
+                      uniqueToolIcons.map(({ icon: Icon, color, name }, idx) => (
+                        <Icon
+                          key={`${name}-${idx}`}
+                          className={cn("h-3.5 w-3.5", color)}
+                        />
+                      ))
+                    ) : (
+                      // Fallback to message icon if no tools
+                      stats.messages > 0 && (
+                        <MessageSquare className="h-4 w-4" />
+                      )
                     )}
                   </div>
                 )}
@@ -291,7 +320,7 @@ export const SubAgentTile = memo(function SubAgentTile({
                         Waiting for activity...
                       </div>
                     ) : (
-                      <div className="px-4 py-2 space-y-1 border-t border-border/50">
+                      <div className="px-4 py-2 space-y-0.5 border-t border-border/50">
                         {displayEvents.map((event, index) => (
                           <SubAgentEventPart
                             key={`${agentId}-${event.type}-${index}`}

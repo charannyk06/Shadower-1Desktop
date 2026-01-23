@@ -92,16 +92,6 @@
       "whereWouldYouLikeToStart": "¿Por dónde te gustaría empezar?",
       "whatAreYouThinking": "¿Qué estás pensando, {name}?"
     },
-    "TemporaryChat": {
-      "toggleTemporaryChat": "Alternar Chat Temporal",
-      "temporaryChat": "Chat Temporal",
-      "resetChat": "Reiniciar Chat",
-      "thisChatWontBeSaved": "Este chat no se guardará.",
-      "feelFreeToAskAnythingTemporarily": "Siéntete libre de preguntar cualquier cosa temporalmente",
-      "temporaryChatInstructions": "Instrucciones del Chat Temporal",
-      "temporaryChatInstructionsPlaceholder": "Ingresa tus instrucciones aquí",
-      "temporaryChatInstructionsDescription": "Puedes establecer instrucciones para el chat temporal. Esto se usará como prompt del sistema para el chat temporal."
-    },
     "placeholder": "Pregunta cualquier cosa o @menciona",
     "Tool": {
       "webSearching": "Buscando en la web...",
@@ -317,7 +307,6 @@
   "KeyboardShortcuts": {
     "title": "Atajos de Teclado",
     "newChat": "Nuevo Chat",
-    "toggleTemporaryChat": "Alternar Chat Temporal",
     "toggleSidebar": "Alternar Barra Lateral",
     "toolMode": "Modo de Herramientas",
     "lastMessageCopy": "Copiar Último Mensaje",

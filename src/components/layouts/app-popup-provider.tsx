@@ -20,12 +20,6 @@ const ChatBotVoice = lazy(() =>
   })),
 );
 
-const ChatBotTemporary = lazy(() =>
-  import("@/components/chat-bot-temporary").then((mod) => ({
-    default: mod.ChatBotTemporary,
-  })),
-);
-
 const McpCustomizationPopup = lazy(() =>
   import("@/components/mcp-customization-popup").then((mod) => ({
     default: mod.McpCustomizationPopup,
@@ -59,7 +53,6 @@ export function AppPopupProvider() {
         />
       </Suspense>
       <ChatBotVoice />
-      <ChatBotTemporary />
       <McpCustomizationPopup />
     </Suspense>
   );

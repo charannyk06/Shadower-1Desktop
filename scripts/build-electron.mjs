@@ -37,6 +37,10 @@ const externalPackages = [
   // that break when bundled - keep external
   "agent-browser",
   "agent-browser/*",
+  // Ollama packages - ollama-js uses whatwg-fetch polyfill that doesn't work
+  // properly when bundled in Electron's Node.js context
+  "ollama",
+  "ai-sdk-ollama",
 ];
 
 // Helper to resolve a path, trying .ts extension if needed

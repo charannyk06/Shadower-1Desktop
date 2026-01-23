@@ -3,6 +3,12 @@
  *
  * Exposes the EnhancedBrowserService to the renderer process via IPC.
  * Uses agent-browser's BrowserManager for AI-optimized browser automation.
+ *
+ * Features:
+ * - Stealth mode for bot detection bypass
+ * - Navigation retry with exponential backoff
+ * - CAPTCHA detection
+ * - Execution context error handling
  */
 
 import { ipcMain } from "electron";
@@ -10,6 +16,7 @@ import log from "electron-log/main";
 import {
   EnhancedBrowserService,
   type LaunchOptions,
+  type NavigateOptions,
   type SnapshotOptions,
   type BrowserAction,
 } from "../services/browser-service";
@@ -62,16 +69,13 @@ export function registerBrowserHandlers(): void {
     }
   );
 
-  // Navigation
+  // Navigation with retry and CAPTCHA detection
   ipcMain.handle(
     "browser:navigate",
     async (
       _event,
       url: string,
-      options?: {
-        waitUntil?: "load" | "domcontentloaded" | "networkidle";
-        sessionId?: string;
-      }
+      options?: NavigateOptions
     ) => {
       try {
         return await service.navigate(url, options);
@@ -323,5 +327,125 @@ export function registerBrowserHandlers(): void {
     }
   });
 
-  log.info("[Browser] Enhanced browser handlers registered");
+  // ============================================================================
+  // MULTI-TAB SUPPORT
+  // ============================================================================
+
+  ipcMain.handle(
+    "browser:newTab",
+    async (_event, options?: { url?: string; sessionId?: string }) => {
+      try {
+        return await service.newTab(options?.sessionId, options?.url);
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "browser:newWindow",
+    async (
+      _event,
+      options?: { viewport?: { width: number; height: number }; sessionId?: string }
+    ) => {
+      try {
+        return await service.newWindow(options?.sessionId, { viewport: options?.viewport });
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "browser:switchTab",
+    async (_event, index: number, sessionId?: string) => {
+      try {
+        return await service.switchTab(index, sessionId);
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "browser:closeTab",
+    async (_event, options?: { index?: number; sessionId?: string }) => {
+      try {
+        return await service.closeTab(options?.index, options?.sessionId);
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle("browser:listTabs", async (_event, sessionId?: string) => {
+    try {
+      return await service.listTabs(sessionId);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("browser:getActiveTabIndex", async (_event, sessionId?: string) => {
+    try {
+      return { index: service.getActiveTabIndex(sessionId) };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ============================================================================
+  // ADDITIONAL ACTIONS (hover, select, check, uncheck)
+  // ============================================================================
+
+  ipcMain.handle(
+    "browser:hover",
+    async (_event, selector: string, options?: { sessionId?: string }) => {
+      try {
+        return await service.executeAction({ type: "hover", selector }, options);
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "browser:select",
+    async (
+      _event,
+      selector: string,
+      values: string | string[],
+      options?: { sessionId?: string }
+    ) => {
+      try {
+        return await service.executeAction({ type: "select", selector, values }, options);
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "browser:check",
+    async (_event, selector: string, options?: { sessionId?: string }) => {
+      try {
+        return await service.executeAction({ type: "check", selector }, options);
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "browser:uncheck",
+    async (_event, selector: string, options?: { sessionId?: string }) => {
+      try {
+        return await service.executeAction({ type: "uncheck", selector }, options);
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  log.info("[Browser] Enhanced browser handlers registered (with multi-tab support)");
 }

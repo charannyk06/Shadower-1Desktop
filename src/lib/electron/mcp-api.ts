@@ -72,7 +72,7 @@ export const mcpApi = {
    * Note: Server customizations are limited in desktop mode
    */
   async getServerCustomization(
-    serverId: string,
+    _serverId: string,
   ): Promise<McpServerCustomization | null> {
     console.log(
       "[mcpApi] Server customizations not fully supported in desktop mode",
@@ -84,8 +84,8 @@ export const mcpApi = {
    * Save server customization
    */
   async saveServerCustomization(
-    serverId: string,
-    data: { prompt: string },
+    _serverId: string,
+    _data: { prompt: string },
   ): Promise<any> {
     console.log(
       "[mcpApi] Server customizations not fully supported in desktop mode",
@@ -96,7 +96,7 @@ export const mcpApi = {
   /**
    * Delete server customization
    */
-  async deleteServerCustomization(serverId: string): Promise<void> {
+  async deleteServerCustomization(_serverId: string): Promise<void> {
     console.log(
       "[mcpApi] Server customizations not fully supported in desktop mode",
     );
@@ -158,8 +158,8 @@ export const mcpApi = {
    * Delete tool customization
    */
   async deleteToolCustomization(
-    serverId: string,
-    toolName: string,
+    _serverId: string,
+    _toolName: string,
   ): Promise<void> {
     console.log(
       "[mcpApi] Tool customization deletion not fully supported in desktop mode",

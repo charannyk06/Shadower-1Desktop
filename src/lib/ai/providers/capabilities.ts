@@ -54,7 +54,7 @@ const RESPONSES_API_PATTERNS: RegExp[] = [/computer-use/i];
  * - phi-3, phi-4 (Microsoft)
  * - hermes-3 (NousResearch instruction-tuned)
  * - nemotron (NVIDIA)
- * - gemma2 (Google - gemma2 has better tool support)
+ * - gemma2, gemma3 (Google - gemma 2/3 have good tool support)
  * - yi (01.AI models)
  * - solar (Upstage)
  * - internlm (Shanghai AI Lab)
@@ -99,8 +99,8 @@ const LOCAL_TOOL_SUPPORTED_PATTERNS: RegExp[] = [
   // IBM Granite models
   /granite/i,
 
-  // Google Gemma 2 (has better tool support than gemma 1)
-  /gemma[-_]?2/i,
+  // Google Gemma 2 and 3 (has better tool support than gemma 1)
+  /gemma[-_]?[23]/i,
 
   // 01.AI Yi models
   /yi[-_]/i,
@@ -137,9 +137,35 @@ const LOCAL_TOOL_SUPPORTED_PATTERNS: RegExp[] = [
 
 /**
  * Check if a local model supports tool calling
+ * We use an INCLUSIVE approach - if the model family is known to support tools,
+ * we enable tools regardless of model size. Small models can still use tools.
  */
 export function localModelSupportsTools(modelId: string): boolean {
+  // Check if the model family supports tools - be permissive
   return LOCAL_TOOL_SUPPORTED_PATTERNS.some((p) => p.test(modelId));
+}
+
+/**
+ * Get detailed tool support info for a local model
+ * Returns whether tools are supported and a reason if not
+ */
+export function getLocalModelToolSupportInfo(modelId: string): {
+  supported: boolean;
+  reason?: string;
+  suggestedModels?: string[];
+} {
+  // Check family support - be permissive, most modern models support tools
+  const familySupportsTools = LOCAL_TOOL_SUPPORTED_PATTERNS.some((p) => p.test(modelId));
+
+  if (!familySupportsTools) {
+    return {
+      supported: false,
+      reason: `Model family not recognized as supporting tool calling`,
+      suggestedModels: ['qwen2.5:7b', 'qwen3:1.7b', 'llama3.2:3b', 'mistral-nemo'],
+    };
+  }
+
+  return { supported: true };
 }
 
 /**

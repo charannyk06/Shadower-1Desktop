@@ -530,6 +530,36 @@ export class DocumentAgent {
   }
 
   /**
+   * Emit document-ready event for desktop mode
+   * This allows the client to save the document to the working directory
+   * and optionally auto-open it in the system's default application
+   */
+  private emitDocumentReady(
+    fileName: string,
+    fileBase64: string,
+    documentType: "presentation" | "document" | "spreadsheet" | "pdf",
+  ): void {
+    if (!this.dataStream) {
+      return;
+    }
+
+    // Emit document-ready event with file data for desktop saving
+    this.dataStream.write({
+      type: "data-document-ready",
+      data: JSON.stringify({
+        fileName,
+        fileBase64,
+        documentType,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    logger.info(
+      `[DocumentAgent] Emitted document-ready event for ${fileName}`,
+    );
+  }
+
+  /**
    * Execute code locally using child_process
    * Runs JavaScript/Python code on the user's local machine
    */
@@ -825,6 +855,11 @@ ${code}
       "presentation",
     );
 
+    // Emit document-ready event for desktop mode (save to working directory)
+    if (result.fileBase64) {
+      this.emitDocumentReady(documentResult.fileName || fileName, result.fileBase64, "presentation");
+    }
+
     return documentResult;
   }
 
@@ -992,6 +1027,11 @@ ${code}
       "document",
     );
 
+    // Emit document-ready event for desktop mode (save to working directory)
+    if (result.fileBase64) {
+      this.emitDocumentReady(documentResult.fileName, result.fileBase64, "document");
+    }
+
     return documentResult;
   }
 
@@ -1117,6 +1157,11 @@ ${code}
       "spreadsheet",
     );
 
+    // Emit document-ready event for desktop mode (save to working directory)
+    if (result.fileBase64) {
+      this.emitDocumentReady(spreadsheetResult.fileName, result.fileBase64, "spreadsheet");
+    }
+
     return spreadsheetResult;
   }
 
@@ -1234,15 +1279,22 @@ ${code}
       }
     }
 
-    return {
+    const workbookResult = {
       success: true,
-      documentType: "spreadsheet",
+      documentType: "spreadsheet" as const,
       title,
       fileName: result.fileName || fileName,
       fileUrl: result.fileUrl,
       fileBase64: result.fileBase64,
       palette: paletteName,
     };
+
+    // Emit document-ready event for desktop mode (save to working directory)
+    if (result.fileBase64) {
+      this.emitDocumentReady(workbookResult.fileName, result.fileBase64, "spreadsheet");
+    }
+
+    return workbookResult;
   }
 
   /**
@@ -1356,9 +1408,9 @@ ${code}
       }
     }
 
-    return {
+    const pdfResult = {
       success: true,
-      documentType: "pdf",
+      documentType: "pdf" as const,
       title,
       fileName: result.fileName || fileName,
       fileUrl: result.fileUrl,
@@ -1366,6 +1418,13 @@ ${code}
       pageCount: sections.length,
       palette: fullOptions.paletteName,
     };
+
+    // Emit document-ready event for desktop mode (save to working directory)
+    if (result.fileBase64) {
+      this.emitDocumentReady(pdfResult.fileName, result.fileBase64, "pdf");
+    }
+
+    return pdfResult;
   }
 
   /**
@@ -1422,14 +1481,22 @@ ${code}
       "complete",
       `Spreadsheet edited successfully: ${fileName}`,
     );
-    return {
+
+    const editResult = {
       success: true,
-      documentType: "spreadsheet",
+      documentType: "spreadsheet" as const,
       title: fileName,
       fileName: result.fileName || fileName,
       fileUrl: result.fileUrl,
       fileBase64: result.fileBase64,
     };
+
+    // Emit document-ready event for desktop mode (save to working directory)
+    if (result.fileBase64) {
+      this.emitDocumentReady(editResult.fileName, result.fileBase64, "spreadsheet");
+    }
+
+    return editResult;
   }
 
   /**
@@ -1481,15 +1548,23 @@ ${code}
       "complete",
       `Presentation edited successfully: ${fileName}`,
     );
-    return {
+
+    const editResult = {
       success: true,
-      documentType: "presentation",
+      documentType: "presentation" as const,
       title: fileName,
       fileName: result.fileName || fileName,
       fileUrl: result.fileUrl,
       fileBase64: result.fileBase64,
       palette: paletteName,
     };
+
+    // Emit document-ready event for desktop mode (save to working directory)
+    if (result.fileBase64) {
+      this.emitDocumentReady(editResult.fileName, result.fileBase64, "presentation");
+    }
+
+    return editResult;
   }
 
   /**
@@ -1535,15 +1610,23 @@ ${code}
     }
 
     this.emitProgress("complete", `Document edited successfully: ${fileName}`);
-    return {
+
+    const editResult = {
       success: true,
-      documentType: "document",
+      documentType: "document" as const,
       title: fileName,
       fileName: result.fileName || fileName,
       fileUrl: result.fileUrl,
       fileBase64: result.fileBase64,
       palette: paletteName,
     };
+
+    // Emit document-ready event for desktop mode (save to working directory)
+    if (result.fileBase64) {
+      this.emitDocumentReady(editResult.fileName, result.fileBase64, "document");
+    }
+
+    return editResult;
   }
 }
 

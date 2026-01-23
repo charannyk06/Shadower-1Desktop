@@ -1,7 +1,12 @@
 import { ipcMain, safeStorage } from "electron";
 import { eq, and, desc } from "drizzle-orm";
+import log from "electron-log/main";
 import { getDatabase, schema } from "../services/database";
 import { ElectronAuthService } from "../services/auth";
+import * as ollamaService from "../services/ollama-service";
+import * as lmStudioService from "../services/lm-studio-service";
+import { CURATED_LOCAL_MODELS } from "../../src/lib/ai/curated-local-models";
+import { localModelSupportsTools } from "../../src/lib/ai/providers/capabilities";
 
 // Provider validation URLs for testing API keys
 const PROVIDER_VALIDATION_ENDPOINTS: Record<
@@ -269,6 +274,89 @@ async function fetchLocalModels(
       error: error instanceof Error ? error.message : "Connection failed",
     };
   }
+}
+
+/**
+ * Check if an Ollama model supports tool/function calling
+ * by examining the model's template for .Tools variable
+ *
+ * Reference: https://ollama.com/blog/tool-support
+ * Models that support tools have {{ .Tools }} in their template
+ */
+async function checkOllamaModelToolSupport(
+  modelName: string,
+  baseUrl: string = "http://localhost:11434"
+): Promise<boolean> {
+  try {
+    const response = await fetch(`${baseUrl}/api/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: modelName }),
+      signal: AbortSignal.timeout(10000), // 10s timeout per model
+    });
+
+    if (!response.ok) {
+      log.warn(`[Models] Failed to get model info for ${modelName}: ${response.status}`);
+      return false;
+    }
+
+    const data = await response.json() as {
+      template?: string;
+      modelfile?: string;
+    };
+
+    // Check if the template contains .Tools or {{ .Tools }}
+    // This indicates the model was configured for tool calling
+    const template = data.template || "";
+    const modelfile = data.modelfile || "";
+
+    const supportsTools =
+      template.includes(".Tools") ||
+      template.includes("{{.Tools}}") ||
+      modelfile.includes(".Tools") ||
+      modelfile.includes("{{.Tools}}");
+
+    log.info(
+      `[Models] Tool support check for ${modelName}: ${supportsTools ? "YES" : "NO"}`
+    );
+
+    return supportsTools;
+  } catch (error) {
+    log.warn(
+      `[Models] Error checking tool support for ${modelName}:`,
+      error instanceof Error ? error.message : "Unknown error"
+    );
+    return false;
+  }
+}
+
+/**
+ * Check tool support for multiple Ollama models in parallel
+ * Returns a map of model name -> tool support boolean
+ */
+async function checkOllamaModelsToolSupport(
+  modelNames: string[],
+  baseUrl: string = "http://localhost:11434"
+): Promise<Map<string, boolean>> {
+  const results = new Map<string, boolean>();
+
+  // Check all models in parallel (with some concurrency limit)
+  const CONCURRENCY = 5;
+  for (let i = 0; i < modelNames.length; i += CONCURRENCY) {
+    const batch = modelNames.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async (name) => ({
+        name,
+        supportsTools: await checkOllamaModelToolSupport(name, baseUrl),
+      }))
+    );
+
+    for (const { name, supportsTools } of batchResults) {
+      results.set(name, supportsTools);
+    }
+  }
+
+  return results;
 }
 
 // Helper to require authenticated user
@@ -1232,6 +1320,21 @@ export function registerModelsHandlers() {
           return result;
         }
 
+        // Check tool support for all models dynamically via Ollama API
+        let toolSupportMap = new Map<string, boolean>();
+        if (data.providerId === "ollama") {
+          const modelNames = result.models.map((m: { name: string }) => m.name);
+          log.info(
+            `[IPC] Checking tool support for ${modelNames.length} Ollama models...`
+          );
+          toolSupportMap = await checkOllamaModelsToolSupport(modelNames, baseUrl);
+          log.info(
+            `[IPC] Tool support results: ${Array.from(toolSupportMap.entries())
+              .map(([name, supports]) => `${name}=${supports}`)
+              .join(", ")}`
+          );
+        }
+
         // Sync models with database
         for (const model of result.models) {
           const [existing] = await db
@@ -1247,13 +1350,19 @@ export function registerModelsHandlers() {
             .limit(1);
 
           if (existing) {
-            // Update existing
+            // Update existing - also update tool support if we have it
+            const toolSupport =
+              data.providerId === "ollama"
+                ? toolSupportMap.get(model.name)
+                : existing.isToolCallSupported;
+
             await db
               .update(schema.LocalModelTable)
               .set({
                 size: model.size,
                 family: model.family,
                 status: "available",
+                isToolCallSupported: toolSupport ?? existing.isToolCallSupported,
                 updatedAt: new Date(),
               })
               .where(eq(schema.LocalModelTable.id, existing.id));
@@ -1261,6 +1370,12 @@ export function registerModelsHandlers() {
             // Create new
             const isVision =
               model.name.includes("vision") || model.name.includes("llava");
+
+            // Get dynamic tool support for Ollama, use heuristic fallback for others
+            const isToolCallSupported =
+              data.providerId === "ollama"
+                ? toolSupportMap.get(model.name) ?? false
+                : localModelSupportsTools(model.name);
 
             await db.insert(schema.LocalModelTable).values({
               name: model.name,
@@ -1270,7 +1385,7 @@ export function registerModelsHandlers() {
               family: model.family,
               status: "available",
               isVision,
-              isToolCallSupported: true,
+              isToolCallSupported,
               userId: user.id,
             });
           }
@@ -1298,15 +1413,19 @@ export function registerModelsHandlers() {
     },
   );
 
-  // Download model via Ollama
+  // Track active downloads for cancellation
+  const activeDownloads = new Map<string, AbortController>();
+
+  // Download model via Ollama with streaming progress
   ipcMain.handle(
     "models:downloadModel",
-    async (_event, data: { modelName: string; baseUrl?: string }) => {
+    async (event, data: { modelName: string; baseUrl?: string }) => {
       try {
         const user = await requireAuth(authService);
         const baseUrl = data.baseUrl || "http://localhost:11434";
 
         // Create model record with downloading status
+        // Use pattern-based heuristic for initial tool support (will be updated after download)
         const [model] = await db
           .insert(schema.LocalModelTable)
           .values({
@@ -1318,7 +1437,7 @@ export function registerModelsHandlers() {
             isVision:
               data.modelName.includes("vision") ||
               data.modelName.includes("llava"),
-            isToolCallSupported: true,
+            isToolCallSupported: localModelSupportsTools(data.modelName),
             userId: user.id,
           })
           .onConflictDoUpdate({
@@ -1330,53 +1449,243 @@ export function registerModelsHandlers() {
             set: {
               status: "downloading",
               downloadProgress: 0,
+              errorMessage: null,
               updatedAt: new Date(),
             },
           })
           .returning();
 
-        // Start download (non-blocking)
+        // Create abort controller for this download
+        const abortController = new AbortController();
+        activeDownloads.set(model.id, abortController);
+
+        // Start download with streaming (non-blocking)
         const pullUrl = `${baseUrl.replace(/\/api$/, "")}/api/pull`;
 
-        fetch(pullUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: data.modelName, stream: false }),
-        })
-          .then(async (response) => {
-            if (response.ok) {
-              // Update status to available
-              await db
-                .update(schema.LocalModelTable)
-                .set({
-                  status: "available",
-                  downloadProgress: 100,
-                  updatedAt: new Date(),
-                })
-                .where(eq(schema.LocalModelTable.id, model.id));
-            } else {
-              const error = await response.text();
+        // Process download in background
+        (async () => {
+          try {
+            const response = await fetch(pullUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: data.modelName, stream: true }),
+              signal: abortController.signal,
+            });
+
+            if (!response.ok || !response.body) {
+              const errorText = await response.text();
+              throw new Error(
+                `Failed to start download: ${response.status} - ${errorText}`,
+              );
+            }
+
+            // Parse streaming NDJSON response
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let lastProgress = 0;
+            let downloadComplete = false;
+            let lastStatusMessage = "";
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || "";
+
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                  const progress = JSON.parse(line) as {
+                    status: string;
+                    digest?: string;
+                    total?: number;
+                    completed?: number;
+                    error?: string;
+                  };
+
+                  // Handle error status from Ollama
+                  if (progress.error) {
+                    throw new Error(progress.error);
+                  }
+
+                  // Track status message for debugging
+                  lastStatusMessage = progress.status || "";
+
+                  // Check for completion status
+                  // Ollama sends "success" when the model is fully pulled
+                  if (progress.status === "success") {
+                    downloadComplete = true;
+                    lastProgress = 100;
+                  }
+
+                  // Calculate progress percentage
+                  if (progress.total && progress.completed) {
+                    const percent = Math.round(
+                      (progress.completed / progress.total) * 100,
+                    );
+
+                    // Only update if progress changed (to avoid too many DB writes)
+                    if (percent !== lastProgress) {
+                      lastProgress = percent;
+
+                      // Update database
+                      await db
+                        .update(schema.LocalModelTable)
+                        .set({
+                          downloadProgress: percent,
+                          updatedAt: new Date(),
+                        })
+                        .where(eq(schema.LocalModelTable.id, model.id));
+
+                      // Send progress event to renderer
+                      event.sender.send("models:download:progress", {
+                        modelId: model.id,
+                        modelName: data.modelName,
+                        progress: percent,
+                        status: progress.status,
+                        digest: progress.digest,
+                        total: progress.total,
+                        completed: progress.completed,
+                      });
+                    }
+                  } else if (progress.status && !progress.total) {
+                    // Status update without progress (e.g., "pulling manifest", "verifying sha256")
+                    // Send status update to keep UI informed
+                    event.sender.send("models:download:progress", {
+                      modelId: model.id,
+                      modelName: data.modelName,
+                      progress: lastProgress,
+                      status: progress.status,
+                    });
+                  }
+                } catch (parseError) {
+                  // Only log if it looks like a real error, not just malformed JSON
+                  if (parseError instanceof Error && parseError.message !== "Unexpected end of JSON input") {
+                    log.warn(`[IPC] Download parse error for ${data.modelName}:`, parseError.message);
+                    // Re-throw actual errors from Ollama
+                    if (line.includes('"error"')) {
+                      throw parseError;
+                    }
+                  }
+                }
+              }
+            }
+
+            // Process any remaining buffer
+            if (buffer.trim()) {
+              try {
+                const progress = JSON.parse(buffer) as { status: string; error?: string };
+                if (progress.error) {
+                  throw new Error(progress.error);
+                }
+                if (progress.status === "success") {
+                  downloadComplete = true;
+                }
+              } catch {
+                // Ignore parse errors in final buffer
+              }
+            }
+
+            // Verify download completed successfully
+            // Check if the model is now available in Ollama
+            if (!downloadComplete) {
+              log.info(`[IPC] Stream ended for ${data.modelName}, verifying download...`);
+              try {
+                const verifyResponse = await fetch(`${baseUrl.replace(/\/api$/, "")}/api/tags`, {
+                  signal: AbortSignal.timeout(5000),
+                });
+                if (verifyResponse.ok) {
+                  const tagsData = await verifyResponse.json() as { models?: Array<{ name: string }> };
+                  const modelNames = (tagsData.models || []).map(m => m.name.split(":")[0]);
+                  const requestedName = data.modelName.split(":")[0];
+                  if (modelNames.includes(requestedName) || modelNames.some(n => n.includes(requestedName))) {
+                    downloadComplete = true;
+                    log.info(`[IPC] Verified ${data.modelName} is available in Ollama`);
+                  }
+                }
+              } catch (verifyError) {
+                log.warn(`[IPC] Could not verify download for ${data.modelName}:`, verifyError);
+              }
+            }
+
+            if (!downloadComplete) {
+              throw new Error(`Download stream ended unexpectedly for ${data.modelName}. Last status: ${lastStatusMessage}`);
+            }
+
+            // Download complete - check tool support dynamically
+            const supportsTools = await checkOllamaModelToolSupport(
+              data.modelName,
+              baseUrl
+            );
+            log.info(
+              `[IPC] Tool support for ${data.modelName}: ${supportsTools ? "YES" : "NO"}`
+            );
+
+            await db
+              .update(schema.LocalModelTable)
+              .set({
+                status: "available",
+                downloadProgress: 100,
+                isToolCallSupported: supportsTools,
+                errorMessage: null,
+                updatedAt: new Date(),
+              })
+              .where(eq(schema.LocalModelTable.id, model.id));
+
+            log.info(`[IPC] Download complete for ${data.modelName}`);
+
+            // Send completion event
+            event.sender.send("models:download:complete", {
+              modelId: model.id,
+              modelName: data.modelName,
+            });
+          } catch (error) {
+            // Handle cancellation
+            if (
+              error instanceof Error &&
+              error.name === "AbortError"
+            ) {
               await db
                 .update(schema.LocalModelTable)
                 .set({
                   status: "error",
-                  errorMessage: error,
+                  errorMessage: "Download cancelled",
                   updatedAt: new Date(),
                 })
                 .where(eq(schema.LocalModelTable.id, model.id));
+
+              event.sender.send("models:download:error", {
+                modelId: model.id,
+                modelName: data.modelName,
+                error: "Download cancelled",
+              });
+            } else {
+              // Handle other errors
+              const errorMessage =
+                error instanceof Error ? error.message : "Download failed";
+
+              await db
+                .update(schema.LocalModelTable)
+                .set({
+                  status: "error",
+                  errorMessage,
+                  updatedAt: new Date(),
+                })
+                .where(eq(schema.LocalModelTable.id, model.id));
+
+              event.sender.send("models:download:error", {
+                modelId: model.id,
+                modelName: data.modelName,
+                error: errorMessage,
+              });
             }
-          })
-          .catch(async (error) => {
-            await db
-              .update(schema.LocalModelTable)
-              .set({
-                status: "error",
-                errorMessage:
-                  error instanceof Error ? error.message : "Download failed",
-                updatedAt: new Date(),
-              })
-              .where(eq(schema.LocalModelTable.id, model.id));
-          });
+          } finally {
+            activeDownloads.delete(model.id);
+          }
+        })();
 
         return { success: true, modelId: model.id };
       } catch (error) {
@@ -1389,28 +1698,91 @@ export function registerModelsHandlers() {
     },
   );
 
-  // Delete local model
+  // Cancel a model download
+  ipcMain.handle(
+    "models:cancelDownload",
+    async (_event, data: { modelId: string }) => {
+      const controller = activeDownloads.get(data.modelId);
+      if (controller) {
+        controller.abort();
+        activeDownloads.delete(data.modelId);
+        return { success: true };
+      }
+      return { success: false, error: "Download not found" };
+    },
+  );
+
+  // Delete local model - also removes from Ollama/LM Studio
   ipcMain.handle(
     "models:deleteLocalModel",
     async (
       _event,
-      data: { id?: string; modelName?: string; providerId?: string },
+      data: {
+        id?: string;
+        modelName?: string;
+        providerId?: string;
+        deleteFromProvider?: boolean;
+      },
     ) => {
       try {
         const user = await requireAuth(authService);
+        let modelName = data.modelName;
+        let providerId = data.providerId;
 
+        // If only ID provided, look up the model details first
+        if (data.id && !modelName) {
+          const [existingModel] = await db
+            .select()
+            .from(schema.LocalModelTable)
+            .where(eq(schema.LocalModelTable.id, data.id))
+            .limit(1);
+
+          if (existingModel) {
+            modelName = existingModel.name;
+            providerId = existingModel.providerId;
+          }
+        }
+
+        // Delete from Ollama if it's an Ollama model (default behavior)
+        const shouldDeleteFromProvider = data.deleteFromProvider !== false;
+        if (shouldDeleteFromProvider && providerId === "ollama" && modelName) {
+          const baseUrl = "http://localhost:11434";
+          const deleteUrl = `${baseUrl}/api/delete`;
+
+          try {
+            const response = await fetch(deleteUrl, {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: modelName }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.warn(
+                `[IPC] Ollama delete returned ${response.status}: ${errorText}`,
+              );
+              // Continue to delete from DB even if Ollama delete fails
+              // (model might not exist in Ollama anymore)
+            }
+          } catch (ollamaError) {
+            console.warn("[IPC] Failed to delete from Ollama:", ollamaError);
+            // Continue to delete from DB
+          }
+        }
+
+        // Delete from database
         if (data.id) {
           await db
             .delete(schema.LocalModelTable)
             .where(eq(schema.LocalModelTable.id, data.id));
-        } else if (data.modelName && data.providerId) {
+        } else if (modelName && providerId) {
           await db
             .delete(schema.LocalModelTable)
             .where(
               and(
                 eq(schema.LocalModelTable.userId, user.id),
-                eq(schema.LocalModelTable.providerId, data.providerId),
-                eq(schema.LocalModelTable.name, data.modelName),
+                eq(schema.LocalModelTable.providerId, providerId),
+                eq(schema.LocalModelTable.name, modelName),
               ),
             );
         }
@@ -1454,16 +1826,61 @@ export function registerModelsHandlers() {
           ),
         );
 
-      // Get local models
-      const localModels = await db
-        .select()
-        .from(schema.LocalModelTable)
-        .where(
-          and(
-            eq(schema.LocalModelTable.userId, user.id),
-            eq(schema.LocalModelTable.status, "available"),
-          ),
-        );
+      // Fetch local models DIRECTLY from Ollama and LM Studio APIs (not from stale DB)
+      const localModels: Array<{
+        id: string;
+        name: string;
+        displayName: string;
+        providerId: string;
+        size?: number;
+        quantization?: string;
+        family?: string;
+        status: string;
+        isVision?: boolean;
+        isToolCallSupported?: boolean;
+      }> = [];
+
+      // Fetch from Ollama directly
+      try {
+        const ollamaResult = await ollamaService.getOllamaModels();
+        if (ollamaResult.success && ollamaResult.models) {
+          for (const model of ollamaResult.models) {
+            localModels.push({
+              id: `ollama-${model.name}`,
+              name: model.name,
+              displayName: model.name,
+              providerId: "ollama",
+              size: model.size,
+              quantization: model.details?.quantization_level,
+              family: model.details?.family,
+              status: "available",
+              isVision: model.name.includes("vision") || model.name.includes("llava"),
+              isToolCallSupported: true, // Most modern Ollama models support tool calling
+            });
+          }
+        }
+      } catch (e) {
+        log.warn("[IPC] Failed to fetch Ollama models:", e);
+      }
+
+      // Fetch from LM Studio directly
+      try {
+        const lmStudioResult = await lmStudioService.getLMStudioModels();
+        if (lmStudioResult.success && lmStudioResult.models) {
+          for (const model of lmStudioResult.models) {
+            localModels.push({
+              id: `lmstudio-${model.id}`,
+              name: model.id,
+              displayName: model.id,
+              providerId: "lmstudio",
+              status: "available",
+              isToolCallSupported: true,
+            });
+          }
+        }
+      } catch (e) {
+        log.warn("[IPC] Failed to fetch LM Studio models:", e);
+      }
 
       return {
         cloudProviders: apiKeys.map((k) => k.providerId),
@@ -1516,6 +1933,170 @@ export function registerModelsHandlers() {
     } catch (error) {
       console.error("[IPC] Error getting model status:", error);
       throw error;
+    }
+  });
+
+  // ========================================================================
+  // Ollama Service Handlers
+  // ========================================================================
+
+  // Check if Ollama is installed
+  ipcMain.handle("models:ollama:isInstalled", async () => {
+    try {
+      return await ollamaService.isOllamaInstalled();
+    } catch (error) {
+      console.error("[IPC] Error checking Ollama installation:", error);
+      return { installed: false, error: error instanceof Error ? error.message : "Unknown error" };
+    }
+  });
+
+  // Check Ollama health (installed + running)
+  ipcMain.handle("models:ollama:checkHealth", async () => {
+    try {
+      return await ollamaService.checkOllamaHealth();
+    } catch (error) {
+      console.error("[IPC] Error checking Ollama health:", error);
+      return {
+        installed: false,
+        running: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  });
+
+  // Start Ollama service
+  ipcMain.handle("models:ollama:tryStart", async () => {
+    try {
+      return await ollamaService.startOllamaService();
+    } catch (error) {
+      console.error("[IPC] Error starting Ollama:", error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  });
+
+  // Install Ollama
+  ipcMain.handle("models:ollama:install", async (event) => {
+    try {
+      const result = await ollamaService.installOllama((progress) => {
+        // Send progress updates to renderer
+        event.sender.send("models:ollama:install:progress", progress);
+      });
+      return result;
+    } catch (error) {
+      console.error("[IPC] Error installing Ollama:", error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  });
+
+  // Get Ollama models
+  ipcMain.handle("models:ollama:getModels", async () => {
+    try {
+      return await ollamaService.getOllamaModels();
+    } catch (error) {
+      console.error("[IPC] Error getting Ollama models:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  });
+
+  // Show Ollama model details
+  ipcMain.handle(
+    "models:ollama:showModel",
+    async (_event, data: { modelName: string }) => {
+      try {
+        return await ollamaService.showOllamaModel(data.modelName);
+      } catch (error) {
+        console.error("[IPC] Error showing Ollama model:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
+
+  // Get Ollama library models (available for download)
+  ipcMain.handle("models:ollama:getLibraryModels", async () => {
+    try {
+      return await ollamaService.getOllamaLibraryModels();
+    } catch (error) {
+      console.error("[IPC] Error getting Ollama library models:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  });
+
+  // Search Ollama library
+  ipcMain.handle(
+    "models:ollama:searchLibrary",
+    async (_event, data: { query: string }) => {
+      try {
+        return await ollamaService.searchOllamaLibrary(data.query);
+      } catch (error) {
+        console.error("[IPC] Error searching Ollama library:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
+
+  // ========================================================================
+  // LM Studio Service Handlers
+  // ========================================================================
+
+  // Check LM Studio health (installed + running)
+  ipcMain.handle("models:lmstudio:checkHealth", async () => {
+    try {
+      return await lmStudioService.checkLMStudioHealth();
+    } catch (error) {
+      console.error("[IPC] Error checking LM Studio health:", error);
+      return {
+        installed: false,
+        running: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  });
+
+  // Get LM Studio models
+  ipcMain.handle("models:lmstudio:getModels", async () => {
+    try {
+      return await lmStudioService.getLMStudioModels();
+    } catch (error) {
+      console.error("[IPC] Error getting LM Studio models:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  });
+
+  // ========================================================================
+  // Curated Models
+  // ========================================================================
+
+  // Get curated local models list
+  ipcMain.handle("models:getCuratedModels", async () => {
+    try {
+      return { success: true, models: CURATED_LOCAL_MODELS };
+    } catch (error) {
+      console.error("[IPC] Error getting curated models:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
     }
   });
 

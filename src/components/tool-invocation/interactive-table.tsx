@@ -35,6 +35,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Checkbox } from "ui/checkbox";
+import * as XLSX from "xlsx";
 import { JsonViewPopup } from "../json-view-popup";
 
 // Column configuration interface
@@ -54,37 +55,6 @@ export interface InteractiveTableProps {
 
 // Sort direction type
 type SortDirection = "asc" | "desc" | null;
-
-// Lazy load XLSX library from CDN
-const loadXLSX = async () => {
-  if (typeof window === "undefined") {
-    throw new Error("XLSX can only be loaded in browser environment");
-  }
-
-  // Check if XLSX is already loaded
-  if ((window as any).XLSX) {
-    return (window as any).XLSX;
-  }
-
-  // Load XLSX from CDN
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src =
-      "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
-    script.crossOrigin = "anonymous";
-    script.integrity =
-      "sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT";
-    script.onload = () => {
-      if ((window as any).XLSX) {
-        resolve((window as any).XLSX);
-      } else {
-        reject(new Error("Failed to load XLSX library"));
-      }
-    };
-    script.onerror = () => reject(new Error("Failed to load XLSX script"));
-    document.head.appendChild(script);
-  });
-};
 
 export function InteractiveTable(props: InteractiveTableProps) {
   const { title, data, columns, description } = props;
@@ -244,12 +214,9 @@ export function InteractiveTable(props: InteractiveTableProps) {
     URL.revokeObjectURL(url);
   };
 
-  // Export to Excel (lazy load XLSX library)
-  const exportToExcel = async () => {
+  // Export to Excel using bundled xlsx library
+  const exportToExcel = () => {
     try {
-      // Dynamically load XLSX from CDN
-      const XLSX = await loadXLSX();
-
       const visibleCols = columns.filter((col) => visibleColumns.has(col.key));
 
       // Prepare data for Excel
