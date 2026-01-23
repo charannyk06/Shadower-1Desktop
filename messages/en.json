@@ -550,6 +550,7 @@
     "toggleTemporaryChat": "Toggle Temporary Chat",
     "toggleSidebar": "Toggle Sidebar",
     "toolMode": "Tool Mode",
+    "chatMode": "Toggle Chat Mode",
     "lastMessageCopy": "Copy Last Message",
     "openChatPreferences": "Open Chat Preferences",
     "deleteThread": "Delete Chat",
