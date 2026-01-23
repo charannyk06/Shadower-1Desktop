@@ -294,6 +294,180 @@ export const modelsApi = {
   async getStatus() {
     return window.electronAPI.models.getStatus();
   },
+
+  // ========================================================================
+  // Ollama-specific methods
+  // ========================================================================
+
+  /**
+   * Check if Ollama is installed
+   */
+  async ollamaIsInstalled() {
+    return window.electronAPI.models.ollamaIsInstalled();
+  },
+
+  /**
+   * Check Ollama health (installed + running)
+   */
+  async ollamaCheckHealth() {
+    return window.electronAPI.models.ollamaCheckHealth();
+  },
+
+  /**
+   * Start Ollama service
+   */
+  async ollamaTryStart() {
+    return window.electronAPI.models.ollamaTryStart();
+  },
+
+  /**
+   * Install Ollama
+   */
+  async ollamaInstall() {
+    return window.electronAPI.models.ollamaInstall();
+  },
+
+  /**
+   * Get Ollama models
+   */
+  async ollamaGetModels() {
+    return window.electronAPI.models.ollamaGetModels();
+  },
+
+  /**
+   * Show Ollama model details
+   */
+  async ollamaShowModel(data: { modelName: string }) {
+    return window.electronAPI.models.ollamaShowModel(data);
+  },
+
+  /**
+   * Get available models from Ollama library (for browsing/downloading)
+   */
+  async ollamaGetLibraryModels() {
+    return window.electronAPI.models.ollamaGetLibraryModels();
+  },
+
+  /**
+   * Search Ollama library for models
+   */
+  async ollamaSearchLibrary(data: { query: string }) {
+    return window.electronAPI.models.ollamaSearchLibrary(data);
+  },
+
+  // ========================================================================
+  // LM Studio-specific methods
+  // ========================================================================
+
+  /**
+   * Check LM Studio health (installed + running)
+   */
+  async lmstudioCheckHealth() {
+    return window.electronAPI.models.lmstudioCheckHealth();
+  },
+
+  /**
+   * Get LM Studio models
+   */
+  async lmstudioGetModels() {
+    return window.electronAPI.models.lmstudioGetModels();
+  },
+
+  // ========================================================================
+  // Download management
+  // ========================================================================
+
+  /**
+   * Download a model
+   */
+  async downloadModel(data: { modelName: string; baseUrl?: string }) {
+    return window.electronAPI.models.downloadModel(data);
+  },
+
+  /**
+   * Cancel a model download
+   */
+  async cancelDownload(data: { modelId: string }) {
+    return window.electronAPI.models.cancelDownload(data);
+  },
+
+  /**
+   * Delete a local model (from DB and optionally from provider)
+   */
+  async deleteLocalModel(data: {
+    id?: string;
+    modelName?: string;
+    providerId?: string;
+    deleteFromProvider?: boolean;
+  }) {
+    return window.electronAPI.models.deleteLocalModel(data);
+  },
+
+  // ========================================================================
+  // Curated models
+  // ========================================================================
+
+  /**
+   * Get curated local models list
+   */
+  async getCuratedModels() {
+    return window.electronAPI.models.getCuratedModels();
+  },
+
+  // ========================================================================
+  // Event listeners (for download progress, etc.)
+  // ========================================================================
+
+  /**
+   * Subscribe to download progress events
+   */
+  onDownloadProgress(
+    callback: (data: {
+      modelId: string;
+      modelName: string;
+      progress: number;
+      status?: string;
+      total?: number;
+      completed?: number;
+    }) => void,
+  ) {
+    return window.electronAPI.models.onDownloadProgress(callback);
+  },
+
+  /**
+   * Subscribe to download complete events
+   */
+  onDownloadComplete(
+    callback: (data: { modelId: string; modelName: string }) => void,
+  ) {
+    return window.electronAPI.models.onDownloadComplete(callback);
+  },
+
+  /**
+   * Subscribe to download error events
+   */
+  onDownloadError(
+    callback: (data: {
+      modelId: string;
+      modelName: string;
+      error: string;
+    }) => void,
+  ) {
+    return window.electronAPI.models.onDownloadError(callback);
+  },
+
+  /**
+   * Subscribe to Ollama install progress events
+   */
+  onOllamaInstallProgress(
+    callback: (data: {
+      stage: string;
+      percent: number;
+      message: string;
+    }) => void,
+  ) {
+    return window.electronAPI.models.onOllamaInstallProgress(callback);
+  },
 };
 
 /**
