@@ -63,6 +63,31 @@ const isElectron =
   window.electronAPI &&
   window.electronAPI.browser;
 
+// Singleton instance for session continuity across tool calls
+let sharedAgentInstance: WebAutomationAgent | null = null;
+
+/**
+ * Get the shared WebAutomationAgent instance for session continuity
+ */
+export function getSharedWebAutomationAgent(
+  dataStream?: UIMessageStreamWriter,
+): WebAutomationAgent {
+  if (!sharedAgentInstance) {
+    sharedAgentInstance = new WebAutomationAgent(dataStream);
+  } else if (dataStream && !sharedAgentInstance.dataStream) {
+    // Update dataStream if provided and not already set
+    sharedAgentInstance.dataStream = dataStream;
+  }
+  return sharedAgentInstance;
+}
+
+/**
+ * Reset the shared agent instance (for cleanup)
+ */
+export function resetSharedWebAutomationAgent(): void {
+  sharedAgentInstance = null;
+}
+
 /**
  * Helper to call Browser IPC (agent-browser powered)
  */
@@ -90,7 +115,7 @@ async function callBrowserAPI<T>(
  * with AI-optimized snapshots and ref-based element selection.
  */
 export class WebAutomationAgent {
-  private dataStream?: UIMessageStreamWriter;
+  public dataStream?: UIMessageStreamWriter;
   private activeSessionId?: string;
 
   constructor(dataStream?: UIMessageStreamWriter) {
@@ -394,20 +419,8 @@ export class WebAutomationAgent {
           break;
       }
 
-      // Take screenshot after action if not already taken
-      if (!screenshot && action.type !== "screenshot") {
-        try {
-          const afterScreenshot = await callBrowserAPI<{
-            success?: boolean;
-            data?: { base64?: string };
-          }>("screenshot", { sessionId: this.activeSessionId });
-          if (afterScreenshot.data?.base64) {
-            screenshot = afterScreenshot.data.base64;
-          }
-        } catch {
-          // Screenshot optional, don't fail action
-        }
-      }
+      // NOTE: Automatic screenshots after every action removed to avoid context bloat
+      // Use browser_screenshot explicitly when needed, or browser_get_snapshot for element tree
 
       return {
         success: true,
@@ -473,19 +486,8 @@ export class WebAutomationAgent {
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
-    // Get final screenshot
-    let finalScreenshot: string | undefined;
-    try {
-      const finalScreenshotResult = await callBrowserAPI<{
-        success?: boolean;
-        data?: { base64?: string };
-      }>("screenshot", { sessionId: this.activeSessionId });
-      if (finalScreenshotResult.data?.base64) {
-        finalScreenshot = finalScreenshotResult.data.base64;
-      }
-    } catch {
-      // Optional, don't fail
-    }
+    // NOTE: Automatic final screenshot removed to avoid context bloat
+    // Use browser_screenshot explicitly when needed
 
     const successCount = results.filter((r) => r.success).length;
     const duration = (Date.now() - startTime) / 1000;
@@ -505,7 +507,7 @@ export class WebAutomationAgent {
       task,
       actions: results,
       extractedData,
-      finalScreenshot,
+      // NOTE: finalScreenshot field removed to avoid context bloat
     };
   }
 
@@ -597,6 +599,7 @@ export class WebAutomationAgent {
 
 /**
  * Create the browser session tool
+ * Uses shared agent instance for session continuity
  */
 export function createBrowserSessionTool(
   dataStream?: UIMessageStreamWriter,
@@ -619,7 +622,8 @@ export function createBrowserSessionTool(
         .describe("Connect to existing Chrome via CDP WebSocket URL"),
     }),
     execute: async ({ headless, cdpPort, cdpUrl }) => {
-      const agent = new WebAutomationAgent(dataStream);
+      // Use shared agent for session continuity
+      const agent = getSharedWebAutomationAgent(dataStream);
 
       try {
         const sessionId = await agent.createSession("user", undefined, {
@@ -647,6 +651,7 @@ export function createBrowserSessionTool(
 
 /**
  * Create the snapshot tool for AI-optimized element selection
+ * Uses shared agent instance for session continuity
  */
 export function createSnapshotTool(dataStream?: UIMessageStreamWriter): Tool {
   return createTool({
@@ -668,7 +673,8 @@ export function createSnapshotTool(dataStream?: UIMessageStreamWriter): Tool {
         .describe("CSS selector to scope the snapshot"),
     }),
     execute: async ({ interactive, compact, selector }) => {
-      const agent = new WebAutomationAgent(dataStream);
+      // Use shared agent for session continuity
+      const agent = getSharedWebAutomationAgent(dataStream);
 
       try {
         const snapshot = await agent.getSnapshot({ interactive, compact, selector });
@@ -692,6 +698,7 @@ export function createSnapshotTool(dataStream?: UIMessageStreamWriter): Tool {
 
 /**
  * Create the web automation flow tool
+ * Uses shared agent instance for session continuity
  */
 export function createWebAutomationFlowTool(
   dataStream?: UIMessageStreamWriter,
@@ -742,7 +749,8 @@ export function createWebAutomationFlowTool(
         .describe("Sequence of actions to perform"),
     }),
     execute: async ({ sessionId, task, actions }) => {
-      const agent = new WebAutomationAgent(dataStream);
+      // Use shared agent for session continuity
+      const agent = getSharedWebAutomationAgent(dataStream);
 
       try {
         const result = await agent.executeFlow(sessionId, task, actions);
@@ -753,7 +761,8 @@ export function createWebAutomationFlowTool(
           actionsCompleted: result.actions.filter((a) => a.success).length,
           totalActions: result.actions.length,
           extractedData: result.extractedData,
-          finalScreenshot: result.finalScreenshot,
+          // NOTE: finalScreenshot removed from response to reduce context bloat
+          // Use browser_screenshot explicitly when needed
         };
       } catch (err) {
         logger.error("Web automation failed:", err);
@@ -769,6 +778,7 @@ export function createWebAutomationFlowTool(
 
 /**
  * Create the simple task execution tool
+ * Uses shared agent instance for session continuity
  */
 export function createWebTaskTool(dataStream?: UIMessageStreamWriter): Tool {
   return createTool({
@@ -779,7 +789,8 @@ export function createWebTaskTool(dataStream?: UIMessageStreamWriter): Tool {
       url: z.string().describe("Starting URL for the automation"),
     }),
     execute: async ({ sessionId, task, url }) => {
-      const agent = new WebAutomationAgent(dataStream);
+      // Use shared agent for session continuity
+      const agent = getSharedWebAutomationAgent(dataStream);
 
       try {
         const result = await agent.executeTask(sessionId, task, url);
@@ -789,7 +800,8 @@ export function createWebTaskTool(dataStream?: UIMessageStreamWriter): Tool {
           task: result.task,
           actionsCompleted: result.actions.filter((a) => a.success).length,
           extractedData: result.extractedData,
-          finalScreenshot: result.finalScreenshot,
+          // NOTE: finalScreenshot removed from response to reduce context bloat
+          // Use browser_screenshot explicitly when needed
         };
       } catch (err) {
         logger.error("Web task failed:", err);
