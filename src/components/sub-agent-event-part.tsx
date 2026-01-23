@@ -3,7 +3,6 @@
 import { ToolUIPart } from "ai";
 import { DefaultToolName } from "lib/ai/tools";
 import {
-  CheckIcon,
   Circle,
   XIcon,
 } from "lucide-react";
@@ -13,6 +12,8 @@ import { DesktopToolInvocation } from "./tool-invocation/desktop-tool-invocation
 import type { SubAgentEvent } from "./tool-invocation/sub-agent-view";
 import { TextShimmer } from "ui/text-shimmer";
 import type { ToolStatus } from "ui/tool-status-badge";
+import { ToolCallRow } from "./tool-invocation/tool-call-row";
+import { Markdown } from "./markdown";
 
 // Lazy load tool invocation components
 const WebSearchToolInvocation = lazy(() =>
@@ -21,23 +22,11 @@ const WebSearchToolInvocation = lazy(() =>
   }))
 );
 
-const ToolCallCard = lazy(() =>
-  import("./tool-invocation/tool-call-card").then((mod) => ({
-    default: mod.ToolCallCard,
-  }))
-);
-
 const WebSearchLoadingFallback = () => (
   <div className="h-20 w-full flex items-center justify-center rounded-md bg-muted/50">
     <span className="text-muted-foreground text-sm">
       Loading search results...
     </span>
-  </div>
-);
-
-const ToolCallLoadingFallback = () => (
-  <div className="h-16 w-full flex items-center justify-center rounded-md bg-muted/50">
-    <span className="text-muted-foreground text-sm">Loading...</span>
   </div>
 );
 
@@ -97,9 +86,9 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
       return (
         <div className="flex items-start gap-2 py-1">
           <span className="w-3.5 flex-shrink-0" />
-          <span className="text-xs text-muted-foreground line-clamp-2">
-            {text}
-          </span>
+          <div className="flex-1 min-w-0 text-xs text-foreground [&_p]:text-foreground [&_li]:text-foreground">
+            <Markdown compact>{text}</Markdown>
+          </div>
         </div>
       );
 
@@ -229,7 +218,7 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
         );
       }
 
-      // Default tool call - use consistent ToolCallCard component (same as main agent)
+      // Default tool call - use compact ToolCallRow component
       // Determine tool status based on whether we have a result
       const getToolStatus = (): ToolStatus => {
         if (actualResult?.error || parsedResult?.error) return "error";
@@ -251,32 +240,24 @@ export const SubAgentEventPart = memo(function SubAgentEventPart({
       };
 
       return (
-        <div className="w-full my-1">
-          <Suspense fallback={<ToolCallLoadingFallback />}>
-            <ToolCallCard
-              toolName={originalToolName}
-              input={getParsedInput()}
-              output={actualResult ?? parsedResult ?? undefined}
-              status={getToolStatus()}
-            />
-          </Suspense>
+        <div className="w-full">
+          <ToolCallRow
+            toolName={originalToolName}
+            input={getParsedInput()}
+            output={actualResult ?? parsedResult ?? undefined}
+            status={getToolStatus()}
+          />
         </div>
       );
 
     case "data-sub-agent-complete":
+      // Only show result if present - header already shows completion status
+      if (!data.result) return null;
       return (
-        <div className="py-1 space-y-1">
-          <div className="flex items-center gap-2">
-            <CheckIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-            <span className="text-xs text-muted-foreground">
-              {data.agentName || "Agent"} completed
-            </span>
+        <div className="py-1">
+          <div className="text-xs text-foreground [&_p]:text-foreground [&_li]:text-foreground">
+            <Markdown compact>{data.result}</Markdown>
           </div>
-          {data.result && (
-            <div className="ml-5 text-xs text-foreground whitespace-pre-wrap">
-              {data.result}
-            </div>
-          )}
         </div>
       );
 
