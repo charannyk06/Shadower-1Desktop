@@ -3,6 +3,12 @@
  *
  * Exposes the EnhancedBrowserService to the renderer process via IPC.
  * Uses agent-browser's BrowserManager for AI-optimized browser automation.
+ *
+ * Features:
+ * - Stealth mode for bot detection bypass
+ * - Navigation retry with exponential backoff
+ * - CAPTCHA detection
+ * - Execution context error handling
  */
 
 import { ipcMain } from "electron";
@@ -10,6 +16,7 @@ import log from "electron-log/main";
 import {
   EnhancedBrowserService,
   type LaunchOptions,
+  type NavigateOptions,
   type SnapshotOptions,
   type BrowserAction,
 } from "../services/browser-service";
@@ -62,16 +69,13 @@ export function registerBrowserHandlers(): void {
     }
   );
 
-  // Navigation
+  // Navigation with retry and CAPTCHA detection
   ipcMain.handle(
     "browser:navigate",
     async (
       _event,
       url: string,
-      options?: {
-        waitUntil?: "load" | "domcontentloaded" | "networkidle";
-        sessionId?: string;
-      }
+      options?: NavigateOptions
     ) => {
       try {
         return await service.navigate(url, options);
