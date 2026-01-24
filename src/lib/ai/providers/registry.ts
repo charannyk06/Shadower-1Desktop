@@ -6,7 +6,7 @@ import { createOpenAI, openai } from "@ai-sdk/openai";
 import { xai } from "@ai-sdk/xai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
-import { createOllama } from "ollama-ai-provider-v2";
+import { ollama as createOllamaProvider } from "ai-sdk-ollama";
 
 import { getModelCapabilities, requiresResponsesAPI } from "./capabilities";
 import type { ProviderConfig, ProviderId } from "./types";
@@ -26,12 +26,22 @@ const openrouter = createOpenRouter({
 });
 
 /**
- * Ollama instance with configurable base URL
+ * Ollama provider using ai-sdk-ollama for reliable tool calling
  * NOTE: The electron/ipc/ai.ts handles performance options dynamically.
- * This is for non-Electron usage (web/testing).
+ * This wrapper is for non-Electron usage (web/testing).
+ * 
+ * ai-sdk-ollama provides:
+ * - Enhanced response synthesis for guaranteed complete responses
+ * - Automatic JSON repair for tool arguments
+ * - Built-in reliability features
  */
-const ollama = createOllama({
-  baseURL: process.env.OLLAMA_BASE_URL || "http://localhost:11434/api",
+const ollama = (modelId: string) => createOllamaProvider(modelId, {
+  options: {
+    num_ctx: 8192,        // Larger context for tool schemas
+    num_predict: 2048,    // Allow full outputs
+    repeat_penalty: 1.1,  // Avoid repetition
+    temperature: 0.7,     // Balanced creativity
+  },
 });
 
 /**
@@ -136,8 +146,8 @@ const registry: Record<ProviderId, ProviderConfig> = {
   ollama: {
     id: "ollama",
     name: "Ollama",
-    description: "Local model hosting",
-    supportsToolUsageControl: false, // Ollama's tool support is limited
+    description: "Local model hosting with enhanced tool calling",
+    supportsToolUsageControl: true, // ai-sdk-ollama has reliable tool support!
     defaultModel: "llama3.3",
     getModel: (modelId: string): LanguageModel =>
       ollama(modelId) as unknown as LanguageModel,
