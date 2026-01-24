@@ -73,19 +73,16 @@ export function isLMStudioInstalled(): { installed: boolean; path?: string } {
 
 /**
  * Check if LM Studio server is running
+ * PERFORMANCE OPTIMIZED: Reduced timeout to 1.5s for faster feedback
  */
 export async function isLMStudioRunning(
   baseUrl: string = DEFAULT_LM_STUDIO_URL
 ): Promise<boolean> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-
     const response = await fetch(`${baseUrl}/models`, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(1500), // REDUCED: 1.5s timeout (was 3s)
+      headers: { "Connection": "keep-alive" },
     });
-
-    clearTimeout(timeoutId);
     return response.ok;
   } catch {
     return false;
@@ -119,6 +116,7 @@ export async function checkLMStudioHealth(
 
 /**
  * Get list of loaded models from LM Studio
+ * PERFORMANCE OPTIMIZED: Reduced timeout to 3s for faster feedback
  */
 export async function getLMStudioModels(
   baseUrl: string = DEFAULT_LM_STUDIO_URL
@@ -128,14 +126,10 @@ export async function getLMStudioModels(
   error?: string;
 }> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
     const response = await fetch(`${baseUrl}/models`, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(3000), // REDUCED: 3s timeout (was 10s)
+      headers: { "Connection": "keep-alive" },
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       return { success: false, error: `HTTP ${response.status}` };
