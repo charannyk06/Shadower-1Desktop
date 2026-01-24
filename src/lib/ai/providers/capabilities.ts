@@ -193,6 +193,9 @@ const IMAGE_CAPABLE_PATTERNS: RegExp[] = [
   /gemini/i, // All Gemini models
   /claude/i, // All Claude models
   /grok/i, // Grok models
+  /-vl/i, // Vision-Language models (qwen3-vl, qwen2-vl, etc.)
+  /llava/i, // LLaVA vision models
+  /vision/i, // Models with "vision" in name
 ];
 
 /**
