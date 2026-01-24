@@ -4,6 +4,21 @@ import { colorize } from "consola/utils";
 import globalLogger from "logger";
 import { z } from "zod";
 
+// ============================================
+// PERMISSIVE ZOD TYPES FOR LOCAL MODELS
+// Local models often output "true"/"false" as strings, "5" instead of 5, etc.
+// ============================================
+
+const permissiveNumber = () =>
+  z.union([
+    z.number(),
+    z.string().transform(v => {
+      const parsed = parseFloat(v);
+      if (isNaN(parsed)) throw new Error(`Cannot convert "${v}" to number`);
+      return parsed;
+    })
+  ]);
+
 const logger = globalLogger.withDefaults({
   message: colorize("yellow", "[Computer Use Agent] "),
 });
@@ -410,8 +425,8 @@ export function createComputerUseTaskTool(
             ]),
             target: z
               .object({
-                x: z.number(),
-                y: z.number(),
+                x: permissiveNumber(),
+                y: permissiveNumber(),
               })
               .optional(),
             text: z.string().optional(),
@@ -419,9 +434,9 @@ export function createComputerUseTaskTool(
             app: z.string().optional(),
             command: z.string().optional(),
             direction: z.enum(["up", "down"]).optional(),
-            amount: z.number().optional(),
-            from: z.object({ x: z.number(), y: z.number() }).optional(),
-            to: z.object({ x: z.number(), y: z.number() }).optional(),
+            amount: permissiveNumber().optional(),
+            from: z.object({ x: permissiveNumber(), y: permissiveNumber() }).optional(),
+            to: z.object({ x: permissiveNumber(), y: permissiveNumber() }).optional(),
           }),
         )
         .describe("Sequence of actions to perform"),

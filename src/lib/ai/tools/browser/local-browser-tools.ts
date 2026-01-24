@@ -1,5 +1,27 @@
 import { tool as createTool } from "ai";
 import { z } from "zod";
+
+// ============================================
+// PERMISSIVE ZOD TYPES FOR LOCAL MODELS
+// Local models often output "true"/"false" as strings, "5" instead of 5, etc.
+// ============================================
+
+const permissiveBoolean = () =>
+  z.union([
+    z.boolean(),
+    z.string().transform(v => v.toLowerCase() === 'true' || v === '1')
+  ]);
+
+const permissiveNumber = () =>
+  z.union([
+    z.number(),
+    z.string().transform(v => {
+      const parsed = parseFloat(v);
+      if (isNaN(parsed)) throw new Error(`Cannot convert "${v}" to number`);
+      return parsed;
+    })
+  ]);
+
 import {
   PAGE_CONTEXT_EXTRACTION_SCRIPT,
   createFormFillScript,
@@ -304,15 +326,14 @@ export const browserCreateSessionTool = createTool({
     "Chrome will be launched automatically if not running. " +
     "If Chrome is already running without debugging, close ALL Chrome windows first.",
   inputSchema: z.object({
-    cdpPort: z
-      .number()
+    cdpPort: permissiveNumber()
       .optional()
       .default(9222)
       .describe("CDP port for Chrome remote debugging (default: 9222)"),
     viewport: z
       .object({
-        width: z.number().default(1280),
-        height: z.number().default(720),
+        width: permissiveNumber().default(1280),
+        height: permissiveNumber().default(720),
       })
       .optional()
       .describe("Browser viewport dimensions"),
@@ -477,13 +498,11 @@ export const browserNavigateTool = createTool({
       .optional()
       .default("domcontentloaded")
       .describe("When to consider navigation complete. 'domcontentloaded' is recommended for reliability."),
-    timeout: z
-      .number()
+    timeout: permissiveNumber()
       .optional()
       .default(30000)
       .describe("Navigation timeout in milliseconds (default: 30000)"),
-    retries: z
-      .number()
+    retries: permissiveNumber()
       .optional()
       .default(2)
       .describe("Number of retry attempts on navigation failure (default: 2)"),
@@ -551,13 +570,11 @@ Returns a text tree of elements like:
 Use refs (@e1, @e2) or CSS selectors in subsequent actions.
 This is the PRIMARY tool for understanding what's on a page.`,
   inputSchema: z.object({
-    interactive: z
-      .boolean()
+    interactive: permissiveBoolean()
       .optional()
       .default(false)
       .describe("Only include interactive elements (buttons, links, inputs)"),
-    compact: z
-      .boolean()
+    compact: permissiveBoolean()
       .optional()
       .default(true)
       .describe("Remove structural elements without meaningful content"),
@@ -609,8 +626,7 @@ export const browserScreenshotTool = createTool({
   description:
     "Take a screenshot of the browser. Returns a base64-encoded image.",
   inputSchema: z.object({
-    fullPage: z
-      .boolean()
+    fullPage: permissiveBoolean()
       .optional()
       .default(false)
       .describe("Whether to capture the full scrollable page"),
@@ -718,8 +734,7 @@ export const browserTypeTool = createTool({
   inputSchema: z.object({
     selector: z.string().describe("CSS selector or ref for the input element"),
     text: z.string().describe("Text to type"),
-    delay: z
-      .number()
+    delay: permissiveNumber()
       .optional()
       .describe("Delay between key presses in milliseconds"),
   }),
@@ -800,8 +815,7 @@ export const browserWaitTool = createTool({
       .enum(["load", "domcontentloaded", "networkidle"])
       .optional()
       .describe("Page load state to wait for (use instead of selector)"),
-    timeout: z
-      .number()
+    timeout: permissiveNumber()
       .optional()
       .default(30000)
       .describe("Maximum time to wait in ms"),
@@ -873,8 +887,7 @@ export const browserScrollTool = createTool({
       .enum(["up", "down"])
       .optional()
       .describe("Direction to scroll"),
-    amount: z
-      .number()
+    amount: permissiveNumber()
       .optional()
       .default(500)
       .describe("Amount to scroll in pixels"),
@@ -1148,8 +1161,8 @@ export const browserNewWindowTool = createTool({
   inputSchema: z.object({
     viewport: z
       .object({
-        width: z.number().default(1280),
-        height: z.number().default(720),
+        width: permissiveNumber().default(1280),
+        height: permissiveNumber().default(720),
       })
       .optional()
       .describe("Optional viewport size for the new window"),
@@ -1187,7 +1200,7 @@ export const browserNewWindowTool = createTool({
 export const browserSwitchTabTool = createTool({
   description: "Switch to a different browser tab by index. Use browser_list_tabs to see available tabs.",
   inputSchema: z.object({
-    index: z.number().describe("Tab index to switch to (0-based)"),
+    index: permissiveNumber().describe("Tab index to switch to (0-based)"),
   }),
   execute: async ({ index }) => {
     try {
@@ -1224,7 +1237,7 @@ export const browserSwitchTabTool = createTool({
 export const browserCloseTabTool = createTool({
   description: "Close a browser tab. If no index provided, closes the current tab.",
   inputSchema: z.object({
-    index: z.number().optional().describe("Tab index to close. If not provided, closes active tab."),
+    index: permissiveNumber().optional().describe("Tab index to close. If not provided, closes active tab."),
   }),
   execute: async ({ index }) => {
     try {
