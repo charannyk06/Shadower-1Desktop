@@ -299,6 +299,17 @@ app.whenReady().then(async () => {
     log.error("[Main] Failed to register global shortcuts:", error);
   }
 
+  // ============================================
+  // AUTOMATIC OLLAMA MODEL WARMUP (PERFORMANCE)
+  // Pre-load the last-used Ollama model into memory
+  // so first chat is instant (no model loading delay)
+  // ============================================
+  try {
+    warmupLastUsedOllamaModel();
+  } catch (error) {
+    log.warn("[Main] Ollama warmup skipped:", error);
+  }
+
   // On macOS, re-create window when dock icon is clicked and no windows are open
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -306,6 +317,73 @@ app.whenReady().then(async () => {
     }
   });
 });
+
+/**
+ * Warmup the last-used Ollama model on app startup
+ * This pre-loads the model into memory so first chat is instant
+ */
+async function warmupLastUsedOllamaModel() {
+  // Delay warmup to not block app startup
+  setTimeout(async () => {
+    try {
+      const { getDatabase, schema } = await import("./services/database");
+      const db = getDatabase();
+      
+      // Get last used chat model from settings
+      const [settings] = await db
+        .select()
+        .from(schema.SettingsTable)
+        .limit(1);
+      
+      const chatModel = settings?.chatModel as { provider?: string; model?: string } | null;
+      
+      if (chatModel?.provider === "ollama" && chatModel?.model) {
+        log.info(`[Main] Warming up Ollama model: ${chatModel.model}`);
+        
+        // Get base URL from provider config
+        const { eq } = await import("drizzle-orm");
+        const [providerConfig] = await db
+          .select()
+          .from(schema.ProviderConfigTable)
+          .where(eq(schema.ProviderConfigTable.providerId, "ollama"))
+          .limit(1);
+        
+        const baseUrl = providerConfig?.baseUrl || "http://localhost:11434";
+        
+        // Send warmup request (keep_alive: "10m" keeps model loaded for 10 minutes)
+        const startTime = Date.now();
+        const response = await fetch(`${baseUrl}/api/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: chatModel.model,
+            prompt: "", // Empty prompt - just load model
+            stream: false,
+            keep_alive: "10m", // Keep loaded for 10 minutes (safer than indefinite)
+            options: { 
+              num_predict: 1, 
+              num_ctx: 512,  // Minimal context for warmup
+              num_batch: 64, // Small batch for safety
+            },
+          }),
+          signal: AbortSignal.timeout(180000), // 3 minute timeout for large models
+        });
+        
+        if (response.ok) {
+          const elapsed = Date.now() - startTime;
+          log.info(`[Main] Ollama model ${chatModel.model} warmed up in ${elapsed}ms - ready for instant responses!`);
+        } else {
+          log.warn(`[Main] Ollama warmup returned status ${response.status}`);
+        }
+      } else {
+        log.info("[Main] No Ollama model to warmup (last used model is not Ollama)");
+      }
+    } catch (error) {
+      // Non-critical - don't fail app startup
+      log.warn("[Main] Ollama warmup failed (non-critical):", error instanceof Error ? error.message : error);
+    }
+  }, 3000); // Wait 3 seconds after app start to not block UI
+}
 
 /**
  * Initialize system tray with context menu
