@@ -415,6 +415,27 @@ export const modelsApi = {
   },
 
   // ========================================================================
+  // Model warmup / preload (PERFORMANCE CRITICAL)
+  // ========================================================================
+
+  /**
+   * Warmup / preload an Ollama model into memory for instant responses.
+   * This keeps the model loaded with keep_alive: -1 for fast inference.
+   * Call this when a model is selected or before starting a conversation.
+   */
+  async warmupOllamaModel(data: { modelName: string; baseUrl?: string }) {
+    return window.electronAPI.models.ollamaWarmup(data);
+  },
+
+  /**
+   * Unload an Ollama model from memory to free up resources.
+   * Call this when switching models or closing the app.
+   */
+  async unloadOllamaModel(data: { modelName: string; baseUrl?: string }) {
+    return window.electronAPI.models.ollamaUnload(data);
+  },
+
+  // ========================================================================
   // Event listeners (for download progress, etc.)
   // ========================================================================
 

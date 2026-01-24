@@ -638,6 +638,13 @@ export interface ElectronAPI {
         text?: string;
       }) => void,
     ) => () => void;
+    // PERFORMANCE: Batched chunk handler for faster streaming
+    onStreamChunkBatch: (
+      callback: (data: {
+        threadId: string;
+        chunks: any[];
+      }) => void,
+    ) => () => void;
     onStreamEnd: (
       callback: (data: {
         threadId: string;
@@ -868,6 +875,17 @@ export interface ElectronAPI {
         description: string;
         tags?: string[];
       }>;
+      error?: string;
+    }>;
+    ollamaWarmup: (data: { modelName: string; baseUrl?: string }) => Promise<{
+      success: boolean;
+      message?: string;
+      loadDuration?: number;
+      error?: string;
+    }>;
+    ollamaUnload: (data: { modelName: string; baseUrl?: string }) => Promise<{
+      success: boolean;
+      message?: string;
       error?: string;
     }>;
 
@@ -1379,6 +1397,17 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on("ai:stream:chunk", handler);
       return () => ipcRenderer.removeListener("ai:stream:chunk", handler);
     },
+    // PERFORMANCE: Batched chunk handler for faster streaming
+    onStreamChunkBatch: (
+      callback: (data: {
+        threadId: string;
+        chunks: any[];
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:stream:chunk:batch", handler);
+      return () => ipcRenderer.removeListener("ai:stream:chunk:batch", handler);
+    },
     onStreamEnd: (
       callback: (data: {
         threadId: string;
@@ -1547,6 +1576,10 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("models:ollama:getLibraryModels"),
     ollamaSearchLibrary: (data: { query: string }) =>
       ipcRenderer.invoke("models:ollama:searchLibrary", data),
+    ollamaWarmup: (data: { modelName: string; baseUrl?: string }) =>
+      ipcRenderer.invoke("models:ollama:warmup", data),
+    ollamaUnload: (data: { modelName: string; baseUrl?: string }) =>
+      ipcRenderer.invoke("models:ollama:unload", data),
 
     // LM Studio-specific
     lmstudioCheckHealth: () => ipcRenderer.invoke("models:lmstudio:checkHealth"),
