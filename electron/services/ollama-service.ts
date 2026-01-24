@@ -40,6 +40,23 @@ const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 // Track the Ollama serve process if we started it
 let ollamaServeProcess: ChildProcess | null = null;
 
+// ============================================
+// PERFORMANCE ENVIRONMENT VARIABLES
+// These dramatically improve local model speed!
+// ============================================
+const OLLAMA_PERFORMANCE_ENV = {
+  // Enable Flash Attention - reduces memory, faster with large contexts
+  OLLAMA_FLASH_ATTENTION: "1",
+  // Keep models loaded longer (24 hours) - prevents reload latency
+  OLLAMA_KEEP_ALIVE: "24h",
+  // Max concurrent loaded models (adjust based on RAM)
+  OLLAMA_MAX_LOADED_MODELS: "2",
+  // Parallel requests per model (4 is good balance)
+  OLLAMA_NUM_PARALLEL: "4",
+  // Max queued requests before rejection
+  OLLAMA_MAX_QUEUE: "512",
+};
+
 export interface OllamaHealth {
   installed: boolean;
   running: boolean;
@@ -203,10 +220,15 @@ export async function startOllamaService(): Promise<{
       // Otherwise try running ollama serve directly
       const ollamaPath = installed.path || "ollama";
       log.info(`[Ollama] Starting ollama serve from: ${ollamaPath}`);
+      log.info(`[Ollama] Performance ENV: FLASH_ATTENTION=1, KEEP_ALIVE=24h, NUM_PARALLEL=4`);
 
       ollamaServeProcess = spawn(ollamaPath, ["serve"], {
         detached: true,
         stdio: "ignore",
+        env: {
+          ...process.env,
+          ...OLLAMA_PERFORMANCE_ENV, // Apply performance optimizations
+        },
       });
       ollamaServeProcess.unref();
     } else if (platform === "win32") {
@@ -220,11 +242,20 @@ export async function startOllamaService(): Promise<{
         const ollamaApp = path.join(ollamaDir, "ollama app.exe");
 
         if (fs.existsSync(ollamaApp)) {
-          exec(`"${ollamaApp}"`);
+          // Set performance env vars for Windows app
+          const envStr = Object.entries(OLLAMA_PERFORMANCE_ENV)
+            .map(([k, v]) => `set ${k}=${v}`)
+            .join(" && ");
+          exec(`${envStr} && "${ollamaApp}"`);
         } else {
-          // Fall back to starting serve directly
+          // Fall back to starting serve directly with performance env
+          log.info(`[Ollama] Performance ENV: FLASH_ATTENTION=1, KEEP_ALIVE=24h, NUM_PARALLEL=4`);
           ollamaServeProcess = spawn(ollamaPath, ["serve"], {
             detached: true,
+            env: {
+              ...process.env,
+              ...OLLAMA_PERFORMANCE_ENV,
+            },
             stdio: "ignore",
             shell: true,
           });
