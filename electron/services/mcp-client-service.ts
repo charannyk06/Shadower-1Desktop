@@ -279,6 +279,55 @@ export async function refreshClient(
 }
 
 /**
+ * Coerce tool arguments based on JSON Schema
+ * Local models often output "true"/"false" as strings instead of booleans
+ */
+function coerceMcpToolArguments(args: any, inputSchema: any): any {
+  if (!args || typeof args !== 'object' || !inputSchema?.properties) {
+    return args;
+  }
+
+  const coerced: Record<string, any> = { ...args };
+
+  for (const [key, value] of Object.entries(args)) {
+    const propSchema = inputSchema.properties[key];
+    if (!propSchema) continue;
+
+    const expectedType = propSchema.type;
+
+    // Coerce string booleans to actual booleans
+    if (expectedType === 'boolean' && typeof value === 'string') {
+      coerced[key] = value.toLowerCase() === 'true' || value === '1';
+      console.log(`[MCP Service] Coerced ${key}: "${value}" → ${coerced[key]} (boolean)`);
+    }
+    // Coerce string numbers to actual numbers
+    else if (expectedType === 'number' || expectedType === 'integer') {
+      if (typeof value === 'string') {
+        const parsed = expectedType === 'integer' ? parseInt(value, 10) : parseFloat(value);
+        if (!isNaN(parsed)) {
+          coerced[key] = parsed;
+          console.log(`[MCP Service] Coerced ${key}: "${value}" → ${coerced[key]} (${expectedType})`);
+        }
+      }
+    }
+    // Coerce arrays from strings (some models output "[item1, item2]" as a string)
+    else if (expectedType === 'array' && typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          coerced[key] = parsed;
+          console.log(`[MCP Service] Coerced ${key}: string → array`);
+        }
+      } catch {
+        // Not valid JSON array, keep as-is
+      }
+    }
+  }
+
+  return coerced;
+}
+
+/**
  * Call a tool on an MCP client
  */
 export async function callTool(
@@ -298,7 +347,15 @@ export async function callTool(
       };
     }
 
-    const result = await client.callTool(toolName, args);
+    // Get tool schema for argument coercion
+    const toolInfo = client.toolInfo?.find((t: any) => t.name === toolName);
+    let coercedArgs = args;
+
+    if (toolInfo?.inputSchema) {
+      coercedArgs = coerceMcpToolArguments(args, toolInfo.inputSchema);
+    }
+
+    const result = await client.callTool(toolName, coercedArgs);
     return { success: true, result };
   } catch (error: any) {
     console.error(`[MCP Service] Error calling tool ${toolName}:`, error);

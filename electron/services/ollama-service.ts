@@ -126,19 +126,16 @@ function getOllamaVersion(execPath: string): Promise<string> {
 
 /**
  * Check if Ollama service is running
+ * PERFORMANCE OPTIMIZED: Reduced timeout to 1.5s for faster feedback
  */
 export async function isOllamaRunning(
   baseUrl: string = DEFAULT_OLLAMA_URL
 ): Promise<boolean> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-
     const response = await fetch(`${baseUrl}/api/tags`, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(1500), // REDUCED: 1.5s timeout (was 3s)
+      headers: { "Connection": "keep-alive" },
     });
-
-    clearTimeout(timeoutId);
     return response.ok;
   } catch {
     return false;
@@ -527,6 +524,7 @@ async function downloadFile(
 
 /**
  * Get list of installed models from Ollama
+ * PERFORMANCE OPTIMIZED: Reduced timeout to 3s for faster feedback
  */
 export async function getOllamaModels(
   baseUrl: string = DEFAULT_OLLAMA_URL
@@ -545,14 +543,10 @@ export async function getOllamaModels(
   error?: string;
 }> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
     const response = await fetch(`${baseUrl}/api/tags`, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(3000), // REDUCED: 3s timeout (was 10s)
+      headers: { "Connection": "keep-alive" },
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       return { success: false, error: `HTTP ${response.status}` };
@@ -580,6 +574,7 @@ export async function getOllamaModels(
 
 /**
  * Get detailed information about a specific model
+ * PERFORMANCE OPTIMIZED: Reduced timeout to 3s for faster feedback
  */
 export async function showOllamaModel(
   modelName: string,
@@ -590,17 +585,15 @@ export async function showOllamaModel(
   error?: string;
 }> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
     const response = await fetch(`${baseUrl}/api/show`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Connection": "keep-alive",
+      },
       body: JSON.stringify({ name: modelName }),
-      signal: controller.signal,
+      signal: AbortSignal.timeout(3000), // REDUCED: 3s timeout (was 10s)
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       return { success: false, error: `HTTP ${response.status}` };

@@ -1,5 +1,26 @@
 import { z } from "zod";
 
+// ============================================
+// PERMISSIVE ZOD TYPES FOR LOCAL MODELS
+// Local models often output "true"/"false" as strings, "5" instead of 5, etc.
+// ============================================
+
+const permissiveBoolean = () =>
+  z.union([
+    z.boolean(),
+    z.string().transform(v => v.toLowerCase() === 'true' || v === '1')
+  ]);
+
+const permissiveNumber = () =>
+  z.union([
+    z.number(),
+    z.string().transform(v => {
+      const parsed = parseFloat(v);
+      if (isNaN(parsed)) throw new Error(`Cannot convert "${v}" to number`);
+      return parsed;
+    })
+  ]);
+
 // Session configuration types
 export interface BrowserSessionOptions {
   /** User ID who owns this session (required) */
@@ -150,8 +171,7 @@ export const BrowserActParams = z.object({
     .describe(
       'Natural language action to perform, e.g., "click the login button"',
     ),
-  timeout: z
-    .number()
+  timeout: permissiveNumber()
     .optional()
     .describe("Timeout in milliseconds for the action"),
 });
@@ -175,7 +195,7 @@ export const BrowserExtractParams = z.object({
 });
 
 export const BrowserScreenshotParams = z.object({
-  fullPage: z.boolean().optional().describe("Capture full scrollable page"),
+  fullPage: permissiveBoolean().optional().describe("Capture full scrollable page"),
   selector: z
     .string()
     .optional()
@@ -185,7 +205,7 @@ export const BrowserScreenshotParams = z.object({
 export const BrowserWaitParams = z.object({
   selector: z.string().optional().describe("CSS selector to wait for"),
   text: z.string().optional().describe("Text to wait for on page"),
-  timeout: z.number().optional().describe("Max wait time in milliseconds"),
+  timeout: permissiveNumber().optional().describe("Max wait time in milliseconds"),
 });
 
 export const BrowserStealthParams = z.object({
@@ -195,7 +215,7 @@ export const BrowserStealthParams = z.object({
     .describe(
       "Thread ID to find the active session (required for database lookup)",
     ),
-  enable: z.boolean().describe("Enable or disable stealth mode"),
+  enable: permissiveBoolean().describe("Enable or disable stealth mode"),
   proxy: z
     .object({
       country: z.string().optional(),

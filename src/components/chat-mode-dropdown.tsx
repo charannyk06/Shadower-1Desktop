@@ -133,7 +133,7 @@ export const ChatModeDropdown = ({ disabled }: { disabled?: boolean }) => {
             <div className="flex flex-col gap-2 w-full">
               <div className="flex items-center gap-2">
                 <ListTodo />
-                <span className="font-bold">Plan</span>
+                <span className="font-bold">Chat</span>
                 {chatMode === "regular" && <Check className="ml-auto" />}
               </div>
               <p className="text-xs text-muted-foreground">

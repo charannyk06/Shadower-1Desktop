@@ -27,6 +27,8 @@ const openrouter = createOpenRouter({
 
 /**
  * Ollama instance with configurable base URL
+ * NOTE: The electron/ipc/ai.ts handles performance options dynamically.
+ * This is for non-Electron usage (web/testing).
  */
 const ollama = createOllama({
   baseURL: process.env.OLLAMA_BASE_URL || "http://localhost:11434/api",
@@ -34,6 +36,7 @@ const ollama = createOllama({
 
 /**
  * LM Studio instance (OpenAI-compatible)
+ * NOTE: LM Studio handles its own performance optimization.
  */
 const lmstudio = createOpenAI({
   baseURL: process.env.LM_STUDIO_BASE_URL || "http://localhost:1234/v1",

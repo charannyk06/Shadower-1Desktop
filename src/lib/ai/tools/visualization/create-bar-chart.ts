@@ -2,6 +2,17 @@ import { tool as createTool } from "ai";
 
 import { z } from "zod";
 
+// Permissive number for local model compatibility
+const permissiveNumber = () =>
+  z.union([
+    z.number(),
+    z.string().transform(v => {
+      const parsed = parseFloat(v);
+      if (isNaN(parsed)) throw new Error(`Cannot convert "${v}" to number`);
+      return parsed;
+    })
+  ]);
+
 export const createBarChartTool = createTool({
   description: "Create a bar chart with multiple data series",
   inputSchema: z.object({
@@ -12,7 +23,7 @@ export const createBarChartTool = createTool({
           series: z.array(
             z.object({
               seriesName: z.string(),
-              value: z.number(),
+              value: permissiveNumber(),
             }),
           ),
         }),
