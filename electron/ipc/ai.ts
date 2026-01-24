@@ -1019,18 +1019,16 @@ function buildAgentSystemPrompt(
   // ============================================
   if (isLocalModel) {
     const cwd = workingDirectory?.path || os.homedir();
-    // ULTRA-MINIMAL prompt for local models (~300 tokens vs ~800 tokens)
-    return `You are Shadower, an AI assistant with tool access.
+    // MINIMAL system prompt for local models - DO NOT describe tools!
+    // The AI SDK passes tool schemas via the API - describing them in text confuses the model
+    // and makes it output JSON text instead of making actual tool calls.
+    return `You are Shadower, an autonomous AI assistant with access to tools.
 
-TOOLS: Use tools to complete tasks. Don't just describe - DO IT.
-- terminal_execute: Run shell commands
-- file_read/file_write/file_list: File operations
-- web_search/web_fetch: Web access
-
-WORKING DIRECTORY: ${cwd}
-PLATFORM: ${os.platform()} ${os.arch()}
-
-Be direct. Use tools. Show results.`;
+IMPORTANT RULES:
+1. When you need to do something, USE YOUR TOOLS - do not just describe what you would do
+2. After using a tool, briefly confirm what happened
+3. Working directory: ${cwd}
+4. Be direct and take action`;
   }
 
   // Full prompt for cloud models (they handle context better)
@@ -1170,39 +1168,48 @@ function createElectronTools(
       },
     }),
 
-    // Write file
+    // Write file - PRIMARY tool for creating code files!
     file_write: createTool({
       description:
-        "Write content to a file (creates parent directories if needed)",
+        "PREFERRED: Write content to a file. Use this to create ANY file (code, HTML, scripts, etc). Creates parent directories automatically. Better than terminal echo for multi-line content.",
       inputSchema: z.object({
-        path: z.string().describe("Absolute path to the file"),
-        content: z.string().describe("Content to write"),
+        path: z.string().describe(`File path (relative to ${defaultCwd} or absolute)`),
+        content: z.string().describe("Full file content to write"),
         append: z
           .boolean()
           .optional()
-          .describe("Append to file instead of overwrite"),
+          .describe("Append to existing file instead of overwrite"),
       }),
       execute: async ({ path: filePath, content, append = false }) => {
-        // console.log(`[AI Tools] Writing file: ${filePath}`);
         try {
+          // Handle relative paths - resolve against defaultCwd
+          let resolvedPath = filePath;
+          if (!path.isAbsolute(filePath)) {
+            resolvedPath = path.join(defaultCwd, filePath);
+          }
+          
+          console.log(`[AI Tools] Writing file: ${resolvedPath} (${content.length} bytes)`);
+          
           // Create parent directory if needed
-          const dir = path.dirname(filePath);
+          const dir = path.dirname(resolvedPath);
           if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
           }
 
           if (append) {
-            fs.appendFileSync(filePath, content);
+            fs.appendFileSync(resolvedPath, content);
           } else {
-            fs.writeFileSync(filePath, content);
+            fs.writeFileSync(resolvedPath, content);
           }
 
           return {
             success: true,
-            path: filePath,
+            path: resolvedPath,
             bytesWritten: content.length,
+            message: `File created: ${resolvedPath}`,
           };
         } catch (error: any) {
+          console.error(`[AI Tools] Error writing file: ${error.message}`);
           return {
             success: false,
             error: error.message,
@@ -2220,7 +2227,7 @@ function createElectronTools(
           .default(10)
           .describe("Max results to return (default: 10)"),
       }),
-      execute: async ({ query, engine = "google", maxResults = 10 }) => {
+      execute: async ({ query, engine = "google", maxResults: _maxResults = 10 }) => {
         const service = EnhancedBrowserService.getInstance();
         let sessionId: string | undefined;
 
@@ -2552,83 +2559,31 @@ export function registerAIHandlers() {
         toolsToUse = undefined;
         console.log(`[AI IPC] No tools available to pass`);
       } else if (isLocal) {
-        // ============================================
-        // LOCAL MODEL OPTIMIZATION: Minimal Tool Set
-        // CRITICAL: Local models are SLOW with many tools!
-        // Each tool adds ~200-500 tokens of context overhead
-        // 20+ tools = 5000+ tokens before the model even starts thinking
-        //
-        // Solution: Pass ONLY essential tools to local models
-        // This dramatically reduces latency (9 seconds -> <1 second)
-        // ============================================
-
-        // Essential tools for local models (only 6 tools = ~1500 tokens overhead)
-        const ESSENTIAL_LOCAL_TOOLS = [
-          'terminal_execute',  // Most important - run any command
-          'file_read',         // Read files
-          'file_write',        // Write files
-          'file_list',         // List directory
-          'web_search',        // Search the web
-          'web_fetch',         // Fetch URL content
+        // LOCAL MODEL TOOLS - Minimal set for speed and reliability
+        // Only terminal + headless search (like Claude Code)
+        // Browser automation and MCP tools disabled for local models
+        const localModelTools = [
+          // Terminal (like Claude Code)
+          "terminal_execute",
+          // Headless web search (no browser needed)
+          "local_web_search",
+          "local_web_fetch",
+          // File operations for RAG and coding tasks
+          "local_file_read",
+          "local_file_write",
+          "local_file_list",
+          "local_file_search",
+          // Memory for context
+          "memory_search",
         ];
 
-        // Check model size to decide tool count
-        const modelLower = chatModel.model.toLowerCase();
-        const isSmallModel = /[:\-_]([0-4]b|[0-4]\.|tiny|mini|small)/i.test(modelLower);
-        const isMediumModel = /[:\-_]([5-9]b|[5-9]\.|1[0-4]b|1[0-4]\.)/i.test(modelLower);
-
-        // Filter to essential tools only for local models
-        const essentialTools: Record<string, any> = {};
-
-        for (const toolName of ESSENTIAL_LOCAL_TOOLS) {
-          // Try exact match first
-          if (tools[toolName]) {
-            essentialTools[toolName] = tools[toolName];
-          }
-          // Also check for local_ prefixed versions
-          else if (tools[`local_${toolName}`]) {
-            essentialTools[`local_${toolName}`] = tools[`local_${toolName}`];
-          }
+        const filteredTools: typeof tools = {};
+        for (const name of localModelTools) {
+          if (tools[name]) filteredTools[name] = tools[name];
         }
-
-        // Add a couple more tools for medium/large models
-        if (!isSmallModel) {
-          const additionalTools = ['clipboard_read', 'clipboard_write', 'system_info'];
-          for (const toolName of additionalTools) {
-            if (tools[toolName]) {
-              essentialTools[toolName] = tools[toolName];
-            }
-          }
-        }
-
-        toolsToUse = Object.keys(essentialTools).length > 0 ? essentialTools : undefined;
-
-        const totalToolCount = Object.keys(tools).length;
-        const filteredToolCount = Object.keys(essentialTools).length;
-
-        console.log(
-          `[AI IPC] LOCAL MODEL OPTIMIZED (${chatModel.provider}/${chatModel.model})`,
-        );
-        console.log(
-          `[AI IPC] Tool filtering: ${totalToolCount} total -> ${filteredToolCount} essential (${Math.round((1 - filteredToolCount/totalToolCount) * 100)}% reduction)`,
-        );
-        console.log(
-          `[AI IPC] Essential tools: ${Object.keys(essentialTools).join(", ")}`,
-        );
-
-        if (isSmallModel) {
-          console.log(`[AI IPC] Small model detected - minimal tool set for speed`);
-        } else if (isMediumModel) {
-          console.log(`[AI IPC] Medium model detected - extended tool set`);
-        }
-
-        // Log what tools were filtered out (for debugging)
-        const filteredOutTools = Object.keys(tools).filter(t => !essentialTools[t]);
-        if (filteredOutTools.length > 0) {
-          console.log(
-            `[AI IPC] Filtered out ${filteredOutTools.length} tools: ${filteredOutTools.slice(0, 10).join(", ")}${filteredOutTools.length > 10 ? '...' : ''}`,
-          );
-        }
+        
+        toolsToUse = Object.keys(filteredTools).length > 0 ? filteredTools : undefined;
+        console.log(`[AI IPC] Local model: ${Object.keys(filteredTools).length} tools (terminal + headless search)`);
       } else if (!capabilities.isToolCallSupported) {
         // Cloud model with conflicting tool requirements (built-in tools or Responses API)
         console.warn(
@@ -3248,9 +3203,10 @@ export function registerAIHandlers() {
         // console.log(`[AI IPC] streamText result created, converting to UI stream...`);
 
         // Convert to UI message stream for proper formatting
+        // PERFORMANCE: Remove messageMetadata callback - it floods with chunks per-token!
         const stream = result.toUIMessageStream({
           sendUsage: true,
-          messageMetadata: () => ({}),
+          // NO messageMetadata - it generates a chunk per token!
         });
 
         // DEBUG: Send stream created notification to renderer
@@ -3306,133 +3262,181 @@ export function registerAIHandlers() {
         // EXTENDED TIMEOUT: 5 minutes for initial response (browser automation, complex reasoning)
         const TIMEOUT_MS = 300000; // 5 minute timeout
 
-        // Add a heartbeat to detect if we're stuck (also sends to renderer for debugging)
-        // For local models, provide more specific warnings after extended wait times
+        // ============================================
+        // PERFORMANCE: CHUNK BATCHING (OPTIMIZED)
+        // Text chunks flush IMMEDIATELY for real-time streaming
+        // Only batch metadata/tool chunks to reduce IPC overhead
+        // ============================================
+        const BATCH_SIZE = 10;           // Max chunks per batch
+        const BATCH_TIMEOUT_MS = 5;      // REDUCED from 30ms - much faster!
+        let chunkBatch: any[] = [];
+        let batchTimeout: NodeJS.Timeout | null = null;
+
+        const flushBatch = () => {
+          if (chunkBatch.length > 0) {
+            try {
+              // Send batch via dedicated channel for bulk processing
+              event.sender.send("ai:stream:chunk:batch", {
+                threadId,
+                chunks: chunkBatch,
+              });
+            } catch {
+              // Fallback: send individually if batch fails
+              for (const chunk of chunkBatch) {
+                try {
+                  event.sender.send("ai:stream:chunk", { threadId, chunk: JSON.stringify(chunk) });
+                } catch {}
+              }
+            }
+            chunkBatch = [];
+          }
+          if (batchTimeout) {
+            clearTimeout(batchTimeout);
+            batchTimeout = null;
+          }
+        };
+
+        // PERFORMANCE: Skip excessive message-metadata chunks
+        // toUIMessageStream sends metadata after EVERY token - massive overhead
+        let lastMetadataSent = 0;
+        const METADATA_THROTTLE_MS = 500; // Only send metadata every 500ms
+
+        const queueChunk = (chunk: any) => {
+          // CRITICAL: Filter out excessive message-metadata chunks
+          // These are sent after EVERY token by toUIMessageStream - causing 2x IPC traffic!
+          if (chunk.type === "message-metadata") {
+            const now = Date.now();
+            if (now - lastMetadataSent < METADATA_THROTTLE_MS) {
+              return; // Skip - too frequent
+            }
+            lastMetadataSent = now;
+          }
+
+          chunkBatch.push(chunk);
+          
+          // CRITICAL: Text chunks flush IMMEDIATELY for real-time streaming
+          // Only batch metadata/tool setup chunks
+          const immediateFlush = 
+            chunk.type === "text-delta" ||     // TEXT MUST STREAM IMMEDIATELY!
+            chunk.type === "reasoning-delta" || // Reasoning too
+            chunk.type === "tool-call" || 
+            chunk.type === "tool-result" || 
+            chunk.type === "finish" || 
+            chunk.type === "finish-step" ||
+            chunk.type === "error";
+          
+          if (immediateFlush) {
+            // Flush immediately - no batching delay for content!
+            flushBatch();
+          } else if (chunkBatch.length >= BATCH_SIZE) {
+            flushBatch();
+          } else if (!batchTimeout) {
+            // Only batch non-content chunks (metadata, etc.)
+            batchTimeout = setTimeout(flushBatch, BATCH_TIMEOUT_MS);
+          }
+        };
+
+        // Heartbeat interval - reduced frequency for less IPC overhead
         const heartbeatInterval = setInterval(() => {
           const elapsed = Date.now() - startTime;
           const elapsedSec = Math.floor(elapsed / 1000);
-          console.log(`[AI IPC] Stream heartbeat - elapsed: ${elapsed}ms, chunks: ${_chunkCount}`);
 
-          // Build appropriate message based on wait time and model type
-          let heartbeatMessage = `Waiting for model response... (${elapsedSec}s)`;
+          // Only send heartbeat if waiting a long time with few chunks
+          if (elapsedSec >= 15 && _chunkCount <= 1) {
+            let heartbeatMessage = isLocal
+              ? `Local model loading... (${elapsedSec}s)`
+              : `Waiting for model response... (${elapsedSec}s)`;
 
-          if (isLocal && elapsedSec >= 30 && _chunkCount <= 1) {
-            // Local model taking >30s with no real output
-            if (elapsedSec >= 60) {
-              heartbeatMessage = `⚠️ Local model very slow (${elapsedSec}s). Large models may need 1-2+ minutes to start. Consider using a smaller model (7B-8B) for faster responses.`;
-            } else {
-              heartbeatMessage = `Local model loading... (${elapsedSec}s). First response can be slow while the model loads into memory.`;
+            if (isLocal && elapsedSec >= 60) {
+              heartbeatMessage = `Local model loading (${elapsedSec}s). First response can be slow.`;
+            }
+
+            try {
+              event.sender.send("ai:stream:chunk", {
+                threadId,
+                chunk: JSON.stringify({
+                  type: "data-debug-heartbeat",
+                  data: { elapsed, chunks: _chunkCount, message: heartbeatMessage, isLocal },
+                }),
+              });
+            } catch {
+              // Ignore
             }
           }
+        }, 10000); // Reduced from 5s to 10s
 
-          // Send heartbeat to renderer so we can see it in browser console
-          try {
-            event.sender.send("ai:stream:chunk", {
-              threadId,
-              chunk: JSON.stringify({
-                type: "data-debug-heartbeat",
-                data: {
-                  elapsed,
-                  chunks: _chunkCount,
-                  message: heartbeatMessage,
-                  isLocal,
-                  modelName: chatModel?.model,
-                },
-              }),
-            });
-          } catch (e) {
-            // Ignore send errors during heartbeat
+        // ============================================
+        // PERFORMANCE: REUSABLE TIMEOUT MECHANISM
+        // Instead of creating new Promise per read, reuse timeout
+        // ============================================
+        const READ_TIMEOUT_MS = 600000; // 10 minutes for tool execution
+        let readTimeoutId: NodeJS.Timeout | null = null;
+
+        const clearReadTimeout = () => {
+          if (readTimeoutId) {
+            clearTimeout(readTimeoutId);
+            readTimeoutId = null;
           }
-        }, 5000);
+        };
+
+        const createReadTimeout = () => {
+          return new Promise<never>((_, reject) => {
+            readTimeoutId = setTimeout(() => {
+              reject(new Error("Read timeout"));
+            }, READ_TIMEOUT_MS);
+          });
+        };
 
         try {
           let lastChunkTime = Date.now();
 
           while (true) {
+            const now = Date.now();
+            
             // Check for initial timeout (no first chunk received)
-            // Only timeout if we haven't received ANY chunks yet
-            if (_chunkCount === 0 && Date.now() - startTime > TIMEOUT_MS) {
+            if (_chunkCount === 0 && now - startTime > TIMEOUT_MS) {
               const timeoutMsg = isLocal
                 ? `Local model didn't respond in ${TIMEOUT_MS / 1000}s. The model may need to load or be too large.`
                 : `Stream timeout after ${TIMEOUT_MS / 1000}s - no response from model`;
-              console.error(`[AI IPC] ${timeoutMsg}`);
               throw new Error(timeoutMsg);
             }
 
             // Check for stall timeout (chunks were being received but stopped)
-            // This handles cases where the model starts responding but then hangs
             const stallTimeoutMs = isLocal ? 120000 : 60000; // 2 min for local, 1 min for cloud
-            if (_chunkCount > 0 && Date.now() - lastChunkTime > stallTimeoutMs) {
+            if (_chunkCount > 0 && now - lastChunkTime > stallTimeoutMs) {
               const stallMsg = isLocal
                 ? `Local model stopped responding after ${_chunkCount} chunks. Model may be overloaded.`
                 : `Stream stalled after ${_chunkCount} chunks`;
-              console.error(`[AI IPC] ${stallMsg}`);
               throw new Error(stallMsg);
             }
 
             const readPromise = reader.read();
-            // EXTENDED TIMEOUT: 10 minutes for tool execution (browser automation, file operations)
-            // Some tools like browser automation and long API calls need more time
-            const READ_TIMEOUT_MS = 600000; // 10 minutes
-            const timeoutPromise = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("Read timeout")), READ_TIMEOUT_MS),
-            );
+            const timeoutPromise = createReadTimeout();
 
             let readResult;
             try {
               readResult = await Promise.race([readPromise, timeoutPromise]);
+              clearReadTimeout();
             } catch (readError: any) {
-              console.error(`[AI IPC] Error reading from stream:`, readError);
+              clearReadTimeout();
               throw readError;
             }
 
             const { done, value } = readResult as { done: boolean; value: any };
 
             if (done) {
-              // console.log(`[AI IPC] Stream reader done, total chunks: ${chunkCount}`);
+              // Flush any remaining batched chunks
+              flushBatch();
               break;
             }
 
             _chunkCount++;
-            lastChunkTime = Date.now(); // Track when we last received a chunk
+            lastChunkTime = Date.now();
 
-            // Send each stream part to renderer
+            // Send chunk via batching mechanism
             if (value) {
-              // PERFORMANCE: Only log non-text chunks and every 50th text chunk
-              // This dramatically reduces logging overhead for faster streaming
-              const shouldLog =
-                value.type !== "text-delta" ||
-                _chunkCount % 50 === 0 ||
-                value.type === "tool-call" ||
-                value.type === "tool-result" ||
-                value.type === "finish";
-
-              if (shouldLog) {
-                console.log(
-                  `[AI IPC] Stream chunk #${_chunkCount}: type=${value.type}`,
-                  value.type === "tool-call"
-                    ? `toolName=${value.toolName}`
-                    : "",
-                  value.type === "tool-result"
-                    ? `toolCallId=${value.toolCallId}`
-                    : "",
-                  value.type === "finish"
-                    ? `finishReason=${value.finishReason}`
-                    : "",
-                  value.type === "text-delta"
-                    ? `delta="${(value.delta || value.textDelta || "").substring(0, 30)}..."`
-                    : "",
-                );
-              }
-
-              try {
-                event.sender.send("ai:stream:chunk", {
-                  threadId,
-                  chunk: JSON.stringify(value),
-                });
-              } catch (sendError) {
-                console.error(`[AI IPC] Error sending chunk:`, sendError);
-              }
+              // Queue chunk for batched sending (MUCH faster than individual IPC)
+              queueChunk(value);
 
               // Accumulate content for persistence
               // Handle different chunk types
@@ -3443,10 +3447,6 @@ export function registerAIHandlers() {
               ) {
                 currentTextContent += value.delta || value.textDelta;
               } else if (value.type === "tool-call") {
-                console.log(
-                  `[AI IPC] Tool call detected: ${value.toolName}`,
-                  value.args,
-                );
                 currentToolCalls.push({
                   type: "tool-call",
                   toolCallId: value.toolCallId,
@@ -3454,9 +3454,6 @@ export function registerAIHandlers() {
                   input: value.args,
                 });
               } else if (value.type === "tool-result") {
-                console.log(
-                  `[AI IPC] Tool result received for: ${value.toolCallId}`,
-                );
                 // Find the corresponding tool call to get toolName
                 const correspondingToolCall = currentToolCalls.find(
                   (tc) => tc.toolCallId === value.toolCallId,
@@ -3472,14 +3469,10 @@ export function registerAIHandlers() {
                 });
               } else if (value.type === "tool-input-start") {
                 // UNIVERSAL TOOL SYNTHESIZER: Track tool input start
-                // Many models emit this but never emit tool-call chunks
                 const toolCallId =
                   value.toolCallId ||
                   `synth-${Date.now()}-${randomUUID().slice(0, 8)}`;
                 const toolName = value.toolName || "unknown";
-                console.log(
-                  `[AI IPC] Tool input started for: ${toolName} (id: ${toolCallId})`,
-                );
                 accumulatedToolInputs.set(toolCallId, {
                   toolCallId,
                   toolName,
@@ -3538,7 +3531,7 @@ export function registerAIHandlers() {
             const xmlPattern = /<(?:tool|function|tool_call|function_call)>([^<]+)<\/(?:tool|function|tool_call|function_call)>[\s\S]*?<(?:arguments|parameters|params|input)>(\{[^<]+\})<\/(?:arguments|parameters|params|input)>/gi;
 
             // Try each pattern
-            let matches: Array<{ toolName: string; argsJson: string }> = [];
+            const matches: Array<{ toolName: string; argsJson: string }> = [];
 
             // Try JSON patterns
             for (const pattern of jsonToolPatterns) {
@@ -3824,7 +3817,7 @@ export function registerAIHandlers() {
                 );
 
                 // Build helpful error message for the model
-                let errorMessage = lastError.message || "Tool execution failed";
+                const errorMessage = lastError.message || "Tool execution failed";
                 let guidance = "";
 
                 // Detect common argument errors and provide specific guidance
@@ -4541,19 +4534,16 @@ async function getModelInstance(
 
       case "ollama": {
         // ============================================
-        // USE NATIVE OLLAMA PROVIDER FOR TOOL CALLING
-        // The ai-sdk-ollama package has proper tool calling support with
-        // response synthesis. Using OpenAI-compatible endpoint (/v1)
-        // does NOT support tool calling properly!
-        // See: https://github.com/vercel/ai/issues/4700
-        //
-        // PERFORMANCE OPTIMIZED:
-        // - Adaptive num_ctx based on model size (smaller = faster)
-        // - num_predict limits max tokens for faster response
-        // - num_batch optimizes batch processing
-        // - num_gpu ensures GPU acceleration when available
+        // USE ai-sdk-ollama FOR RELIABLE TOOL CALLING
+        // The ai-sdk-ollama package by jagreehal has:
+        // - Enhanced response synthesis for GUARANTEED complete responses
+        // - Automatic JSON repair for tool arguments
+        // - Built-in reliability features
+        // 
+        // This solves the "tools execute but return incomplete responses" issue!
+        // See: https://sdk.vercel.ai/providers/community-providers/ollama
         // ============================================
-        const { createOllama } = await import("ai-sdk-ollama");
+        const { ollama: ollamaProvider } = await import("ai-sdk-ollama");
 
         // Get base URL from provider config or use default
         const [providerConfig] = await db
@@ -4563,109 +4553,68 @@ async function getModelInstance(
           .limit(1);
 
         let baseUrl = providerConfig?.baseUrl || "http://localhost:11434";
-        // Normalize base URL - remove trailing /api or /v1 if present
-        if (baseUrl.endsWith("/api")) {
-          baseUrl = baseUrl.slice(0, -4);
+        // Normalize base URL - remove trailing slash
+        if (baseUrl.endsWith("/")) {
+          baseUrl = baseUrl.slice(0, -1);
         }
+        // Remove /v1 if present (OpenAI-style)
         if (baseUrl.endsWith("/v1")) {
           baseUrl = baseUrl.slice(0, -3);
         }
-
-        console.log(`[AI IPC] Creating Ollama model via native provider: ${model} at ${baseUrl}`);
-
-        // Quick health check (fast, 1.5s timeout)
-        try {
-          const healthCheck = await fetch(`${baseUrl}/api/tags`, {
-            method: "GET",
-            signal: AbortSignal.timeout(1500),
-            headers: { "Connection": "keep-alive" },
-          });
-          if (healthCheck.ok) {
-            const data = await healthCheck.json();
-            const availableModels = data.models?.map((m: any) => m.name) || [];
-            console.log(`[AI IPC] Ollama running. Available models: ${availableModels.join(', ')}`);
-          }
-        } catch (e: any) {
-          console.warn(`[AI IPC] Ollama health check skipped: ${e.message}`);
+        // Remove /api if present
+        if (baseUrl.endsWith("/api")) {
+          baseUrl = baseUrl.slice(0, -4);
         }
 
-        // Create native Ollama provider with tool calling support
-        const ollamaProvider = createOllama({
-          baseURL: baseUrl,
-        });
+        console.log(`[AI IPC] Creating Ollama model: ${model} at ${baseUrl}`);
 
-        // ADAPTIVE CONTEXT WINDOW based on model size
-        // Smaller models (< 4B params) use smaller context for SPEED
-        // Larger models get full context for capability
         const modelLower = model.toLowerCase();
-        const isSmallModel =
-          modelLower.includes("0.5b") ||
-          modelLower.includes("0.6b") ||
-          modelLower.includes("1b") ||
-          modelLower.includes("1.5b") ||
-          modelLower.includes("1.7b") ||
-          modelLower.includes("2b") ||
-          modelLower.includes("3b") ||
-          modelLower.includes(":1b") ||
-          modelLower.includes(":3b") ||
-          modelLower.includes("phi-4-mini") ||
-          modelLower.includes("qwen3:0") ||
-          modelLower.includes("qwen3:1");
-
-        const isMediumModel =
-          modelLower.includes("7b") ||
-          modelLower.includes("8b") ||
-          modelLower.includes(":7b") ||
-          modelLower.includes(":8b");
-
-        // Select context size AND predict limit based on model tier
-        // Smaller context + shorter outputs = MUCH faster responses
-        let numCtx: number;
-        let numPredict: number;
-        let numBatch: number;
-
-        if (isSmallModel) {
-          numCtx = 2048;     // Small models: 2K context (VERY FAST)
-          numPredict = 512;  // Short outputs for speed
-          numBatch = 256;    // Smaller batch for quick processing
-        } else if (isMediumModel) {
-          numCtx = 4096;     // Medium models: 4K context (fast)
-          numPredict = 1024; // Moderate outputs
-          numBatch = 512;    // Standard batch
-        } else {
-          numCtx = 8192;     // Large models: 8K context (balanced)
-          numPredict = 2048; // Full outputs
-          numBatch = 512;    // Standard batch
-        }
+        
+        // ============================================
+        // THINKING MODEL DETECTION
+        // Models that emit <think>...</think> blocks need reasoning middleware
+        // ============================================
+        const isThinkingModel =
+          modelLower.includes("qwen3") ||
+          modelLower.includes("qwen2.5") ||
+          modelLower.includes("deepseek-r1") ||
+          modelLower.includes("deepseek-reasoner") ||
+          modelLower.includes("thinking") ||
+          modelLower.includes("reason");
 
         // ============================================
-        // CRITICAL PERFORMANCE FIX: Disable Thinking Mode
-        // Qwen3 and DeepSeek R1 have "thinking" mode that adds 5-10+ seconds latency
-        // Setting think: false disables extended reasoning for FAST responses
-        // Users who want thinking can enable it explicitly
+        // ai-sdk-ollama with MINIMAL options
+        // Let Ollama auto-detect and use model's FULL native context
+        // No num_ctx or num_predict limits = faster startup + full context
         // ============================================
-        const isThinkingModel = modelLower.includes("qwen3") ||
-                                 modelLower.includes("deepseek-r1") ||
-                                 modelLower.includes("qwq");
-
-        // PERFORMANCE OPTIONS for faster inference
         const ollamaModel = ollamaProvider(model, {
-          // DISABLE THINKING MODE for speed - this is the KEY optimization!
-          think: false,
           options: {
-            num_ctx: numCtx,           // Adaptive context window
-            num_predict: numPredict,   // Adaptive output limit
-            num_batch: numBatch,       // Adaptive batch size
-            num_gpu: 99,               // Use all available GPU layers
-            main_gpu: 0,               // Primary GPU index
-            low_vram: false,           // Don't use low VRAM mode if possible
-            // Sampling parameters for faster generation
-            repeat_penalty: 1.1,       // Slight penalty to avoid repetition
-            temperature: 0.7,          // Balanced creativity/coherence
+            // NO num_ctx - let Ollama use model's full native context (8K, 32K, 128K, etc.)
+            // NO num_predict - let model output as much as needed
+            repeat_penalty: 1.1,       // Avoid repetition
+            temperature: 0.7,          // Balanced creativity
           },
         });
 
-        console.log(`[AI IPC] Ollama model created: think=false, num_ctx=${numCtx}, num_predict=${numPredict}${isThinkingModel ? ' (thinking-capable model - thinking DISABLED for speed)' : ''}`);
+        // ============================================
+        // THINKING MODEL: Apply reasoning middleware
+        // Extracts <think>...</think> blocks as reasoning content
+        // ============================================
+        if (isThinkingModel) {
+          console.log(`[AI IPC] Thinking model detected: ${model} - applying reasoning middleware`);
+          const { wrapLanguageModel, extractReasoningMiddleware } = await import("ai");
+          
+          const wrappedModel = wrapLanguageModel({
+            model: ollamaModel,
+            middleware: extractReasoningMiddleware({
+              tagName: "think",
+            }),
+          });
+          
+          return wrappedModel;
+        }
+
+        console.log(`[AI IPC] Ollama model ready: ${model}`);
         return ollamaModel;
       }
 
