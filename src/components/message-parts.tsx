@@ -163,12 +163,14 @@ export const UserMessagePart = memo(
         .unwrap();
     }, [message.id]);
 
+    // Note: Auto-scroll is now handled centrally by useAutoScroll hook in chat-bot.tsx
+    // Removed conflicting scrollIntoView that was causing animation stacking and "stuck" feeling
     useEffect(() => {
       if (status === "submitted" && isLast && !scrolledRef.current) {
         scrolledRef.current = true;
-        ref.current?.scrollIntoView({ behavior: "smooth" });
+        // Scroll is handled by useAutoScroll hook - no need for additional scroll here
       }
-    }, [status]);
+    }, [status, isLast]);
 
     if (mode === "edit" && setMessages && sendMessage) {
       return (
