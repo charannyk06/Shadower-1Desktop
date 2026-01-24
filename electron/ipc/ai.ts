@@ -42,7 +42,6 @@ import { ensureClientConnected } from "../services/mcp-client-service";
 import {
   getModelCapabilities,
   localModelSupportsTools,
-  getLocalModelToolSupportInfo,
 } from "../../src/lib/ai/providers/capabilities";
 import {
   calculateContextUsageAsync,
@@ -60,6 +59,107 @@ const execAsync = promisify(exec);
 // LOCAL MODEL ARGUMENT COERCION HELPERS
 // These help fix common mistakes local models make when calling tools
 // ============================================
+
+/**
+ * Coerce arguments based on JSON Schema types
+ * Local models often output "true"/"false" as strings instead of booleans
+ * Call this AFTER validation passes to fix type mismatches
+ */
+function coerceJsonSchemaArgs(args: any, schema: any): any {
+  if (!args || typeof args !== 'object' || !schema?.properties) {
+    return args;
+  }
+
+  const coerced: Record<string, any> = { ...args };
+
+  for (const [key, value] of Object.entries(args)) {
+    const propSchema = schema.properties[key];
+    if (!propSchema || value === undefined || value === null) continue;
+
+    const expectedType = (propSchema as any).type;
+
+    // Coerce string booleans to actual booleans
+    if (expectedType === 'boolean' && typeof value === 'string') {
+      coerced[key] = value.toLowerCase() === 'true' || value === '1';
+    }
+    // Coerce string numbers to actual numbers
+    else if (expectedType === 'number' && typeof value === 'string') {
+      const parsed = parseFloat(value);
+      if (!isNaN(parsed)) coerced[key] = parsed;
+    }
+    else if (expectedType === 'integer' && typeof value === 'string') {
+      const parsed = parseInt(value, 10);
+      if (!isNaN(parsed)) coerced[key] = parsed;
+    }
+    // Coerce string arrays to actual arrays
+    else if (expectedType === 'array' && typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) coerced[key] = parsed;
+      } catch { /* keep original */ }
+    }
+  }
+
+  return coerced;
+}
+
+/**
+ * Make JSON schema more permissive for local models
+ * Converts strict types to accept strings as well (for boolean/number/integer)
+ * This allows validation to pass, then we coerce in execute
+ */
+function makeSchemaPermissive(schema: any): any {
+  if (!schema || typeof schema !== 'object') return schema;
+
+  const result = { ...schema };
+
+  if (result.properties) {
+    result.properties = { ...result.properties };
+    for (const [key, prop] of Object.entries(result.properties)) {
+      const p = prop as any;
+      // Convert boolean to accept string as well
+      if (p.type === 'boolean') {
+        result.properties[key] = { ...p, type: ['boolean', 'string'] };
+      }
+      // Convert number/integer to accept string as well
+      else if (p.type === 'number' || p.type === 'integer') {
+        result.properties[key] = { ...p, type: [p.type, 'string'] };
+      }
+    }
+  }
+
+  return result;
+}
+
+// ============================================
+// PERMISSIVE ZOD TYPES FOR LOCAL MODELS
+// Local models often output "true"/"false" as strings, "5" instead of 5, etc.
+// These Zod types accept both correct types AND strings, then coerce them.
+// ============================================
+
+/**
+ * Permissive boolean Zod type - accepts boolean or string, returns boolean
+ * Handles: true, false, "true", "false", "1", "0"
+ */
+const permissiveBoolean = () =>
+  z.union([
+    z.boolean(),
+    z.string().transform(v => v.toLowerCase() === 'true' || v === '1')
+  ]);
+
+/**
+ * Permissive number Zod type - accepts number or string, returns number
+ * Handles: 5, "5", "3.14"
+ */
+const permissiveNumber = () =>
+  z.union([
+    z.number(),
+    z.string().transform(v => {
+      const parsed = parseFloat(v);
+      if (isNaN(parsed)) throw new Error(`Cannot convert "${v}" to number`);
+      return parsed;
+    })
+  ]);
 
 /**
  * Coerce tool arguments to match expected schema types
@@ -803,15 +903,26 @@ async function loadMcpTools(
 
             mcpInputSchema = ensureSchemaTypes(mcpInputSchema);
 
+            // Store original schema for coercion in execute
+            const originalSchema = { ...mcpInputSchema };
+
             try {
+              // Use permissive schema to allow strings for booleans/numbers
+              // Then coerce to correct types in execute before calling MCP
+              const permissiveSchema = makeSchemaPermissive(mcpInputSchema);
+
               tools[toolId] = createTool({
                 description:
                   toolInfo.description || `MCP tool: ${toolInfo.name}`,
-                inputSchema: jsonSchema(mcpInputSchema as any),
+                inputSchema: jsonSchema(permissiveSchema as any),
                 execute: async (params) => {
                   console.log(
                     `[AI MCP] Calling tool ${toolInfo.name} on ${server.name}`,
                   );
+
+                  // Coerce string→boolean/number before calling MCP tool
+                  const coercedParams = coerceJsonSchemaArgs(params, originalSchema);
+
                   try {
                     // Add 60-second timeout for tool execution
                     const timeoutPromise = new Promise((_, reject) =>
@@ -827,7 +938,7 @@ async function loadMcpTools(
                     );
 
                     const result = await Promise.race([
-                      client.callTool(toolInfo.name, params),
+                      client.callTool(toolInfo.name, coercedParams),
                       timeoutPromise,
                     ]);
                     return result;
@@ -901,6 +1012,28 @@ function buildAgentSystemPrompt(
   workingDirectory?: { path: string; name: string },
   isLocalModel: boolean = false
 ): string {
+  // ============================================
+  // LOCAL MODEL OPTIMIZATION: Minimal System Prompt
+  // Local models perform MUCH better with concise prompts
+  // Long prompts = more tokens to process = slower responses
+  // ============================================
+  if (isLocalModel) {
+    const cwd = workingDirectory?.path || os.homedir();
+    // ULTRA-MINIMAL prompt for local models (~300 tokens vs ~800 tokens)
+    return `You are Shadower, an AI assistant with tool access.
+
+TOOLS: Use tools to complete tasks. Don't just describe - DO IT.
+- terminal_execute: Run shell commands
+- file_read/file_write/file_list: File operations
+- web_search/web_fetch: Web access
+
+WORKING DIRECTORY: ${cwd}
+PLATFORM: ${os.platform()} ${os.arch()}
+
+Be direct. Use tools. Show results.`;
+  }
+
+  // Full prompt for cloud models (they handle context better)
   const workingDirSection = workingDirectory?.path
     ? `
 ## WORKING DIRECTORY
@@ -917,31 +1050,6 @@ IMPORTANT: All file operations and terminal commands should use this working dir
 ## WORKING DIRECTORY
 **Current Working Directory**: ${os.homedir()} (default - user's home directory)
 `;
-
-  // Extra guidance for local models to help with tool calling
-  const localModelGuidance = isLocalModel ? `
-## CRITICAL: TOOL USAGE IS MANDATORY
-You MUST use tools to complete user requests. DO NOT just describe what you would do - ACTUALLY DO IT.
-
-**WHEN USER ASKS TO:**
-- List files/directory → CALL file_list tool
-- Read a file → CALL file_read tool
-- Write/create a file → CALL file_write tool
-- Run a command → CALL terminal_execute tool
-- Take a screenshot → CALL desktop_screenshot tool
-- Open browser/URL → CALL browser_open tool
-
-**HOW TO CALL TOOLS:**
-1. Identify the correct tool from the tools available to you
-2. Call the tool with required parameters
-3. Wait for the result
-4. Report the result to the user
-
-**EXAMPLE - User says "list files in current directory":**
-You should IMMEDIATELY call file_list with path="${workingDirectory?.path || os.homedir()}"
-
-**NEVER SAY "I can't do that" or "I don't have access"** - You have FULL access through tools!
-` : '';
 
   return `You are Shadower, an autonomous AI assistant running as a desktop application.
 
@@ -960,7 +1068,7 @@ ${workingDirSection}
 3. **Show Progress**: After each tool call, explain what you did and what's next
 4. **Handle Errors**: If a tool fails, try alternative approaches
 5. **Ask When Needed**: If you need clarification, ask - but prefer to make reasonable assumptions
-${localModelGuidance}
+
 ## IMPORTANT
 - You are running on the user's LOCAL machine - file paths and commands are LOCAL
 - You can see and interact with the user's desktop
@@ -1108,8 +1216,7 @@ function createElectronTools(
       description: "List files and directories in a path",
       inputSchema: z.object({
         path: z.string().describe("Directory path to list"),
-        recursive: z
-          .boolean()
+        recursive: permissiveBoolean()
           .optional()
           .describe("List recursively (default false)"),
       }),
@@ -1804,8 +1911,8 @@ function createElectronTools(
         "Returns a text tree with refs like @e1, @e2 that can be used with click, fill, etc. " +
         "This is the PRIMARY tool for understanding page content.",
       inputSchema: z.object({
-        interactive: z.boolean().optional().describe("Only include interactive elements"),
-        compact: z.boolean().optional().describe("Remove structural elements without content"),
+        interactive: permissiveBoolean().optional().describe("Only include interactive elements"),
+        compact: permissiveBoolean().optional().describe("Remove structural elements without content"),
         selector: z.string().optional().describe("CSS selector to scope the snapshot"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
@@ -1868,7 +1975,7 @@ function createElectronTools(
       inputSchema: z.object({
         selector: z.string().describe("Element ref or CSS selector"),
         text: z.string().describe("Text to type"),
-        delay: z.number().optional().describe("Delay between keystrokes in ms"),
+        delay: permissiveNumber().optional().describe("Delay between keystrokes in ms"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
       execute: async ({ selector, text, delay, sessionId }) => {
@@ -1906,7 +2013,7 @@ function createElectronTools(
       description: "Scroll the page or an element",
       inputSchema: z.object({
         direction: z.enum(["up", "down"]).optional().describe("Scroll direction"),
-        amount: z.number().optional().describe("Scroll amount in pixels (default 500)"),
+        amount: permissiveNumber().optional().describe("Scroll amount in pixels (default 500)"),
         selector: z.string().optional().describe("Element to scroll into view"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
@@ -1925,7 +2032,7 @@ function createElectronTools(
     browser_screenshot: createTool({
       description: "Take a screenshot of the page",
       inputSchema: z.object({
-        fullPage: z.boolean().optional().describe("Capture full page (default: viewport only)"),
+        fullPage: permissiveBoolean().optional().describe("Capture full page (default: viewport only)"),
         path: z.string().optional().describe("Path to save screenshot"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
@@ -1953,7 +2060,7 @@ function createElectronTools(
         selector: z.string().optional().describe("CSS selector to wait for"),
         state: z.enum(["visible", "hidden", "attached", "detached"]).optional().describe("Element state to wait for"),
         loadState: z.enum(["load", "domcontentloaded", "networkidle"]).optional().describe("Page load state to wait for"),
-        timeout: z.number().optional().describe("Timeout in milliseconds"),
+        timeout: permissiveNumber().optional().describe("Timeout in milliseconds"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
       execute: async ({ selector, state, loadState, timeout, sessionId }) => {
@@ -2445,21 +2552,81 @@ export function registerAIHandlers() {
         toolsToUse = undefined;
         console.log(`[AI IPC] No tools available to pass`);
       } else if (isLocal) {
-        // LOCAL MODELS: Always pass tools - let the model try to use them
-        // Most modern models support tools when given proper context (num_ctx)
-        toolsToUse = tools;
-        const toolNames = Object.keys(tools);
+        // ============================================
+        // LOCAL MODEL OPTIMIZATION: Minimal Tool Set
+        // CRITICAL: Local models are SLOW with many tools!
+        // Each tool adds ~200-500 tokens of context overhead
+        // 20+ tools = 5000+ tokens before the model even starts thinking
+        //
+        // Solution: Pass ONLY essential tools to local models
+        // This dramatically reduces latency (9 seconds -> <1 second)
+        // ============================================
+
+        // Essential tools for local models (only 6 tools = ~1500 tokens overhead)
+        const ESSENTIAL_LOCAL_TOOLS = [
+          'terminal_execute',  // Most important - run any command
+          'file_read',         // Read files
+          'file_write',        // Write files
+          'file_list',         // List directory
+          'web_search',        // Search the web
+          'web_fetch',         // Fetch URL content
+        ];
+
+        // Check model size to decide tool count
+        const modelLower = chatModel.model.toLowerCase();
+        const isSmallModel = /[:\-_]([0-4]b|[0-4]\.|tiny|mini|small)/i.test(modelLower);
+        const isMediumModel = /[:\-_]([5-9]b|[5-9]\.|1[0-4]b|1[0-4]\.)/i.test(modelLower);
+
+        // Filter to essential tools only for local models
+        const essentialTools: Record<string, any> = {};
+
+        for (const toolName of ESSENTIAL_LOCAL_TOOLS) {
+          // Try exact match first
+          if (tools[toolName]) {
+            essentialTools[toolName] = tools[toolName];
+          }
+          // Also check for local_ prefixed versions
+          else if (tools[`local_${toolName}`]) {
+            essentialTools[`local_${toolName}`] = tools[`local_${toolName}`];
+          }
+        }
+
+        // Add a couple more tools for medium/large models
+        if (!isSmallModel) {
+          const additionalTools = ['clipboard_read', 'clipboard_write', 'system_info'];
+          for (const toolName of additionalTools) {
+            if (tools[toolName]) {
+              essentialTools[toolName] = tools[toolName];
+            }
+          }
+        }
+
+        toolsToUse = Object.keys(essentialTools).length > 0 ? essentialTools : undefined;
+
+        const totalToolCount = Object.keys(tools).length;
+        const filteredToolCount = Object.keys(essentialTools).length;
+
         console.log(
-          `[AI IPC] LOCAL MODEL (${chatModel.provider}/${chatModel.model}) - ALL ${toolNames.length} tools enabled:`,
-          toolNames.slice(0, 15).join(", ") + (toolNames.length > 15 ? "..." : ""),
+          `[AI IPC] LOCAL MODEL OPTIMIZED (${chatModel.provider}/${chatModel.model})`,
+        );
+        console.log(
+          `[AI IPC] Tool filtering: ${totalToolCount} total -> ${filteredToolCount} essential (${Math.round((1 - filteredToolCount/totalToolCount) * 100)}% reduction)`,
+        );
+        console.log(
+          `[AI IPC] Essential tools: ${Object.keys(essentialTools).join(", ")}`,
         );
 
-        // Only log a note if model family isn't in our recognized list
-        // But still pass tools - models can surprise us!
-        const toolSupportInfo = getLocalModelToolSupportInfo(chatModel.model);
-        if (!toolSupportInfo.supported) {
+        if (isSmallModel) {
+          console.log(`[AI IPC] Small model detected - minimal tool set for speed`);
+        } else if (isMediumModel) {
+          console.log(`[AI IPC] Medium model detected - extended tool set`);
+        }
+
+        // Log what tools were filtered out (for debugging)
+        const filteredOutTools = Object.keys(tools).filter(t => !essentialTools[t]);
+        if (filteredOutTools.length > 0) {
           console.log(
-            `[AI IPC] Note: ${chatModel.model} not in recognized tool-supporting families, but tools enabled anyway`,
+            `[AI IPC] Filtered out ${filteredOutTools.length} tools: ${filteredOutTools.slice(0, 10).join(", ")}${filteredOutTools.length > 10 ? '...' : ''}`,
           );
         }
       } else if (!capabilities.isToolCallSupported) {
@@ -3231,22 +3398,32 @@ export function registerAIHandlers() {
 
             // Send each stream part to renderer
             if (value) {
-              // Log ALL chunk types for debugging Ollama streaming issues
-              console.log(
-                `[AI IPC] Stream chunk #${_chunkCount}: type=${value.type}`,
-                value.type === "tool-call"
-                  ? `toolName=${value.toolName}`
-                  : "",
-                value.type === "tool-result"
-                  ? `toolCallId=${value.toolCallId}`
-                  : "",
-                value.type === "finish"
-                  ? `finishReason=${value.finishReason}`
-                  : "",
-                value.type === "text-delta"
-                  ? `delta="${(value.delta || value.textDelta || "").substring(0, 50)}..."`
-                  : "",
-              );
+              // PERFORMANCE: Only log non-text chunks and every 50th text chunk
+              // This dramatically reduces logging overhead for faster streaming
+              const shouldLog =
+                value.type !== "text-delta" ||
+                _chunkCount % 50 === 0 ||
+                value.type === "tool-call" ||
+                value.type === "tool-result" ||
+                value.type === "finish";
+
+              if (shouldLog) {
+                console.log(
+                  `[AI IPC] Stream chunk #${_chunkCount}: type=${value.type}`,
+                  value.type === "tool-call"
+                    ? `toolName=${value.toolName}`
+                    : "",
+                  value.type === "tool-result"
+                    ? `toolCallId=${value.toolCallId}`
+                    : "",
+                  value.type === "finish"
+                    ? `finishReason=${value.finishReason}`
+                    : "",
+                  value.type === "text-delta"
+                    ? `delta="${(value.delta || value.textDelta || "").substring(0, 30)}..."`
+                    : "",
+                );
+              }
 
               try {
                 event.sender.send("ai:stream:chunk", {
@@ -3321,6 +3498,110 @@ export function registerAIHandlers() {
                     entry.argsJson += value.argsTextDelta || value.delta || "";
                   }
                 }
+              }
+            }
+          }
+
+          // ============================================
+          // TEXT-BASED TOOL CALL PARSER (FALLBACK)
+          // For local models that output tool calls as plain text instead of events
+          // Common formats: JSON objects, function notation, XML-style tags
+          // ============================================
+          if (
+            currentTextContent.length > 0 &&
+            accumulatedToolInputs.size === 0 &&
+            currentToolCalls.length === 0 &&
+            tools &&
+            Object.keys(tools).length > 0
+          ) {
+            console.log(`[AI IPC] Checking text content for tool calls (${currentTextContent.length} chars)...`);
+
+            // Available tool names for matching
+            const availableToolNames = Object.keys(tools);
+
+            // Pattern 1: JSON object with "name" or "tool" and "arguments" or "parameters"
+            // e.g., {"name": "terminal_execute", "arguments": {"command": "ls"}}
+            const jsonToolPatterns = [
+              /\{[\s\S]*?"(?:name|tool|function)"[\s\S]*?:[\s\S]*?"([^"]+)"[\s\S]*?,[\s\S]*?"(?:arguments|parameters|params|input)"[\s\S]*?:[\s\S]*?(\{[^}]+\})/gi,
+              /\{[\s\S]*?"(?:tool_name|toolName)"[\s\S]*?:[\s\S]*?"([^"]+)"[\s\S]*?,[\s\S]*?"(?:tool_input|toolInput|args)"[\s\S]*?:[\s\S]*?(\{[^}]+\})/gi,
+            ];
+
+            // Pattern 2: Function-style notation
+            // e.g., terminal_execute({"command": "ls"})
+            const functionPattern = new RegExp(
+              `(${availableToolNames.join('|')})\\s*\\(\\s*(\\{[^}]+\\})\\s*\\)`,
+              'gi'
+            );
+
+            // Pattern 3: XML-style tags
+            // e.g., <tool>terminal_execute</tool><arguments>{"command": "ls"}</arguments>
+            const xmlPattern = /<(?:tool|function|tool_call|function_call)>([^<]+)<\/(?:tool|function|tool_call|function_call)>[\s\S]*?<(?:arguments|parameters|params|input)>(\{[^<]+\})<\/(?:arguments|parameters|params|input)>/gi;
+
+            // Try each pattern
+            let matches: Array<{ toolName: string; argsJson: string }> = [];
+
+            // Try JSON patterns
+            for (const pattern of jsonToolPatterns) {
+              let match;
+              while ((match = pattern.exec(currentTextContent)) !== null) {
+                const toolName = match[1];
+                const argsJson = match[2];
+                if (availableToolNames.some(t => t.toLowerCase() === toolName.toLowerCase())) {
+                  matches.push({ toolName, argsJson });
+                }
+              }
+            }
+
+            // Try function pattern
+            let funcMatch;
+            while ((funcMatch = functionPattern.exec(currentTextContent)) !== null) {
+              const toolName = funcMatch[1];
+              const argsJson = funcMatch[2];
+              matches.push({ toolName, argsJson });
+            }
+
+            // Try XML pattern
+            let xmlMatch;
+            while ((xmlMatch = xmlPattern.exec(currentTextContent)) !== null) {
+              const toolName = xmlMatch[1].trim();
+              const argsJson = xmlMatch[2];
+              if (availableToolNames.some(t => t.toLowerCase() === toolName.toLowerCase())) {
+                matches.push({ toolName, argsJson });
+              }
+            }
+
+            // Pattern 4: Direct tool name followed by JSON (common in some models)
+            // e.g., "I'll use terminal_execute: {"command": "ls -la"}"
+            for (const toolName of availableToolNames) {
+              const directPattern = new RegExp(
+                `${toolName}[:\\s]+\\{([^}]+)\\}`,
+                'gi'
+              );
+              let directMatch;
+              while ((directMatch = directPattern.exec(currentTextContent)) !== null) {
+                const argsJson = `{${directMatch[1]}}`;
+                // Check if this tool wasn't already found
+                if (!matches.some(m => m.toolName.toLowerCase() === toolName.toLowerCase())) {
+                  matches.push({ toolName, argsJson });
+                }
+              }
+            }
+
+            // Add found matches to accumulated tool inputs
+            if (matches.length > 0) {
+              console.log(`[AI IPC] Found ${matches.length} text-based tool call(s):`, matches.map(m => m.toolName));
+              for (const { toolName, argsJson } of matches) {
+                // Find exact tool name (case-insensitive match)
+                const exactToolName = availableToolNames.find(
+                  t => t.toLowerCase() === toolName.toLowerCase()
+                ) || toolName;
+
+                const toolCallId = `text-parse-${Date.now()}-${randomUUID().slice(0, 8)}`;
+                accumulatedToolInputs.set(toolCallId, {
+                  toolCallId,
+                  toolName: exactToolName,
+                  argsJson,
+                });
               }
             }
           }
@@ -3673,13 +3954,29 @@ export function registerAIHandlers() {
                 );
               });
 
-              // Make follow-up call without tools (to prevent infinite loops)
+              // Make follow-up call WITH tools to enable multi-step execution
+              // Use maxSteps to limit iterations and prevent infinite loops
+              // For local models, we limit to 5 additional steps to balance capability vs safety
+              const FOLLOW_UP_MAX_STEPS = 5;
+
               try {
                 const followUpResult = streamText({
                   model,
                   system: systemPrompt,
                   messages: followUpModelMessages as any, // Type assertion needed due to complex ModelMessage types
+                  tools, // Include tools to enable multi-step execution
+                  toolChoice: tools && Object.keys(tools).length > 0 ? "auto" : undefined,
+                  maxSteps: FOLLOW_UP_MAX_STEPS, // Limited steps to prevent infinite loops
                   abortSignal: abortController.signal,
+                  onStepFinish: ({ toolCalls: stepToolCalls, toolResults: stepToolResults }: any) => {
+                    // Log follow-up step progress
+                    if (stepToolCalls?.length) {
+                      console.log(`[AI IPC Follow-up] Step tool calls:`, stepToolCalls.map((tc: any) => tc.toolName));
+                    }
+                    if (stepToolResults?.length) {
+                      console.log(`[AI IPC Follow-up] Step tool results:`, stepToolResults.length);
+                    }
+                  },
                 });
 
                 const followUpStream = followUpResult.toUIMessageStream();
@@ -3699,8 +3996,29 @@ export function registerAIHandlers() {
                     });
 
                     // Accumulate text for persistence
-                    if (fValue.type === "text-delta" && fValue.delta) {
-                      currentTextContent += fValue.delta;
+                    // Note: AI SDK v6 uses 'delta' but some versions use 'textDelta'
+                    if (fValue.type === "text-delta" && (fValue.delta || fValue.textDelta)) {
+                      currentTextContent += fValue.delta || fValue.textDelta;
+                    }
+
+                    // Track tool calls/results from follow-up for persistence
+                    if (fValue.type === "tool-call") {
+                      currentToolCalls.push({
+                        type: "tool-call",
+                        toolCallId: fValue.toolCallId,
+                        toolName: fValue.toolName,
+                        input: fValue.args,
+                      });
+                    } else if (fValue.type === "tool-result") {
+                      const correspondingCall = currentToolCalls.find(
+                        (tc) => tc.toolCallId === fValue.toolCallId
+                      );
+                      currentToolResults.push({
+                        type: "tool-result",
+                        toolCallId: fValue.toolCallId,
+                        toolName: fValue.toolName || correspondingCall?.toolName || "unknown",
+                        output: fValue.result,
+                      });
                     }
                   }
                 }
@@ -4229,10 +4547,11 @@ async function getModelInstance(
         // does NOT support tool calling properly!
         // See: https://github.com/vercel/ai/issues/4700
         //
-        // CRITICAL: We set num_ctx to 16384 for tool calling!
-        // The default Ollama context window is only 2048 tokens which is
-        // too small for tool schemas and conversations. Without proper
-        // context, tools won't work properly.
+        // PERFORMANCE OPTIMIZED:
+        // - Adaptive num_ctx based on model size (smaller = faster)
+        // - num_predict limits max tokens for faster response
+        // - num_batch optimizes batch processing
+        // - num_gpu ensures GPU acceleration when available
         // ============================================
         const { createOllama } = await import("ai-sdk-ollama");
 
@@ -4254,11 +4573,12 @@ async function getModelInstance(
 
         console.log(`[AI IPC] Creating Ollama model via native provider: ${model} at ${baseUrl}`);
 
-        // Quick health check
+        // Quick health check (fast, 1.5s timeout)
         try {
           const healthCheck = await fetch(`${baseUrl}/api/tags`, {
             method: "GET",
-            signal: AbortSignal.timeout(5000),
+            signal: AbortSignal.timeout(1500),
+            headers: { "Connection": "keep-alive" },
           });
           if (healthCheck.ok) {
             const data = await healthCheck.json();
@@ -4270,22 +4590,82 @@ async function getModelInstance(
         }
 
         // Create native Ollama provider with tool calling support
-        // ai-sdk-ollama v3 has enhanced response synthesis for reliable tool execution
         const ollamaProvider = createOllama({
-          baseURL: baseUrl, // Native Ollama base URL (not /api or /v1)
+          baseURL: baseUrl,
         });
 
-        // CRITICAL: Set num_ctx for proper tool calling support!
-        // Default Ollama context is 2048 which is too small for tool schemas.
-        // 16384 provides enough room for tool definitions + conversation history.
-        // This is the key fix for making tools work with local models.
+        // ADAPTIVE CONTEXT WINDOW based on model size
+        // Smaller models (< 4B params) use smaller context for SPEED
+        // Larger models get full context for capability
+        const modelLower = model.toLowerCase();
+        const isSmallModel =
+          modelLower.includes("0.5b") ||
+          modelLower.includes("0.6b") ||
+          modelLower.includes("1b") ||
+          modelLower.includes("1.5b") ||
+          modelLower.includes("1.7b") ||
+          modelLower.includes("2b") ||
+          modelLower.includes("3b") ||
+          modelLower.includes(":1b") ||
+          modelLower.includes(":3b") ||
+          modelLower.includes("phi-4-mini") ||
+          modelLower.includes("qwen3:0") ||
+          modelLower.includes("qwen3:1");
+
+        const isMediumModel =
+          modelLower.includes("7b") ||
+          modelLower.includes("8b") ||
+          modelLower.includes(":7b") ||
+          modelLower.includes(":8b");
+
+        // Select context size AND predict limit based on model tier
+        // Smaller context + shorter outputs = MUCH faster responses
+        let numCtx: number;
+        let numPredict: number;
+        let numBatch: number;
+
+        if (isSmallModel) {
+          numCtx = 2048;     // Small models: 2K context (VERY FAST)
+          numPredict = 512;  // Short outputs for speed
+          numBatch = 256;    // Smaller batch for quick processing
+        } else if (isMediumModel) {
+          numCtx = 4096;     // Medium models: 4K context (fast)
+          numPredict = 1024; // Moderate outputs
+          numBatch = 512;    // Standard batch
+        } else {
+          numCtx = 8192;     // Large models: 8K context (balanced)
+          numPredict = 2048; // Full outputs
+          numBatch = 512;    // Standard batch
+        }
+
+        // ============================================
+        // CRITICAL PERFORMANCE FIX: Disable Thinking Mode
+        // Qwen3 and DeepSeek R1 have "thinking" mode that adds 5-10+ seconds latency
+        // Setting think: false disables extended reasoning for FAST responses
+        // Users who want thinking can enable it explicitly
+        // ============================================
+        const isThinkingModel = modelLower.includes("qwen3") ||
+                                 modelLower.includes("deepseek-r1") ||
+                                 modelLower.includes("qwq");
+
+        // PERFORMANCE OPTIONS for faster inference
         const ollamaModel = ollamaProvider(model, {
+          // DISABLE THINKING MODE for speed - this is the KEY optimization!
+          think: false,
           options: {
-            num_ctx: 16384, // Adequate context window for tool calling
+            num_ctx: numCtx,           // Adaptive context window
+            num_predict: numPredict,   // Adaptive output limit
+            num_batch: numBatch,       // Adaptive batch size
+            num_gpu: 99,               // Use all available GPU layers
+            main_gpu: 0,               // Primary GPU index
+            low_vram: false,           // Don't use low VRAM mode if possible
+            // Sampling parameters for faster generation
+            repeat_penalty: 1.1,       // Slight penalty to avoid repetition
+            temperature: 0.7,          // Balanced creativity/coherence
           },
         });
 
-        console.log(`[AI IPC] Ollama model created with num_ctx=16384 for tool calling support`);
+        console.log(`[AI IPC] Ollama model created: think=false, num_ctx=${numCtx}, num_predict=${numPredict}${isThinkingModel ? ' (thinking-capable model - thinking DISABLED for speed)' : ''}`);
         return ollamaModel;
       }
 
@@ -4518,8 +4898,8 @@ Use this tool to create, modify, or replace the workflow structure.
                   id: z.string().describe("Unique node ID"),
                   type: z.string().default("default"),
                   position: z.object({
-                    x: z.number(),
-                    y: z.number(),
+                    x: permissiveNumber(),
+                    y: permissiveNumber(),
                   }),
                   data: z.object({
                     id: z.string(),

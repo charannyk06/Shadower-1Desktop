@@ -58,6 +58,7 @@ import {
   getTopFastModels,
   getFastModels,
   getRecommendedSLMs,
+  getReasoningModels,
 } from "@/lib/ai/curated-local-models";
 import { ModelFamilyIcon } from "@/components/ui/model-family-icon";
 
@@ -913,7 +914,7 @@ export default function ModelsDashboard() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      {getTopFastModels().filter(m => !m.isSLM).slice(0, 4).map((curatedModel) => {
+                      {getTopFastModels().filter(m => !m.isSLM && !m.isReasoning).map((curatedModel) => {
                         const isInstalled = localModels.some(
                           (m) =>
                             (m.name === curatedModel.name ||
@@ -1022,8 +1023,7 @@ export default function ModelsDashboard() {
                   <CardContent>
                     <div className="space-y-2">
                       {getFastModels()
-                        .filter((m) => !m.recommended)
-                        .slice(0, 6)
+                        .filter((m) => !m.recommended && !m.isSLM && !m.isReasoning)
                         .map((curatedModel) => {
                           const isInstalled = localModels.some(
                             (m) =>
@@ -1112,6 +1112,120 @@ export default function ModelsDashboard() {
                             </div>
                           );
                         })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Reasoning Models */}
+              {ollamaHealth?.running && getReasoningModels().length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Box className="size-5 text-muted-foreground" />
+                          Reasoning Models
+                        </CardTitle>
+                        <CardDescription>
+                          Models with visible thinking process. Best for complex reasoning tasks.
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {getReasoningModels().map((curatedModel) => {
+                        const isInstalled = localModels.some(
+                          (m) =>
+                            (m.name === curatedModel.name ||
+                             m.name === curatedModel.name.split(":")[0] ||
+                             m.name.startsWith(curatedModel.name + ":")) &&
+                            m.providerId === "ollama",
+                        );
+                        const isDownloading = downloadProgress.has(
+                          curatedModel.name,
+                        );
+                        const progress =
+                          downloadProgress.get(curatedModel.name) || 0;
+
+                        return (
+                          <div
+                            key={curatedModel.name}
+                            className={cn(
+                              "flex items-center justify-between p-3 rounded-lg",
+                              isInstalled
+                                ? "bg-green-500/10 border border-green-500/30"
+                                : "bg-muted/50"
+                            )}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <div className="p-1.5 rounded-md bg-muted shrink-0">
+                                <ModelFamilyIcon family={curatedModel.family} className="size-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-medium">
+                                    {curatedModel.displayName}
+                                  </p>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {curatedModel.size}
+                                  </Badge>
+                                  {curatedModel.toolCalling && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      Tools
+                                    </Badge>
+                                  )}
+                                  <Badge
+                                    variant="outline"
+                                    className="text-xs text-purple-500 border-purple-500/30"
+                                  >
+                                    Reasoning
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {curatedModel.description}
+                                </p>
+                                {isDownloading && (
+                                  <div className="mt-2">
+                                    <Progress value={progress} className="h-1.5" />
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Downloading... {progress}%
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 ml-2">
+                              {isInstalled ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-green-600 border-green-600/30"
+                                >
+                                  <CheckCircle2 className="size-3 mr-1" />
+                                  Installed
+                                </Badge>
+                              ) : isDownloading ? (
+                                <Badge variant="secondary">{progress}%</Badge>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    handleDownloadCuratedModel(curatedModel.name)
+                                  }
+                                >
+                                  <Download className="size-4 mr-1" />
+                                  Download
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </CardContent>
                 </Card>

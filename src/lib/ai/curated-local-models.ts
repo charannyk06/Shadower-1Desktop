@@ -116,17 +116,17 @@ export const CURATED_LOCAL_MODELS: CuratedModel[] = [
     isSLM: true,
   },
   {
-    name: "gemma3:2b",
-    displayName: "Gemma 3 2B",
+    name: "gemma3:4b",
+    displayName: "Gemma 3 4B",
     description: "Google's ultra-fast multimodal SLM. Text + vision ready.",
-    size: "1.6 GB",
-    sizeBytes: 1.6 * 1024 * 1024 * 1024,
+    size: "3.3 GB",
+    sizeBytes: 3.3 * 1024 * 1024 * 1024,
     contextWindow: 32768,
     toolCalling: true,
     recommended: true,
     useCases: ["Multimodal", "Vision", "Ultra-fast", "Tool calling"],
     family: "gemma",
-    minRamGB: 4,
+    minRamGB: 6,
     speedTier: "fast",
     isSLM: true,
   },
@@ -142,6 +142,21 @@ export const CURATED_LOCAL_MODELS: CuratedModel[] = [
     useCases: ["Minimal resources", "Simple tasks", "Tool calling"],
     family: "llama",
     minRamGB: 2,
+    speedTier: "fast",
+    isSLM: true,
+  },
+  {
+    name: "functiongemma:270m",
+    displayName: "FunctionGemma 270M",
+    description: "Google's function calling specialist. 50 tok/s on phones! JSON + tool calls.",
+    size: "0.3 GB",
+    sizeBytes: 0.3 * 1024 * 1024 * 1024,
+    contextWindow: 32000,
+    toolCalling: true,
+    recommended: true,
+    useCases: ["Function calling", "Edge/Mobile", "JSON outputs", "API orchestration"],
+    family: "gemma",
+    minRamGB: 1,
     speedTier: "fast",
     isSLM: true,
   },
@@ -193,20 +208,6 @@ export const CURATED_LOCAL_MODELS: CuratedModel[] = [
     speedTier: "fast",
   },
   {
-    name: "llama3.2:3b",
-    displayName: "Llama 3.2 3B",
-    description: "Ultra-fast! Runs anywhere. Great for quick tool tasks.",
-    size: "2 GB",
-    sizeBytes: 2 * 1024 * 1024 * 1024,
-    contextWindow: 128000,
-    toolCalling: true,
-    recommended: true,
-    useCases: ["Low-resource", "Quick responses", "Tool calling"],
-    family: "llama",
-    minRamGB: 4,
-    speedTier: "fast",
-  },
-  {
     name: "mistral:7b",
     displayName: "Mistral 7B",
     description: "Fast European model with solid tool calling.",
@@ -234,6 +235,20 @@ export const CURATED_LOCAL_MODELS: CuratedModel[] = [
     minRamGB: 8,
     speedTier: "fast",
   },
+  {
+    name: "ministral-3:8b",
+    displayName: "Ministral 3 8B",
+    description: "Mistral's edge model. Vision + multilingual. 385 tok/s on RTX 5090!",
+    size: "4.9 GB",
+    sizeBytes: 4.9 * 1024 * 1024 * 1024,
+    contextWindow: 128000,
+    toolCalling: true,
+    recommended: true,
+    useCases: ["Vision", "Multilingual", "Edge deployment", "Tool calling"],
+    family: "mistral",
+    minRamGB: 8,
+    speedTier: "fast",
+  },
 
   // ============================================
   // TIER 2: BALANCED (Good Speed + Better Quality)
@@ -250,6 +265,20 @@ export const CURATED_LOCAL_MODELS: CuratedModel[] = [
     useCases: ["Reasoning", "Tool calling", "Math", "Analysis"],
     family: "glm",
     minRamGB: 10,
+    speedTier: "fast",
+  },
+  {
+    name: "glm-4.7-flash",
+    displayName: "GLM-4.7 Flash 30B",
+    description: "30B MoE, only 3B active! 200K context. 80+ tok/s locally. Coding beast.",
+    size: "19 GB",
+    sizeBytes: 19 * 1024 * 1024 * 1024,
+    contextWindow: 200000,
+    toolCalling: true,
+    recommended: true,
+    useCases: ["Coding", "Long context", "Tool calling", "Creative writing", "Translation"],
+    family: "glm",
+    minRamGB: 16,
     speedTier: "fast",
   },
   {
@@ -327,6 +356,21 @@ export const CURATED_LOCAL_MODELS: CuratedModel[] = [
     speedTier: "fast",
   },
   {
+    name: "rnj-1:8b",
+    displayName: "RNJ-1 8B",
+    description: "Essential AI's agentic beast. 20.8% SWE-bench! Beats larger models at coding.",
+    size: "4.9 GB",
+    sizeBytes: 4.9 * 1024 * 1024 * 1024,
+    contextWindow: 128000,
+    toolCalling: true,
+    recommended: true,
+    useCases: ["Agentic coding", "SWE-bench tasks", "STEM reasoning", "Code efficiency"],
+    family: "rnj",
+    minRamGB: 8,
+    speedTier: "fast",
+    isReasoning: true,
+  },
+  {
     name: "codestral:22b",
     displayName: "Codestral 22B",
     description: "Mistral's dedicated code model. Great tools.",
@@ -359,20 +403,6 @@ export const CURATED_LOCAL_MODELS: CuratedModel[] = [
   // TIER 4: COMPACT MODELS (Minimal Resources)
   // ============================================
   {
-    name: "llama3.2:1b",
-    displayName: "Llama 3.2 1B",
-    description: "Tiny but capable. Ultra-fast on any hardware.",
-    size: "1.3 GB",
-    sizeBytes: 1.3 * 1024 * 1024 * 1024,
-    contextWindow: 128000,
-    toolCalling: true,
-    recommended: false,
-    useCases: ["Minimal resources", "Simple tasks", "Testing"],
-    family: "llama",
-    minRamGB: 2,
-    speedTier: "fast",
-  },
-  {
     name: "qwen3:4b",
     displayName: "Qwen 3 4B",
     description: "Compact Qwen with full tool support.",
@@ -384,20 +414,6 @@ export const CURATED_LOCAL_MODELS: CuratedModel[] = [
     useCases: ["Quick tasks", "Low latency", "Tool calling"],
     family: "qwen",
     minRamGB: 4,
-    speedTier: "fast",
-  },
-  {
-    name: "qwen3:1.7b",
-    displayName: "Qwen 3 1.7B",
-    description: "Smallest Qwen with tool support. Very fast.",
-    size: "1.4 GB",
-    sizeBytes: 1.4 * 1024 * 1024 * 1024,
-    contextWindow: 40960,
-    toolCalling: true,
-    recommended: false,
-    useCases: ["Minimal resources", "Quick queries", "Testing"],
-    family: "qwen",
-    minRamGB: 2,
     speedTier: "fast",
   },
   {
@@ -418,6 +434,37 @@ export const CURATED_LOCAL_MODELS: CuratedModel[] = [
   // ============================================
   // TIER 5: REASONING (Visible Thinking, Still Fast)
   // ============================================
+  {
+    name: "qwen3:4b-q4_K_M",
+    displayName: "Qwen 3 4B UltraThink (4-bit)",
+    description: "Ultra-fast reasoning model! 4-bit quantization for speed. Visible thinking process.",
+    size: "2.4 GB",
+    sizeBytes: 2.4 * 1024 * 1024 * 1024,
+    contextWindow: 40960,
+    toolCalling: true,
+    recommended: true,
+    useCases: ["Reasoning", "UltraThink", "Fast inference", "Low VRAM", "Tool calling"],
+    family: "qwen",
+    minRamGB: 4,
+    isReasoning: true,
+    speedTier: "fast",
+    isSLM: true,
+  },
+  {
+    name: "gpt-oss:20b",
+    displayName: "GPT-OSS 20B",
+    description: "OpenAI's open reasoning model! o3-mini level. 128K context. MoE architecture.",
+    size: "12 GB",
+    sizeBytes: 12 * 1024 * 1024 * 1024,
+    contextWindow: 128000,
+    toolCalling: true,
+    recommended: true,
+    useCases: ["Reasoning", "Agentic tasks", "Function calling", "Deep analysis"],
+    family: "gpt-oss",
+    minRamGB: 16,
+    isReasoning: true,
+    speedTier: "fast",
+  },
   {
     name: "deepseek-r1:8b",
     displayName: "DeepSeek R1 8B",
@@ -574,8 +621,9 @@ export function getCodingModels(): CuratedModel[] {
 }
 
 /**
- * Get the TOP 5 fastest models for quick selection
- * Now prioritizes SLMs (Small Language Models) first!
+ * Get ALL recommended fast models for display
+ * Prioritizes SLMs (Small Language Models) first!
+ * NO SLICE LIMITS - returns ALL matching models
  */
 export function getTopFastModels(): CuratedModel[] {
   // Prioritize SLMs first, then other fast models
@@ -585,7 +633,8 @@ export function getTopFastModels(): CuratedModel[] {
   const otherFast = CURATED_LOCAL_MODELS.filter(
     (m) => !m.isSLM && m.speedTier === "fast" && m.toolCalling && m.recommended
   );
-  return [...slms, ...otherFast].slice(0, 6);
+  // NO SLICE! Return ALL recommended fast models
+  return [...slms, ...otherFast];
 }
 
 /**

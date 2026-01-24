@@ -22,13 +22,18 @@ const REASONING_MODEL_PATTERNS: RegExp[] = [
   /gpt-5/i, // gpt-5 series with reasoning
   /codex/i, // codex models (reasoning-based)
   /deepseek-r1/i, // DeepSeek R1
+  /gpt[-_]?oss/i, // OpenAI GPT-OSS open-weight reasoning models
+  /rnj/i, // Essential AI RNJ reasoning models
 ];
 
 /**
  * Patterns for models with built-in tools that conflict with custom tools
+ * NOTE: gpt-oss was removed - the open-weight local model DOES support tool calling.
+ * The "built-in tools" only applies to OpenAI's closed cloud API, not local models.
  */
 const BUILT_IN_TOOL_PATTERNS: RegExp[] = [
-  /gpt-oss/i, // Has python/code_interpreter built-in
+  // Empty for now - no local models have conflicting built-in tools
+  // Cloud models with built-in tools (like gpt-oss cloud API) are handled separately
 ];
 
 /**
@@ -99,8 +104,9 @@ const LOCAL_TOOL_SUPPORTED_PATTERNS: RegExp[] = [
   // IBM Granite models
   /granite/i,
 
-  // Google Gemma 2 and 3 (has better tool support than gemma 1)
-  /gemma[-_]?[23]/i,
+  // Google Gemma models (all versions have tool support)
+  /gemma/i,
+  /functiongemma/i, // Google's function calling specialist
 
   // 01.AI Yi models
   /yi[-_]/i,
@@ -113,6 +119,15 @@ const LOCAL_TOOL_SUPPORTED_PATTERNS: RegExp[] = [
 
   // Zhipu AI GLM models (ChatGLM)
   /glm/i,
+
+  // OpenAI open-source models (gpt-oss)
+  /gpt[-_]?oss/i,
+
+  // Mistral Ministral edge models (3B, 8B, 14B)
+  /ministral/i,
+
+  // Essential AI RNJ reasoning models
+  /rnj/i,
 
   // Groq hosted models (always support tools)
   /groq/i,
@@ -202,6 +217,7 @@ const REASONING_EFFORT_MODELS: Record<string, ReasoningEffort[]> = {
   "o3-mini": ["none", "low", "medium", "high"],
   "o4-mini": ["none", "low", "medium", "high"],
   "gpt-5.1-codex-mini": ["low", "medium", "high"],
+  "gpt-oss": ["low", "medium", "high"], // OpenAI open-weight reasoning model
 };
 
 // =============================================================================

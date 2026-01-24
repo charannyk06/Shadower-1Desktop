@@ -8,6 +8,65 @@ import * as lmStudioService from "../services/lm-studio-service";
 import { CURATED_LOCAL_MODELS } from "../../src/lib/ai/curated-local-models";
 import { localModelSupportsTools } from "../../src/lib/ai/providers/capabilities";
 
+// =============================================================================
+// LOCAL MODEL PERFORMANCE CACHE
+// Cache local model responses to avoid repeated API calls
+// =============================================================================
+
+interface LocalModelCache {
+  data: any;
+  timestamp: number;
+}
+
+// Cache for local model responses (30 second TTL for fast iteration)
+const LOCAL_MODEL_CACHE_TTL = 30 * 1000; // 30 seconds
+const localModelCache = new Map<string, LocalModelCache>();
+
+// Tool support cache (5 minute TTL - less volatile)
+const TOOL_SUPPORT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const toolSupportCache = new Map<string, { supported: boolean; timestamp: number }>();
+
+function getCachedLocalModels(key: string): any | null {
+  const cached = localModelCache.get(key);
+  if (cached && Date.now() - cached.timestamp < LOCAL_MODEL_CACHE_TTL) {
+    log.info(`[Models Cache] HIT for ${key}`);
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedLocalModels(key: string, data: any): void {
+  localModelCache.set(key, { data, timestamp: Date.now() });
+  log.info(`[Models Cache] SET for ${key}`);
+}
+
+function getCachedToolSupport(modelName: string): boolean | null {
+  const cached = toolSupportCache.get(modelName);
+  if (cached && Date.now() - cached.timestamp < TOOL_SUPPORT_CACHE_TTL) {
+    return cached.supported;
+  }
+  return null;
+}
+
+function setCachedToolSupport(modelName: string, supported: boolean): void {
+  toolSupportCache.set(modelName, { supported, timestamp: Date.now() });
+}
+
+// Clear stale cache entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of localModelCache.entries()) {
+    if (now - value.timestamp > LOCAL_MODEL_CACHE_TTL * 2) {
+      localModelCache.delete(key);
+    }
+  }
+  for (const [key, value] of toolSupportCache.entries()) {
+    if (now - value.timestamp > TOOL_SUPPORT_CACHE_TTL * 2) {
+      toolSupportCache.delete(key);
+    }
+  }
+}, 60 * 1000); // Clean up every minute
+
 // Provider validation URLs for testing API keys
 const PROVIDER_VALIDATION_ENDPOINTS: Record<
   string,
@@ -282,22 +341,45 @@ async function fetchLocalModels(
  *
  * Reference: https://ollama.com/blog/tool-support
  * Models that support tools have {{ .Tools }} in their template
+ *
+ * PERFORMANCE OPTIMIZED:
+ * - Reduced timeout from 10s to 3s (local models should respond fast)
+ * - Added caching to avoid repeated API calls
+ * - Uses HTTP keep-alive via fetch
  */
 async function checkOllamaModelToolSupport(
   modelName: string,
   baseUrl: string = "http://localhost:11434"
 ): Promise<boolean> {
+  // Check cache first
+  const cached = getCachedToolSupport(modelName);
+  if (cached !== null) {
+    return cached;
+  }
+
+  // Also check pattern-based detection first (instant, no API call)
+  if (localModelSupportsTools(modelName)) {
+    setCachedToolSupport(modelName, true);
+    return true;
+  }
+
   try {
     const response = await fetch(`${baseUrl}/api/show`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Connection": "keep-alive", // Reuse connections
+      },
       body: JSON.stringify({ name: modelName }),
-      signal: AbortSignal.timeout(10000), // 10s timeout per model
+      signal: AbortSignal.timeout(3000), // REDUCED: 3s timeout (was 10s)
     });
 
     if (!response.ok) {
       log.warn(`[Models] Failed to get model info for ${modelName}: ${response.status}`);
-      return false;
+      // Fall back to pattern-based detection
+      const patternBased = localModelSupportsTools(modelName);
+      setCachedToolSupport(modelName, patternBased);
+      return patternBased;
     }
 
     const data = await response.json() as {
@@ -314,25 +396,35 @@ async function checkOllamaModelToolSupport(
       template.includes(".Tools") ||
       template.includes("{{.Tools}}") ||
       modelfile.includes(".Tools") ||
-      modelfile.includes("{{.Tools}}");
+      modelfile.includes("{{.Tools}}") ||
+      localModelSupportsTools(modelName); // Also check pattern
 
     log.info(
       `[Models] Tool support check for ${modelName}: ${supportsTools ? "YES" : "NO"}`
     );
 
+    setCachedToolSupport(modelName, supportsTools);
     return supportsTools;
   } catch (error) {
     log.warn(
       `[Models] Error checking tool support for ${modelName}:`,
       error instanceof Error ? error.message : "Unknown error"
     );
-    return false;
+    // Fall back to pattern-based detection
+    const patternBased = localModelSupportsTools(modelName);
+    setCachedToolSupport(modelName, patternBased);
+    return patternBased;
   }
 }
 
 /**
  * Check tool support for multiple Ollama models in parallel
  * Returns a map of model name -> tool support boolean
+ *
+ * PERFORMANCE OPTIMIZED:
+ * - Increased concurrency from 5 to 20 (local Ollama handles many concurrent requests)
+ * - Uses Promise.allSettled for graceful error handling
+ * - Skips already-cached models
  */
 async function checkOllamaModelsToolSupport(
   modelNames: string[],
@@ -340,19 +432,45 @@ async function checkOllamaModelsToolSupport(
 ): Promise<Map<string, boolean>> {
   const results = new Map<string, boolean>();
 
-  // Check all models in parallel (with some concurrency limit)
-  const CONCURRENCY = 5;
-  for (let i = 0; i < modelNames.length; i += CONCURRENCY) {
-    const batch = modelNames.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(
+  // First, check cache and pattern-based detection to skip API calls
+  const uncheckedModels: string[] = [];
+  for (const name of modelNames) {
+    const cached = getCachedToolSupport(name);
+    if (cached !== null) {
+      results.set(name, cached);
+    } else if (localModelSupportsTools(name)) {
+      // Pattern says it supports tools - use that
+      results.set(name, true);
+      setCachedToolSupport(name, true);
+    } else {
+      uncheckedModels.push(name);
+    }
+  }
+
+  if (uncheckedModels.length === 0) {
+    return results;
+  }
+
+  // Check remaining models in parallel with HIGHER concurrency
+  const CONCURRENCY = 20; // INCREASED from 5 to 20
+  for (let i = 0; i < uncheckedModels.length; i += CONCURRENCY) {
+    const batch = uncheckedModels.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.allSettled(
       batch.map(async (name) => ({
         name,
         supportsTools: await checkOllamaModelToolSupport(name, baseUrl),
       }))
     );
 
-    for (const { name, supportsTools } of batchResults) {
-      results.set(name, supportsTools);
+    for (const result of batchResults) {
+      if (result.status === "fulfilled") {
+        results.set(result.value.name, result.value.supportsTools);
+      } else {
+        // On error, use pattern-based detection
+        const name = batch[batchResults.indexOf(result)];
+        const patternBased = localModelSupportsTools(name);
+        results.set(name, patternBased);
+      }
     }
   }
 
@@ -1199,8 +1317,8 @@ export function registerModelsHandlers() {
       /codex/i.test(modelId) ||
       /deepseek-r1/i.test(modelId);
 
-    // Built-in tools
-    const hasBuiltIn = /gpt-oss/i.test(modelId);
+    // Built-in tools - NONE for local models (gpt-oss removed - supports tools locally!)
+    const hasBuiltIn = false;
 
     // Requires Responses API
     const needsResponsesAPI = /computer-use/i.test(modelId);
@@ -1800,11 +1918,13 @@ export function registerModelsHandlers() {
   // ========================================================================
 
   // Get all available models (combines cloud providers with API keys + local models)
+  // PERFORMANCE OPTIMIZED: Uses caching to avoid repeated API calls
   ipcMain.handle("models:getAvailableModels", async () => {
     try {
       const user = await requireAuth(authService);
+      const startTime = Date.now();
 
-      // Get providers with valid API keys
+      // Get providers with valid API keys (database is fast, no cache needed)
       const apiKeys = await db
         .select()
         .from(schema.ApiKeyTable)
@@ -1826,7 +1946,10 @@ export function registerModelsHandlers() {
           ),
         );
 
-      // Fetch local models DIRECTLY from Ollama and LM Studio APIs (not from stale DB)
+      // Check cache first for local models
+      const cachedOllama = getCachedLocalModels("ollama-models");
+      const cachedLMStudio = getCachedLocalModels("lmstudio-models");
+
       const localModels: Array<{
         id: string;
         name: string;
@@ -1840,47 +1963,64 @@ export function registerModelsHandlers() {
         isToolCallSupported?: boolean;
       }> = [];
 
-      // Fetch from Ollama directly
-      try {
-        const ollamaResult = await ollamaService.getOllamaModels();
-        if (ollamaResult.success && ollamaResult.models) {
-          for (const model of ollamaResult.models) {
-            localModels.push({
-              id: `ollama-${model.name}`,
-              name: model.name,
-              displayName: model.name,
-              providerId: "ollama",
-              size: model.size,
-              quantization: model.details?.quantization_level,
-              family: model.details?.family,
-              status: "available",
-              isVision: model.name.includes("vision") || model.name.includes("llava"),
-              isToolCallSupported: true, // Most modern Ollama models support tool calling
-            });
+      // Fetch from Ollama (use cache if available)
+      if (cachedOllama) {
+        localModels.push(...cachedOllama);
+      } else {
+        try {
+          const ollamaResult = await ollamaService.getOllamaModels();
+          if (ollamaResult.success && ollamaResult.models) {
+            const ollamaModels: typeof localModels = [];
+            for (const model of ollamaResult.models) {
+              ollamaModels.push({
+                id: `ollama-${model.name}`,
+                name: model.name,
+                displayName: model.name,
+                providerId: "ollama",
+                size: model.size,
+                quantization: model.details?.quantization_level,
+                family: model.details?.family,
+                status: "available",
+                isVision: model.name.includes("vision") || model.name.includes("llava"),
+                isToolCallSupported: localModelSupportsTools(model.name), // Use fast pattern matching
+              });
+            }
+            setCachedLocalModels("ollama-models", ollamaModels);
+            localModels.push(...ollamaModels);
           }
+        } catch (e) {
+          log.warn("[IPC] Failed to fetch Ollama models:", e);
         }
-      } catch (e) {
-        log.warn("[IPC] Failed to fetch Ollama models:", e);
       }
 
-      // Fetch from LM Studio directly
-      try {
-        const lmStudioResult = await lmStudioService.getLMStudioModels();
-        if (lmStudioResult.success && lmStudioResult.models) {
-          for (const model of lmStudioResult.models) {
-            localModels.push({
-              id: `lmstudio-${model.id}`,
-              name: model.id,
-              displayName: model.id,
-              providerId: "lmstudio",
-              status: "available",
-              isToolCallSupported: true,
-            });
+      // Fetch from LM Studio (use cache if available)
+      if (cachedLMStudio) {
+        localModels.push(...cachedLMStudio);
+      } else {
+        try {
+          const lmStudioResult = await lmStudioService.getLMStudioModels();
+          if (lmStudioResult.success && lmStudioResult.models) {
+            const lmStudioModels: typeof localModels = [];
+            for (const model of lmStudioResult.models) {
+              lmStudioModels.push({
+                id: `lmstudio-${model.id}`,
+                name: model.id,
+                displayName: model.id,
+                providerId: "lmstudio",
+                status: "available",
+                isToolCallSupported: localModelSupportsTools(model.id), // Use fast pattern matching
+              });
+            }
+            setCachedLocalModels("lmstudio-models", lmStudioModels);
+            localModels.push(...lmStudioModels);
           }
+        } catch (e) {
+          log.warn("[IPC] Failed to fetch LM Studio models:", e);
         }
-      } catch (e) {
-        log.warn("[IPC] Failed to fetch LM Studio models:", e);
       }
+
+      const duration = Date.now() - startTime;
+      log.info(`[IPC] models:getAvailableModels completed in ${duration}ms (${localModels.length} local models)`);
 
       return {
         cloudProviders: apiKeys.map((k) => k.providerId),

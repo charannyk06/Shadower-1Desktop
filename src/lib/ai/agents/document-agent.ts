@@ -18,6 +18,27 @@ import {
 } from "lib/vector-search/vector-search-service";
 import logger from "logger";
 import { z } from "zod";
+
+// ============================================
+// PERMISSIVE ZOD TYPES FOR LOCAL MODELS
+// Local models often output "true"/"false" as strings, "5" instead of 5, etc.
+// ============================================
+
+const permissiveBoolean = () =>
+  z.union([
+    z.boolean(),
+    z.string().transform(v => v.toLowerCase() === 'true' || v === '1')
+  ]);
+
+const permissiveNumber = () =>
+  z.union([
+    z.number(),
+    z.string().transform(v => {
+      const parsed = parseFloat(v);
+      if (isNaN(parsed)) throw new Error(`Cannot convert "${v}" to number`);
+      return parsed;
+    })
+  ]);
 import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs/promises";
@@ -1691,25 +1712,24 @@ const brandingSchema = z.object({
     .describe("Position of logo on slides"),
   logoSize: z
     .object({
-      width: z.number().describe("Logo width in inches"),
-      height: z.number().describe("Logo height in inches"),
+      width: permissiveNumber().describe("Logo width in inches"),
+      height: permissiveNumber().describe("Logo height in inches"),
     })
     .optional()
     .describe("Logo dimensions"),
   tagline: z.string().optional().describe("Company tagline"),
   website: z.string().optional().describe("Company website"),
-  showSlideNumbers: z
-    .boolean()
+  showSlideNumbers: permissiveBoolean()
     .optional()
     .describe("Show slide numbers (default: true)"),
   footerText: z.string().optional().describe("Custom footer text"),
-  showFooter: z.boolean().optional().describe("Show footer (default: true)"),
-  showDate: z.boolean().optional().describe("Show date in footer"),
+  showFooter: permissiveBoolean().optional().describe("Show footer (default: true)"),
+  showDate: permissiveBoolean().optional().describe("Show date in footer"),
   customDateText: z.string().optional().describe("Custom date text"),
   watermark: z
     .object({
       text: z.string().describe("Watermark text"),
-      opacity: z.number().min(0).max(1).describe("Watermark opacity (0-1)"),
+      opacity: permissiveNumber().describe("Watermark opacity (0-1)"),
       position: z
         .enum(["center", "bottom-right"])
         .describe("Watermark position"),
@@ -1745,8 +1765,7 @@ const presentationOptionsSchema = z.object({
   branding: brandingSchema
     .optional()
     .describe("Branding configuration for consistent corporate identity"),
-  useMasterSlides: z
-    .boolean()
+  useMasterSlides: permissiveBoolean()
     .optional()
     .describe("Use master slides for consistent styling (default: true)"),
 });
@@ -1754,10 +1773,10 @@ const presentationOptionsSchema = z.object({
 // Advanced table cell configuration
 const tableCellConfigSchema = z.object({
   content: z.string().describe("Cell content"),
-  colspan: z.number().optional().describe("Column span"),
-  rowspan: z.number().optional().describe("Row span"),
-  bold: z.boolean().optional().describe("Bold text"),
-  italic: z.boolean().optional().describe("Italic text"),
+  colspan: permissiveNumber().optional().describe("Column span"),
+  rowspan: permissiveNumber().optional().describe("Row span"),
+  bold: permissiveBoolean().optional().describe("Bold text"),
+  italic: permissiveBoolean().optional().describe("Italic text"),
   align: z
     .enum(["left", "center", "right"])
     .optional()
@@ -1783,11 +1802,11 @@ const advancedTableSchema = z.object({
     .optional()
     .describe("Header style"),
   columnWidths: z
-    .array(z.number())
+    .array(permissiveNumber())
     .optional()
     .describe("Column widths as percentages"),
   caption: z.string().optional().describe("Table caption"),
-  totalRow: z.boolean().optional().describe("Mark last row as totals row"),
+  totalRow: permissiveBoolean().optional().describe("Mark last row as totals row"),
 });
 
 const documentSectionSchema = z.object({
@@ -1823,8 +1842,8 @@ const documentSectionSchema = z.object({
     .describe("Advanced table with merged cells, styling, and more options"),
   imageUrl: z.string().optional().describe("Image URL for image sections"),
   imageCaption: z.string().optional().describe("Image caption"),
-  imageWidth: z.number().optional().describe("Image width in pixels"),
-  imageHeight: z.number().optional().describe("Image height in pixels"),
+  imageWidth: permissiveNumber().optional().describe("Image width in pixels"),
+  imageHeight: permissiveNumber().optional().describe("Image height in pixels"),
   imagePosition: z
     .enum(["left", "center", "right", "inline"])
     .optional()
@@ -1844,8 +1863,8 @@ const documentOptionsSchema = z.object({
   author: z.string().optional().describe("Document author"),
   company: z.string().optional().describe("Company name"),
   date: z.string().optional().describe("Document date"),
-  includeToc: z.boolean().optional().describe("Include table of contents"),
-  includeCoverPage: z.boolean().optional().describe("Include cover page"),
+  includeToc: permissiveBoolean().optional().describe("Include table of contents"),
+  includeCoverPage: permissiveBoolean().optional().describe("Include cover page"),
   includeHeaderFooter: z
     .boolean()
     .optional()
@@ -1856,7 +1875,7 @@ const documentOptionsSchema = z.object({
 const columnConfigSchema = z.object({
   header: z.string().describe("Column header"),
   key: z.string().describe("Data key"),
-  width: z.number().optional().describe("Column width"),
+  width: permissiveNumber().optional().describe("Column width"),
   style: z
     .object({
       numFmt: z.string().optional().describe("Number format"),
@@ -1890,7 +1909,7 @@ const conditionalFormatRuleSchema = z.object({
         .enum(["greaterThan", "lessThan", "between", "equal"])
         .optional(),
       value: z.union([z.number(), z.string()]).optional(),
-      topPercent: z.number().optional(),
+      topPercent: permissiveNumber().optional(),
     })
     .optional(),
 });
@@ -1903,13 +1922,13 @@ const chartConfigSchema = z.object({
   dataRange: z.string().describe("Data cell range"),
   labelsRange: z.string().describe("Labels cell range"),
   position: z.object({
-    row: z.number().describe("Row position"),
-    col: z.number().describe("Column position"),
+    row: permissiveNumber().describe("Row position"),
+    col: permissiveNumber().describe("Column position"),
   }),
   size: z
     .object({
-      width: z.number().optional(),
-      height: z.number().optional(),
+      width: permissiveNumber().optional(),
+      height: permissiveNumber().optional(),
     })
     .optional(),
 });
@@ -1927,12 +1946,12 @@ const spreadsheetSheetSchema = z.object({
   charts: z.array(chartConfigSchema).optional().describe("Charts to add"),
   freezePane: z
     .object({
-      row: z.number().optional(),
-      col: z.number().optional(),
+      row: permissiveNumber().optional(),
+      col: permissiveNumber().optional(),
     })
     .optional()
     .describe("Freeze pane settings"),
-  autoFilter: z.boolean().optional().describe("Enable auto filter"),
+  autoFilter: permissiveBoolean().optional().describe("Enable auto filter"),
 });
 
 const spreadsheetOptionsSchema = z.object({
@@ -2097,16 +2116,16 @@ const spreadsheetChangeSchema = z.object({
   sheetName: z.string().optional().describe("Target sheet name"),
   cell: z
     .object({
-      row: z.number().describe("Row number (1-based)"),
-      col: z.number().describe("Column number (1-based)"),
+      row: permissiveNumber().describe("Row number (1-based)"),
+      col: permissiveNumber().describe("Column number (1-based)"),
     })
     .optional()
     .describe("Target cell for single cell operations"),
   cells: z
     .array(
       z.object({
-        row: z.number(),
-        col: z.number(),
+        row: permissiveNumber(),
+        col: permissiveNumber(),
         value: z.unknown(),
       }),
     )
@@ -2117,7 +2136,7 @@ const spreadsheetChangeSchema = z.object({
     .record(z.string(), z.unknown())
     .optional()
     .describe("Row data as object"),
-  rowIndex: z.number().optional().describe("Row index for row operations"),
+  rowIndex: permissiveNumber().optional().describe("Row index for row operations"),
   columnKey: z.string().optional().describe("Column key for column operations"),
   columnConfig: columnConfigSchema.optional().describe("Column configuration"),
   newSheetName: z.string().optional().describe("New sheet name"),
@@ -2126,12 +2145,12 @@ const spreadsheetChangeSchema = z.object({
       fill: z.string().optional(),
       font: z
         .object({
-          bold: z.boolean().optional(),
+          bold: permissiveBoolean().optional(),
           color: z.string().optional(),
-          size: z.number().optional(),
+          size: permissiveNumber().optional(),
         })
         .optional(),
-      border: z.boolean().optional(),
+      border: permissiveBoolean().optional(),
       alignment: z.enum(["left", "center", "right"]).optional(),
     })
     .optional()
@@ -2154,7 +2173,7 @@ const presentationChangeSchema = z.object({
       "updateTransition",
     ])
     .describe("Type of change to apply"),
-  slideIndex: z.number().optional().describe("Target slide index (0-based)"),
+  slideIndex: permissiveNumber().optional().describe("Target slide index (0-based)"),
   updates: z
     .object({
       title: z.string().optional(),
@@ -2167,7 +2186,7 @@ const presentationChangeSchema = z.object({
     .describe("Updates to apply to the slide"),
   newSlide: slideContentSchema.optional().describe("New slide to add"),
   newOrder: z
-    .array(z.number())
+    .array(permissiveNumber())
     .optional()
     .describe("New order of slide indices"),
   transition: z
@@ -2198,8 +2217,7 @@ const documentChangeSchema = z.object({
       "updateStyle",
     ])
     .describe("Type of change to apply"),
-  sectionIndex: z
-    .number()
+  sectionIndex: permissiveNumber()
     .optional()
     .describe("Target section index (0-based)"),
   updates: z
@@ -2210,11 +2228,10 @@ const documentChangeSchema = z.object({
     .optional()
     .describe("Updates to apply to the section"),
   newSection: documentSectionSchema.optional().describe("New section to add"),
-  insertAt: z.number().optional().describe("Position to insert new section"),
+  insertAt: permissiveNumber().optional().describe("Position to insert new section"),
   searchText: z.string().optional().describe("Text to search for replacement"),
   replaceWith: z.string().optional().describe("Replacement text"),
-  replaceAll: z
-    .boolean()
+  replaceAll: permissiveBoolean()
     .optional()
     .describe("Replace all occurrences or just first"),
 });
@@ -2466,12 +2483,12 @@ const multiSheetSchema = z.object({
     .describe("Formulas to add to the sheet"),
   freezePane: z
     .object({
-      row: z.number().optional(),
-      col: z.number().optional(),
+      row: permissiveNumber().optional(),
+      col: permissiveNumber().optional(),
     })
     .optional()
     .describe("Freeze pane settings"),
-  autoFilter: z.boolean().optional().describe("Enable auto-filter"),
+  autoFilter: permissiveBoolean().optional().describe("Enable auto-filter"),
   paletteName: z.string().optional().describe("Color palette for this sheet"),
 });
 

@@ -1,6 +1,27 @@
 import { tool as createTool } from "ai";
 import { z } from "zod";
 
+// ============================================
+// PERMISSIVE ZOD TYPES FOR LOCAL MODELS
+// Local models often output "true"/"false" as strings, "5" instead of 5, etc.
+// ============================================
+
+const permissiveBoolean = () =>
+  z.union([
+    z.boolean(),
+    z.string().transform(v => v.toLowerCase() === 'true' || v === '1')
+  ]);
+
+const permissiveNumber = () =>
+  z.union([
+    z.number(),
+    z.string().transform(v => {
+      const parsed = parseFloat(v);
+      if (isNaN(parsed)) throw new Error(`Cannot convert "${v}" to number`);
+      return parsed;
+    })
+  ]);
+
 /**
  * Local Desktop/Terminal automation tools.
  * These tools enable command execution and terminal operations on the local machine.
@@ -39,8 +60,7 @@ export const desktopCommandTool = createTool({
       .string()
       .optional()
       .describe("Working directory for the command (optional)"),
-    timeout: z
-      .number()
+    timeout: permissiveNumber()
       .optional()
       .describe("Command timeout in milliseconds (default: 60000)"),
   }),
@@ -111,8 +131,7 @@ export const desktopScreenshotTool = createTool({
   description:
     "Take a screenshot of the current desktop. Returns a base64-encoded PNG image that can be analyzed for UI elements.",
   inputSchema: z.object({
-    fullScreen: z
-      .boolean()
+    fullScreen: permissiveBoolean()
       .optional()
       .describe("Capture full screen (default: true)"),
   }),
@@ -153,8 +172,8 @@ export const desktopClickTool = createTool({
   description:
     "Click at specific coordinates on the desktop. First use desktop_screenshot to identify target coordinates.",
   inputSchema: z.object({
-    x: z.number().describe("X coordinate to click"),
-    y: z.number().describe("Y coordinate to click"),
+    x: permissiveNumber().describe("X coordinate to click"),
+    y: permissiveNumber().describe("Y coordinate to click"),
     button: z
       .enum(["left", "right", "double"])
       .optional()
@@ -232,8 +251,7 @@ export const desktopScrollTool = createTool({
   description: "Scroll the screen up or down at the current cursor position.",
   inputSchema: z.object({
     direction: z.enum(["up", "down"]).describe("Direction to scroll"),
-    amount: z
-      .number()
+    amount: permissiveNumber()
       .optional()
       .describe("Number of scroll steps (default: 3)"),
   }),
@@ -259,10 +277,10 @@ export const desktopDragTool = createTool({
   description:
     "Drag from one point to another. Useful for moving windows, selecting text, or drag-and-drop operations.",
   inputSchema: z.object({
-    startX: z.number().describe("Starting X coordinate"),
-    startY: z.number().describe("Starting Y coordinate"),
-    endX: z.number().describe("Ending X coordinate"),
-    endY: z.number().describe("Ending Y coordinate"),
+    startX: permissiveNumber().describe("Starting X coordinate"),
+    startY: permissiveNumber().describe("Starting Y coordinate"),
+    endX: permissiveNumber().describe("Ending X coordinate"),
+    endY: permissiveNumber().describe("Ending Y coordinate"),
   }),
   execute: async ({ startX, startY, endX, endY }) => {
     try {

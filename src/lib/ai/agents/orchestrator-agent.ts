@@ -386,24 +386,23 @@ When users ask to create workflows, automate processes, or set up multi-step aut
 - The workflow will be automatically generated with appropriate nodes and edges
 - After creation, you can execute it using \`executeWorkflow\` tool
 
-## CRITICAL: STOP SIGNALS AND LOOP PREVENTION
-**MANDATORY**: When ANY tool returns a result with \`STOP: true\` or \`COMPLETED: true\`:
-- **IMMEDIATELY STOP** calling tools
-- **DO NOT** call any more tools in this step
-- **DO NOT** try to retry the blocked tool
-- **DO NOT** create new plans or tasks
-- **PROVIDE YOUR FINAL RESPONSE** to the user immediately
+## TASK COMPLETION AND CONTINUATION
+**When all planned tasks are complete** (tool returns \`allTasksComplete: true\`):
+- **ASSESS** if the user's original request is fully satisfied
+- **CONTINUE** working if more tasks are needed beyond the original plan
+- **PROVIDE a comprehensive response** summarizing what was accomplished when truly done
+- Tasks being complete does NOT mean the user's request is complete - always verify
 
-**When a tool is blocked** (returns error about exceeding call limit):
+**When a tool is blocked** (returns explicit \`STOP: true\` with error about exceeding call limit):
 - This indicates a potential infinite loop
-- **STOP IMMEDIATELY** and provide your response
-- **DO NOT** try to work around the block by calling other tools
-- **DO NOT** create new plans or tasks
+- **STOP calling that specific tool** and move to the next task
+- **DO NOT** retry the blocked tool repeatedly
+- If blocked multiple times, provide your response to the user
 
-**If you receive multiple STOP signals**:
-- The system is detecting a loop
-- **STOP IMMEDIATELY** - do not continue
-- Provide your response and end the conversation
+## LOOP PREVENTION
+- Do not call the same tool more than 8 times consecutively
+- Do not try to re-activate completed tasks (mark as in-progress again)
+- If stuck in a loop, summarize progress and ask the user for guidance
 
 ## REMEMBER
 - **ALWAYS** call createPlan as your FIRST action
@@ -413,7 +412,7 @@ When users ask to create workflows, automate processes, or set up multi-step aut
 - **BROWSER SEARCH WORKFLOW**: browser_create_session → browser_navigate to Google → browser_get_snapshot
 - **NEVER** output text explanations while waiting for tool/sub-agent results
 - **FOR WORKFLOW CREATION**: Use \`createWorkflow\` tool when users want to automate processes
-- **STOP IMMEDIATELY** when you receive STOP signals from tools
+- **COMPLETE the user's request** - task completion is a checkpoint, not the end goal
 - This ensures proper tracking and user visibility into your work`;
 
 /**
@@ -724,38 +723,55 @@ IMPORTANT: Do NOT output a plan as text - you MUST call this function to create 
         const totalTasks = existingPlan.tasks.length;
 
         if (existingPlan.status === "completed") {
-          logger.warn(
-            "Attempted to create a new plan but previous plan is complete - BLOCKING",
+          logger.info(
+            "Attempted to create a new plan but previous plan is complete - guiding to completion",
           );
+          // DO NOT send STOP - let agent decide if more work is truly needed
           return {
-            STOP: true,
-            COMPLETED: true,
-            message: `Plan "${existingPlan.id}" is COMPLETE with ${completedTasks}/${totalTasks} tasks done. DO NOT create more plans or call any more tools. Summarize what was accomplished and respond to the user directly.`,
+            message: `Plan "${existingPlan.id}" completed all ${totalTasks} tasks. Review if the user's request is fully satisfied.`,
             instruction:
-              "STOP calling tools. Provide your final response to the user NOW.",
+              "If the user's request is complete, provide a comprehensive summary. If more work is genuinely needed beyond the original scope, describe what additional work you'll do.",
             completedTasks: existingPlan.tasks
               .filter((t) => t.status === "completed")
               .map((t) => ({ description: t.description, result: t.result })),
+            planProgress: 100,
+            planStatus: "completed",
+            allTasksComplete: true,
           };
         }
         if (
           existingPlan.status === "planning" ||
           existingPlan.status === "executing"
         ) {
-          logger.warn(
-            "Attempted to create a new plan but one is already in progress - BLOCKING",
+          logger.info(
+            "Attempted to create a new plan but one is already in progress - guiding to existing plan",
+          );
+          // DO NOT send STOP signal - guide agent to continue with existing plan
+          const nextPendingTask = existingPlan.tasks.find(
+            (t) => t.status === "pending",
+          );
+          const inProgressTask = existingPlan.tasks.find(
+            (t) => t.status === "in-progress",
           );
           return {
-            STOP: true,
-            message: `Plan "${existingPlan.id}" is already ${existingPlan.status}. Continue working on existing tasks, do not create new plans.`,
+            existingPlanId: existingPlan.id,
+            message: `A plan already exists and is ${existingPlan.status}. Continue working on the existing tasks.`,
             currentTasks: existingPlan.tasks.map((t) => ({
               id: t.id,
               description: t.description,
               status: t.status,
             })),
-            nextPendingTask: existingPlan.tasks.find(
-              (t) => t.status === "pending",
-            )?.description,
+            currentTask: inProgressTask
+              ? { id: inProgressTask.id, description: inProgressTask.description }
+              : null,
+            nextPendingTask: nextPendingTask
+              ? { id: nextPendingTask.id, description: nextPendingTask.description }
+              : null,
+            instruction: inProgressTask
+              ? `Continue working on the current task: "${inProgressTask.description}"`
+              : nextPendingTask
+                ? `Start the next pending task: "${nextPendingTask.description}" by updating its status to 'in-progress'`
+                : "All tasks are in progress or complete. Check the plan status.",
           };
         }
       }
@@ -830,31 +846,35 @@ IMPORTANT: Do NOT output a plan as text - you MUST call this function to create 
 
       // Prevent re-activating completed tasks (main cause of loops)
       if (task.status === "completed" && status === "in-progress") {
-        logger.warn(
-          `Attempted to set completed task ${taskId} back to in-progress - BLOCKING`,
+        logger.info(
+          `Attempted to set completed task ${taskId} back to in-progress - guiding to next task`,
         );
         const remainingTasks = ctx.getTasksByStatus("pending");
         const nextTask = remainingTasks[0];
 
-        // If no remaining tasks, signal completion
+        // If no remaining tasks, guide agent to assess completion (DO NOT force stop)
         if (remainingTasks.length === 0) {
           return {
-            STOP: true,
-            COMPLETED: true,
-            error: `Task "${task.description}" is already completed and there are no more pending tasks.`,
+            message: `Task "${task.description}" is already completed and all planned tasks are done.`,
             instruction:
-              "All tasks are done. Provide your final response to the user NOW.",
+              "Review if the user's original request is fully satisfied. If more work is needed, describe what additional tasks you'll perform. Otherwise, provide a comprehensive summary.",
+            taskId,
+            currentStatus: task.status,
             planProgress: plan?.progress ?? 100,
             planStatus: plan?.status ?? "completed",
+            allTasksComplete: true,
           };
         }
 
+        // Guide to next task (DO NOT force stop)
         return {
-          STOP: true,
-          error: `Cannot re-activate completed task "${task.description}".`,
-          action: nextTask
+          message: `Task "${task.description}" is already completed. Cannot re-activate completed tasks.`,
+          nextTask: nextTask
+            ? { id: nextTask.id, description: nextTask.description }
+            : null,
+          instruction: nextTask
             ? `Move to the next pending task: "${nextTask.description}" (ID: ${nextTask.id})`
-            : "Check plan status with getPlanStatus.",
+            : "Check the plan status.",
           taskId,
           currentStatus: task.status,
           planProgress: plan?.progress ?? 0,
@@ -889,7 +909,7 @@ IMPORTANT: Do NOT output a plan as text - you MUST call this function to create 
         const totalTasks = updatedPlan.tasks.length;
 
         logger.info(
-          `Plan ${updatedPlan.id} is now COMPLETE (${completedTasks}/${totalTasks} tasks done) - sending STOP signal`,
+          `Plan ${updatedPlan.id} is now COMPLETE (${completedTasks}/${totalTasks} tasks done)`,
         );
 
         // Emit final task-updated event for UI sync
@@ -913,22 +933,23 @@ IMPORTANT: Do NOT output a plan as text - you MUST call this function to create 
           });
         }
 
-        // Return STOP signal to halt agent execution
+        // DO NOT send STOP signal here - let the agent continue to:
+        // 1. Assess if the user's request is truly complete
+        // 2. Potentially add more tasks if needed
+        // 3. Provide a final response naturally
+        // The agent will stop naturally when it responds without tool calls
         return {
-          STOP: true,
-          COMPLETED: true,
           taskId,
           newStatus: status,
           taskDescription: task?.description,
-          message: `Plan "${updatedPlan.id}" is COMPLETE with ${completedTasks}/${totalTasks} tasks done. All work is finished.`,
-          instruction:
-            "STOP calling tools. Provide your final response to the user NOW summarizing what was accomplished.",
+          message: `All ${totalTasks} planned tasks are now complete. Review if the user's original request has been fully satisfied. If more work is needed, you can add additional tasks. Otherwise, provide a comprehensive summary response.`,
           completedTasks: updatedPlan.tasks
             .filter((t) => t.status === "completed")
             .map((t) => ({ description: t.description, result: t.result })),
           planProgress: updatedPlan.progress,
           planStatus: updatedPlan.status,
           remainingTasks: 0,
+          allTasksComplete: true,
         };
       }
 
@@ -2398,14 +2419,18 @@ ${systemPrompt}`;
       }
     }
 
-    // Check for STOP signals - force text-only response
+    // Check for explicit STOP signals - force text-only response
+    // NOTE: Do NOT stop on allTasksComplete - let agent continue to assess
     const lastStep = steps.at(-1);
     if (lastStep?.toolResults) {
-      const hasStop = lastStep.toolResults.some((r: any) =>
-        r.result?.STOP === true || r.result?.COMPLETED === true
-      );
-      if (hasStop) {
-        logger.info("[Agent prepareStep] STOP signal - forcing text response");
+      const hasExplicitStop = lastStep.toolResults.some((r: any) => {
+        const result = r.result;
+        // Only force text response on explicit STOP (like tool limit exceeded)
+        // Do NOT force on allTasksComplete - agent should continue to assess
+        return result?.STOP === true && result?.allTasksComplete !== true;
+      });
+      if (hasExplicitStop) {
+        logger.info("[Agent prepareStep] Explicit STOP signal - forcing text response");
         return { toolChoice: "none" as const };
       }
     }
@@ -2424,25 +2449,30 @@ ${systemPrompt}`;
     stopWhen: [
       stepCountIs(maxSteps),
 
-      // Plan completion check
+      // REMOVED: Plan completion check - let agent continue after tasks done
+      // The agent should naturally stop when it provides a text response without tool calls
+      // This allows the agent to assess if the user's request is truly complete
+
+      // Only stop on plan failure (not completion)
       () => {
         if (continuousMode) return false;
         const plan = ctx.getPlan();
-        if (plan?.status === "completed" || plan?.status === "failed") {
-          logger.info(`[Agent stopWhen] Plan ${plan.status} - stopping`);
+        if (plan?.status === "failed") {
+          logger.info(`[Agent stopWhen] Plan failed - stopping`);
           return true;
         }
         return false;
       },
 
-      // STOP signal detection
+      // STOP signal detection - only for explicit STOP signals (e.g., tool limit exceeded)
       (options: { steps: StepResult<Record<string, Tool>>[] }) => {
         const lastStep = options.steps.at(-1);
         if (lastStep?.toolResults) {
           for (const r of lastStep.toolResults) {
             const result = (r as any).result;
-            if (result?.STOP === true || result?.COMPLETED === true) {
-              logger.info("[Agent stopWhen] STOP signal received");
+            // Only stop on explicit STOP signal, NOT on COMPLETED (allTasksComplete)
+            if (result?.STOP === true && result?.COMPLETED !== true && result?.allTasksComplete !== true) {
+              logger.info("[Agent stopWhen] Explicit STOP signal received");
               return true;
             }
           }
@@ -2450,27 +2480,28 @@ ${systemPrompt}`;
         return false;
       },
 
-      // No plan after 5 steps
+      // No plan after 8 steps (increased from 5)
       (options: { steps: StepResult<Record<string, Tool>>[] }) => {
-        if (options.steps.length >= 5 && !ctx.getPlan()) {
-          logger.warn("[Agent stopWhen] No plan after 5 steps - stopping");
+        if (options.steps.length >= 8 && !ctx.getPlan()) {
+          logger.warn("[Agent stopWhen] No plan after 8 steps - stopping");
           return true;
         }
         return false;
       },
 
-      // Loop detection - same tool 3+ times
+      // Loop detection - same tool 8+ times consecutively (increased from 3)
       (options: { steps: StepResult<Record<string, Tool>>[] }) => {
-        if (options.steps.length < 3) return false;
+        if (options.steps.length < 8) return false;
 
-        const toolCalls = options.steps.slice(-3)
+        const toolCalls = options.steps.slice(-8)
           .flatMap((step) => step.toolCalls?.map((tc: any) => tc.toolName) || [])
           .filter(Boolean);
 
-        if (toolCalls.length >= 3) {
-          const last3 = toolCalls.slice(-3);
-          if (last3[0] === last3[1] && last3[1] === last3[2]) {
-            logger.warn(`[Agent stopWhen] Loop: "${last3[0]}" called 3x`);
+        if (toolCalls.length >= 8) {
+          const last8 = toolCalls.slice(-8);
+          const unique = new Set(last8);
+          if (unique.size === 1) {
+            logger.warn(`[Agent stopWhen] Loop: "${last8[0]}" called 8x consecutively`);
             return true;
           }
         }
@@ -2914,22 +2945,25 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
       }
     }
 
-    // Check for recent STOP signals - if found, force text generation to conclude
+    // Check for explicit STOP signals - only force text on true stop conditions
+    // NOTE: Do NOT force text-only on allTasksComplete - agent should continue to assess
     const lastStep = steps.at(-1);
     if (lastStep?.toolResults) {
-      const hasStopSignal = lastStep.toolResults.some((r: any) => {
+      const hasExplicitStop = lastStep.toolResults.some((r: any) => {
         const result = r.result;
-        return result?.STOP === true || result?.COMPLETED === true;
+        // Only force text response on explicit STOP (like tool limit exceeded)
+        // Do NOT force on allTasksComplete - agent should continue to assess user request
+        return result?.STOP === true && result?.allTasksComplete !== true;
       });
-      if (hasStopSignal) {
-        logger.info("[prepareStep] STOP signal detected - forcing text-only response");
+      if (hasExplicitStop) {
+        logger.info("[prepareStep] Explicit STOP signal detected - forcing text-only response");
         return {
           toolChoice: "none" as const, // Force text generation, no more tools
         };
       }
     }
 
-    // Default: let model decide
+    // Default: let model decide - this allows natural completion when agent provides response
     return {
       toolChoice: "auto" as const,
     };
@@ -2937,21 +2971,21 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
 
   /**
    * AI SDK 6 stopWhen conditions
-   * SIMPLIFIED: Using clean patterns from docs
+   * MODIFIED: Removed plan completion stopping - let agent continue until request is truly complete
+   * The agent will naturally stop when it provides a text response without tool calls
    */
   const stopConditions = [
     // 1. Maximum steps limit (backup safety)
     stepCountIs(maxSteps),
 
-    // 2. Plan completion - stop when all tasks done (unless continuous mode)
+    // 2. REMOVED: Plan completion check - tasks being done doesn't mean user request is complete
+    // The agent should continue to assess and potentially do more work
+    // Only stop on plan FAILURE (unrecoverable error)
     (_options: { steps: StepResult<any>[] }) => {
       if (continuousMode) return false;
 
       const plan = contextManager.getPlan();
-      if (plan?.status === "completed") {
-        logger.info("[stopWhen] Plan completed - stopping agent");
-        return true;
-      }
+      // ONLY stop on failure, NOT on completion
       if (plan?.status === "failed") {
         logger.info("[stopWhen] Plan failed - stopping agent");
         return true;
@@ -2959,14 +2993,16 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
       return false;
     },
 
-    // 3. STOP signal from tool results
+    // 3. STOP signal from tool results - only explicit STOP, not task completion
     (options: { steps: StepResult<any>[] }) => {
       const lastStep = options.steps.at(-1);
       if (lastStep?.toolResults) {
         for (const r of lastStep.toolResults) {
           const result = (r as any).result;
-          if (result?.STOP === true || result?.COMPLETED === true) {
-            logger.info("[stopWhen] STOP/COMPLETED signal received");
+          // Only stop on explicit STOP signal (e.g., tool limit exceeded)
+          // Do NOT stop on allTasksComplete - let agent assess and continue
+          if (result?.STOP === true && result?.allTasksComplete !== true) {
+            logger.info("[stopWhen] Explicit STOP signal received");
             return true;
           }
         }
@@ -2974,28 +3010,28 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
       return false;
     },
 
-    // 4. No plan after 5 steps (agent confused) - but not in continuous mode
+    // 4. No plan after 8 steps (increased from 5) - but not in continuous mode
     (options: { steps: StepResult<any>[] }) => {
       if (continuousMode) return false;
-      if (options.steps.length >= 5 && !contextManager.getPlan()) {
-        logger.warn("[stopWhen] No plan after 5 steps - stopping confused agent");
+      if (options.steps.length >= 8 && !contextManager.getPlan()) {
+        logger.warn("[stopWhen] No plan after 8 steps - stopping confused agent");
         return true;
       }
       return false;
     },
 
-    // 5. Loop detection - same tool 5+ times consecutively
+    // 5. Loop detection - same tool 8+ times consecutively (increased from 5)
     (options: { steps: StepResult<any>[] }) => {
-      if (options.steps.length < 5) return false;
+      if (options.steps.length < 8) return false;
 
-      const recentCalls = options.steps.slice(-5)
+      const recentCalls = options.steps.slice(-8)
         .flatMap((s) => s.toolCalls?.map((tc: any) => tc.toolName) || [])
         .filter(Boolean);
 
-      if (recentCalls.length >= 5) {
+      if (recentCalls.length >= 8) {
         const unique = new Set(recentCalls);
         if (unique.size === 1) {
-          logger.warn(`[stopWhen] Loop detected - "${recentCalls[0]}" called 5+ times`);
+          logger.warn(`[stopWhen] Loop detected - "${recentCalls[0]}" called 8+ times`);
           return true;
         }
       }
