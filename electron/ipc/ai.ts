@@ -2997,7 +2997,6 @@ export function registerAIHandlers() {
 
         // Count user messages to determine if this is the first turn
         const userMessageCount = messages.filter((m: any) => m.role === "user").length;
-        const isFirstUserMessage = userMessageCount === 1;
 
         // RAG INJECTION LOGIC:
         // - RAG MODE: Inject on EVERY turn for ALL models (cloud + local)
@@ -4891,6 +4890,69 @@ For file operations, terminal, or browser automation, ask the user to switch to 
         return { success: true, object: result.object };
       } catch (error: any) {
         console.error("[AI IPC] Generate object error:", error);
+        return { error: error.message };
+      }
+    },
+  );
+
+  /**
+   * Generate text from prompt (for inline text enhancement)
+   * Simple text generation without streaming
+   */
+  ipcMain.handle(
+    "ai:generateText",
+    async (
+      _event,
+      request: {
+        chatModel: { provider: string; model: string };
+        system: string;
+        prompt: string;
+        maxTokens?: number;
+      },
+    ) => {
+      const { chatModel, system, prompt, maxTokens = 2000 } = request;
+
+      console.log(
+        `[AI IPC] Generate text request, model: ${chatModel?.provider}/${chatModel?.model}`,
+      );
+
+      try {
+        // Get the API key for this provider
+        const apiKey = await getApiKeyForProvider(chatModel.provider);
+
+        if (!apiKey && !isLocalProvider(chatModel.provider)) {
+          return { error: `No API key configured for ${chatModel.provider}` };
+        }
+
+        // Get the model instance
+        const model = await getModelInstance(chatModel, apiKey);
+
+        if (!model) {
+          return {
+            error: `Could not initialize model ${chatModel.provider}/${chatModel.model}`,
+          };
+        }
+
+        // Generate text using the AI SDK
+        const { generateText } = await import("ai");
+        const result = await generateText({
+          model,
+          messages: [
+            {
+              role: "system",
+              content: system,
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          maxTokens,
+        } as Parameters<typeof generateText>[0]);
+
+        return { success: true, text: result.text };
+      } catch (error: any) {
+        console.error("[AI IPC] Generate text error:", error);
         return { error: error.message };
       }
     },

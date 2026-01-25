@@ -80,6 +80,36 @@ export const aiApi = {
 
     return result.title || "Untitled Chat";
   },
+
+  /**
+   * Generate text using AI (for inline text enhancement)
+   */
+  async generateText(params: {
+    model: ChatModel;
+    system: string;
+    prompt: string;
+    maxTokens?: number;
+  }): Promise<string> {
+    if (!isElectronMode()) {
+      throw new Error("Not in Electron mode");
+    }
+
+    const result = await window.electronAPI.ai.generateText({
+      chatModel: {
+        provider: params.model.provider,
+        model: params.model.model,
+      },
+      system: params.system,
+      prompt: params.prompt,
+      maxTokens: params.maxTokens,
+    });
+
+    if (result.error) {
+      throw new Error(result.error);
+    }
+
+    return result.text || "";
+  },
 };
 
 export default aiApi;

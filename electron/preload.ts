@@ -751,6 +751,12 @@ export interface ElectronAPI {
       prompt: { system?: string; user?: string };
       schema: any;
     }) => Promise<{ success?: boolean; object?: any; error?: string }>;
+    generateText: (request: {
+      chatModel: { provider: string; model: string };
+      system: string;
+      prompt: string;
+      maxTokens?: number;
+    }) => Promise<{ success?: boolean; text?: string; error?: string }>;
     onStreamChunk: (
       callback: (data: {
         threadId: string;
@@ -1679,6 +1685,12 @@ const electronAPI: ElectronAPI = {
       prompt: { system?: string; user?: string };
       schema: any;
     }) => ipcRenderer.invoke("ai:generateObject", request),
+    generateText: (request: {
+      chatModel: { provider: string; model: string };
+      system: string;
+      prompt: string;
+      maxTokens?: number;
+    }) => ipcRenderer.invoke("ai:generateText", request),
     onStreamChunk: (
       callback: (data: {
         threadId: string;
