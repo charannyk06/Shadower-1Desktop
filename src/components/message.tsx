@@ -170,7 +170,7 @@ const PurePreviewMessage = ({
   const isUserMessage = useMemo(() => message.role === "user", [message.role]);
   const partsForDisplay = useMemo(
     () =>
-      message.parts.filter(
+      (message.parts || []).filter(
         (part) => !(part.type === "text" && (part as any).ingestionPreview),
       ),
     [message.parts],
@@ -246,14 +246,20 @@ const PurePreviewMessage = ({
               }
 
               if (!isUserMessage) {
+                // Include part text hash AND message.parts reference in key to force re-render when content changes
+                // Use the actual part from message.parts if available to get the latest text
+                const actualPart = message.parts?.[unit.index] || part;
+                const partTextHash = actualPart.text ? actualPart.text.substring(0, 100).replace(/\s/g, '') : '';
+                const partsHash = message.parts ? message.parts.length + '-' + (message.parts.map((p: any) => p.text?.length || 0).join('-')) : '';
+                const contentKey = `${key}-${partTextHash}-${partsHash}`;
                 return (
                   <AssistMessagePart
                     threadId={threadId}
                     isLast={isLastMessage && isLastPart}
                     isLoading={isLoading}
-                    key={key}
+                    key={contentKey}
                     readonly={readonly}
-                    part={part}
+                    part={actualPart}
                     prevMessage={prevMessage}
                     showActions={
                       isLastMessage ? isLastPart && !isLoading : isLastPart
