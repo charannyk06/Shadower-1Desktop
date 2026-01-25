@@ -75,3 +75,9 @@ public/sandbox
 data/
 ralphy.sh
 index.js
+
+# Claude Flow and swarm configuration
+.claude-flow/
+.swarm/
+.mcp.json
+CLAUDE.md
