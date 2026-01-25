@@ -20,10 +20,9 @@ export type {
   AuthenticateResponse,
   CancelNotification,
   StopReason,
-  MessageContent,
   ToolCallContent,
   TextContent,
-  ThinkingContent,
+  ContentBlock,
 } from "@agentclientprotocol/sdk";
 
 /**

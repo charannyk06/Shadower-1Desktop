@@ -126,7 +126,7 @@ export class ACPAgentManager extends EventEmitter {
         // TODO: Check authentication status by trying to create a session
         authenticated: false,
       };
-    } catch (error) {
+    } catch (_error) {
       // Agent not installed via direct command, try npx
       const npxConfig = getAgentNpxConfig(config.id);
       if (npxConfig) {
@@ -308,7 +308,7 @@ export class ACPAgentManager extends EventEmitter {
           name: "Belgrade/Shadower",
           version: "1.0.0",
         },
-        capabilities: {
+        clientCapabilities: {
           terminal: true,
         },
       });
@@ -320,8 +320,8 @@ export class ACPAgentManager extends EventEmitter {
 
       // Update status with capabilities
       activeAgent.status.authenticated =
-        !initResponse.authenticationMethods ||
-        initResponse.authenticationMethods.length === 0;
+        !initResponse.authMethods ||
+        initResponse.authMethods.length === 0;
 
       this.emit("agent-started", { agentId: config.id, capabilities: initResponse });
     } catch (error) {
@@ -347,7 +347,7 @@ export class ACPAgentManager extends EventEmitter {
           const chunk: ACPMessageChunk = {
             sessionId: params.sessionId,
             agentId,
-            messageId: params.update.messageId || crypto.randomUUID(),
+            messageId: (params.update as any).messageId || crypto.randomUUID(),
             type: this._getChunkType(params.update),
             content: this._getChunkContent(params.update),
           };
@@ -404,18 +404,18 @@ export class ACPAgentManager extends EventEmitter {
       },
 
       // File system operations (optional - agent handles its own)
-      readTextFile: async (params) => {
+      readTextFile: async (_params) => {
         // Let the agent handle file reading
         throw new Error("File operations handled by agent");
       },
 
-      writeTextFile: async (params) => {
+      writeTextFile: async (_params) => {
         // Let the agent handle file writing
         throw new Error("File operations handled by agent");
       },
 
       // Terminal operations (optional - agent handles its own)
-      createTerminal: async (params) => {
+      createTerminal: async (_params) => {
         throw new Error("Terminal operations handled by agent");
       },
     };
@@ -481,7 +481,7 @@ export class ACPAgentManager extends EventEmitter {
         return {
           id: toolCall.id || "",
           name: toolCall.name || "",
-          input: toolCall.input,
+          input: toolCall.input as Record<string, unknown> | undefined,
           state: "running",
         };
       }
@@ -557,7 +557,10 @@ export class ACPAgentManager extends EventEmitter {
     }
 
     pending.resolve({
-      selectedOptionId: optionId,
+      outcome: {
+        outcome: "selected",
+        optionId: optionId,
+      },
     });
   }
 
@@ -583,17 +586,17 @@ export class ACPAgentManager extends EventEmitter {
 
     try {
       // ACP spec uses 'cwd' not 'workingDirectory'
+      // MCP servers use McpServerStdio format (flat structure, not nested transport)
       const response = await activeAgent.connection.newSession({
         cwd: workingDirectory,
-        mcpServers: mcpServers?.map((s) => ({
+        mcpServers: (mcpServers || []).map((s) => ({
+          mcpServer: "stdio" as const,
           name: s.name,
-          transport: {
-            type: "stdio" as const,
-            command: s.command,
-            args: s.args,
-            env: s.env,
-          },
-        })) || [],
+          command: s.command,
+          args: s.args || [],
+          // Convert env object to array format expected by ACP SDK
+          env: Object.entries(s.env || {}).map(([name, value]) => ({ name, value })),
+        })),
       });
 
       const session: ACPSession = {
@@ -601,8 +604,8 @@ export class ACPAgentManager extends EventEmitter {
         agentId,
         workingDirectory,
         createdAt: new Date(),
-        availableModes: response.availableModes?.map((m) => m.id),
-        currentMode: response.currentMode,
+        availableModes: response.modes?.availableModes?.map((m) => m.id),
+        currentMode: response.modes?.currentModeId,
       };
 
       activeAgent.sessions.set(response.sessionId, session);
