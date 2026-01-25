@@ -174,6 +174,33 @@ export interface ElectronAPI {
     listFiles: (
       category: "uploads" | "fragments" | "exports" | "workspace",
     ) => Promise<any[]>;
+    listWorkingDirectory: (options: {
+      directoryPath: string;
+      maxDepth?: number;
+    }) => Promise<{
+      success: boolean;
+      error?: string;
+      files: Array<{
+        name: string;
+        path: string;
+        relativePath: string;
+        size: number;
+        type: string;
+        isDirectory: boolean;
+        uploadedAt: string;
+        source: "working-directory";
+      }>;
+    }>;
+    readTextFile: (options: {
+      filePath: string;
+      maxSize?: number;
+    }) => Promise<{
+      success: boolean;
+      error?: string;
+      content: string | null;
+      size?: number;
+      modifiedAt?: string;
+    }>;
     clearCategory: (
       category: "uploads" | "fragments" | "exports" | "workspace",
     ) => Promise<{ success: boolean }>;
@@ -918,6 +945,13 @@ export interface ElectronAPI {
       cloudProviders: string[];
       providers: any[];
       localModels: any[];
+      acpAgents?: Array<{
+        id: string;
+        displayName: string;
+        iconProvider: string;
+        authenticated: boolean;
+        running: boolean;
+      }>;
     }>;
     getStatus: () => Promise<{
       totalProviders: number;
@@ -1152,10 +1186,12 @@ export interface ElectronAPI {
         env?: Record<string, string>;
       }>;
     }) => Promise<{
-      id: string;
+      sessionId: string;
       agentId: string;
-      status: "active" | "idle" | "error";
+      workingDirectory?: string;
       createdAt: Date;
+      availableModes?: string[];
+      currentMode?: string;
     }>;
 
     // Prompting
@@ -1209,10 +1245,12 @@ export interface ElectronAPI {
       callback: (data: {
         agentId: string;
         session: {
-          id: string;
+          sessionId: string;
           agentId: string;
-          status: "active" | "idle" | "error";
+          workingDirectory?: string;
           createdAt: Date;
+          availableModes?: string[];
+          currentMode?: string;
         };
       }) => void
     ) => () => void;
@@ -1415,6 +1453,14 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("files:getDownloadUrl", key),
     listFiles: (category: "uploads" | "fragments" | "exports" | "workspace") =>
       ipcRenderer.invoke("files:listFiles", category),
+    listWorkingDirectory: (options: {
+      directoryPath: string;
+      maxDepth?: number;
+    }) => ipcRenderer.invoke("files:listWorkingDirectory", options),
+    readTextFile: (options: {
+      filePath: string;
+      maxSize?: number;
+    }) => ipcRenderer.invoke("files:readTextFile", options),
     clearCategory: (
       category: "uploads" | "fragments" | "exports" | "workspace",
     ) => ipcRenderer.invoke("files:clearCategory", category),
@@ -1991,10 +2037,12 @@ const electronAPI: ElectronAPI = {
       callback: (data: {
         agentId: string;
         session: {
-          id: string;
+          sessionId: string;
           agentId: string;
-          status: "active" | "idle" | "error";
+          workingDirectory?: string;
           createdAt: Date;
+          availableModes?: string[];
+          currentMode?: string;
         };
       }) => void
     ) => {
