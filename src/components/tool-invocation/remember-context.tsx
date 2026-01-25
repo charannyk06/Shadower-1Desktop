@@ -68,7 +68,7 @@ function PureRememberContextToolInvocation({
   const [isMinimized, setIsMinimized] = useState(true);
 
   const result = useMemo(() => {
-    if (!part.state.startsWith("output")) return null;
+    if (!part.state?.startsWith("output")) return null;
     return part.output as RememberContextResult & {
       isError: boolean;
       error?: string;
@@ -95,7 +95,7 @@ function PureRememberContextToolInvocation({
     );
   }, [part.input, t]);
 
-  if (!part.state.startsWith("output"))
+  if (!part.state?.startsWith("output"))
     return (
       <div className="flex items-center gap-2 text-sm">
         <BrainIcon className="size-5 wiggle text-muted-foreground" />

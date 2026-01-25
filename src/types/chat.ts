@@ -31,6 +31,7 @@ export type ChatThread = {
   title: string;
   userId: string;
   createdAt: Date;
+  provider?: string; // Provider identifier (e.g., "coding-agents" for ACP chats)
 };
 
 export type ChatMessage = {

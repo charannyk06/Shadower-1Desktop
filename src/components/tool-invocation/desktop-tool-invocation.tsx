@@ -56,7 +56,7 @@ export const DesktopToolInvocation = memo(function DesktopToolInvocation({
   );
 
   const result = useMemo(() => {
-    if (part.state.startsWith("input")) return null;
+    if (part.state?.startsWith("input")) return null;
     return part.output as DesktopToolResult;
   }, [part.state, part.output]);
 

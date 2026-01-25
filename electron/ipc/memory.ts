@@ -72,6 +72,16 @@ const EMBEDDING_CACHE_MAX_SIZE = 1000; // Increased for local (no API cost)
 const EMBEDDING_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour (longer for local)
 
 /**
+ * Clear all memory-related caches
+ * IMPORTANT: Call this after any delete operation to prevent stale data
+ */
+export function clearMemoryCaches(): void {
+  EMBEDDING_CACHE.clear();
+  KNOWLEDGE_BASE_CACHE.clear();
+  console.log("[Memory] All caches cleared (embedding + knowledge base)");
+}
+
+/**
  * Decrypt API key using Electron's safeStorage (for optional OpenAI fallback)
  */
 function decryptApiKey(encryptedKey: string): string {
@@ -434,7 +444,7 @@ export function registerMemoryHandlers() {
         // Apply hybrid scoring with keyword boost
         // Boost values are intentionally modest to avoid over-ranking partial keyword matches
         // over semantically relevant content. Max boost: 0.15 + 0.10 = 0.25
-        const scoredResults = deduplicatedResults
+        const scoredResultsRaw = deduplicatedResults
           .map((result: any) => {
             const content = String(result.content || "").toLowerCase();
 
@@ -466,11 +476,24 @@ export function registerMemoryHandlers() {
               role: result.role,
               createdAt: result.created_at,
               metadata: result.metadata,
+              // Extract knowledgeBaseId from metadata for enrichment
+              knowledgeBaseId: result.metadata?.knowledgeBaseId || null,
             };
           })
           .filter((r) => r.score >= scoreThreshold)
           .sort((a, b) => b.score - a.score)
           .slice(0, limit);
+
+        // Enrich document results with knowledge base names
+        const scoredResults = await Promise.all(
+          scoredResultsRaw.map(async (result) => {
+            if (result.knowledgeBaseId && (result.source === "documents" || result.source === "knowledge")) {
+              const knowledgeBaseName = await getKnowledgeBaseName(result.knowledgeBaseId);
+              return { ...result, knowledgeBaseName: knowledgeBaseName || undefined };
+            }
+            return result;
+          })
+        );
 
         const elapsedMs = Math.round(performance.now() - start);
         console.log(
@@ -569,6 +592,7 @@ export function registerMemoryHandlers() {
 
   /**
    * Delete items from memory
+   * IMPORTANT: Also clears caches to prevent stale data from being returned
    */
   ipcMain.handle(
     "memory:delete",
@@ -587,7 +611,12 @@ export function registerMemoryHandlers() {
         }
 
         await vectorStore.delete(collection, ids);
-        console.log(`[Memory] Deleted ${ids.length} items from ${collection}`);
+
+        // CRITICAL: Clear caches to prevent deleted content from being found in search
+        EMBEDDING_CACHE.clear();
+        KNOWLEDGE_BASE_CACHE.clear();
+
+        console.log(`[Memory] Deleted ${ids.length} items from ${collection}, caches cleared`);
 
         return { success: true, deleted: ids.length };
       } catch (error) {
@@ -599,6 +628,7 @@ export function registerMemoryHandlers() {
 
   /**
    * Delete all memory for a thread
+   * IMPORTANT: Also clears caches to prevent stale data from being returned
    */
   ipcMain.handle(
     "memory:deleteByThread",
@@ -613,7 +643,12 @@ export function registerMemoryHandlers() {
         }
 
         await vectorStore.deleteByThread(threadId);
-        console.log(`[Memory] Deleted all memory for thread: ${threadId}`);
+
+        // CRITICAL: Clear caches to prevent deleted content from being found in search
+        EMBEDDING_CACHE.clear();
+        KNOWLEDGE_BASE_CACHE.clear();
+
+        console.log(`[Memory] Deleted all memory for thread: ${threadId}, caches cleared`);
 
         return { success: true };
       } catch (error) {

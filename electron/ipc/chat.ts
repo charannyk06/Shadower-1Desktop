@@ -1,6 +1,8 @@
 import { ipcMain } from "electron";
 import { getDatabase, schema } from "../services/database";
 import { eq, desc, and, gt } from "drizzle-orm";
+import { getVectorStore } from "../services/vector-store";
+import { clearMemoryCaches } from "./memory";
 
 export function registerChatHandlers() {
   const db = getDatabase();
@@ -146,12 +148,21 @@ export function registerChatHandlers() {
   // Create a new thread
   ipcMain.handle("db:chat:createThread", async (_event, data: any) => {
     try {
+      // Build values object, including id if provided (for ACP chats that pre-generate threadId)
+      const values: any = {
+        title: data.title,
+        userId: data.userId,
+        provider: data.provider, // Store provider to identify ACP chats
+      };
+
+      // If an explicit id is provided, use it (important for ACP threads)
+      if (data.id) {
+        values.id = data.id;
+      }
+
       const [thread] = await db
         .insert(schema.ChatThreadTable)
-        .values({
-          title: data.title,
-          userId: data.userId,
-        } as typeof schema.ChatThreadTable.$inferInsert)
+        .values(values as typeof schema.ChatThreadTable.$inferInsert)
         .returning();
 
       return thread;
@@ -187,11 +198,13 @@ export function registerChatHandlers() {
     "db:chat:updateThread",
     async (_event, id: string, data: any) => {
       try {
+        const updateData: Record<string, any> = {};
+        if (data.title !== undefined) updateData.title = data.title;
+        if (data.provider !== undefined) updateData.provider = data.provider;
+
         await db
           .update(schema.ChatThreadTable)
-          .set({
-            title: data.title,
-          })
+          .set(updateData)
           .where(eq(schema.ChatThreadTable.id, id));
 
         return { success: true };
@@ -203,8 +216,26 @@ export function registerChatHandlers() {
   );
 
   // Delete a thread (cascade will delete messages)
+  // IMPORTANT: Also deletes vector embeddings from DuckDB
   ipcMain.handle("db:chat:deleteThread", async (_event, id: string) => {
     try {
+      // Delete vector embeddings FIRST (before SQLite cascade deletes messages)
+      // Wrap in try-catch so DuckDB failures don't prevent SQLite deletion
+      const vectorStore = getVectorStore();
+      if (vectorStore.isAvailable()) {
+        try {
+          await vectorStore.deleteByThread(id);
+          console.log(`[IPC] Deleted vector embeddings for thread: ${id}`);
+        } catch (vectorError) {
+          // Log but don't throw - DuckDB connection issues shouldn't block thread deletion
+          console.warn(`[IPC] Failed to delete vector embeddings for thread ${id}:`, vectorError);
+        }
+      }
+
+      // Clear caches to prevent stale data
+      clearMemoryCaches();
+
+      // Now delete from SQLite (cascades to messages)
       await db
         .delete(schema.ChatThreadTable)
         .where(eq(schema.ChatThreadTable.id, id));
@@ -357,13 +388,38 @@ export function registerChatHandlers() {
   );
 
   // Delete all threads for a user
+  // IMPORTANT: Also deletes all vector embeddings from DuckDB
   ipcMain.handle("db:chat:deleteAllThreads", async (_event, userId: string) => {
     try {
+      // Get all thread IDs first so we can delete their embeddings
+      const threads = await db
+        .select({ id: schema.ChatThreadTable.id })
+        .from(schema.ChatThreadTable)
+        .where(eq(schema.ChatThreadTable.userId, userId));
+
+      // Delete vector embeddings for each thread
+      // Wrap in try-catch so DuckDB failures don't prevent SQLite deletion
+      const vectorStore = getVectorStore();
+      if (vectorStore.isAvailable() && threads.length > 0) {
+        for (const thread of threads) {
+          try {
+            await vectorStore.deleteByThread(thread.id);
+          } catch (vectorError) {
+            console.warn(`[IPC] Failed to delete vector embeddings for thread ${thread.id}:`, vectorError);
+          }
+        }
+        console.log(`[IPC] Attempted to delete vector embeddings for ${threads.length} threads`);
+      }
+
+      // Clear caches to prevent stale data
+      clearMemoryCaches();
+
+      // Now delete from SQLite (cascades to messages)
       await db
         .delete(schema.ChatThreadTable)
         .where(eq(schema.ChatThreadTable.userId, userId));
 
-      console.log(`[IPC] Deleted all threads for user: ${userId}`);
+      console.log(`[IPC] Deleted all threads for user: ${userId} (${threads.length} threads)`);
       return { success: true };
     } catch (error) {
       console.error("[IPC] Error deleting all chat threads:", error);
@@ -415,8 +471,25 @@ export function registerChatHandlers() {
   });
 
   // Delete a single message
+  // IMPORTANT: Also deletes vector embedding from DuckDB
   ipcMain.handle("db:chat:deleteMessage", async (_event, messageId: string) => {
     try {
+      // Delete from vector store first
+      // Wrap in try-catch so DuckDB failures don't prevent SQLite deletion
+      const vectorStore = getVectorStore();
+      if (vectorStore.isAvailable()) {
+        try {
+          await vectorStore.delete("messages", [messageId]);
+          console.log(`[IPC] Deleted vector embedding for message: ${messageId}`);
+        } catch (vectorError) {
+          console.warn(`[IPC] Failed to delete vector embedding for message ${messageId}:`, vectorError);
+        }
+      }
+
+      // Clear caches to prevent stale data
+      clearMemoryCaches();
+
+      // Delete from SQLite
       await db
         .delete(schema.ChatMessageTable)
         .where(eq(schema.ChatMessageTable.id, messageId));
@@ -429,6 +502,7 @@ export function registerChatHandlers() {
   });
 
   // Delete messages after a specific message (by timestamp)
+  // IMPORTANT: Also deletes vector embeddings from DuckDB
   ipcMain.handle(
     "db:chat:deleteMessagesAfterTimestamp",
     async (_event, data: { threadId: string; messageId: string }) => {
@@ -448,6 +522,36 @@ export function registerChatHandlers() {
 
         // Delete all messages in the thread that are after this message
         if (targetMessage.createdAt) {
+          // First, get the IDs of messages that will be deleted
+          const messagesToDelete = await db
+            .select({ id: schema.ChatMessageTable.id })
+            .from(schema.ChatMessageTable)
+            .where(
+              and(
+                eq(schema.ChatMessageTable.threadId, threadId),
+                gt(schema.ChatMessageTable.createdAt, targetMessage.createdAt),
+              ),
+            );
+
+          // Delete from vector store first
+          // Wrap in try-catch so DuckDB failures don't prevent SQLite deletion
+          if (messagesToDelete.length > 0) {
+            const vectorStore = getVectorStore();
+            if (vectorStore.isAvailable()) {
+              try {
+                const messageIds = messagesToDelete.map((m) => m.id);
+                await vectorStore.delete("messages", messageIds);
+                console.log(`[IPC] Deleted ${messageIds.length} vector embeddings for messages after timestamp`);
+              } catch (vectorError) {
+                console.warn(`[IPC] Failed to delete vector embeddings for messages after timestamp:`, vectorError);
+              }
+            }
+
+            // Clear caches to prevent stale data
+            clearMemoryCaches();
+          }
+
+          // Now delete from SQLite
           await db
             .delete(schema.ChatMessageTable)
             .where(

@@ -25,11 +25,11 @@ function PureImageGeneratorToolInvocation({
   part,
 }: ImageGeneratorToolInvocationProps) {
   const isGenerating = useMemo(() => {
-    return !part.state.startsWith("output");
+    return !part.state?.startsWith("output");
   }, [part.state]);
 
   const result = useMemo(() => {
-    if (!part.state.startsWith("output")) return null;
+    if (!part.state?.startsWith("output")) return null;
     return part.output as ImageGenerationResult;
   }, [part.state, part.output]);
 

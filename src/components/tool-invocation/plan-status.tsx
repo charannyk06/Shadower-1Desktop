@@ -34,12 +34,12 @@ function PurePlanStatusInvocation({
   const { t } = useTranslation();
 
   const result = useMemo(() => {
-    if (!part.state.startsWith("output")) return null;
+    if (!part.state?.startsWith("output")) return null;
     return part.output as PlanStatusOutput;
   }, [part.state, part.output]);
 
   // Loading state
-  if (!part.state.startsWith("output")) {
+  if (!part.state?.startsWith("output")) {
     return (
       <div className="flex items-center gap-2 text-sm">
         <ClipboardListIcon className="h-4 w-4 text-muted-foreground" />
