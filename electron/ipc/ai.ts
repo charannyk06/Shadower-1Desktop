@@ -42,18 +42,22 @@ import { ensureClientConnected } from "../services/mcp-client-service";
 import {
   getModelCapabilities,
   localModelSupportsTools,
+  isSmallLocalModel,
+  getModelRagLimits,
 } from "../../src/lib/ai/providers/capabilities";
 import {
   calculateContextUsageAsync,
   maybeCompactMessages,
   estimateTokens,
 } from "../../src/lib/ai/context";
-import { getVectorStore } from "../services/vector-store";
-import { indexMessageForMemory } from "./memory";
+import { indexMessageForMemory, semanticMemorySearch } from "./memory";
 import { EnhancedBrowserService } from "../services/browser-service";
 import { setBrowserServiceInstance } from "../../src/lib/ai/tools/browser/local-browser-tools";
 
 const execAsync = promisify(exec);
+
+// Debug flag for RAG logging (set DEBUG_RAG=true in env for verbose RAG logs)
+const DEBUG_RAG = process.env.DEBUG_RAG === "true";
 
 // ============================================
 // LOCAL MODEL ARGUMENT COERCION HELPERS
@@ -468,9 +472,10 @@ interface StreamContext {
   event: Electron.IpcMainInvokeEvent;
   userMessage?: UIMessage; // Store user message for persistence
   chatModel?: { provider: string; model: string };
-  chatMode?: "regular" | "agent";
+  chatMode?: "regular" | "agent" | "rag";
   originalUIMessages?: UIMessage[]; // Store original UIMessages for follow-up calls
   workingDirectory?: { path: string; name: string }; // Working directory for file operations
+  toolNameMapping?: Record<string, string>; // Map of renamed tool names to original names (for UI display)
 }
 const preparedStreams = new Map<string, StreamContext>();
 
@@ -482,6 +487,11 @@ interface StreamBuffer {
   error?: string;
 }
 const streamBuffers = new Map<string, StreamBuffer>();
+
+// Track orphan cleanup timeouts for prepared streams that never start
+// This prevents memory leaks when renderer crashes between prepare and start
+const orphanCleanupTimeouts = new Map<string, NodeJS.Timeout>();
+const ORPHAN_CLEANUP_DELAY_MS = 60000; // 1 minute (reduced from 2 for faster cleanup)
 
 // Maximum size for inline data (base64 strings, etc.) in tokens
 // Anything larger will be replaced with a placeholder
@@ -979,7 +989,7 @@ interface StreamRequest {
     model: string;
   };
   toolChoice?: string;
-  chatMode?: "regular" | "agent";
+  chatMode?: "regular" | "agent" | "rag";
   allowedAppDefaultToolkit?: string[];
   allowedMcpServers?: Record<string, any>;
   mentions?: any[];
@@ -1001,6 +1011,124 @@ function decryptApiKey(encryptedKey: string): string {
   }
   // Fallback: base64 decode
   return Buffer.from(encryptedKey, "base64").toString("utf-8");
+}
+
+/**
+ * Maps toolkit names to their corresponding tool names
+ * Used to filter tools based on user's allowedAppDefaultToolkit selection
+ */
+function getToolNamesForToolkits(toolkits: string[]): Set<string> {
+  const toolNames = new Set<string>();
+
+  for (const toolkit of toolkits) {
+    switch (toolkit) {
+      case "desktop":
+        // Desktop toolkit - terminal, file ops, system tools
+        // Include both prefixed and non-prefixed for MCP compatibility
+        toolNames.add("terminal_execute");
+        toolNames.add("file_read");
+        toolNames.add("file_write");
+        toolNames.add("file_list");
+        toolNames.add("file_search");
+        toolNames.add("local_file_read");
+        toolNames.add("local_file_write");
+        toolNames.add("local_file_list");
+        toolNames.add("local_file_search");
+        toolNames.add("desktop_screenshot");
+        toolNames.add("browser_open");
+        toolNames.add("clipboard_read");
+        toolNames.add("clipboard_write");
+        toolNames.add("system_info");
+        break;
+
+      case "webSearch":
+        // Web search toolkit
+        toolNames.add("web_search");
+        toolNames.add("web_fetch");
+        toolNames.add("local_web_search");
+        toolNames.add("local_web_fetch");
+        break;
+
+      case "browser":
+        // Browser automation toolkit (all browser_* tools)
+        // Session management
+        toolNames.add("browser_create_session");
+        toolNames.add("browser_close_session");
+        toolNames.add("browser_list_sessions");
+        toolNames.add("browser_switch_session");
+        // Navigation
+        toolNames.add("browser_navigate");
+        toolNames.add("browser_go_back");
+        toolNames.add("browser_go_forward");
+        toolNames.add("browser_reload");
+        // Page understanding
+        toolNames.add("browser_get_snapshot");
+        toolNames.add("browser_get_context");
+        toolNames.add("browser_analyze_forms");
+        toolNames.add("browser_fill_form");
+        // Element interaction
+        toolNames.add("browser_click");
+        toolNames.add("browser_fill");
+        toolNames.add("browser_type");
+        toolNames.add("browser_press_key");
+        toolNames.add("browser_scroll");
+        toolNames.add("browser_wait");
+        toolNames.add("browser_hover");
+        toolNames.add("browser_select");
+        toolNames.add("browser_check");
+        toolNames.add("browser_uncheck");
+        // Page information
+        toolNames.add("browser_screenshot");
+        toolNames.add("browser_get_content");
+        toolNames.add("browser_get_url");
+        toolNames.add("browser_get_title");
+        toolNames.add("browser_evaluate");
+        // Multi-tab
+        toolNames.add("browser_new_tab");
+        toolNames.add("browser_new_window");
+        toolNames.add("browser_switch_tab");
+        toolNames.add("browser_close_tab");
+        toolNames.add("browser_list_tabs");
+        toolNames.add("browser_get_active_tab_index");
+        break;
+
+      case "memory":
+        // Memory toolkit
+        toolNames.add("memory_search");
+        break;
+
+      case "visualization":
+        // Visualization toolkit (MCP tools, not in createElectronTools)
+        toolNames.add("createPieChart");
+        toolNames.add("createBarChart");
+        toolNames.add("createLineChart");
+        toolNames.add("createTable");
+        break;
+
+      case "dataAnalysis":
+        // Data analysis toolkit (MCP tools)
+        toolNames.add("profileData");
+        toolNames.add("analyzeData");
+        toolNames.add("createVisualization");
+        break;
+
+      case "documents":
+        // Document generation toolkit (MCP tools)
+        toolNames.add("createPresentation");
+        toolNames.add("createDocument");
+        toolNames.add("createSpreadsheet");
+        toolNames.add("createMultiSheetWorkbook");
+        toolNames.add("createPDF");
+        break;
+
+      case "research":
+        // Research toolkit (MCP tools)
+        toolNames.add("deepResearch");
+        break;
+    }
+  }
+
+  return toolNames;
 }
 
 /**
@@ -1612,14 +1740,15 @@ function createElectronTools(
       },
     }),
 
-    // Memory search - search past conversations for relevant context
+    // Memory search - search past conversations AND knowledge bases for relevant context
+    // Uses LOCAL embeddings (transformers.js) - NO API KEY REQUIRED!
     memory_search: createTool({
       description:
-        "Search past conversations and memory for relevant context. Use this to recall information from previous conversations, remember user preferences, or find related discussions. Returns semantically similar content from conversation history.",
+        "Search past conversations, knowledge bases, and indexed documents for relevant context. Use this to recall information from previous conversations, find knowledge base content, remember user preferences, or find related discussions. Returns semantically similar content using LOCAL embeddings (works offline).",
       inputSchema: z.object({
         query: z
           .string()
-          .describe("The search query to find relevant context from memory"),
+          .describe("The search query to find relevant context from memory and knowledge bases"),
         limit: z
           .number()
           .optional()
@@ -1628,8 +1757,12 @@ function createElectronTools(
           .number()
           .optional()
           .describe("Minimum relevance score 0-1 (default 0.5)"),
+        collections: z
+          .array(z.enum(["messages", "documents", "knowledge"]))
+          .optional()
+          .describe("Which collections to search (default: all)"),
       }),
-      execute: async ({ query, limit = 5, scoreThreshold = 0.5 }) => {
+      execute: async ({ query, limit = 5, scoreThreshold = 0.5, collections }) => {
         const start = performance.now();
 
         try {
@@ -1642,118 +1775,35 @@ function createElectronTools(
             };
           }
 
-          const vectorStore = getVectorStore();
-
-          // Initialize if needed
-          if (!vectorStore.isAvailable()) {
-            await vectorStore.initialize();
-          }
-
-          if (!vectorStore.isAvailable()) {
-            return {
-              success: false,
-              error: "Memory system not available",
-              results: [],
-              count: 0,
-            };
-          }
-
-          // Get OpenAI API key for embeddings
-          const apiKey = await getApiKeyForProvider("openai");
-          if (!apiKey) {
-            return {
-              success: false,
-              error:
-                "OpenAI API key not configured. Memory search requires embeddings.",
-              results: [],
-              count: 0,
-            };
-          }
-
-          // Generate query embedding
-          const embeddingResponse = await fetch(
-            "https://api.openai.com/v1/embeddings",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model: "text-embedding-3-small",
-                input: query.replace(/\s+/g, " ").trim().slice(0, 8000),
-                dimensions: 1536,
-              }),
-            },
-          );
-
-          if (!embeddingResponse.ok) {
-            const errorText = await embeddingResponse.text();
-            return {
-              success: false,
-              error: `Failed to generate embedding: ${errorText}`,
-              results: [],
-              count: 0,
-            };
-          }
-
-          const embeddingData = await embeddingResponse.json();
-          const queryEmbedding = embeddingData.data[0].embedding;
-
-          // Search vector store
-          const searchResults = await vectorStore.search(
-            queryEmbedding,
-            "messages",
-            limit * 2, // Get more for filtering
-          );
-
-          // Extract keywords for hybrid boost
-          const keywords = query
-            .toLowerCase()
-            .split(/\s+/)
-            .filter((w) => w.length > 2);
-
-          // Apply hybrid scoring
-          const scoredResults = searchResults
-            .map((result: any) => {
-              const content = String(result.content || "").toLowerCase();
-
-              // Keyword boost
-              let keywordBoost = 0;
-              for (const keyword of keywords) {
-                if (content.includes(keyword)) {
-                  keywordBoost += 0.15 / keywords.length;
-                }
-              }
-
-              const finalScore = Math.min(
-                1.0,
-                (result.similarity || 0) + keywordBoost,
-              );
-
-              return {
-                id: result.id,
-                content: result.content,
-                score: finalScore,
-                role: result.role,
-                threadId: result.thread_id,
-                createdAt: result.created_at,
-              };
-            })
-            .filter((r: any) => r.score >= scoreThreshold)
-            .sort((a: any, b: any) => b.score - a.score)
-            .slice(0, limit);
+          // Use semanticMemorySearch which uses LOCAL embeddings (transformers.js)
+          // This works offline without any API key!
+          const results = await semanticMemorySearch(query, {
+            limit,
+            scoreThreshold,
+            collections: collections || ["messages", "documents", "knowledge"],
+            userId: "local-user", // Single-user desktop app
+          });
 
           const elapsedMs = Math.round(performance.now() - start);
 
           console.log(
-            `[AI Tools] Memory search: ${scoredResults.length} results in ${elapsedMs}ms`,
+            `[AI Tools] Memory search (LOCAL): ${results.length} results in ${elapsedMs}ms`,
           );
 
           return {
             success: true,
-            results: scoredResults,
-            count: scoredResults.length,
+            results: results.map((r) => ({
+              id: r.id,
+              content: r.content,
+              score: r.score,
+              source: r.source,
+              role: r.role,
+              threadId: r.threadId,
+              createdAt: r.createdAt,
+              knowledgeBaseId: r.knowledgeBaseId,
+              knowledgeBaseName: r.knowledgeBaseName,
+            })),
+            count: results.length,
             query,
             elapsedMs,
           };
@@ -2304,8 +2354,6 @@ export function registerAIHandlers() {
   // Initialize browser service for local-browser-tools (used by orchestrator agent)
   setBrowserServiceInstance(EnhancedBrowserService.getInstance());
 
-  // Also register the workflow generation handler
-  registerWorkflowGenerationHandler();
   /**
    * Phase 1: Prepare the stream (setup model, tools, etc.)
    * Returns immediately so renderer can set up listeners
@@ -2318,6 +2366,7 @@ export function registerAIHandlers() {
       chatModel,
       message,
       allowedMcpServers,
+      allowedAppDefaultToolkit,
       chatMode,
       workingDirectory,
     } = request;
@@ -2325,9 +2374,9 @@ export function registerAIHandlers() {
     console.log(
       `[AI IPC] Stream PREPARE for thread: ${threadId}, model: ${chatModel?.provider}/${chatModel?.model}, mode: ${chatMode || "regular"}`,
     );
-    // console.log(
-    //   `[AI IPC] Allowed toolkits: ${allowedAppDefaultToolkit?.join(", ") || "all"}`,
-    // );
+    if (allowedAppDefaultToolkit && allowedAppDefaultToolkit.length > 0) {
+      console.log(`[AI IPC] Allowed toolkits: ${allowedAppDefaultToolkit.join(", ")}`);
+    }
     // console.log(
     //   `[AI IPC] Allowed MCP servers: ${allowedMcpServers ? Object.keys(allowedMcpServers).join(", ") : "none"}`,
     // );
@@ -2467,6 +2516,9 @@ export function registerAIHandlers() {
       // Let both coexist - the model can choose the best tool for the task
       const desktopTools: Record<string, any> = {};
 
+      // Track tool name renames for UI display (renamed → original)
+      const toolNameMapping: Record<string, string> = {};
+
       for (const [toolName, tool] of Object.entries(allDesktopTools)) {
         // ALWAYS include terminal_execute - it's fundamental for local execution
         // Even with GitHub MCP, users need terminal for npm, python, scripts, etc.
@@ -2481,9 +2533,11 @@ export function registerAIHandlers() {
           hasMcpFileSystem
         ) {
           // Rename to local_* to differentiate from MCP filesystem tools
-          desktopTools[`local_${toolName}`] = tool;
+          const renamedName = `local_${toolName}`;
+          desktopTools[renamedName] = tool;
+          toolNameMapping[renamedName] = toolName; // Track rename for UI
           console.log(
-            `[AI IPC] Renamed ${toolName} to local_${toolName} - MCP also provides filesystem`,
+            `[AI IPC] Renamed ${toolName} to ${renamedName} - MCP also provides filesystem`,
           );
           continue;
         }
@@ -2493,24 +2547,33 @@ export function registerAIHandlers() {
           (toolName === "web_search" || toolName === "web_fetch") &&
           hasMcpSearch
         ) {
-          desktopTools[`local_${toolName}`] = tool;
+          const renamedName = `local_${toolName}`;
+          desktopTools[renamedName] = tool;
+          toolNameMapping[renamedName] = toolName; // Track rename for UI
           console.log(
-            `[AI IPC] Renamed ${toolName} to local_${toolName} - MCP also provides search`,
+            `[AI IPC] Renamed ${toolName} to ${renamedName} - MCP also provides search`,
           );
           continue;
         }
 
         // For browser_open when MCP provides browser, rename to avoid conflicts
         if (toolName === "browser_open" && hasMcpBrowser) {
-          desktopTools[`local_${toolName}`] = tool;
+          const renamedName = `local_${toolName}`;
+          desktopTools[renamedName] = tool;
+          toolNameMapping[renamedName] = toolName; // Track rename for UI
           console.log(
-            `[AI IPC] Renamed ${toolName} to local_${toolName} - MCP also provides browser`,
+            `[AI IPC] Renamed ${toolName} to ${renamedName} - MCP also provides browser`,
           );
           continue;
         }
 
         // Include all other tools without modification
         desktopTools[toolName] = tool;
+      }
+
+      // Log tool name mapping if any renames occurred
+      if (Object.keys(toolNameMapping).length > 0) {
+        console.log(`[AI IPC] Tool name mapping: ${JSON.stringify(toolNameMapping)}`);
       }
 
       console.log(
@@ -2542,7 +2605,48 @@ export function registerAIHandlers() {
       }
 
       // Merge all tools - filtered MCP tools + desktop tools
-      const tools = { ...filteredMcpTools, ...desktopTools };
+      let tools = { ...filteredMcpTools, ...desktopTools };
+
+      // Filter tools based on user's allowedAppDefaultToolkit selection
+      // If no toolkits specified, all tools are available (backwards compatible)
+      if (allowedAppDefaultToolkit && allowedAppDefaultToolkit.length > 0) {
+        const allowedToolNames = getToolNamesForToolkits(allowedAppDefaultToolkit);
+        const filteredByToolkit: typeof tools = {};
+
+        for (const [toolName, tool] of Object.entries(tools)) {
+          // Check for exact match first
+          if (allowedToolNames.has(toolName)) {
+            filteredByToolkit[toolName] = tool;
+            continue;
+          }
+
+          // For MCP tools (prefixed with server name), check if the base name matches
+          // MCP tools are formatted as: mcp_servername_toolname or servername_toolname
+          const toolBaseName = toolName.includes("_")
+            ? toolName.split("_").pop() || toolName
+            : toolName;
+          if (allowedToolNames.has(toolBaseName)) {
+            filteredByToolkit[toolName] = tool;
+            continue;
+          }
+
+          // Check if any allowed tool name is a suffix of this tool name
+          // This handles cases like "browser_navigate" matching when "navigate" is allowed
+          for (const allowedName of allowedToolNames) {
+            if (toolName.endsWith(`_${allowedName}`) || toolName === allowedName) {
+              filteredByToolkit[toolName] = tool;
+              break;
+            }
+          }
+        }
+
+        const removedCount = Object.keys(tools).length - Object.keys(filteredByToolkit).length;
+        if (removedCount > 0) {
+          console.log(`[AI IPC] Filtered ${removedCount} tools based on allowed toolkits: ${allowedAppDefaultToolkit.join(", ")}`);
+        }
+        console.log(`[AI IPC] Tools after toolkit filter: ${Object.keys(filteredByToolkit).join(", ") || "none"}`);
+        tools = filteredByToolkit;
+      }
 
       // Check model capabilities before passing tools
       const capabilities = getModelCapabilities(chatModel.model);
@@ -2553,27 +2657,72 @@ export function registerAIHandlers() {
       // Check if the model actually supports tool calling
       // Determine which tools to pass based on model capabilities
       // ============================================
+      //
+      // SMALL MODEL RAG WORKAROUND (Architecture Decision)
+      // ===================================================
+      // Small local models (3B-8B params like Llama 3.2, Phi-3, Qwen2.5-3B) cannot
+      // reliably use tools via function calling. They frequently:
+      // - Hallucinate tool parameters
+      // - Call tools repeatedly in loops
+      // - Fail to parse tool results correctly
+      //
+      // SOLUTION: Two-tier RAG architecture
+      // 1. SMALL MODELS: Pre-fetch and inject context automatically (no tools)
+      //    - Context is retrieved before streaming starts
+      //    - Injected as a system message the model can directly reference
+      //    - Uses stricter limits: 1000 chars, 5 results, 0.4 threshold
+      //    - See: getModelRagLimits() in capabilities.ts
+      //
+      // 2. LARGER MODELS: Agentic RAG with memory_search tool
+      //    - Model decides when/what to search
+      //    - Can perform multi-step searches and refine queries
+      //    - Standard limits: 4000 chars, 10 results, 0.3 threshold
+      //
+      // This workaround enables RAG functionality for users with modest hardware
+      // while providing superior agentic RAG for users with capable models.
+      // Related: isSmallLocalModel() in capabilities.ts
+      // ============================================
       let toolsToUse: typeof tools | undefined;
 
-      if (Object.keys(tools).length === 0) {
+      // RAG MODE - Different behavior based on model size (see workaround docs above)
+      const isSmallLocalModelForRag = isLocal && isSmallLocalModel(chatModel.model);
+
+      if (chatMode === "rag") {
+        if (isSmallLocalModelForRag) {
+          // SMALL LOCAL MODELS: No tools - they get automatic RAG context injection instead
+          toolsToUse = undefined;
+          console.log(`[AI IPC] RAG mode (small model ${chatModel.model}): No tools, using automatic context injection`);
+        } else {
+          // LARGER MODELS: Enable memory_search tool for agentic RAG
+          const ragTools: typeof tools = {};
+          if (tools["memory_search"]) {
+            ragTools["memory_search"] = tools["memory_search"];
+          }
+          toolsToUse = Object.keys(ragTools).length > 0 ? ragTools : undefined;
+          console.log(`[AI IPC] RAG mode (larger model): Agentic search with memory_search tool`);
+        }
+      } else if (Object.keys(tools).length === 0) {
         toolsToUse = undefined;
         console.log(`[AI IPC] No tools available to pass`);
       } else if (isLocal) {
         // LOCAL MODEL TOOLS - Minimal set for speed and reliability
         // Only terminal + headless search (like Claude Code)
         // Browser automation and MCP tools disabled for local models
+        // NOTE: Include BOTH prefixed and non-prefixed names because:
+        // - Without MCP: tools are named file_read, web_search, etc.
+        // - With MCP: tools get renamed to local_file_read, local_web_search, etc.
         const localModelTools = [
           // Terminal (like Claude Code)
           "terminal_execute",
-          // Headless web search (no browser needed)
-          "local_web_search",
-          "local_web_fetch",
-          // File operations for RAG and coding tasks
-          "local_file_read",
-          "local_file_write",
-          "local_file_list",
-          "local_file_search",
-          // Memory for context
+          // Headless web search (both with and without local_ prefix)
+          "web_search", "local_web_search",
+          "web_fetch", "local_web_fetch",
+          // File operations (both with and without local_ prefix)
+          "file_read", "local_file_read",
+          "file_write", "local_file_write",
+          "file_list", "local_file_list",
+          "file_search", "local_file_search",
+          // Memory for context (always same name)
           "memory_search",
         ];
 
@@ -2622,12 +2771,32 @@ export function registerAIHandlers() {
         chatMode,
         originalUIMessages: allMessages, // Store original UIMessages for follow-up tool calls
         workingDirectory, // Store working directory for later use
+        toolNameMapping, // Store tool name mapping for UI display
       });
+
+      // CRITICAL: Set orphan cleanup timeout to prevent memory leaks
+      // If renderer crashes between prepare and start, this will clean up
+      const orphanTimeout = setTimeout(() => {
+        if (preparedStreams.has(threadId)) {
+          console.warn(`[AI IPC] Cleaning up orphaned prepared stream: ${threadId}`);
+          preparedStreams.delete(threadId);
+          streamBuffers.delete(threadId);
+          activeStreams.delete(threadId);
+          orphanCleanupTimeouts.delete(threadId);
+        }
+      }, ORPHAN_CLEANUP_DELAY_MS);
+      orphanCleanupTimeouts.set(threadId, orphanTimeout);
 
       // console.log(`[AI IPC] Stream prepared for thread: ${threadId}, waiting for start signal`);
 
       // Return success - renderer should now set up listeners and call ai:stream:start
-      return { success: true, threadId, status: "prepared" };
+      // Include toolNameMapping so renderer can display original tool names in UI
+      return {
+        success: true,
+        threadId,
+        status: "prepared",
+        toolNameMapping: Object.keys(toolNameMapping).length > 0 ? toolNameMapping : undefined,
+      };
     } catch (error: any) {
       console.error("[AI IPC] Stream prepare error:", error);
       streamBuffers.get(threadId)!.error = error.message;
@@ -2659,6 +2828,13 @@ export function registerAIHandlers() {
           error: "Stream not prepared. Call ai:stream first.",
         });
         return { error: "Stream not prepared" };
+      }
+
+      // CRITICAL: Clear orphan cleanup timeout since stream is starting normally
+      const orphanTimeout = orphanCleanupTimeouts.get(threadId);
+      if (orphanTimeout) {
+        clearTimeout(orphanTimeout);
+        orphanCleanupTimeouts.delete(threadId);
       }
 
       // Check if there was an error during preparation
@@ -2805,8 +2981,206 @@ export function registerAIHandlers() {
           }),
         });
 
-        // Check if compression needed (at 98% threshold)
+        // ============================================
+        // RAG CONTEXT INJECTION
+        // ============================================
+        console.log(`\n[RAG] ========================================`);
+        console.log(`[RAG] STARTING RAG CHECK`);
+        console.log(`[RAG] Model: ${chatModel!.model}`);
+        console.log(`[RAG] Provider: ${chatModel!.provider}`);
+        console.log(`[RAG] Chat Mode: ${chatMode || "regular"}`);
+        console.log(`[RAG] ========================================`);
+
         let messagesToUse = messages;
+        const isLocalModel = isLocalProvider(chatModel!.provider);
+        console.log(`[RAG] isLocalModel: ${isLocalModel}`);
+
+        // Count user messages to determine if this is the first turn
+        const userMessageCount = messages.filter((m: any) => m.role === "user").length;
+        const isFirstUserMessage = userMessageCount === 1;
+
+        // RAG INJECTION LOGIC:
+        // - RAG MODE: Inject on EVERY turn for local models (that's the point of RAG mode)
+        // - OTHER MODES: Only inject on FIRST message
+        // - CLOUD models: Auto-inject on first message in non-RAG modes
+        const isSmallModelForRag = isLocalModel && isSmallLocalModel(chatModel!.model);
+
+        console.log(`[RAG] isSmallModelForRag: ${isSmallModelForRag}`);
+        console.log(`[RAG] isFirstUserMessage: ${isFirstUserMessage} (turn ${userMessageCount})`);
+
+        // RAG mode = every turn, other modes = first message only
+        const shouldInjectRag =
+          (chatMode === "rag" && isLocalModel) ||                          // RAG mode + local = every turn
+          (isFirstUserMessage && isSmallModelForRag) ||                    // Small local + first msg (any mode)
+          (isFirstUserMessage && !isLocalModel && chatMode !== "rag");     // Cloud + first msg + not RAG
+
+        console.log(`[RAG] shouldInjectRag: ${shouldInjectRag}`);
+
+        // Log RAG decision
+        if (shouldInjectRag) {
+          const reason = (chatMode === "rag" && isLocalModel)
+            ? "RAG mode (every turn)"
+            : isSmallModelForRag
+              ? "small local model (first message)"
+              : "cloud model (first message)";
+          console.log(`[RAG] ✓ Will inject context for: ${reason}, turn ${userMessageCount}`);
+        } else {
+          console.log(`[RAG] Skipping injection (turn ${userMessageCount}, mode: ${chatMode || "regular"})`);
+        }
+
+        // Get model-specific RAG limits (optimized for small models)
+        const ragLimits = getModelRagLimits(chatModel!.model, isLocalModel);
+        const isSmallModel = isSmallModelForRag; // Already computed above
+
+        if (isSmallModel && DEBUG_RAG) {
+          console.log(`[RAG] Small model detected (${chatModel!.model}) - using optimized limits: ${ragLimits.maxTotalChars} chars, ${ragLimits.maxResults} results`);
+        }
+
+        if (shouldInjectRag) {
+          try {
+            if (DEBUG_RAG) {
+              console.log(`[RAG] ========== STARTING RAG INJECTION ==========`);
+              console.log(`[RAG] Model: ${chatModel!.model}, Provider: ${chatModel!.provider}`);
+              console.log(`[RAG] isSmallModel: ${isSmallModel}, isLocalModel: ${isLocalModel}`);
+              console.log(`[RAG] Limits: maxResults=${ragLimits.maxResults}, threshold=${ragLimits.scoreThreshold}, maxChars=${ragLimits.maxTotalChars}`);
+            }
+
+            // Get userId for memory search
+            const usersForRag = await db.select().from(schema.UserTable).limit(1);
+            const userIdForRag = usersForRag[0]?.id || "local-user";
+            if (DEBUG_RAG) console.log(`[RAG] UserId for search: ${userIdForRag}`);
+
+            // Extract last user message for query
+            const lastUserMessage = messages.filter((m: any) => m.role === "user").pop();
+            if (lastUserMessage) {
+              const query = typeof lastUserMessage.content === "string"
+                ? lastUserMessage.content
+                : Array.isArray(lastUserMessage.content)
+                ? lastUserMessage.content.map((p: any) => p.type === "text" ? p.text : "").join(" ")
+                : "";
+
+              if (DEBUG_RAG) console.log(`[RAG] Query: "${query.slice(0, 100)}..."`);
+
+              if (query && query.trim().length >= 3) {
+                if (DEBUG_RAG) console.log(`[RAG] Calling semanticMemorySearch...`);
+                const ragResults = await semanticMemorySearch(query, {
+                  userId: userIdForRag,
+                  limit: ragLimits.maxResults,
+                  scoreThreshold: ragLimits.scoreThreshold,
+                  collections: ["messages", "knowledge", "documents"],
+                });
+
+                // Always log result count, but details only if DEBUG
+                console.log(`[RAG] Found ${ragResults.length} results`);
+                if (ragResults.length === 0 && DEBUG_RAG) {
+                  console.log(`[RAG] ⚠️ NO RESULTS FOUND - documents may not be indexed!`);
+                }
+
+                if (ragResults.length > 0) {
+                  // Build RAG context with model-specific limits
+                  let totalChars = 0;
+                  const truncatedResults: string[] = [];
+
+                  for (const r of ragResults) {
+                    // Truncate individual content based on model size
+                    const truncatedContent = r.content.length > ragLimits.maxContentPerItem
+                      ? r.content.slice(0, ragLimits.maxContentPerItem) + "..."
+                      : r.content;
+
+                    const entry = `[${Math.round(r.score * 100)}%] ${truncatedContent}`;
+
+                    // Check total limit (model-specific)
+                    if (totalChars + entry.length > ragLimits.maxTotalChars) {
+                      if (DEBUG_RAG) console.log(`[RAG] Stopping at ${truncatedResults.length} items (${isSmallModel ? "small model" : "total"} limit reached)`);
+                      break;
+                    }
+
+                    truncatedResults.push(entry);
+                    totalChars += entry.length;
+                  }
+
+                  if (truncatedResults.length > 0) {
+                    // Use compact format for small models, full format for others
+                    const ragContext = isSmallModel
+                      ? truncatedResults.join("\n")  // Single newline for small models
+                      : truncatedResults.join("\n\n");
+
+                    // Create RAG system message (compact for small models)
+                    const ragSystemMessage = {
+                      role: "system" as const,
+                      content: isSmallModel
+                        ? `[Context]\n${ragContext}`  // Minimal header for small models
+                        : `## Relevant Context from Memory\n\n${ragContext}\n\n---\nUse this context to inform your response if relevant.`,
+                    };
+
+                    // Inject after first system message (or at beginning)
+                    const systemMsgIndex = messagesToUse.findIndex((m: any) => m.role === "system");
+                    if (systemMsgIndex >= 0) {
+                      messagesToUse = [
+                        ...messagesToUse.slice(0, systemMsgIndex + 1),
+                        ragSystemMessage,
+                        ...messagesToUse.slice(systemMsgIndex + 1),
+                      ];
+                    } else {
+                      messagesToUse = [ragSystemMessage, ...messagesToUse];
+                    }
+
+                    console.log(
+                      `[RAG] Injected ${truncatedResults.length} items (${totalChars} chars) for ${isSmallModel ? "small" : isLocalModel ? "local" : "cloud"} model`,
+                    );
+                  }
+                }
+              }
+            }
+          } catch (ragError) {
+            // Don't fail the request if RAG injection fails
+            console.error("[RAG] Context injection failed:", ragError);
+          }
+        }
+
+        // ============================================
+        // RAG MODE INSTRUCTIONS (different for small vs large models)
+        // ============================================
+        if (chatMode === "rag") {
+          // Small local models: Context was auto-injected, just answer from it
+          // Larger models: Use memory_search tool agentically
+          const ragModeContent = isSmallModel
+            ? `[RAG] Answer using the context provided above. Be concise and direct.`
+            : `[RAG MODE - AGENTIC SEARCH]
+You have access to the memory_search tool to search the user's knowledge bases and conversation history.
+This tool uses LOCAL embeddings (works offline without any API key).
+
+IMPORTANT: This is AGENTIC RAG - you should:
+1. ALWAYS use memory_search first to find relevant information
+2. Search with multiple different queries if initial results are insufficient
+3. Refine your search based on what you find
+4. Synthesize comprehensive answers from multiple search results
+5. If the search returns no results, try alternative phrasings
+6. For document results, note the knowledgeBaseName field to cite sources
+
+In RAG mode, you have access to: memory_search
+For file operations, terminal, or browser automation, ask the user to switch to Agent mode.`;
+
+          const ragModeSystemMessage = {
+            role: "system" as const,
+            content: ragModeContent,
+          };
+
+          // Inject RAG mode awareness
+          const systemMsgIndex = messagesToUse.findIndex((m: any) => m.role === "system");
+          if (systemMsgIndex >= 0) {
+            messagesToUse = [
+              ...messagesToUse.slice(0, systemMsgIndex + 1),
+              ragModeSystemMessage,
+              ...messagesToUse.slice(systemMsgIndex + 1),
+            ];
+          } else {
+            messagesToUse = [ragModeSystemMessage, ...messagesToUse];
+          }
+          console.log(`[AI IPC] RAG mode instructions injected (${isSmallModel ? "small model - auto context" : "larger model - agentic"})`);
+        }
+
+        // Check if compression needed (at 98% threshold)
 
         if (initialUsage.needsCompaction) {
           console.log(
@@ -2883,16 +3257,6 @@ export function registerAIHandlers() {
         // SANITIZE MESSAGES - Strip large base64 data to prevent context overflow
         // ============================================
         const sanitizedMessages = sanitizeMessagesForContext(messagesToUse);
-
-        // Log if significant data was stripped
-        const originalSize = JSON.stringify(messagesToUse).length;
-        const sanitizedSize = JSON.stringify(sanitizedMessages).length;
-        if (originalSize - sanitizedSize > 10000) {
-          console.log(
-            `[AI IPC] Context sanitization: ${Math.round((originalSize - sanitizedSize) / 1024)}KB of large data stripped ` +
-              `(${Math.round(originalSize / 1024)}KB -> ${Math.round(sanitizedSize / 1024)}KB)`,
-          );
-        }
 
         // ============================================
         // NOW actually start streaming - listeners are guaranteed ready
@@ -3204,10 +3568,24 @@ export function registerAIHandlers() {
 
         // Convert to UI message stream for proper formatting
         // PERFORMANCE: Remove messageMetadata callback - it floods with chunks per-token!
-        const stream = result.toUIMessageStream({
-          sendUsage: true,
-          // NO messageMetadata - it generates a chunk per token!
-        });
+        // CRITICAL FIX: For local models, wrap in try-catch to handle undefined usage errors.
+        // Local models often don't return proper usage data, causing
+        // "Cannot read properties of undefined (reading 'inputTokens')" errors.
+        let stream: AsyncIterable<any> & ReadableStream<any>;
+        try {
+          stream = result.toUIMessageStream({
+            // NO messageMetadata - it generates a chunk per token!
+          });
+        } catch (streamError: any) {
+          console.error(`[AI IPC] Error creating UI message stream:`, streamError?.message || streamError);
+          // Send error to renderer and clean up
+          event.sender.send("ai:stream:error", {
+            threadId,
+            error: `Stream creation failed: ${streamError?.message || 'Unknown error'}`,
+          });
+          event.sender.send("ai:stream:end", { threadId, finishReason: "error" });
+          return;
+        }
 
         // DEBUG: Send stream created notification to renderer
         event.sender.send("ai:stream:chunk", {
@@ -3312,6 +3690,34 @@ export function registerAIHandlers() {
             lastMetadataSent = now;
           }
 
+          // FIX: Ensure finish/finish-step chunks have valid usage data
+          // Local models often don't return usage info, causing "Cannot read properties of undefined (reading 'inputTokens')" errors
+          if (chunk.type === "finish" || chunk.type === "finish-step") {
+            if (!chunk.usage) {
+              chunk.usage = {
+                inputTokens: { total: 0 },
+                outputTokens: { total: 0 },
+              };
+            } else {
+              // Ensure nested structure for inputTokens
+              if (chunk.usage.inputTokens === undefined || chunk.usage.inputTokens === null) {
+                chunk.usage.inputTokens = { total: 0 };
+              } else if (typeof chunk.usage.inputTokens === "number") {
+                chunk.usage.inputTokens = { total: chunk.usage.inputTokens };
+              } else if (typeof chunk.usage.inputTokens === "object" && !chunk.usage.inputTokens.total) {
+                chunk.usage.inputTokens.total = 0;
+              }
+              // Ensure nested structure for outputTokens
+              if (chunk.usage.outputTokens === undefined || chunk.usage.outputTokens === null) {
+                chunk.usage.outputTokens = { total: 0 };
+              } else if (typeof chunk.usage.outputTokens === "number") {
+                chunk.usage.outputTokens = { total: chunk.usage.outputTokens };
+              } else if (typeof chunk.usage.outputTokens === "object" && !chunk.usage.outputTokens.total) {
+                chunk.usage.outputTokens.total = 0;
+              }
+            }
+          }
+
           chunkBatch.push(chunk);
           
           // CRITICAL: Text chunks flush IMMEDIATELY for real-time streaming
@@ -3387,6 +3793,18 @@ export function registerAIHandlers() {
           });
         };
 
+        // CRITICAL: Register abort listener to immediately clean up pending timeouts
+        // This ensures timeouts don't fire after the stream has been aborted
+        const abortCleanupHandler = () => {
+          clearReadTimeout();
+          if (batchTimeout) {
+            clearTimeout(batchTimeout);
+            batchTimeout = null;
+          }
+          console.log(`[AI IPC] Abort cleanup triggered for thread: ${threadId}`);
+        };
+        abortController.signal.addEventListener("abort", abortCleanupHandler, { once: true });
+
         try {
           let lastChunkTime = Date.now();
 
@@ -3419,12 +3837,29 @@ export function registerAIHandlers() {
               clearReadTimeout();
             } catch (readError: any) {
               clearReadTimeout();
+              // CRITICAL FIX: Handle "Cannot read properties of undefined (reading 'inputTokens')"
+              // This error occurs when local models don't return proper usage data.
+              // Instead of crashing, we gracefully end the stream.
+              const errorMsg = readError?.message || String(readError);
+              if (errorMsg.includes("inputTokens") || errorMsg.includes("outputTokens") || errorMsg.includes("usage")) {
+                console.warn(`[AI IPC] Usage data error (continuing without it): ${errorMsg}`);
+                // Send a synthetic finish chunk without usage to complete the stream
+                queueChunk({
+                  type: "finish",
+                  finishReason: "stop",
+                  usage: { inputTokens: { total: 0 }, outputTokens: { total: 0 } },
+                });
+                flushBatch();
+                break; // End the stream gracefully
+              }
               throw readError;
             }
 
             const { done, value } = readResult as { done: boolean; value: any };
 
-            if (done) {
+            // CRITICAL: Check abort signal BEFORE processing chunk
+            // This ensures we stop immediately when user cancels
+            if (done || abortController.signal.aborted) {
               // Flush any remaining batched chunks
               flushBatch();
               break;
@@ -3948,9 +4383,8 @@ export function registerAIHandlers() {
               });
 
               // Make follow-up call WITH tools to enable multi-step execution
-              // Use maxSteps to limit iterations and prevent infinite loops
-              // For local models, we limit to 5 additional steps to balance capability vs safety
-              const FOLLOW_UP_MAX_STEPS = 5;
+              // Note: maxSteps is not available in AI SDK v6 streamText - tool execution is handled differently
+              // For local models, we rely on the model's own iteration limits
 
               try {
                 const followUpResult = streamText({
@@ -3959,7 +4393,6 @@ export function registerAIHandlers() {
                   messages: followUpModelMessages as any, // Type assertion needed due to complex ModelMessage types
                   tools, // Include tools to enable multi-step execution
                   toolChoice: tools && Object.keys(tools).length > 0 ? "auto" : undefined,
-                  maxSteps: FOLLOW_UP_MAX_STEPS, // Limited steps to prevent infinite loops
                   abortSignal: abortController.signal,
                   onStepFinish: ({ toolCalls: stepToolCalls, toolResults: stepToolResults }: any) => {
                     // Log follow-up step progress
@@ -3972,7 +4405,20 @@ export function registerAIHandlers() {
                   },
                 });
 
-                const followUpStream = followUpResult.toUIMessageStream();
+                // CRITICAL FIX: Wrap in try-catch for local models with undefined usage
+                let followUpStream: AsyncIterable<any> & ReadableStream<any>;
+                let followUpFailed = false;
+                try {
+                  followUpStream = followUpResult.toUIMessageStream();
+                } catch (streamError: any) {
+                  console.error(`[AI IPC Follow-up] Error creating UI message stream:`, streamError?.message || streamError);
+                  // Skip follow-up on error - main response was already sent
+                  followUpFailed = true;
+                }
+                if (followUpFailed || !followUpStream!) {
+                  // Skip to the end of the try block (outer handler will deal with cleanup)
+                  throw new Error("follow-up-stream-skip");
+                }
                 const followUpReader = followUpStream.getReader();
 
                 // Read follow-up response
@@ -3982,6 +4428,18 @@ export function registerAIHandlers() {
                   if (fDone) break;
 
                   if (fValue) {
+                    // FIX: Ensure finish/finish-step chunks have valid usage data
+                    if (fValue.type === "finish" || fValue.type === "finish-step") {
+                      const fv = fValue as any;
+                      if (!fv.usage) {
+                        fv.usage = { inputTokens: { total: 0 }, outputTokens: { total: 0 } };
+                      } else {
+                        if (!fv.usage.inputTokens) fv.usage.inputTokens = { total: 0 };
+                        else if (typeof fv.usage.inputTokens === "number") fv.usage.inputTokens = { total: fv.usage.inputTokens };
+                        if (!fv.usage.outputTokens) fv.usage.outputTokens = { total: 0 };
+                        else if (typeof fv.usage.outputTokens === "number") fv.usage.outputTokens = { total: fv.usage.outputTokens };
+                      }
+                    }
                     // Send chunk to renderer
                     event.sender.send("ai:stream:chunk", {
                       threadId,
@@ -3989,46 +4447,53 @@ export function registerAIHandlers() {
                     });
 
                     // Accumulate text for persistence
-                    // Note: AI SDK v6 uses 'delta' but some versions use 'textDelta'
-                    if (fValue.type === "text-delta" && (fValue.delta || fValue.textDelta)) {
-                      currentTextContent += fValue.delta || fValue.textDelta;
+                    // AI SDK v6 uses 'delta' for text-delta chunks
+                    const fv = fValue as any; // Type assertion for dynamic chunk types
+                    if (fv.type === "text-delta" && fv.delta) {
+                      currentTextContent += fv.delta;
                     }
 
                     // Track tool calls/results from follow-up for persistence
-                    if (fValue.type === "tool-call") {
+                    // Note: Some stream implementations use tool-call/tool-result, others use different patterns
+                    if (fv.type === "tool-call") {
                       currentToolCalls.push({
                         type: "tool-call",
-                        toolCallId: fValue.toolCallId,
-                        toolName: fValue.toolName,
-                        input: fValue.args,
+                        toolCallId: fv.toolCallId,
+                        toolName: fv.toolName,
+                        input: fv.args,
                       });
-                    } else if (fValue.type === "tool-result") {
+                    } else if (fv.type === "tool-result") {
                       const correspondingCall = currentToolCalls.find(
-                        (tc) => tc.toolCallId === fValue.toolCallId
+                        (tc) => tc.toolCallId === fv.toolCallId
                       );
                       currentToolResults.push({
                         type: "tool-result",
-                        toolCallId: fValue.toolCallId,
-                        toolName: fValue.toolName || correspondingCall?.toolName || "unknown",
-                        output: fValue.result,
+                        toolCallId: fv.toolCallId,
+                        toolName: fv.toolName || correspondingCall?.toolName || "unknown",
+                        output: fv.result,
                       });
                     }
                   }
                 }
               } catch (followUpError: any) {
-                console.error(
-                  `[AI IPC] Follow-up stream failed:`,
-                  followUpError.message,
-                );
-                console.error(
-                  `[AI IPC] Follow-up error details:`,
-                  JSON.stringify(followUpError, null, 2),
-                );
-                // Log the messages that caused the error
-                console.error(
-                  `[AI IPC] Follow-up messages that failed:`,
-                  JSON.stringify(followUpModelMessages.slice(-3), null, 2),
-                );
+                // Check if this is our intentional skip error
+                if (followUpError?.message === "follow-up-stream-skip") {
+                  console.log(`[AI IPC] Skipped follow-up due to stream creation error (usage data issue)`);
+                } else {
+                  console.error(
+                    `[AI IPC] Follow-up stream failed:`,
+                    followUpError.message,
+                  );
+                  console.error(
+                    `[AI IPC] Follow-up error details:`,
+                    JSON.stringify(followUpError, null, 2),
+                  );
+                  // Log the messages that caused the error
+                  console.error(
+                    `[AI IPC] Follow-up messages that failed:`,
+                    JSON.stringify(followUpModelMessages.slice(-3), null, 2),
+                  );
+                }
                 // Don't throw - we still have the tool results to show
               }
             }
@@ -4183,8 +4648,16 @@ export function registerAIHandlers() {
           });
           throw streamError;
         } finally {
-          // Clean up
+          // Clean up ALL timers and maps
           clearInterval(heartbeatInterval);
+          // CRITICAL: Also clear batchTimeout to prevent delayed chunk sends after abort
+          if (batchTimeout) {
+            clearTimeout(batchTimeout);
+            batchTimeout = null;
+          }
+          // Clear read timeout as well
+          clearReadTimeout();
+          // Clean up all tracking maps
           activeStreams.delete(threadId);
           preparedStreams.delete(threadId);
           streamBuffers.delete(threadId);
@@ -4243,7 +4716,12 @@ export function registerAIHandlers() {
           tips: errorTips,
         });
 
-        // Clean up
+        // Clean up ALL resources including orphan timeout
+        const orphanTimeout = orphanCleanupTimeouts.get(threadId);
+        if (orphanTimeout) {
+          clearTimeout(orphanTimeout);
+          orphanCleanupTimeouts.delete(threadId);
+        }
         activeStreams.delete(threadId);
         preparedStreams.delete(threadId);
         streamBuffers.delete(threadId);
@@ -4255,15 +4733,30 @@ export function registerAIHandlers() {
 
   /**
    * Abort an active stream
+   * CRITICAL: Must clean up ALL maps to prevent memory leaks and zombie streams
    */
   ipcMain.handle("ai:abort", async (_event, threadId: string) => {
+    // Always clear orphan cleanup timeout when aborting
+    const orphanTimeout = orphanCleanupTimeouts.get(threadId);
+    if (orphanTimeout) {
+      clearTimeout(orphanTimeout);
+      orphanCleanupTimeouts.delete(threadId);
+    }
+
     const controller = activeStreams.get(threadId);
     if (controller) {
       console.log(`[AI IPC] Aborting stream: ${threadId}`);
       controller.abort();
+      // CRITICAL: Clean up ALL maps, not just activeStreams
+      // This prevents memory leaks and ensures proper cleanup
       activeStreams.delete(threadId);
+      preparedStreams.delete(threadId);
+      streamBuffers.delete(threadId);
       return { success: true };
     }
+    // Even if no active controller, clean up any orphaned entries
+    preparedStreams.delete(threadId);
+    streamBuffers.delete(threadId);
     return { success: false, error: "No active stream" };
   });
 
@@ -4343,7 +4836,7 @@ export function registerAIHandlers() {
 
   /**
    * Generate structured object from prompt
-   * Used for AI-powered input generation in workflows
+   * Used for AI-powered structured output generation
    */
   ipcMain.handle(
     "ai:generateObject",
@@ -4679,460 +5172,4 @@ async function getModelInstance(
       `Failed to create ${provider} model "${model}": ${error?.message || error}`,
     );
   }
-}
-
-// ============================================================================
-// WORKFLOW GENERATION - Full Agentic Workflow Builder
-// ============================================================================
-
-/**
- * System prompt for workflow generation
- * Explains the workflow structure and available node types
- */
-function getWorkflowGenerationSystemPrompt(
-  availableTools: any[],
-  currentWorkflowState: { nodes: any[]; edges: any[] },
-): string {
-  const toolList =
-    availableTools?.length > 0
-      ? availableTools
-          .map((t) => `- ${t.id}: ${t.description || "No description"}`)
-          .join("\n")
-      : "No MCP tools available. You can still create workflows using LLM, HTTP, Template, and Condition nodes.";
-
-  const currentState =
-    currentWorkflowState?.nodes?.length > 0
-      ? `\n\nCURRENT WORKFLOW STATE:\nNodes: ${JSON.stringify(currentWorkflowState.nodes.map((n: any) => ({ id: n.id, name: n.data?.name, kind: n.data?.kind })))}\nEdges: ${JSON.stringify(currentWorkflowState.edges.map((e: any) => ({ source: e.source, target: e.target })))}`
-      : "\n\nCURRENT WORKFLOW STATE: Empty (new workflow)";
-
-  return `You are an expert workflow designer. Your job is to create and modify visual workflows using the update_workflow_graph tool.
-
-## WORKFLOW NODE TYPES
-
-1. **input** - Entry point that receives initial data. Every workflow needs exactly ONE input node.
-   - outputSchema: Define what data the workflow expects (e.g., { type: "object", properties: { query: { type: "string" } } })
-
-2. **output** - Exit point that produces final results. Every workflow needs exactly ONE output node.
-   - outputData: Array of { key: string, source: { nodeId: string, path: string[] } } to map results
-
-3. **llm** - Large Language Model node for AI processing
-   - model: { provider: string, model: string } (e.g., { provider: "openai", model: "gpt-4o" })
-   - messages: Array of { role: "system"|"user"|"assistant", content: TipTap JSON with mentions }
-   - outputSchema: What the LLM should return
-
-4. **tool** - Executes MCP tools or app tools
-   - tool: { type: "mcp-tool", id: string, serverId: string, serverName: string } or { type: "app-tool", id: string }
-   - model: For generating tool parameters from message
-   - message: Optional TipTap JSON to describe what to do
-
-5. **condition** - Conditional branching based on data
-   - branches: { if: { conditions: [...], targetNodeId: string }, elseIf: [...], else: { targetNodeId: string } }
-
-6. **http** - HTTP request node
-   - url: string or { nodeId: string, path: string[] }
-   - method: "GET"|"POST"|"PUT"|"DELETE"|"PATCH"
-   - headers, query, body: Arrays or values with optional node references
-
-7. **template** - Text template with variable substitution
-   - template: { type: "tiptap", tiptap: TipTap JSON with mentions to other nodes }
-
-8. **note** - Documentation/annotation (doesn't affect execution)
-
-## TIPTAP MENTION FORMAT
-To reference other nodes' outputs in messages/templates, use TipTap JSON:
-{
-  "type": "doc",
-  "content": [
-    {
-      "type": "paragraph",
-      "content": [
-        { "type": "text", "text": "Process this: " },
-        {
-          "type": "mention",
-          "attrs": {
-            "id": "node-id-here",
-            "label": "NodeName.outputField",
-            "nodeId": "node-id-here",
-            "path": ["outputField"]
-          }
-        }
-      ]
-    }
-  ]
-}
-
-## WORKFLOW STRUCTURE
-- Nodes must be connected via edges (source -> target)
-- Data flows from Input through processing nodes to Output
-- Each node has a unique id and position { x, y }
-- Edges connect nodes: { id: string, source: string, target: string }
-
-## AVAILABLE MCP TOOLS
-${toolList}
-${currentState}
-
-## GUIDELINES
-1. Always start with an "input" node and end with an "output" node
-2. Use descriptive node names
-3. Position nodes left-to-right (input x:0 -> processing x:300,600,... -> output x:rightmost)
-4. Connect all nodes with edges
-5. Use the action parameter: "replace" to replace entire workflow, "append" to add nodes, "update" to modify existing nodes
-6. Generate proper outputSchema for each node based on what it produces
-
-## RESPONSE
-After creating the workflow with update_workflow_graph, briefly explain what the workflow does and how it works.`;
-}
-
-/**
- * Workflow generation IPC handler
- * Creates workflows using agentic tool calling with full MCP integration
- */
-export function registerWorkflowGenerationHandler() {
-  ipcMain.handle(
-    "ai:workflow:generate",
-    async (
-      event,
-      request: {
-        messages: any[];
-        availableTools: any[];
-        currentWorkflowState: { nodes: any[]; edges: any[] };
-        chatModel: { provider: string; model: string };
-      },
-    ) => {
-      const { messages, availableTools, currentWorkflowState, chatModel } =
-        request;
-
-      console.log(
-        `[AI Workflow] Generate request - model: ${chatModel?.provider}/${chatModel?.model}, tools: ${availableTools?.length || 0}`,
-      );
-
-      // Create a unique session ID for this generation
-      const sessionId = `workflow-${Date.now()}-${randomUUID().slice(0, 8)}`;
-
-      // Create abort controller
-      const abortController = new AbortController();
-      activeStreams.set(sessionId, abortController);
-
-      try {
-        // Get API key
-        const apiKey = await getApiKeyForProvider(chatModel.provider);
-        if (!apiKey && !isLocalProvider(chatModel.provider)) {
-          const error = `No API key configured for ${chatModel.provider}`;
-          event.sender.send("ai:workflow:error", { sessionId, error });
-          return { error, sessionId };
-        }
-
-        // Get model instance
-        const model = await getModelInstance(chatModel, apiKey);
-        if (!model) {
-          const error = `Could not initialize model ${chatModel.provider}/${chatModel.model}`;
-          event.sender.send("ai:workflow:error", { sessionId, error });
-          return { error, sessionId };
-        }
-
-        // Define the update_workflow_graph tool with full schema
-        const updateWorkflowGraphTool = createTool({
-          description: `Update the workflow graph with new or modified nodes and edges.
-Use this tool to create, modify, or replace the workflow structure.
-- action "replace": Replace the entire workflow with new nodes and edges
-- action "append": Add new nodes and edges to existing workflow
-- action "update": Update specific existing nodes`,
-          inputSchema: z.object({
-            action: z
-              .enum(["replace", "append", "update"])
-              .describe("How to apply the changes"),
-            nodes: z
-              .array(
-                z.object({
-                  id: z.string().describe("Unique node ID"),
-                  type: z.string().default("default"),
-                  position: z.object({
-                    x: permissiveNumber(),
-                    y: permissiveNumber(),
-                  }),
-                  data: z.object({
-                    id: z.string(),
-                    name: z.string().describe("Display name for the node"),
-                    kind: z
-                      .enum([
-                        "input",
-                        "output",
-                        "llm",
-                        "tool",
-                        "condition",
-                        "http",
-                        "template",
-                        "note",
-                      ])
-                      .describe("Node type"),
-                    description: z.string().optional(),
-                    outputSchema: z
-                      .any()
-                      .optional()
-                      .describe("JSON Schema for node output"),
-                    // LLM node specific
-                    model: z
-                      .object({
-                        provider: z.string(),
-                        model: z.string(),
-                      })
-                      .optional(),
-                    messages: z.array(z.any()).optional(),
-                    // Tool node specific
-                    tool: z.any().optional(),
-                    message: z.any().optional(),
-                    // Condition node specific
-                    branches: z.any().optional(),
-                    // HTTP node specific
-                    url: z.any().optional(),
-                    method: z
-                      .enum(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"])
-                      .optional(),
-                    headers: z.array(z.any()).optional(),
-                    query: z.array(z.any()).optional(),
-                    body: z.any().optional(),
-                    // Template node specific
-                    template: z.any().optional(),
-                    // Output node specific
-                    outputData: z.array(z.any()).optional(),
-                  }),
-                }),
-              )
-              .describe("Array of workflow nodes"),
-            edges: z
-              .array(
-                z.object({
-                  id: z.string().describe("Unique edge ID"),
-                  source: z.string().describe("Source node ID"),
-                  target: z.string().describe("Target node ID"),
-                  sourceHandle: z.string().optional(),
-                  targetHandle: z.string().optional(),
-                }),
-              )
-              .describe("Array of edges connecting nodes"),
-          }),
-          execute: async (params) => {
-            console.log(
-              `[AI Workflow] update_workflow_graph called - action: ${params.action}, nodes: ${params.nodes.length}, edges: ${params.edges.length}`,
-            );
-
-            // Validate the workflow structure
-            const validationWarnings: string[] = [];
-
-            // Check for input node
-            const inputNodes = params.nodes.filter(
-              (n) => n.data.kind === "input",
-            );
-            if (inputNodes.length === 0) {
-              validationWarnings.push(
-                "Warning: No input node found. Workflows should have an input node.",
-              );
-            } else if (inputNodes.length > 1) {
-              validationWarnings.push(
-                "Warning: Multiple input nodes found. Workflows should have exactly one input node.",
-              );
-            }
-
-            // Check for output node
-            const outputNodes = params.nodes.filter(
-              (n) => n.data.kind === "output",
-            );
-            if (outputNodes.length === 0) {
-              validationWarnings.push(
-                "Warning: No output node found. Workflows should have an output node.",
-              );
-            }
-
-            // Check that all edge references exist
-            const nodeIds = new Set(params.nodes.map((n) => n.id));
-            for (const edge of params.edges) {
-              if (!nodeIds.has(edge.source)) {
-                validationWarnings.push(
-                  `Warning: Edge references non-existent source node: ${edge.source}`,
-                );
-              }
-              if (!nodeIds.has(edge.target)) {
-                validationWarnings.push(
-                  `Warning: Edge references non-existent target node: ${edge.target}`,
-                );
-              }
-            }
-
-            // Send the workflow update to the renderer
-            const result = {
-              success: true,
-              action: params.action,
-              nodes: params.nodes,
-              edges: params.edges,
-              message: `Workflow ${params.action}d with ${params.nodes.length} nodes and ${params.edges.length} edges`,
-              validationWarnings:
-                validationWarnings.length > 0 ? validationWarnings : undefined,
-            };
-
-            // Send as a data stream event for the UI to pick up
-            event.sender.send("ai:workflow:chunk", {
-              sessionId,
-              chunk: JSON.stringify({
-                type: "tool-result",
-                toolCallId: `update-${Date.now()}`,
-                toolName: "update_workflow_graph",
-                result,
-              }),
-            });
-
-            return result;
-          },
-        });
-
-        // Prepare system prompt with available tools and current state
-        const systemPrompt = getWorkflowGenerationSystemPrompt(
-          availableTools,
-          currentWorkflowState,
-        );
-
-        // Run streamText with the update_workflow_graph tool
-        console.log(
-          `[AI Workflow] Starting streamText for session: ${sessionId}`,
-        );
-
-        // Convert messages to proper format for streamText
-        const formattedMessages = messages.map((m: any) => ({
-          role: m.role as "user" | "assistant" | "system",
-          content:
-            typeof m.content === "string"
-              ? m.content
-              : m.parts
-                  ?.map((p: any) => (p.type === "text" ? p.text : ""))
-                  .join("") || "",
-        }));
-
-        const workflowTools = {
-          update_workflow_graph: updateWorkflowGraphTool,
-          // Also include web_search for research during workflow creation
-          web_search: createTool({
-            description:
-              "Search the web to find information about APIs, services, or tools that could be used in the workflow",
-            inputSchema: z.object({
-              query: z.string().describe("Search query"),
-            }),
-            execute: async ({ query }) => {
-              console.log(`[AI Workflow] Web search: ${query}`);
-              try {
-                const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-                const response = await fetch(searchUrl, {
-                  headers: {
-                    "User-Agent":
-                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                  },
-                });
-                const html = await response.text();
-                const results: Array<{
-                  title: string;
-                  url: string;
-                  snippet: string;
-                }> = [];
-                const resultRegex =
-                  /<a class="result__a" href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
-                let match;
-                while (
-                  (match = resultRegex.exec(html)) !== null &&
-                  results.length < 5
-                ) {
-                  const url = match[1];
-                  const title = match[2].trim();
-                  const snippet = match[3].replace(/<[^>]+>/g, "").trim();
-                  if (!url.startsWith("//duckduckgo.com")) {
-                    results.push({ title, url, snippet });
-                  }
-                }
-                return { success: true, results };
-              } catch (error: any) {
-                return { success: false, error: error.message };
-              }
-            },
-          }),
-        };
-
-        // Use streamText with proper typing (cast to any to avoid SDK type issues)
-        const result = streamText({
-          model,
-          system: systemPrompt,
-          messages: formattedMessages as any,
-          tools: workflowTools,
-          maxSteps: 10, // Allow multiple tool calls for complex workflows
-          abortSignal: abortController.signal,
-          onStepFinish: (stepResult: any) => {
-            const toolCalls = stepResult?.toolCalls;
-            console.log(
-              `[AI Workflow] Step finished, toolCalls: ${toolCalls?.length || 0}`,
-            );
-            event.sender.send("ai:workflow:step", {
-              sessionId,
-              stepType: "step",
-              toolCallCount: toolCalls?.length || 0,
-            });
-          },
-        } as any);
-
-        // Stream the response
-        const stream = result.toUIMessageStream();
-        const reader = stream.getReader();
-
-        let textContent = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          if (value) {
-            // Forward chunk to renderer
-            event.sender.send("ai:workflow:chunk", {
-              sessionId,
-              chunk: JSON.stringify(value),
-            });
-
-            // Accumulate text for logging
-            if (value.type === "text-delta") {
-              textContent += (value as any).delta || "";
-            }
-          }
-        }
-
-        console.log(
-          `[AI Workflow] Generation complete for session: ${sessionId}, text length: ${textContent.length}`,
-        );
-
-        // Send end event
-        event.sender.send("ai:workflow:end", {
-          sessionId,
-          finishReason: "stop",
-        });
-
-        return { success: true, sessionId };
-      } catch (error: any) {
-        console.error(`[AI Workflow] Generation error:`, error);
-        event.sender.send("ai:workflow:error", {
-          sessionId,
-          error: error.message || "Workflow generation failed",
-        });
-        return { error: error.message, sessionId };
-      } finally {
-        activeStreams.delete(sessionId);
-      }
-    },
-  );
-
-  // Also register abort handler for workflow generation
-  ipcMain.handle("ai:workflow:abort", async (_event, sessionId: string) => {
-    const controller = activeStreams.get(sessionId);
-    if (controller) {
-      controller.abort();
-      activeStreams.delete(sessionId);
-      console.log(`[AI Workflow] Aborted session: ${sessionId}`);
-      return { success: true };
-    }
-    return { success: false, error: "Session not found" };
-  });
-
-  console.log("[IPC] Workflow generation handler registered");
 }

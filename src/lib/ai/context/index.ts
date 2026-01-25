@@ -16,24 +16,18 @@ export {
   estimateTokens,
   estimateMessageTokens,
   estimateMessagesTokens,
-  calculateContextUsage,
   calculateContextUsageAsync,
   getTokenBreakdown,
   formatTokens,
-  getModelContextInfo,
   getModelContextInfoAsync,
   type ContextUsage,
 } from "./token-counter";
 
 // Provider limits
 export {
-  getModelLimits,
   getModelLimitsAsync,
-  getEffectiveContextLimit,
   getEffectiveContextLimitAsync,
-  getContextWindowSize,
   getContextWindowSizeAsync,
-  getMaxOutputTokens,
   getMaxOutputTokensAsync,
   COMPACTION_THRESHOLD,
   PRESERVE_RECENT_MESSAGES,
@@ -43,7 +37,6 @@ export {
 
 // Compaction service
 export {
-  needsCompaction,
   needsCompactionAsync,
   compactMessages,
   createSummaryMessage,

@@ -15,7 +15,6 @@ import {
 } from "./summary-prompt";
 import {
   ContextUsage,
-  calculateContextUsage,
   calculateContextUsageAsync,
   estimateMessagesTokens,
   estimateTokens,
@@ -63,42 +62,7 @@ export interface CompactionOptions {
 
 /**
  * Check if compaction is needed based on context usage
- *
- * ⚠️ DEPRECATED: This sync version uses static fallbacks.
- * Use needsCompactionAsync instead for dynamic limits.
- */
-export function needsCompaction(
-  messages: UIMessage[],
-  provider: string,
-  model: string,
-  systemPromptTokens: number = 0,
-  threshold: number = COMPACTION_THRESHOLD,
-): { needed: boolean; usage: ContextUsage } {
-  logger.warn(
-    `[Compaction] Using deprecated sync needsCompaction for ${provider}/${model} - use async version instead!`,
-  );
-  const usage = calculateContextUsage(
-    messages,
-    provider,
-    model,
-    systemPromptTokens,
-    threshold,
-  );
-
-  // Don't compact very short conversations
-  const hasEnoughMessages = messages.length >= MIN_MESSAGES_FOR_COMPACTION;
-
-  return {
-    needed: usage.needsCompaction && hasEnoughMessages,
-    usage,
-  };
-}
-
-/**
- * Check if compaction is needed based on context usage (async version)
- * ALWAYS uses dynamically fetched model limits from provider APIs
- *
- * This is the PRIMARY method - it ensures we always have up-to-date limits.
+ * Uses dynamically fetched model limits from provider APIs
  */
 export async function needsCompactionAsync(
   messages: UIMessage[],

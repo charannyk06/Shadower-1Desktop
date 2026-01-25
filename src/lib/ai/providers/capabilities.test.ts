@@ -76,19 +76,16 @@ describe("Model Pattern Detection", () => {
   });
 
   describe("hasBuiltInTools", () => {
-    it("should identify gpt-oss models as having built-in tools", () => {
-      expect(hasBuiltInTools("gpt-oss-120b")).toBeTruthy();
-      expect(hasBuiltInTools("gpt-oss")).toBeTruthy();
-    });
-
-    it("should handle case-insensitive matching", () => {
-      expect(hasBuiltInTools("GPT-OSS-120b")).toBeTruthy();
-      expect(hasBuiltInTools("GPT-OSS")).toBeTruthy();
-    });
-
-    it("should handle provider-prefixed model names", () => {
-      expect(hasBuiltInTools("openai/gpt-oss-120b")).toBeTruthy();
-      expect(hasBuiltInTools("cerebras/gpt-oss-120b")).toBeTruthy();
+    // NOTE: gpt-oss (open-weight local models) was intentionally removed from BUILT_IN_TOOL_PATTERNS
+    // because open-weight local models DO support tool calling.
+    // The "built-in tools" restriction only applies to certain cloud API models.
+    it("should not flag gpt-oss models as having built-in tools (they support tool calling)", () => {
+      // gpt-oss open-weight models CAN use custom tools
+      expect(hasBuiltInTools("gpt-oss-120b")).toBeFalsy();
+      expect(hasBuiltInTools("gpt-oss")).toBeFalsy();
+      expect(hasBuiltInTools("GPT-OSS-120b")).toBeFalsy();
+      expect(hasBuiltInTools("openai/gpt-oss-120b")).toBeFalsy();
+      expect(hasBuiltInTools("cerebras/gpt-oss-120b")).toBeFalsy();
     });
 
     it("should not flag regular models", () => {
@@ -424,21 +421,23 @@ describe("getModelCapabilities", () => {
     });
   });
 
-  describe("Models with built-in tools", () => {
-    it("should block gpt-oss models from tool calling", () => {
+  describe("Open-weight local models (gpt-oss)", () => {
+    // NOTE: gpt-oss open-weight local models SUPPORT tool calling
+    // Unlike the cloud API versions, local models can use custom tools
+    it("should support tool calling for gpt-oss models", () => {
       const caps = getModelCapabilities("gpt-oss-120b");
 
-      expect(caps.isToolCallSupported).toBeFalsy();
-      expect(caps.workflowGenerationSupport).toBe("none");
-      expect(caps.toolCallUnsupportedReason).toBe("built-in-tools");
+      expect(caps.isToolCallSupported).toBeTruthy();
+      expect(caps.workflowGenerationSupport).toBe("full");
+      expect(caps.toolCallUnsupportedReason).toBeUndefined();
     });
 
-    it("should handle provider-prefixed gpt-oss", () => {
+    it("should handle provider-prefixed gpt-oss with tool support", () => {
       const caps = getModelCapabilities("cerebras/gpt-oss-120b");
 
-      expect(caps.isToolCallSupported).toBeFalsy();
-      expect(caps.workflowGenerationSupport).toBe("none");
-      expect(caps.toolCallUnsupportedReason).toBe("built-in-tools");
+      expect(caps.isToolCallSupported).toBeTruthy();
+      expect(caps.workflowGenerationSupport).toBe("full");
+      expect(caps.toolCallUnsupportedReason).toBeUndefined();
     });
   });
 
@@ -484,7 +483,9 @@ describe("Convenience Functions", () => {
     });
 
     it("should return false for unsupported models", () => {
-      expect(supportsWorkflowGeneration("gpt-oss-120b")).toBeFalsy();
+      // gpt-oss now supports workflow generation (open-weight local models support tools)
+      expect(supportsWorkflowGeneration("gpt-oss-120b")).toBeTruthy();
+      // computer-use still requires Responses API
       expect(supportsWorkflowGeneration("computer-use-preview")).toBeFalsy();
     });
   });
@@ -497,7 +498,9 @@ describe("Convenience Functions", () => {
     });
 
     it("should return true for unsupported models", () => {
-      expect(isToolCallUnsupportedModel("gpt-oss-120b")).toBeTruthy();
+      // gpt-oss now supports tool calling (open-weight local models)
+      expect(isToolCallUnsupportedModel("gpt-oss-120b")).toBeFalsy();
+      // computer-use still requires Responses API and doesn't support standard tool calling
       expect(isToolCallUnsupportedModel("computer-use-preview")).toBeTruthy();
     });
   });
@@ -509,10 +512,10 @@ describe("Convenience Functions", () => {
       expect(getWorkflowUnsupportedReason("o3")).toBeNull();
     });
 
-    it("should return reason for built-in tools", () => {
+    it("should return null for gpt-oss (now supports tools)", () => {
+      // gpt-oss open-weight models now support tool calling
       const reason = getWorkflowUnsupportedReason("gpt-oss-120b");
-      expect(reason).not.toBeNull();
-      expect(reason).toContain("built-in tools");
+      expect(reason).toBeNull();
     });
 
     it("should return reason for Responses API models", () => {

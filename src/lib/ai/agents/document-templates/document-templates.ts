@@ -182,54 +182,45 @@ export function generateImageFetchingCode(
 // Image Fetching - Download and encode images
 // ============================================
 
-const https = require('https');
-const http = require('http');
-
-// Helper function to fetch image as base64
+// Helper function to fetch image as base64 using fetch()
 async function fetchImageAsBase64(url) {
-  return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? https : http;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    const request = protocol.get(url, {
-      timeout: 15000,
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'image/*,*/*'
       }
-    }, (response) => {
-      // Handle redirects
-      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        fetchImageAsBase64(response.headers.location).then(resolve).catch(reject);
-        return;
-      }
-
-      if (response.statusCode !== 200) {
-        reject(new Error('HTTP ' + response.statusCode));
-        return;
-      }
-
-      const chunks = [];
-      response.on('data', chunk => chunks.push(chunk));
-      response.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        const contentType = response.headers['content-type'] || 'image/png';
-        resolve({
-          base64: buffer.toString('base64'),
-          buffer: buffer,
-          contentType: contentType,
-          width: null,
-          height: null
-        });
-      });
-      response.on('error', reject);
     });
 
-    request.on('error', reject);
-    request.on('timeout', () => {
-      request.destroy();
-      reject(new Error('Request timeout'));
-    });
-  });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error('HTTP ' + response.status);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType = response.headers.get('content-type') || 'image/png';
+
+    return {
+      base64: buffer.toString('base64'),
+      buffer: buffer,
+      contentType: contentType,
+      width: null,
+      height: null
+    };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Request timeout');
+    }
+    throw err;
+  }
 }
 
 // Fetch all images concurrently

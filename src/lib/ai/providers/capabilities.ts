@@ -419,3 +419,89 @@ export function getSuggestedWorkflowModels(): Array<{
     { model: "claude-sonnet-4-20250514", provider: "anthropic" },
   ];
 }
+
+// =============================================================================
+// SMALL MODEL DETECTION - For RAG optimization
+// =============================================================================
+
+/**
+ * Patterns for detecting small local models (1B-4B parameters)
+ * These models have limited context windows (~2K-4K tokens) and need
+ * optimized RAG context injection to avoid overwhelming them.
+ */
+const SMALL_MODEL_PATTERNS: RegExp[] = [
+  // Explicit size markers: 0.5b, 1b, 1.5b, 2b, 3b, 4b (case insensitive)
+  /[:-]?0\.?5b/i,
+  /[:-]?1\.?[0-7]?b\b/i,  // 1b, 1.5b, 1.7b
+  /[:-]?2\.?[0-9]?b\b/i,  // 2b, 2.7b
+  /[:-]?3\.?[0-9]?b\b/i,  // 3b, 3.8b
+  /[:-]?4\.?[0-9]?b\b/i,  // 4b, 4.5b
+  // Specific small models by name
+  /gemma[-_]?2?[-_:]?2b/i,
+  /phi[-_]?3[-_:]?(mini|small)/i,
+  /phi[-_]?4[-_:]?mini/i,
+  /qwen[-_]?2\.?5[-_:]?(0\.5|1\.5|3)b/i,
+  /qwen3[-_:]?(0\.6|1\.7|4)b/i,
+  /llama[-_]?3\.?[123][-_:]?(1|3)b/i,
+  /tinyllama/i,
+  /stablelm[-_]?2?[-_:]?zephyr/i,
+  /ministral[-_:]?(3|8)b/i,
+  /smollm/i,
+  /granite[-_]?3[-_:]?(1|2|3|4)b/i,
+];
+
+/**
+ * Check if a model is a small local model (1B-4B params)
+ * These need optimized RAG injection with smaller context limits.
+ *
+ * @param modelId - The model identifier (e.g., "qwen3:1.7b", "llama3.2:3b")
+ * @returns true if the model is likely 1B-4B parameters
+ */
+export function isSmallLocalModel(modelId: string): boolean {
+  if (!modelId) return false;
+  const lower = modelId.toLowerCase();
+  return SMALL_MODEL_PATTERNS.some((p) => p.test(lower));
+}
+
+/**
+ * Get recommended RAG limits for a model based on its size
+ * Small models get much tighter limits to avoid context overflow
+ *
+ * @param modelId - The model identifier
+ * @param isLocal - Whether this is a local model (Ollama/LM Studio)
+ * @returns Optimized limits for RAG context injection
+ */
+export function getModelRagLimits(modelId: string, isLocal: boolean): {
+  maxContentPerItem: number;
+  maxTotalChars: number;
+  maxResults: number;
+  scoreThreshold: number;
+} {
+  // Small local models (1B-4B): Tight limits with balanced threshold
+  if (isLocal && isSmallLocalModel(modelId)) {
+    return {
+      maxContentPerItem: 200,   // Short snippets
+      maxTotalChars: 1000,      // ~250 tokens max for RAG
+      maxResults: 5,            // More results for better coverage
+      scoreThreshold: 0.4,      // Balanced threshold - avoid low-quality matches while maintaining recall
+    };
+  }
+
+  // Medium local models (7B-14B): Moderate limits
+  if (isLocal) {
+    return {
+      maxContentPerItem: 300,
+      maxTotalChars: 1500,
+      maxResults: 4,
+      scoreThreshold: 0.7,
+    };
+  }
+
+  // Cloud models: Larger limits (big context windows)
+  return {
+    maxContentPerItem: 500,
+    maxTotalChars: 3000,
+    maxResults: 5,
+    scoreThreshold: 0.65,
+  };
+}

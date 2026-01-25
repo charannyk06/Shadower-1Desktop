@@ -17,17 +17,12 @@ import { JSONSchema7 } from "json-schema";
 import {
   agentRepository,
   agentStateRepository,
-  mcpRepository,
-  workflowRepository,
 } from "lib/db/repository";
 import { jsonSchemaToZod } from "lib/json-schema-to-zod";
 import { z } from "zod";
 import globalLogger from "logger";
 import { customModelProvider } from "../models";
-import { mcpClientsManager } from "../mcp/mcp-manager";
 import { createBrowserToolsWithContext } from "../tools/browser/local-browser-tools";
-import { createWorkflowExecutor } from "../workflow/executor/workflow-executor";
-import type { WorkflowToolKey } from "../workflow/workflow.interface";
 import {
   type AgentContextManager,
   type TaskDefinition,
@@ -138,42 +133,6 @@ const spawnParallelAgentsSchema: JSONSchema7 = {
     },
   },
   required: ["tasks"],
-};
-
-// JSON Schema definition for workflow tool
-const executeWorkflowSchema: JSONSchema7 = {
-  type: "object",
-  properties: {
-    workflowId: {
-      type: "string",
-      description: "ID of the workflow to execute",
-    },
-    input: {
-      type: "object",
-      additionalProperties: true,
-      description:
-        "Input data for the workflow, matching the workflow's input schema",
-    },
-  },
-  required: ["workflowId", "input"],
-};
-
-// JSON Schema for creating workflows
-const createWorkflowSchema: JSONSchema7 = {
-  type: "object",
-  properties: {
-    description: {
-      type: "string",
-      description:
-        "A clear description of what the workflow should do. Be specific about the steps, tools, and data flow needed.",
-    },
-    name: {
-      type: "string",
-      description:
-        "Optional name for the workflow. If not provided, a name will be generated.",
-    },
-  },
-  required: ["description"],
 };
 
 // JSON Schema for spawning system agents
@@ -378,14 +337,6 @@ When creating files (documents, presentations, images, code files, etc.):
 - The user sees tool execution in real-time - they don't need you narrating what you're about to do
 - Only provide your summary/response AFTER all tool calls in a step have completed
 
-## WORKFLOW CREATION
-When users ask to create workflows, automate processes, or set up multi-step automated tasks:
-- **ALWAYS** use the \`createWorkflow\` tool with a clear description of what the workflow should do
-- Be specific about the steps, tools, and data flow needed
-- Example: "Create a workflow that fetches emails from Gmail, filters for important ones, and sends summaries to Slack"
-- The workflow will be automatically generated with appropriate nodes and edges
-- After creation, you can execute it using \`executeWorkflow\` tool
-
 ## TASK COMPLETION AND CONTINUATION
 **When all planned tasks are complete** (tool returns \`allTasksComplete: true\`):
 - **ASSESS** if the user's original request is fully satisfied
@@ -411,7 +362,6 @@ When users ask to create workflows, automate processes, or set up multi-step aut
 - **FOR WEB SEARCHING**: Use browser tools directly OR \`spawnSystemAgent\` with agentType "deep-research"
 - **BROWSER SEARCH WORKFLOW**: browser_create_session → browser_navigate to Google → browser_get_snapshot
 - **NEVER** output text explanations while waiting for tool/sub-agent results
-- **FOR WORKFLOW CREATION**: Use \`createWorkflow\` tool when users want to automate processes
 - **COMPLETE the user's request** - task completion is a checkpoint, not the end goal
 - This ensures proper tracking and user visibility into your work`;
 
@@ -717,9 +667,6 @@ IMPORTANT: Do NOT output a plan as text - you MUST call this function to create 
       if (existingPlan) {
         // STRICT GUARD: If plan exists in ANY state, do not create another
         // This prevents the agent from creating "continuation" plans after completion
-        const completedTasks = existingPlan.tasks.filter(
-          (t) => t.status === "completed",
-        ).length;
         const totalTasks = existingPlan.tasks.length;
 
         if (existingPlan.status === "completed") {
@@ -1864,405 +1811,6 @@ function createSubAgentTools(
 }
 
 /**
- * Creates the workflow execution and creation tools
- */
-function createWorkflowTool(
-  config: OrchestratorConfig,
-  ctx: AgentContextManager,
-): Record<string, Tool> {
-  const { userId, chatModel } = config;
-
-  const executeWorkflowTool = createTool({
-    description:
-      "Execute a predefined workflow by ID. Use for complex deterministic tasks that have pre-built workflow definitions.",
-    inputSchema: jsonSchemaToZod(executeWorkflowSchema),
-    execute: async ({
-      workflowId,
-      input,
-    }: {
-      workflowId: string;
-      input: Record<string, unknown>;
-    }) => {
-      logger.info(`Executing workflow ${workflowId}`);
-
-      // Check access to workflow
-      const hasAccess = await workflowRepository.checkAccess(
-        workflowId,
-        userId,
-        true,
-      );
-      if (!hasAccess) {
-        return {
-          workflowId,
-          error: "Workflow not found or access denied",
-          success: false,
-        };
-      }
-
-      // Get the workflow structure (nodes and edges)
-      const workflow = await workflowRepository.selectStructureById(
-        workflowId,
-        {
-          ignoreNote: true,
-        },
-      );
-
-      if (!workflow) {
-        return {
-          workflowId,
-          error: "Workflow structure not found",
-          success: false,
-        };
-      }
-
-      if (!workflow.isPublished) {
-        return {
-          workflowId,
-          workflowName: workflow.name,
-          error:
-            "Workflow is not published. Only published workflows can be executed.",
-          success: false,
-        };
-      }
-
-      try {
-        // Create workflow executor
-        const executor = createWorkflowExecutor({
-          nodes: workflow.nodes,
-          edges: workflow.edges,
-          userId,
-        });
-
-        // Execute the workflow with provided input
-        const result = await executor.run(input);
-
-        // Store result in context for use by other tools
-        ctx.setSharedContext(`workflow_result_${workflowId}`, result);
-
-        logger.info(`Workflow ${workflow.name} completed successfully`);
-
-        return {
-          workflowId,
-          workflowName: workflow.name,
-          result,
-          success: true,
-        };
-      } catch (err) {
-        logger.error(`Workflow ${workflow.name} failed:`, err);
-        return {
-          workflowId,
-          workflowName: workflow.name,
-          error: String(err),
-          success: false,
-        };
-      }
-    },
-  });
-
-  const createWorkflowTool = createTool({
-    description:
-      "Create a new workflow automatically based on a description. Use this when the user wants to automate a multi-step process or create a reusable workflow. The workflow will be created with appropriate nodes, edges, and tool integrations based on the description. IMPORTANT: Always use this tool when users ask to 'create a workflow', 'build a workflow', 'automate X', or want to set up a multi-step automated process.",
-    inputSchema: jsonSchemaToZod(createWorkflowSchema),
-    execute: async ({
-      description,
-      name,
-    }: {
-      description: string;
-      name?: string;
-    }) => {
-      logger.info(
-        `[CreateWorkflow] Creating workflow: ${name || "unnamed"} - ${description}`,
-      );
-
-      try {
-        // Step 1: Create an empty workflow first
-        const workflowName =
-          name || `Auto-generated workflow - ${description.substring(0, 50)}`;
-        const newWorkflow = await workflowRepository.save(
-          {
-            name: workflowName,
-            description: description.substring(0, 200), // Limit description length
-            userId,
-            isPublished: false,
-          },
-          true, // noGenerateInputNode - we'll let the generation API create nodes
-        );
-
-        logger.info(
-          `[CreateWorkflow] Created empty workflow: ${newWorkflow.id}`,
-        );
-
-        // Step 2: Get available tools for workflow generation
-        // Fetch MCP tools and app tools (same as /api/workflow/tools)
-        const [mcpTools, appTools] = await Promise.all([
-          // Fetch MCP Tools
-          (async () => {
-            try {
-              const servers = await mcpRepository.selectAllForUser(userId);
-              const memoryClients = await mcpClientsManager.getClients();
-              const memoryMap = new Map(
-                memoryClients.map(({ id, client }) => [id, client] as const),
-              );
-
-              const tools: WorkflowToolKey[] = [];
-              for (const server of servers) {
-                const mem = memoryMap.get(server.id);
-                const info = mem?.getInfo?.();
-                if (info?.status === "connected" && info?.toolInfo) {
-                  info.toolInfo.forEach((tool) => {
-                    tools.push({
-                      ...tool,
-                      id: tool.name,
-                      type: "mcp-tool",
-                      serverId: server.id,
-                      serverName: server.name,
-                    } as WorkflowToolKey);
-                  });
-                }
-              }
-              return tools;
-            } catch (e) {
-              logger.error("[CreateWorkflow] Failed to fetch MCP tools", e);
-              return [];
-            }
-          })(),
-          // Fetch App Tools (web search, etc.)
-          (async () => {
-            try {
-              // Get default app tools that are available for workflows
-              const { exaSearchTool, exaContentsTool } = await import(
-                "../tools/web/web-search"
-              );
-              // Convert inputSchema to JSONSchema7 format
-              const getJsonSchema = (tool: any): JSONSchema7 | undefined => {
-                if (!tool.inputSchema) return undefined;
-                // If it's already a JSONSchema7, return it
-                if (
-                  tool.inputSchema &&
-                  typeof tool.inputSchema === "object" &&
-                  "type" in tool.inputSchema
-                ) {
-                  return tool.inputSchema as JSONSchema7;
-                }
-                // Otherwise try to extract from zod schema
-                return undefined;
-              };
-              return [
-                {
-                  id: "webSearch",
-                  description: exaSearchTool.description || "Search the web",
-                  type: "app-tool" as const,
-                  parameterSchema: getJsonSchema(exaSearchTool),
-                },
-                {
-                  id: "webContent",
-                  description: exaContentsTool.description || "Get web content",
-                  type: "app-tool" as const,
-                  parameterSchema: getJsonSchema(exaContentsTool),
-                },
-              ] as unknown as WorkflowToolKey[];
-            } catch (e) {
-              logger.error("[CreateWorkflow] Failed to fetch app tools", e);
-              return [];
-            }
-          })(),
-        ]);
-
-        // Combine all tools
-        const toolList = [...mcpTools, ...appTools];
-
-        logger.info(
-          `[CreateWorkflow] Fetched ${toolList.length} tools: ${mcpTools.length} MCP, ${appTools.length} app tools`,
-        );
-
-        // Step 3: Prepare messages for workflow generation
-        // Format messages as UIMessage format (not raw model messages)
-        // This avoids reasoning token issues
-        // Note: messages and workflow state are used directly in the AI call below
-
-        logger.info(
-          `[CreateWorkflow] Generating workflow ${newWorkflow.id} with AI`,
-        );
-
-        // Step 5: Generate workflow directly using AI
-        // Build the system prompt with available tools
-        const toolListText =
-          toolList.length > 0
-            ? toolList
-                .map((t) => `- ${t.id}: ${t.description || "No description"}`)
-                .join("\n")
-            : "No MCP tools available. Create workflow using LLM, HTTP, Template, and Condition nodes.";
-
-        const workflowSystemPrompt = `You are a workflow designer. Create a visual workflow based on the user's description.
-
-## NODE TYPES
-- input: Entry point (one per workflow)
-- output: Exit point (one per workflow)
-- llm: AI/LLM processing with model and messages
-- tool: MCP tool execution
-- condition: Conditional branching
-- http: HTTP requests
-- template: Text templates with variables
-
-## AVAILABLE TOOLS
-${toolListText}
-
-## RULES
-1. Always include exactly one input and one output node
-2. Position nodes left-to-right (x: 0, 300, 600, etc.)
-3. Connect all nodes with edges
-4. Use descriptive names
-
-Respond with a JSON object containing:
-- nodes: array of workflow nodes
-- edges: array of edges connecting nodes
-
-Each node needs: id, type: "default", position: {x, y}, data: {id, name, kind, outputSchema, ...}
-Each edge needs: id, source, target`;
-
-        // Use generateText to create the workflow
-        const { generateText: genText } = await import("ai");
-
-        // Get the model for generation
-        const genModel = chatModel || { provider: "openai", model: "gpt-4o" };
-
-        // Import the model creation function based on provider
-        let aiModel;
-        try {
-          if (genModel.provider === "openai") {
-            const { openai } = await import("@ai-sdk/openai");
-            aiModel = openai(genModel.model);
-          } else if (genModel.provider === "anthropic") {
-            const { anthropic } = await import("@ai-sdk/anthropic");
-            aiModel = anthropic(genModel.model);
-          } else if (genModel.provider === "google") {
-            const { google } = await import("@ai-sdk/google");
-            aiModel = google(genModel.model);
-          } else {
-            // Default to OpenAI if provider not recognized
-            const { openai } = await import("@ai-sdk/openai");
-            aiModel = openai("gpt-4o");
-          }
-        } catch (modelError) {
-          logger.error(
-            `[CreateWorkflow] Failed to create model: ${modelError}`,
-          );
-          // Return workflow without nodes
-          return {
-            success: true,
-            workflowId: newWorkflow.id,
-            workflowName: workflowName,
-            message: `Workflow "${workflowName}" created but AI model initialization failed. Edit it manually at /workflow/${newWorkflow.id}.`,
-            warning: "AI generation failed - manual editing required",
-          };
-        }
-
-        // Generate the workflow
-        const genResult = await genText({
-          model: aiModel,
-          system: workflowSystemPrompt,
-          prompt: description,
-          temperature: 0.7,
-        });
-
-        // Parse the generated workflow
-        let generatedWorkflow: { nodes: any[]; edges: any[] } | null = null;
-        try {
-          // Try to extract JSON from the response
-          const responseText = genResult.text;
-          // Look for JSON in the response (might be wrapped in markdown code blocks)
-          const jsonMatch =
-            responseText.match(/```(?:json)?\s*([\s\S]*?)```/) ||
-            responseText.match(/\{[\s\S]*"nodes"[\s\S]*"edges"[\s\S]*\}/);
-
-          if (jsonMatch) {
-            const jsonStr = jsonMatch[1] || jsonMatch[0];
-            generatedWorkflow = JSON.parse(jsonStr.trim());
-          } else {
-            // Try parsing the whole response as JSON
-            generatedWorkflow = JSON.parse(responseText);
-          }
-        } catch (parseError) {
-          logger.warn(
-            `[CreateWorkflow] Failed to parse generated workflow: ${parseError}`,
-          );
-        }
-
-        // Step 6: Save the generated workflow structure
-        if (
-          generatedWorkflow &&
-          generatedWorkflow.nodes &&
-          generatedWorkflow.nodes.length > 0
-        ) {
-          try {
-            await workflowRepository.saveStructure({
-              workflowId: newWorkflow.id,
-              nodes: generatedWorkflow.nodes,
-              edges: generatedWorkflow.edges || [],
-            });
-            logger.info(
-              `[CreateWorkflow] Saved ${generatedWorkflow.nodes.length} nodes to workflow ${newWorkflow.id}`,
-            );
-          } catch (saveError) {
-            logger.error(
-              `[CreateWorkflow] Failed to save workflow structure: ${saveError}`,
-            );
-          }
-        }
-
-        // Step 7: Verify workflow was updated by checking if it has nodes
-        const updatedWorkflow = await workflowRepository.selectStructureById(
-          newWorkflow.id,
-        );
-
-        if (updatedWorkflow && updatedWorkflow.nodes.length > 0) {
-          logger.info(
-            `[CreateWorkflow] Workflow ${newWorkflow.id} generated successfully with ${updatedWorkflow.nodes.length} nodes`,
-          );
-
-          // Store workflow ID in context for potential future use
-          ctx.setSharedContext(`created_workflow_${Date.now()}`, {
-            workflowId: newWorkflow.id,
-            description,
-            name: workflowName,
-          });
-
-          return {
-            success: true,
-            workflowId: newWorkflow.id,
-            workflowName: workflowName,
-            message: `Workflow "${workflowName}" created successfully with ${updatedWorkflow.nodes.length} nodes. You can view and edit it at /workflow/${newWorkflow.id}, or execute it using the executeWorkflow tool.`,
-          };
-        } else {
-          // Workflow was created but generation didn't populate it
-          logger.warn(
-            `[CreateWorkflow] Workflow ${newWorkflow.id} created but generation didn't populate nodes`,
-          );
-          return {
-            success: true,
-            workflowId: newWorkflow.id,
-            workflowName: workflowName,
-            message: `Workflow "${workflowName}" created but generation didn't complete. You can edit it manually at /workflow/${newWorkflow.id}.`,
-            warning: "Workflow created but may need manual editing",
-          };
-        }
-      } catch (err) {
-        logger.error(`[CreateWorkflow] Failed to create workflow:`, err);
-        return {
-          success: false,
-          error: `Failed to create workflow: ${String(err)}`,
-        };
-      }
-    },
-  });
-
-  return {
-    executeWorkflow: executeWorkflowTool as Tool,
-    createWorkflow: createWorkflowTool as Tool,
-  };
-}
-
-/**
  * Build system prompt from agent instructions
  */
 function buildAgentSystemPrompt(instructions: {
@@ -2376,7 +1924,6 @@ ${systemPrompt}`;
   // Create all tools (pass dataStream for plan/task/sub-agent streaming)
   const contextTools = createAgentContextTools(ctx, dataStream);
   const subAgentTools = createSubAgentTools(config, ctx, dataStream);
-  const workflowTools = createWorkflowTool(config, ctx);
 
   // Combine all tools
   const combinedTools: Record<string, Tool> = {
@@ -2384,7 +1931,6 @@ ${systemPrompt}`;
     ...mcpTools,
     ...contextTools,
     ...subAgentTools,
-    ...workflowTools,
   };
 
   // Wrap ALL tools with call tracking to prevent infinite loops
@@ -2396,6 +1942,7 @@ ${systemPrompt}`;
   /**
    * AI SDK 6 prepareStep - Dynamic per-step configuration
    * KEY FIX: Force createPlan on step 0 if no plan exists
+   * FIXED: Also force text-only when plan is completed to prevent looping
    */
   const agentPrepareStep: PrepareStepFunction<ToolSet> = ({ steps, stepNumber }) => {
     const plan = ctx.getPlan();
@@ -2406,6 +1953,12 @@ ${systemPrompt}`;
       return {
         toolChoice: { type: "tool", toolName: "createPlan" },
       };
+    }
+
+    // CRITICAL FIX: When plan is COMPLETED, force text-only response to stop looping
+    if (plan && plan.status === "completed") {
+      logger.info("[Agent prepareStep] Plan completed - forcing text-only final response");
+      return { toolChoice: "none" as const };
     }
 
     // If plan exists but status is "planning", encourage starting tasks
@@ -2419,18 +1972,16 @@ ${systemPrompt}`;
       }
     }
 
-    // Check for explicit STOP signals - force text-only response
-    // NOTE: Do NOT stop on allTasksComplete - let agent continue to assess
+    // Check for explicit STOP signals or allTasksComplete - force text-only response
     const lastStep = steps.at(-1);
     if (lastStep?.toolResults) {
-      const hasExplicitStop = lastStep.toolResults.some((r: any) => {
+      const hasStopOrComplete = lastStep.toolResults.some((r: any) => {
         const result = r.result;
-        // Only force text response on explicit STOP (like tool limit exceeded)
-        // Do NOT force on allTasksComplete - agent should continue to assess
-        return result?.STOP === true && result?.allTasksComplete !== true;
+        // Force text response on explicit STOP OR allTasksComplete
+        return result?.STOP === true || result?.allTasksComplete === true;
       });
-      if (hasExplicitStop) {
-        logger.info("[Agent prepareStep] Explicit STOP signal - forcing text response");
+      if (hasStopOrComplete) {
+        logger.info("[Agent prepareStep] STOP/Complete signal - forcing text response");
         return { toolChoice: "none" as const };
       }
     }
@@ -2449,29 +2000,50 @@ ${systemPrompt}`;
     stopWhen: [
       stepCountIs(maxSteps),
 
-      // REMOVED: Plan completion check - let agent continue after tasks done
-      // The agent should naturally stop when it provides a text response without tool calls
-      // This allows the agent to assess if the user's request is truly complete
-
-      // Only stop on plan failure (not completion)
-      () => {
+      // Plan completion or failure - stop when plan reaches terminal state
+      (options: { steps: StepResult<Record<string, Tool>>[] }) => {
         if (continuousMode) return false;
+
         const plan = ctx.getPlan();
-        if (plan?.status === "failed") {
-          logger.info(`[Agent stopWhen] Plan failed - stopping`);
+        if (!plan) return false;
+
+        // Stop on plan failure
+        if (plan.status === "failed") {
+          logger.info("[Agent stopWhen] Plan failed - stopping");
           return true;
         }
+
+        // Stop on plan completion when agent provides text-only response
+        if (plan.status === "completed") {
+          const lastStep = options.steps.at(-1);
+          const hasToolCalls = lastStep?.toolCalls && lastStep.toolCalls.length > 0;
+
+          if (!hasToolCalls) {
+            logger.info("[Agent stopWhen] Plan completed with text response - stopping");
+            return true;
+          }
+        }
+
         return false;
       },
 
-      // STOP signal detection - only for explicit STOP signals (e.g., tool limit exceeded)
+      // STOP signal or allTasksComplete from tool results
       (options: { steps: StepResult<Record<string, Tool>>[] }) => {
         const lastStep = options.steps.at(-1);
+
+        // If last step had no tool calls with completed plan, stop
+        if (lastStep && (!lastStep.toolCalls || lastStep.toolCalls.length === 0)) {
+          const plan = ctx.getPlan();
+          if (plan?.status === "completed") {
+            logger.info("[Agent stopWhen] Text response with completed plan - stopping");
+            return true;
+          }
+        }
+
         if (lastStep?.toolResults) {
           for (const r of lastStep.toolResults) {
             const result = (r as any).result;
-            // Only stop on explicit STOP signal, NOT on COMPLETED (allTasksComplete)
-            if (result?.STOP === true && result?.COMPLETED !== true && result?.allTasksComplete !== true) {
+            if (result?.STOP === true) {
               logger.info("[Agent stopWhen] Explicit STOP signal received");
               return true;
             }
@@ -2480,7 +2052,7 @@ ${systemPrompt}`;
         return false;
       },
 
-      // No plan after 8 steps (increased from 5)
+      // No plan after 8 steps
       (options: { steps: StepResult<Record<string, Tool>>[] }) => {
         if (options.steps.length >= 8 && !ctx.getPlan()) {
           logger.warn("[Agent stopWhen] No plan after 8 steps - stopping");
@@ -2489,19 +2061,40 @@ ${systemPrompt}`;
         return false;
       },
 
-      // Loop detection - same tool 8+ times consecutively (increased from 3)
+      // Loop detection - same tool 6+ times consecutively (allows legitimate multi-step operations)
       (options: { steps: StepResult<Record<string, Tool>>[] }) => {
-        if (options.steps.length < 8) return false;
+        if (options.steps.length < 6) return false;
 
-        const toolCalls = options.steps.slice(-8)
+        const toolCalls = options.steps.slice(-6)
           .flatMap((step) => step.toolCalls?.map((tc: any) => tc.toolName) || [])
           .filter(Boolean);
 
-        if (toolCalls.length >= 8) {
-          const last8 = toolCalls.slice(-8);
-          const unique = new Set(last8);
+        if (toolCalls.length >= 6) {
+          const last6 = toolCalls.slice(-6);
+          const unique = new Set(last6);
           if (unique.size === 1) {
-            logger.warn(`[Agent stopWhen] Loop: "${last8[0]}" called 8x consecutively`);
+            logger.warn(`[Agent stopWhen] Loop: "${last6[0]}" called 6x consecutively`);
+            return true;
+          }
+        }
+        return false;
+      },
+
+      // Repetitive pattern detection - detect loops with varying tools
+      (options: { steps: StepResult<Record<string, Tool>>[] }) => {
+        if (options.steps.length < 6) return false;
+
+        const recentCalls = options.steps.slice(-6)
+          .flatMap((s) => s.toolCalls?.map((tc: any) => tc.toolName) || [])
+          .filter(Boolean);
+
+        if (recentCalls.length >= 6) {
+          const pattern1 = recentCalls.slice(0, 2).join(",");
+          const pattern2 = recentCalls.slice(2, 4).join(",");
+          const pattern3 = recentCalls.slice(4, 6).join(",");
+
+          if (pattern1 === pattern2 && pattern2 === pattern3 && recentCalls[0] !== recentCalls[1]) {
+            logger.warn(`[Agent stopWhen] Repetitive pattern: ${pattern1} repeated 3 times`);
             return true;
           }
         }
@@ -2529,9 +2122,10 @@ ${systemPrompt}`;
       }
 
       // Log tool call counts to detect loops
+      // Warning threshold is higher than blocking threshold to reduce noise
       const toolCallCounts = ctx.getToolCallCounts();
       const highCallTools = Object.entries(toolCallCounts)
-        .filter(([_, count]) => (count as number) > 5)
+        .filter(([_, count]) => (count as number) > 8)
         .map(([name, count]) => `${name}:${count}`);
 
       if (highCallTools.length > 0) {
@@ -2743,14 +2337,12 @@ export function createAgentOrchestratorConfig(config: OrchestratorConfig) {
   // Create all tools
   const contextTools = createAgentContextTools(ctx);
   const subAgentTools = createSubAgentTools(config, ctx);
-  const workflowTools = createWorkflowTool(config, ctx);
 
   const allTools: Record<string, Tool> = {
     ...availableTools,
     ...mcpTools,
     ...contextTools,
     ...subAgentTools,
-    ...workflowTools,
   };
 
   return {
@@ -2898,7 +2490,6 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
   // Create tools WITH dataStream for plan/task streaming events
   const contextTools = createAgentContextTools(contextManager, dataStream);
   const subAgentTools = createSubAgentTools(config, contextManager, dataStream);
-  const workflowTools = createWorkflowTool(config, contextManager);
 
   // Combine all tools
   const combinedTools: Record<string, Tool> = {
@@ -2906,7 +2497,6 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     ...mcpTools,
     ...contextTools,
     ...subAgentTools,
-    ...workflowTools,
   };
 
   // Wrap ALL tools with call tracking to prevent infinite loops
@@ -2930,6 +2520,15 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
       };
     }
 
+    // CRITICAL FIX: When plan is COMPLETED, force text-only response to stop looping
+    // This ensures the agent provides a final summary instead of continuing to call tools
+    if (plan && plan.status === "completed") {
+      logger.info("[prepareStep] Plan completed - forcing text-only final response");
+      return {
+        toolChoice: "none" as const, // Force text generation, no more tools
+      };
+    }
+
     // After plan created, check if we should force updateTaskStatus
     if (plan && plan.status === "planning") {
       const pendingTasks = contextManager.getTasksByStatus("pending");
@@ -2945,18 +2544,16 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
       }
     }
 
-    // Check for explicit STOP signals - only force text on true stop conditions
-    // NOTE: Do NOT force text-only on allTasksComplete - agent should continue to assess
+    // Check for explicit STOP signals or allTasksComplete - force text on completion
     const lastStep = steps.at(-1);
     if (lastStep?.toolResults) {
-      const hasExplicitStop = lastStep.toolResults.some((r: any) => {
+      const hasStopOrComplete = lastStep.toolResults.some((r: any) => {
         const result = r.result;
-        // Only force text response on explicit STOP (like tool limit exceeded)
-        // Do NOT force on allTasksComplete - agent should continue to assess user request
-        return result?.STOP === true && result?.allTasksComplete !== true;
+        // Force text response on explicit STOP OR allTasksComplete
+        return result?.STOP === true || result?.allTasksComplete === true;
       });
-      if (hasExplicitStop) {
-        logger.info("[prepareStep] Explicit STOP signal detected - forcing text-only response");
+      if (hasStopOrComplete) {
+        logger.info("[prepareStep] STOP/Complete signal detected - forcing text-only response");
         return {
           toolChoice: "none" as const, // Force text generation, no more tools
         };
@@ -2971,37 +2568,68 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
 
   /**
    * AI SDK 6 stopWhen conditions
-   * MODIFIED: Removed plan completion stopping - let agent continue until request is truly complete
-   * The agent will naturally stop when it provides a text response without tool calls
+   * FIXED: Added plan completion stopping to prevent infinite loops after tasks complete
    */
   const stopConditions = [
     // 1. Maximum steps limit (backup safety)
     stepCountIs(maxSteps),
 
-    // 2. REMOVED: Plan completion check - tasks being done doesn't mean user request is complete
-    // The agent should continue to assess and potentially do more work
-    // Only stop on plan FAILURE (unrecoverable error)
-    (_options: { steps: StepResult<any>[] }) => {
+    // 2. Plan completion or failure - stop when plan reaches terminal state
+    (options: { steps: StepResult<any>[] }) => {
       if (continuousMode) return false;
 
       const plan = contextManager.getPlan();
-      // ONLY stop on failure, NOT on completion
-      if (plan?.status === "failed") {
+      if (!plan) return false;
+
+      // Stop on plan failure
+      if (plan.status === "failed") {
         logger.info("[stopWhen] Plan failed - stopping agent");
         return true;
       }
+
+      // Stop on plan completion - give agent one step to provide final response
+      // Check if last step had no tool calls (text-only response)
+      if (plan.status === "completed") {
+        const lastStep = options.steps.at(-1);
+        const hasToolCalls = lastStep?.toolCalls && lastStep.toolCalls.length > 0;
+
+        if (!hasToolCalls) {
+          logger.info("[stopWhen] Plan completed and agent provided final text response - stopping");
+          return true;
+        }
+
+        // If we've already had at least 2 steps since completion, force stop
+        // This prevents infinite loops when model keeps calling tools after completion
+        const completionStepIndex = options.steps.findIndex(s => {
+          return s.toolResults?.some((r: any) => r.result?.allTasksComplete === true);
+        });
+        if (completionStepIndex >= 0 && options.steps.length > completionStepIndex + 1) {
+          logger.info("[stopWhen] Plan completed with steps after completion - forcing stop");
+          return true;
+        }
+      }
+
       return false;
     },
 
-    // 3. STOP signal from tool results - only explicit STOP, not task completion
+    // 3. STOP signal or allTasksComplete from tool results
     (options: { steps: StepResult<any>[] }) => {
       const lastStep = options.steps.at(-1);
+
+      // If last step had no tool calls (text-only), stop
+      if (lastStep && (!lastStep.toolCalls || lastStep.toolCalls.length === 0)) {
+        const plan = contextManager.getPlan();
+        if (plan?.status === "completed") {
+          logger.info("[stopWhen] Text-only response with completed plan - stopping");
+          return true;
+        }
+      }
+
       if (lastStep?.toolResults) {
         for (const r of lastStep.toolResults) {
           const result = (r as any).result;
-          // Only stop on explicit STOP signal (e.g., tool limit exceeded)
-          // Do NOT stop on allTasksComplete - let agent assess and continue
-          if (result?.STOP === true && result?.allTasksComplete !== true) {
+          // Stop on explicit STOP signal
+          if (result?.STOP === true) {
             logger.info("[stopWhen] Explicit STOP signal received");
             return true;
           }
@@ -3010,7 +2638,7 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
       return false;
     },
 
-    // 4. No plan after 8 steps (increased from 5) - but not in continuous mode
+    // 4. No plan after 8 steps - but not in continuous mode
     (options: { steps: StepResult<any>[] }) => {
       if (continuousMode) return false;
       if (options.steps.length >= 8 && !contextManager.getPlan()) {
@@ -3020,18 +2648,41 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
       return false;
     },
 
-    // 5. Loop detection - same tool 8+ times consecutively (increased from 5)
+    // 5. Loop detection - same tool 6+ times consecutively (allows legitimate multi-step operations)
     (options: { steps: StepResult<any>[] }) => {
-      if (options.steps.length < 8) return false;
+      if (options.steps.length < 6) return false;
 
-      const recentCalls = options.steps.slice(-8)
+      const recentCalls = options.steps.slice(-6)
         .flatMap((s) => s.toolCalls?.map((tc: any) => tc.toolName) || [])
         .filter(Boolean);
 
-      if (recentCalls.length >= 8) {
+      if (recentCalls.length >= 6) {
         const unique = new Set(recentCalls);
         if (unique.size === 1) {
-          logger.warn(`[stopWhen] Loop detected - "${recentCalls[0]}" called 8+ times`);
+          logger.warn(`[stopWhen] Loop detected - "${recentCalls[0]}" called 6+ times consecutively`);
+          return true;
+        }
+      }
+      return false;
+    },
+
+    // 6. Repetitive pattern detection - detect loops with varying tools
+    (options: { steps: StepResult<any>[] }) => {
+      if (options.steps.length < 6) return false;
+
+      // Get last 6 tool calls
+      const recentCalls = options.steps.slice(-6)
+        .flatMap((s) => s.toolCalls?.map((tc: any) => tc.toolName) || [])
+        .filter(Boolean);
+
+      if (recentCalls.length >= 6) {
+        // Check for pattern like [A, B, A, B, A, B] - repetitive 2-tool cycle
+        const pattern1 = recentCalls.slice(0, 2).join(",");
+        const pattern2 = recentCalls.slice(2, 4).join(",");
+        const pattern3 = recentCalls.slice(4, 6).join(",");
+
+        if (pattern1 === pattern2 && pattern2 === pattern3 && recentCalls[0] !== recentCalls[1]) {
+          logger.warn(`[stopWhen] Repetitive pattern detected: ${pattern1} repeated 3 times`);
           return true;
         }
       }
