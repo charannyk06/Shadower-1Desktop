@@ -16,7 +16,7 @@ export type OpenAIRealtimeSession = {
   tools: any[];
   tool_choice: string;
   temperature: number;
-  max_response_output_tokens: number;
+  max_response_output_tokens: number | string;
   client_secret: {
     value: string;
     expires_at: number;

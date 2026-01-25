@@ -19,6 +19,7 @@ export const sqliteChatRepository: ChatRepository = {
     return {
       ...result,
       createdAt: result.createdAt ?? new Date(),
+      provider: result.provider ?? undefined,
     };
   },
 
@@ -35,6 +36,7 @@ export const sqliteChatRepository: ChatRepository = {
     return {
       ...result,
       createdAt: result.createdAt ?? new Date(),
+      provider: result.provider ?? undefined,
     };
   },
 
@@ -123,6 +125,7 @@ export const sqliteChatRepository: ChatRepository = {
     return {
       ...result,
       createdAt: result.createdAt ?? new Date(),
+      provider: result.provider ?? undefined,
     };
   },
 
@@ -146,6 +149,7 @@ export const sqliteChatRepository: ChatRepository = {
     return {
       ...result,
       createdAt: result.createdAt ?? new Date(),
+      provider: result.provider ?? undefined,
     };
   },
 

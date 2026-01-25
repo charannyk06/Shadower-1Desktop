@@ -159,8 +159,6 @@ export class WhisperService {
       await this.initialize(options?.modelId || "base");
     }
 
-    const startTime = Date.now();
-
     // If native whisper is available, use it
     if (this.nativeWhisper) {
       return this.transcribeNative(audioBuffer, options);

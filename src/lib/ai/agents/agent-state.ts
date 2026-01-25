@@ -85,6 +85,9 @@ export interface AgentContextManager {
   // Serialization for persistence
   serialize(): string;
   deserialize(data: string): void;
+
+  // Plan restoration from message history (for stateless request handling)
+  restorePlan(restoredPlan: AgentPlan): void;
 }
 
 /**
@@ -281,6 +284,12 @@ export function createAgentContext(): AgentContextManager {
       } catch {
         // Ignore parse errors
       }
+    },
+
+    restorePlan(restoredPlan: AgentPlan): void {
+      // Restore a plan reconstructed from message history
+      // This is used when the agent context is recreated (e.g., new request after tool calls)
+      plan = { ...restoredPlan };
     },
   };
 

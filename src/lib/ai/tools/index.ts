@@ -19,6 +19,8 @@ export enum DefaultToolName {
   WebSearch = "webSearch",
   WebContent = "webContent",
   // Browser automation tools (Local Chrome DevTools Protocol via agent-browser)
+  // ONE-SHOT SEARCH (RECOMMENDED for web searches!)
+  BrowserSearch = "browserSearch",
   BrowserCreateSession = "browserCreateSession",
   BrowserCloseSession = "browserCloseSession",
   BrowserListSessions = "browserListSessions",

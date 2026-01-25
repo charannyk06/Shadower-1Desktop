@@ -12,6 +12,13 @@ export function getToolCallSummary(
   toolName: string,
   input: unknown
 ): ToolCallSummary {
+  // Guard against undefined/null/empty tool names
+  if (!toolName || typeof toolName !== "string") {
+    return {
+      action: "Tool operation",
+    };
+  }
+
   const normalizedName = toolName.toLowerCase();
   const args = (input && typeof input === "object" ? input : {}) as Record<
     string,
@@ -81,11 +88,47 @@ export function getToolCallSummary(
     };
   }
 
-  // Grep/Search operations
+  // Memory search (knowledge base, conversations, documents)
+  // MUST come before general search handling
+  if (normalizedName === "memory_search" || normalizedName === "memorysearch") {
+    const query = args.query || args.search || args.q;
+    if (query) {
+      return {
+        action: `Search memory for '${truncate(String(query), 40)}'`,
+      };
+    }
+    return {
+      action: "Search memory",
+    };
+  }
+
+  // File search (searching for files by name on disk)
+  if (
+    normalizedName === "file_search" ||
+    normalizedName === "filesearch" ||
+    normalizedName === "local_file_search" ||
+    normalizedName === "search_files"
+  ) {
+    const pattern = args.pattern || args.query || args.search;
+    const path = getPathFromArgs(args);
+    if (pattern) {
+      return {
+        action: `Find files '${truncate(String(pattern), 40)}'`,
+        detail: path,
+      };
+    }
+    return {
+      action: "Find files",
+      detail: path,
+    };
+  }
+
+  // Grep/Search operations (actual grep, ripgrep, code search)
   if (
     normalizedName.includes("grep") ||
-    normalizedName.includes("search") ||
-    normalizedName === "ripgrep"
+    normalizedName.includes("ripgrep") ||
+    normalizedName === "search_code" ||
+    normalizedName === "code_search"
   ) {
     const query =
       args.pattern || args.query || args.search || args.q || args.regex;
@@ -97,7 +140,7 @@ export function getToolCallSummary(
       };
     }
     return {
-      action: "Search",
+      action: "Search code",
       detail: path,
     };
   }
@@ -240,6 +283,11 @@ export function getToolResultSummary(
   result: unknown
 ): string | undefined {
   if (!result) return undefined;
+
+  // Guard against undefined/null/empty tool names
+  if (!toolName || typeof toolName !== "string") {
+    return undefined;
+  }
 
   const normalizedName = toolName.toLowerCase();
 

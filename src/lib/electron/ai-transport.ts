@@ -261,7 +261,7 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
           mentions: requestBody.mentions,
           message: requestBody.message,
           imageTool: requestBody.imageTool,
-          attachments: requestBody.attachments,
+          attachments: requestBody.attachments || [],
           workingDirectory,
         });
 

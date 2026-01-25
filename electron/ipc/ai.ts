@@ -1147,16 +1147,39 @@ function buildAgentSystemPrompt(
   // ============================================
   if (isLocalModel) {
     const cwd = workingDirectory?.path || os.homedir();
-    // MINIMAL system prompt for local models - DO NOT describe tools!
-    // The AI SDK passes tool schemas via the API - describing them in text confuses the model
-    // and makes it output JSON text instead of making actual tool calls.
+    // MINIMAL but EFFECTIVE system prompt for local models
+    // Key insight: Local models need EXPLICIT guidance on tool selection
+    // Without this, they often confuse file_search with web_search with memory_search
+    // NOTE: Tool names may have "local_" prefix when MCP is active
     return `You are Shadower, an autonomous AI assistant with access to tools.
 
 IMPORTANT RULES:
-1. When you need to do something, USE YOUR TOOLS - do not just describe what you would do
+1. USE YOUR TOOLS - do not just describe what you would do
 2. After using a tool, briefly confirm what happened
 3. Working directory: ${cwd}
-4. Be direct and take action`;
+
+TOOL SELECTION GUIDE (tools may have "local_" prefix):
+
+1. memory_search: Search KNOWLEDGE BASES and documents the user uploaded.
+   USE FOR: Questions about uploaded documents, resumes, notes, PDFs, or any indexed content.
+   Example: "What does my resume say?" → memory_search
+
+2. web_search / local_web_search: Search the INTERNET.
+   USE FOR: General questions, finding people, facts, news, definitions, research.
+   Example: "Who is Elon Musk?" → web_search
+
+3. file_search / local_file_search: Find FILES by filename on disk.
+   USE FOR: Only when user explicitly wants to locate a file by name.
+   Example: "Find files named report.pdf" → file_search
+
+4. terminal_execute: Run shell commands.
+
+DECISION FLOWCHART:
+- Is it about uploaded documents/knowledge base? → memory_search
+- Is it a general question about information? → web_search
+- Is it finding files by name on disk? → file_search
+
+COMMON MISTAKE: Do NOT use file_search for content questions. Use memory_search for uploaded documents.`;
   }
 
   // Full prompt for cloud models (they handle context better)
@@ -1536,39 +1559,63 @@ function createElectronTools(
       },
     }),
 
-    // Search files
+    // Search files on local disk (NOT for web searches)
     file_search: createTool({
-      description: "Search for files matching a pattern",
+      description: "Search for FILES on the local computer disk by filename. Only use this when looking for actual files on disk, NOT for searching information on the internet. Use memory_search for knowledge base content.",
       inputSchema: z.object({
-        directory: z.string().describe("Directory to search in"),
-        pattern: z.string().describe("Glob pattern or filename to search for"),
+        directory: z.string().describe("Directory path to search in (e.g., /Users/name/Documents)"),
+        pattern: z.string().describe("Filename pattern to search for (e.g., *.txt, report.pdf, John Smith)"),
         maxResults: z
           .number()
           .optional()
           .describe("Maximum results (default 50)"),
       }),
       execute: async ({ directory, pattern, maxResults = 50 }) => {
-        // console.log(`[AI Tools] Searching files: ${pattern} in ${directory}`);
+        console.log(`[AI Tools] ========== FILE SEARCH CALLED ==========`);
+        console.log(`[AI Tools] File search directory: "${directory}"`);
+        console.log(`[AI Tools] File search pattern: "${pattern}"`);
+        console.log(`[AI Tools] Max results: ${maxResults}`);
         try {
-          // Use find command on Unix, dir on Windows
           const isWindows = os.platform() === "win32";
-          const command = isWindows
-            ? `dir /s /b "${directory}\\*${pattern}*" 2>nul`
-            : `find "${directory}" -name "*${pattern}*" -type f 2>/dev/null | head -${maxResults}`;
 
+          // Create multiple patterns to handle spaces vs underscores vs hyphens
+          // "Charannyan Kannan" should match "Charannyan_Kannan", "Charannyan-Kannan", etc.
+          const simplePattern = pattern.trim();
+          const underscorePattern = pattern.replace(/\s+/g, '_');
+          const hyphenPattern = pattern.replace(/\s+/g, '-');
+
+          // Use find with -iname for case-insensitive search and combine multiple patterns
+          let command: string;
+          if (isWindows) {
+            command = `dir /s /b "${directory}\\*${simplePattern}*" "${directory}\\*${underscorePattern}*" 2>nul`;
+          } else {
+            // Search with multiple patterns: original, underscored, and hyphenated versions
+            // Use -iname for case-insensitive matching
+            command = `(find "${directory}" -iname "*${simplePattern}*" -type f 2>/dev/null; find "${directory}" -iname "*${underscorePattern}*" -type f 2>/dev/null; find "${directory}" -iname "*${hyphenPattern}*" -type f 2>/dev/null) | sort -u | head -${maxResults}`;
+          }
+
+          console.log(`[AI Tools] File search command: ${command}`);
           const { stdout } = await execAsync(command, { timeout: 30000 });
           const files = stdout.split("\n").filter(Boolean).slice(0, maxResults);
+
+          console.log(`[AI Tools] File search found ${files.length} files`);
 
           return {
             success: true,
             files,
             count: files.length,
+            searchedPatterns: [simplePattern, underscorePattern, hyphenPattern],
+            hint: files.length === 0
+              ? "No files found. If searching for document content, use memory_search instead. If searching the web, use web_search."
+              : undefined,
           };
         } catch (error: any) {
+          console.error(`[AI Tools] File search error:`, error);
           return {
             success: false,
             error: error.message,
             files: [],
+            hint: "If looking for document content in knowledge bases, use memory_search. If researching information online, use web_search.",
           };
         }
       },
@@ -1577,16 +1624,18 @@ function createElectronTools(
     // Web search using DuckDuckGo (free, no API key needed)
     web_search: createTool({
       description:
-        "Search the web for information using DuckDuckGo. Returns search results with titles, URLs, and snippets.",
+        "Search the internet for information, news, people, companies, facts, or any topic. Use this for ANY research or information lookup. Returns search results with titles, URLs, and snippets.",
       inputSchema: z.object({
-        query: z.string().describe("The search query"),
+        query: z.string().describe("The search query - what you want to find on the internet"),
         numResults: z
           .number()
           .optional()
           .describe("Maximum number of results to return (default 5)"),
       }),
       execute: async ({ query, numResults = 5 }) => {
-        console.log(`[AI Tools] Web search: ${query}`);
+        console.log(`[AI Tools] ========== WEB SEARCH CALLED ==========`);
+        console.log(`[AI Tools] Web search query: "${query}"`);
+        console.log(`[AI Tools] Num results: ${numResults}`);
         try {
           // Use DuckDuckGo HTML search and parse results
           const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -2730,9 +2779,26 @@ export function registerAIHandlers() {
         for (const name of localModelTools) {
           if (tools[name]) filteredTools[name] = tools[name];
         }
-        
+
         toolsToUse = Object.keys(filteredTools).length > 0 ? filteredTools : undefined;
-        console.log(`[AI IPC] Local model: ${Object.keys(filteredTools).length} tools (terminal + headless search)`);
+        console.log(`[AI IPC] Local model: ${Object.keys(filteredTools).length} tools`);
+        console.log(`[AI IPC] Local model tools available: ${Object.keys(filteredTools).join(', ')}`);
+        // Verify web_search is included
+        if (filteredTools['web_search']) {
+          console.log(`[AI IPC] ✓ web_search tool IS available for local model`);
+        } else if (filteredTools['local_web_search']) {
+          console.log(`[AI IPC] ✓ local_web_search tool IS available for local model`);
+        } else {
+          console.warn(`[AI IPC] ⚠ NO web search tools available for local model!`);
+        }
+
+        // Log tool descriptions for debugging
+        console.log(`[AI IPC] === LOCAL MODEL TOOL DESCRIPTIONS ===`);
+        for (const [name, tool] of Object.entries(filteredTools)) {
+          const desc = (tool as any)?.description || 'no description';
+          console.log(`[AI IPC] ${name}: "${desc.slice(0, 80)}${desc.length > 80 ? '...' : ''}"`);
+        }
+        console.log(`[AI IPC] =====================================`);
       } else if (!capabilities.isToolCallSupported) {
         // Cloud model with conflicting tool requirements (built-in tools or Responses API)
         console.warn(
@@ -2997,7 +3063,6 @@ export function registerAIHandlers() {
 
         // Count user messages to determine if this is the first turn
         const userMessageCount = messages.filter((m: any) => m.role === "user").length;
-        const isFirstUserMessage = userMessageCount === 1;
 
         // RAG INJECTION LOGIC:
         // - RAG MODE: Inject on EVERY turn for ALL models (cloud + local)
@@ -3373,9 +3438,10 @@ For file operations, terminal, or browser automation, ask the user to switch to 
           const agentMaxSteps = 1000;
           console.log(`[AI IPC Agent] Using maxSteps: ${agentMaxSteps}`);
 
-          // Enable continuous mode for truly long-running tasks
-          // In continuous mode, agent doesn't stop on plan completion
-          const continuousMode = true;
+          // CRITICAL FIX: Disable continuous mode to respect plan completion
+          // This ensures the agent stops when all tasks are marked complete
+          // instead of looping infinitely with new plans
+          const continuousMode = false;
 
           const orchestratorConfig = createStreamingAutonomousAgent({
             userId,
@@ -3385,9 +3451,10 @@ For file operations, terminal, or browser automation, ask the user to switch to 
             availableTools: tools || {},
             mcpTools: {}, // MCP tools already merged into tools
             maxSteps: agentMaxSteps, // Configurable limit for long-running agent mode
-            continuousMode, // Allow agent to continue after plan completion
+            continuousMode, // Now disabled to respect plan completion
             dataStream: ipcDataStream as any, // Cast to any since we're only implementing write()
             workingDirectory, // Pass working directory for file operations
+            messages: sanitizedMessages, // CRITICAL: Pass messages for plan reconstruction
           });
 
           // Verify model supports tool calling in agent mode
@@ -4891,6 +4958,69 @@ For file operations, terminal, or browser automation, ask the user to switch to 
         return { success: true, object: result.object };
       } catch (error: any) {
         console.error("[AI IPC] Generate object error:", error);
+        return { error: error.message };
+      }
+    },
+  );
+
+  /**
+   * Generate text from prompt (for inline text enhancement)
+   * Simple text generation without streaming
+   */
+  ipcMain.handle(
+    "ai:generateText",
+    async (
+      _event,
+      request: {
+        chatModel: { provider: string; model: string };
+        system: string;
+        prompt: string;
+        maxTokens?: number;
+      },
+    ) => {
+      const { chatModel, system, prompt, maxTokens = 2000 } = request;
+
+      console.log(
+        `[AI IPC] Generate text request, model: ${chatModel?.provider}/${chatModel?.model}`,
+      );
+
+      try {
+        // Get the API key for this provider
+        const apiKey = await getApiKeyForProvider(chatModel.provider);
+
+        if (!apiKey && !isLocalProvider(chatModel.provider)) {
+          return { error: `No API key configured for ${chatModel.provider}` };
+        }
+
+        // Get the model instance
+        const model = await getModelInstance(chatModel, apiKey);
+
+        if (!model) {
+          return {
+            error: `Could not initialize model ${chatModel.provider}/${chatModel.model}`,
+          };
+        }
+
+        // Generate text using the AI SDK
+        const { generateText } = await import("ai");
+        const result = await generateText({
+          model,
+          messages: [
+            {
+              role: "system",
+              content: system,
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          maxTokens,
+        } as Parameters<typeof generateText>[0]);
+
+        return { success: true, text: result.text };
+      } catch (error: any) {
+        console.error("[AI IPC] Generate text error:", error);
         return { error: error.message };
       }
     },

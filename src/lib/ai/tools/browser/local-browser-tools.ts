@@ -1668,8 +1668,215 @@ For select dropdowns, use the option value.`,
   },
 });
 
+// ============================================================================
+// ONE-SHOT BROWSER SEARCH TOOL
+// ============================================================================
+
+/**
+ * One-shot web search using the browser
+ * This is THE RECOMMENDED tool for quick web searches - handles everything automatically!
+ */
+export const browserSearchTool = createTool({
+  description: `ONE-SHOT web search using the real browser. RECOMMENDED for all web searches!
+
+This tool handles everything automatically:
+1. Creates browser session (or uses existing)
+2. Searches using Google or DuckDuckGo
+3. Returns structured search results
+4. Keeps session open for follow-up browsing
+
+Use this when you need to search the internet for information. Much easier than manual browser navigation!
+
+Example: browser_search({ query: "latest AI news 2024", engine: "google", numResults: 5 })`,
+  inputSchema: z.object({
+    query: z.string().describe("Search query - what to search for on the web"),
+    engine: z
+      .enum(["google", "duckduckgo"])
+      .optional()
+      .default("google")
+      .describe("Search engine to use (default: google)"),
+    numResults: permissiveNumber()
+      .optional()
+      .default(10)
+      .describe("Number of results to return (default: 10)"),
+    keepSessionOpen: permissiveBoolean()
+      .optional()
+      .default(true)
+      .describe("Keep browser session open for follow-up actions (default: true)"),
+  }),
+  execute: async ({ query, engine, numResults, keepSessionOpen }) => {
+    try {
+      // Step 1: Check if we have an existing session, create one if not
+      let sessionCreated = false;
+      let sessions: Array<{ id: string; isActive: boolean }> = [];
+
+      try {
+        sessions = await callBrowserAPI<Array<{ id: string; isActive: boolean }>>("listSessions");
+      } catch {
+        sessions = [];
+      }
+
+      const hasActiveSession = sessions.some(s => s.isActive);
+
+      if (!hasActiveSession) {
+        const createResult = await callBrowserAPI<{
+          sessionId?: string;
+          error?: string;
+        }>("createSession", { cdpPort: 9222 });
+
+        if (createResult.error || !createResult.sessionId) {
+          return {
+            success: false,
+            error: createResult.error || "Failed to create browser session",
+            hint: "Close all Chrome windows and try again. Chrome will be launched with debugging enabled.",
+          };
+        }
+        sessionCreated = true;
+      }
+
+      // Step 2: Build search URL
+      const encodedQuery = encodeURIComponent(query);
+      const searchUrl = engine === "duckduckgo"
+        ? `https://duckduckgo.com/?q=${encodedQuery}`
+        : `https://www.google.com/search?q=${encodedQuery}`;
+
+      // Step 3: Navigate to search
+      const navResult = await callBrowserAPI<{
+        url?: string;
+        title?: string;
+        blocked?: boolean;
+        captchaDetected?: boolean;
+        error?: string;
+      }>("navigate", searchUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+
+      if (navResult.error || navResult.blocked) {
+        return {
+          success: false,
+          error: navResult.error || "Search page blocked",
+          blocked: navResult.blocked,
+          captchaDetected: navResult.captchaDetected,
+          hint: "Try a different search engine or check if Chrome is blocked.",
+        };
+      }
+
+      // Step 4: Wait a moment for results to load
+      await callBrowserAPI<{ success: boolean }>("wait", {
+        loadState: "networkidle",
+        timeout: 5000
+      }).catch(() => {
+        // Ignore timeout, page might already be loaded
+      });
+
+      // Step 5: Get snapshot of search results
+      const snapshot = await callBrowserAPI<{
+        tree?: string;
+        stats?: { lines: number; chars: number; refs: number };
+        error?: string;
+      }>("getSnapshot", { interactive: false, compact: true });
+
+      if (snapshot.error || !snapshot.tree) {
+        return {
+          success: false,
+          error: snapshot.error || "Failed to get search results",
+        };
+      }
+
+      // Step 6: Parse the snapshot to extract search results
+      const results = parseSearchResults(snapshot.tree, numResults || 10);
+
+      // Step 7: Close session if requested
+      if (!keepSessionOpen && sessionCreated) {
+        await callBrowserAPI<{ success?: boolean }>("closeSession").catch(() => {});
+      }
+
+      return {
+        success: true,
+        query,
+        engine,
+        totalResultsFound: results.length,
+        results,
+        rawSnapshot: snapshot.tree,
+        sessionKeptOpen: keepSessionOpen,
+        hint: results.length > 0
+          ? "Use browser_click with the ref (e.g., @e5) to visit a result, or browser_navigate with a URL."
+          : "No results found. Try a different query.",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Search failed",
+        hint: "Make sure Chrome is accessible. Try closing all Chrome windows and running again.",
+      };
+    }
+  },
+});
+
+/**
+ * Parse search results from snapshot tree
+ */
+function parseSearchResults(tree: string, maxResults: number): Array<{
+  title: string;
+  url?: string;
+  snippet?: string;
+  ref?: string;
+}> {
+  const results: Array<{
+    title: string;
+    url?: string;
+    snippet?: string;
+    ref?: string;
+  }> = [];
+
+  // Parse the tree line by line looking for links with refs
+  const lines = tree.split("\n");
+  let currentResult: { title?: string; url?: string; snippet?: string; ref?: string } | null = null;
+
+  for (const line of lines) {
+    // Look for links (Google search results are typically links)
+    const linkMatch = line.match(/link\s+"([^"]+)"\s+\[ref=([^\]]+)\]/i);
+    if (linkMatch) {
+      // Save previous result if exists
+      if (currentResult?.title) {
+        results.push(currentResult as { title: string; url?: string; snippet?: string; ref?: string });
+        if (results.length >= maxResults) break;
+      }
+      currentResult = {
+        title: linkMatch[1],
+        ref: linkMatch[2],
+      };
+      continue;
+    }
+
+    // Look for URLs (href attributes or URL patterns)
+    const urlMatch = line.match(/https?:\/\/[^\s\]"]+/);
+    if (urlMatch && currentResult && !currentResult.url) {
+      // Filter out google.com tracking URLs
+      const url = urlMatch[0];
+      if (!url.includes("google.com/url") && !url.includes("google.com/search")) {
+        currentResult.url = url;
+      }
+    }
+
+    // Look for text content that could be snippets
+    const textMatch = line.match(/text\s+"([^"]{20,})"/);
+    if (textMatch && currentResult && !currentResult.snippet) {
+      currentResult.snippet = textMatch[1].slice(0, 200);
+    }
+  }
+
+  // Add last result
+  if (currentResult?.title && results.length < maxResults) {
+    results.push(currentResult as { title: string; url?: string; snippet?: string; ref?: string });
+  }
+
+  return results;
+}
+
 // Export all browser tools as a collection
 export const localBrowserTools = {
+  // === ONE-SHOT SEARCH (RECOMMENDED!) ===
+  browser_search: browserSearchTool,
+
   // Session Management
   browser_create_session: browserCreateSessionTool,
   browser_close_session: browserCloseSessionTool,

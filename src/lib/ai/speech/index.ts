@@ -19,6 +19,8 @@ export interface VoiceChatSession {
   stop: () => Promise<void>;
   startListening: () => Promise<void>;
   stopListening: () => Promise<void>;
+  /** Optional TTS function for speaking assistant responses (local implementation) */
+  speakText?: (text: string) => void;
 }
 
 export type VoiceChatOptions = {

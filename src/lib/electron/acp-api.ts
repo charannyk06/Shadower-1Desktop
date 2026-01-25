@@ -8,7 +8,6 @@
 import type {
   ACPAgentStatus,
   ACPSession,
-  ACPPromptResult,
   ACPMessageChunk,
   ACPPermissionRequest,
   StartACPSessionRequest,
@@ -37,14 +36,56 @@ export const AGENT_ICON_PROVIDERS: Record<
   gemini: "google",
 };
 
+// Preload returns the full ACPSession from IPC
+// Note: The IPC handler returns ACPSession which has sessionId, not id
+interface PreloadACPSession {
+  sessionId: string;
+  agentId: string;
+  workingDirectory?: string;
+  createdAt: Date;
+  availableModes?: string[];
+  currentMode?: string;
+}
+
+// Preload returns a different shape for prompt results
+interface PreloadPromptResult {
+  content: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
+
+// Session data from session-created event
+interface PreloadSessionCreatedData {
+  agentId: string;
+  session: PreloadACPSession;
+}
+
+// Permission request shape from preload
+interface PreloadPermissionRequest {
+  agentId: string;
+  sessionId: string;
+  requestId: string;
+  title: string;
+  description?: string;
+  options: Array<{
+    id: string;
+    label: string;
+    description?: string;
+    isDefault?: boolean;
+  }>;
+  metadata?: Record<string, unknown>;
+}
+
 // Type for the IPC API exposed by preload
 interface ACPElectronAPI {
   listAgents: (forceRefresh?: boolean) => Promise<ACPAgentStatus[]>;
   getAgentStatus: (agentId: string) => Promise<ACPAgentStatus | undefined>;
   startAgent: (agentId: string) => Promise<void>;
   stopAgent: (agentId: string) => Promise<void>;
-  createSession: (request: StartACPSessionRequest) => Promise<ACPSession>;
-  prompt: (request: SendACPPromptRequest) => Promise<ACPPromptResult>;
+  createSession: (request: StartACPSessionRequest) => Promise<PreloadACPSession>;
+  prompt: (request: SendACPPromptRequest) => Promise<PreloadPromptResult>;
   cancel: (agentId: string, sessionId: string) => Promise<void>;
   authenticate: (
     agentId: string,
@@ -55,19 +96,19 @@ interface ACPElectronAPI {
   // Event listeners
   onAgentStarted: (callback: (data: { agentId: string }) => void) => () => void;
   onAgentExit: (
-    callback: (data: { agentId: string; code: number; signal: string }) => void
+    callback: (data: { agentId: string; code: number | null }) => void
   ) => () => void;
   onAgentError: (
-    callback: (data: { agentId: string; error: Error }) => void
+    callback: (data: { agentId: string; error: string }) => void
   ) => () => void;
   onAgentAuthenticated: (
     callback: (data: { agentId: string }) => void
   ) => () => void;
   onAuthRequired: (callback: (data: { agentId: string }) => void) => () => void;
-  onSessionCreated: (callback: (session: ACPSession) => void) => () => void;
+  onSessionCreated: (callback: (data: PreloadSessionCreatedData) => void) => () => void;
   onMessageChunk: (callback: (chunk: ACPMessageChunk) => void) => () => void;
   onPermissionRequest: (
-    callback: (request: ACPPermissionRequest) => void
+    callback: (request: PreloadPermissionRequest) => void
   ) => () => void;
 }
 
@@ -143,18 +184,27 @@ export async function createACPSession(
 ): Promise<ACPSession> {
   const api = getACPApi();
   if (!api) throw new Error("ACP API not available");
-  return api.createSession({ agentId, workingDirectory, mcpServers });
+  const preloadSession = await api.createSession({ agentId, workingDirectory, mcpServers });
+  // The IPC returns ACPSession directly with sessionId (not id)
+  return {
+    sessionId: preloadSession.sessionId,
+    agentId: preloadSession.agentId,
+    workingDirectory: preloadSession.workingDirectory || workingDirectory,
+    createdAt: preloadSession.createdAt,
+  };
 }
 
 /**
- * Send a prompt to an ACP agent session
+ * Send a prompt to an ACP agent session.
+ * Note: The actual response content comes through streaming events (onACPMessageChunk).
+ * This function returns basic info about the prompt request.
  */
 export async function sendACPPrompt(
   agentId: string,
   sessionId: string,
   message: string,
   contextFiles?: SendACPPromptRequest["contextFiles"]
-): Promise<ACPPromptResult> {
+): Promise<{ content: string; usage?: { inputTokens: number; outputTokens: number } }> {
   const api = getACPApi();
   if (!api) throw new Error("ACP API not available");
   return api.prompt({ agentId, sessionId, message, contextFiles });
@@ -225,7 +275,7 @@ export function onACPAgentStarted(
  * Subscribe to ACP agent exit events
  */
 export function onACPAgentExit(
-  callback: (data: { agentId: string; code: number; signal: string }) => void
+  callback: (data: { agentId: string; code: number | null }) => void
 ): () => void {
   const api = getACPApi();
   if (!api) return () => {};
@@ -236,7 +286,7 @@ export function onACPAgentExit(
  * Subscribe to ACP agent error events
  */
 export function onACPAgentError(
-  callback: (data: { agentId: string; error: Error }) => void
+  callback: (data: { agentId: string; error: string }) => void
 ): () => void {
   const api = getACPApi();
   if (!api) return () => {};
@@ -273,7 +323,16 @@ export function onACPSessionCreated(
 ): () => void {
   const api = getACPApi();
   if (!api) return () => {};
-  return api.onSessionCreated(callback);
+  // The session event returns ACPSession with sessionId (not id)
+  return api.onSessionCreated((data) => {
+    const session: ACPSession = {
+      sessionId: data.session.sessionId,
+      agentId: data.session.agentId,
+      workingDirectory: data.session.workingDirectory || "",
+      createdAt: data.session.createdAt,
+    };
+    callback(session);
+  });
 }
 
 /**
@@ -295,5 +354,71 @@ export function onACPPermissionRequest(
 ): () => void {
   const api = getACPApi();
   if (!api) return () => {};
-  return api.onPermissionRequest(callback);
+  // Convert preload permission request to ACPPermissionRequest format
+  return api.onPermissionRequest((data) => {
+    // Infer permission type from metadata or title
+    const metadata = data.metadata || {};
+    const permissionType = (metadata.permissionType as ACPPermissionRequest["permissionType"])
+      || inferPermissionType(data.title);
+
+    const request: ACPPermissionRequest = {
+      requestId: data.requestId,
+      agentId: data.agentId,
+      sessionId: data.sessionId,
+      permissionType,
+      description: data.description || data.title,
+      filePath: metadata.filePath as string | undefined,
+      toolCallId: metadata.toolCallId as string | undefined,
+      diff: metadata.diff as string | undefined,
+      command: metadata.command as string | undefined,
+      options: data.options.map(opt => ({
+        id: opt.id,
+        label: opt.label,
+        // Infer grants based on option id/label - "allow", "yes", "approve" grant permission
+        grants: inferGrantsFromOption(opt.id, opt.label),
+        remember: opt.isDefault,
+      })),
+    };
+    callback(request);
+  });
+}
+
+/**
+ * Infer permission type from title string
+ */
+function inferPermissionType(title: string): ACPPermissionRequest["permissionType"] {
+  // Guard against undefined/null/empty title
+  if (!title || typeof title !== "string") {
+    return "mcp_tool"; // Default fallback
+  }
+
+  const lowerTitle = title.toLowerCase();
+  if (lowerTitle.includes("edit") || lowerTitle.includes("modify")) return "file_edit";
+  if (lowerTitle.includes("create") || lowerTitle.includes("write")) return "file_create";
+  if (lowerTitle.includes("delete") || lowerTitle.includes("remove")) return "file_delete";
+  if (lowerTitle.includes("terminal") || lowerTitle.includes("command") || lowerTitle.includes("bash")) return "terminal";
+  return "mcp_tool"; // Default fallback
+}
+
+/**
+ * Infer whether an option grants permission based on its id/label
+ */
+function inferGrantsFromOption(id: string, label: string): boolean {
+  // Guard against undefined/null values
+  const safeId = id || "";
+  const safeLabel = label || "";
+  const lower = (safeId + safeLabel).toLowerCase();
+  // Grant options typically contain these words
+  const grantWords = ["allow", "yes", "approve", "accept", "ok", "confirm", "grant"];
+  // Deny options typically contain these words
+  const denyWords = ["deny", "no", "reject", "cancel", "decline", "block"];
+
+  for (const word of grantWords) {
+    if (lower.includes(word)) return true;
+  }
+  for (const word of denyWords) {
+    if (lower.includes(word)) return false;
+  }
+  // Default to false for unknown options
+  return false;
 }

@@ -314,6 +314,13 @@ function isDocumentContent(text: string): { isDocument: boolean; type: "markdown
     return { isDocument: true, type: "markdown" };
   }
 
+  // Check for markdown-like content (bold text with lists)
+  const hasBoldText = (text.match(/\*\*[^*]+\*\*/g) || []).length >= 2;
+  const hasLists = (text.match(/^[-*]\s/gm) || []).length >= 3 || (text.match(/^\d+\.\s/gm) || []).length >= 3;
+  if ((hasBoldText || hasLists) && text.length > DOCUMENT_PREVIEW_MIN_LENGTH) {
+    return { isDocument: true, type: "markdown" };
+  }
+
   // Long text content
   if (text.length > DOCUMENT_PREVIEW_MIN_LENGTH * 2) {
     return { isDocument: true, type: "text" };
@@ -332,17 +339,34 @@ export const AssistMessagePart = memo(function AssistMessagePart({
   setMessages,
   readonly,
   sendMessage,
+  isLast,
+  isLoading,
 }: AssistMessagePartProps) {
   const { copied, copy } = useCopy();
-  const [isLoading, setIsLoading] = useState(false);
+  // Local loading state for model change action (different from streaming isLoading prop)
+  const [isModelChanging, setIsModelChanging] = useState(false);
   const agentList = appStore((state) => state.agentList);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDocPreview, setShowDocPreview] = useState(false);
+  // Simple state: if user edited content, use that; otherwise use part.text
+  const [editedDocContent, setEditedDocContent] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const metadata = message.metadata as ChatMetadata | undefined;
 
-  // Detect document content
-  const documentInfo = useMemo(() => isDocumentContent(part.text), [part.text]);
+  // Simple: use edited content if available, otherwise use part.text
+  const documentContent = editedDocContent ?? part.text;
+  
+  // Debug logging
+  useEffect(() => {
+    console.log("[MessageParts] State changed:", {
+      editedDocContentLength: editedDocContent?.length,
+      partTextLength: part.text?.length,
+      documentContentLength: documentContent?.length,
+      usingEdited: editedDocContent !== null,
+    });
+  }, [editedDocContent, documentContent, part.text]);
+  
+  const documentInfo = useMemo(() => isDocumentContent(documentContent), [documentContent]);
 
   const agent = useMemo(() => {
     return agentList.find((a) => a.id === metadata?.agentId);
@@ -373,7 +397,7 @@ export const AssistMessagePart = memo(function AssistMessagePart({
 
   const handleModelChange = (model: ChatModel) => {
     if (!setMessages || !sendMessage || !prevMessage) return;
-    safe(() => setIsLoading(true))
+    safe(() => setIsModelChanging(true))
       .ifOk(() =>
         threadId
           ? threadApi.deleteMessagesAfterTimestamp(threadId, message.id)
@@ -396,7 +420,7 @@ export const AssistMessagePart = memo(function AssistMessagePart({
         }),
       )
       .ifFail((error) => toast.error(error.message))
-      .watch(() => setIsLoading(false))
+      .watch(() => setIsModelChanging(false))
       .unwrap();
   };
 
@@ -408,10 +432,13 @@ export const AssistMessagePart = memo(function AssistMessagePart({
     }
   }, [sendMessage]);
 
+  // Determine if we're currently streaming (for disabling animations)
+  const isStreaming = isLast && isLoading;
+
   return (
     <div
       className={cn(
-        isLoading && "animate-pulse",
+        isModelChanging && "animate-pulse",
         "flex flex-col gap-2 group/message",
       )}
     >
@@ -423,16 +450,50 @@ export const AssistMessagePart = memo(function AssistMessagePart({
       >
         {documentInfo.isDocument && showDocPreview ? (
           <InlineDocumentPreview
-            content={part.text}
+            content={documentContent}
             type={documentInfo.type}
             language={documentInfo.language}
             onRequestChanges={handleRequestChanges}
             sendMessage={sendMessage ? (msg) => sendMessage({ role: "user", content: msg } as any) : undefined}
+            onContentChange={async (newContent) => {
+              console.log("[MessageParts] Content changed, saving...");
+              setEditedDocContent(newContent);
+              
+              // Persist to database
+              try {
+                // Update the part with new content
+                const updatedParts = message.parts.map((p) => {
+                  if (p === part || (p.type === "text" && p.text === part.text)) {
+                    return { ...p, text: newContent };
+                  }
+                  return p;
+                });
+                
+                // Save to database
+                await threadApi.updateMessageParts(message.id, updatedParts);
+                console.log("[MessageParts] Saved to database");
+                
+                // Update in-memory state too
+                if (setMessages) {
+                  setMessages((msgs) => 
+                    msgs.map((m) => 
+                      m.id === message.id 
+                        ? { ...m, parts: updatedParts }
+                        : m
+                    )
+                  );
+                }
+              } catch (error) {
+                console.error("[MessageParts] Failed to save:", error);
+                toast.error("Failed to save changes");
+              }
+            }}
+            onClose={() => setShowDocPreview(false)}
             className="my-2"
           />
         ) : (
           <>
-            <Markdown>{part.text}</Markdown>
+            <Markdown streaming={isStreaming}>{documentContent}</Markdown>
             {documentInfo.isDocument && (
               <Button
                 variant="ghost"

@@ -170,7 +170,7 @@ const PurePreviewMessage = ({
   const isUserMessage = useMemo(() => message.role === "user", [message.role]);
   const partsForDisplay = useMemo(
     () =>
-      message.parts.filter(
+      (message.parts || []).filter(
         (part) => !(part.type === "text" && (part as any).ingestionPreview),
       ),
     [message.parts],
@@ -246,14 +246,33 @@ const PurePreviewMessage = ({
               }
 
               if (!isUserMessage) {
+                // Use the actual part from message.parts if available to get the latest text
+                // Cast to the same type as part since we're in a text part block
+                const actualPart = (message.parts?.[unit.index] || part) as typeof part;
+
+                // STREAMING FIX: Use stable key during streaming to prevent unmount/remount flickering
+                // Content-based keys cause component to remount on every update, restarting animations
+                // Only use content-based key after streaming completes to handle stale content edge cases
+                const isCurrentlyStreaming = isLoading && isLastMessage && isLastPart;
+                let contentKey: string;
+                if (isCurrentlyStreaming) {
+                  // Stable key during streaming - prevents flickering
+                  contentKey = key;
+                } else {
+                  // Content-based key when not streaming - ensures fresh render if content was stale
+                  const partTextHash = actualPart.text ? actualPart.text.substring(0, 100).replace(/\s/g, '') : '';
+                  const partsHash = message.parts ? message.parts.length + '-' + (message.parts.map((p: any) => p.text?.length || 0).join('-')) : '';
+                  contentKey = `${key}-${partTextHash}-${partsHash}`;
+                }
+
                 return (
                   <AssistMessagePart
                     threadId={threadId}
                     isLast={isLastMessage && isLastPart}
                     isLoading={isLoading}
-                    key={key}
+                    key={contentKey}
                     readonly={readonly}
-                    part={part}
+                    part={actualPart}
                     prevMessage={prevMessage}
                     showActions={
                       isLastMessage ? isLastPart && !isLoading : isLastPart
