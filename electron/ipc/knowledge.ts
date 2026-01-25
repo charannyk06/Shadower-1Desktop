@@ -19,6 +19,7 @@ import { getDatabase, schema } from "../services/database";
 import { getVectorStore } from "../services/vector-store";
 import { getEmbeddingService } from "../services/embedding";
 import { eq, and, desc, sql } from "drizzle-orm";
+import { clearMemoryCaches } from "./memory";
 
 // Document processing settings
 const CHUNK_SIZE = 1000; // Characters per chunk
@@ -315,6 +316,7 @@ export function registerKnowledgeHandlers() {
 
   /**
    * Delete a knowledge base and all its documents
+   * IMPORTANT: Also clears caches to prevent stale data
    */
   ipcMain.handle(
     "knowledge:deleteBase",
@@ -346,7 +348,10 @@ export function registerKnowledgeHandlers() {
             )
           );
 
-        console.log(`[Knowledge] Deleted knowledge base: ${id}`);
+        // CRITICAL: Clear caches to prevent deleted content from being found in search
+        clearMemoryCaches();
+
+        console.log(`[Knowledge] Deleted knowledge base: ${id}, caches cleared`);
         return { success: true };
       } catch (error) {
         console.error("[Knowledge] Error deleting knowledge base:", error);
@@ -685,6 +690,10 @@ export function registerKnowledgeHandlers() {
         .where(eq(schema.KnowledgeBaseTable.id, knowledgeBaseId));
 
       console.log(`[Knowledge] ✓ Document ${documentId} fully indexed with ${indexedCount} chunks (${failedCount} failed)`);
+
+      // Clear memory caches so newly indexed documents appear in searches immediately
+      clearMemoryCaches();
+      console.log(`[Knowledge] Cache cleared - new documents now searchable`);
     } catch (error) {
       console.error(`[Knowledge] FATAL error processing document ${documentId}:`, error);
       try {
@@ -730,6 +739,7 @@ export function registerKnowledgeHandlers() {
 
   /**
    * Delete a document
+   * IMPORTANT: Also clears caches to prevent stale data
    */
   ipcMain.handle(
     "knowledge:deleteDocument",
@@ -782,7 +792,10 @@ export function registerKnowledgeHandlers() {
           })
           .where(eq(schema.KnowledgeBaseTable.id, document.knowledgeBaseId));
 
-        console.log(`[Knowledge] Deleted document: ${documentId}`);
+        // CRITICAL: Clear caches to prevent deleted content from being found in search
+        clearMemoryCaches();
+
+        console.log(`[Knowledge] Deleted document: ${documentId}, caches cleared`);
         return { success: true };
       } catch (error) {
         console.error("[Knowledge] Error deleting document:", error);
