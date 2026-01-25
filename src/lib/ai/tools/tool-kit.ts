@@ -62,6 +62,8 @@ export const APP_DEFAULT_TOOL_KIT: Record<
   },
   // Browser automation tools (Local Chrome DevTools Protocol via agent-browser)
   [AppDefaultToolkit.Browser]: {
+    // ONE-SHOT SEARCH (RECOMMENDED for web searches!)
+    [DefaultToolName.BrowserSearch]: localBrowserTools.browser_search,
     // Session Management
     [DefaultToolName.BrowserCreateSession]: localBrowserTools.browser_create_session,
     [DefaultToolName.BrowserCloseSession]: localBrowserTools.browser_close_session,
@@ -176,6 +178,8 @@ export function createAppDefaultToolKit(
       },
       // Browser tools work without thread context
       [AppDefaultToolkit.Browser]: {
+        // ONE-SHOT SEARCH (RECOMMENDED for web searches!)
+        [DefaultToolName.BrowserSearch]: localBrowserTools.browser_search,
         // Session Management
         [DefaultToolName.BrowserCreateSession]: localBrowserTools.browser_create_session,
         [DefaultToolName.BrowserCloseSession]: localBrowserTools.browser_close_session,
@@ -288,6 +292,8 @@ export function createAppDefaultToolKit(
     },
     // Browser automation tools (Local Chrome DevTools) - context-aware versions
     [AppDefaultToolkit.Browser]: {
+      // ONE-SHOT SEARCH (RECOMMENDED for web searches!)
+      [DefaultToolName.BrowserSearch]: contextAwareBrowserTools.browser_search,
       // Session Management
       [DefaultToolName.BrowserCreateSession]: contextAwareBrowserTools.browser_create_session,
       [DefaultToolName.BrowserCloseSession]: contextAwareBrowserTools.browser_close_session,
