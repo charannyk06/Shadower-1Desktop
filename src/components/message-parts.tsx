@@ -339,9 +339,12 @@ export const AssistMessagePart = memo(function AssistMessagePart({
   setMessages,
   readonly,
   sendMessage,
+  isLast,
+  isLoading,
 }: AssistMessagePartProps) {
   const { copied, copy } = useCopy();
-  const [isLoading, setIsLoading] = useState(false);
+  // Local loading state for model change action (different from streaming isLoading prop)
+  const [isModelChanging, setIsModelChanging] = useState(false);
   const agentList = appStore((state) => state.agentList);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDocPreview, setShowDocPreview] = useState(false);
@@ -394,7 +397,7 @@ export const AssistMessagePart = memo(function AssistMessagePart({
 
   const handleModelChange = (model: ChatModel) => {
     if (!setMessages || !sendMessage || !prevMessage) return;
-    safe(() => setIsLoading(true))
+    safe(() => setIsModelChanging(true))
       .ifOk(() =>
         threadId
           ? threadApi.deleteMessagesAfterTimestamp(threadId, message.id)
@@ -417,7 +420,7 @@ export const AssistMessagePart = memo(function AssistMessagePart({
         }),
       )
       .ifFail((error) => toast.error(error.message))
-      .watch(() => setIsLoading(false))
+      .watch(() => setIsModelChanging(false))
       .unwrap();
   };
 
@@ -429,10 +432,13 @@ export const AssistMessagePart = memo(function AssistMessagePart({
     }
   }, [sendMessage]);
 
+  // Determine if we're currently streaming (for disabling animations)
+  const isStreaming = isLast && isLoading;
+
   return (
     <div
       className={cn(
-        isLoading && "animate-pulse",
+        isModelChanging && "animate-pulse",
         "flex flex-col gap-2 group/message",
       )}
     >
@@ -487,7 +493,7 @@ export const AssistMessagePart = memo(function AssistMessagePart({
           />
         ) : (
           <>
-            <Markdown>{documentContent}</Markdown>
+            <Markdown streaming={isStreaming}>{documentContent}</Markdown>
             {documentInfo.isDocument && (
               <Button
                 variant="ghost"

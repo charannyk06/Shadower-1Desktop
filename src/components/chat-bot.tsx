@@ -927,7 +927,9 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           acpThreadCreatedRef.current = threadId;
         } else {
           console.error("[ChatBot] Failed to create ACP thread:", err);
-          // Don't mark as created on real errors - allow retry
+          // Re-throw real errors so callers can handle them
+          // This prevents message insertion to a non-existent thread
+          throw err;
         }
       } finally {
         acpThreadCreationPromiseRef.current = null;
@@ -943,13 +945,30 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     threadId,
     agentId: acpAgentId || "",
     onFinish: useCallback(async (message: UIMessage) => {
-      console.log("[ChatBot] ACP message finished:", message.id);
+      console.log("[ChatBot] ACP assistant message finished:", message.id, "parts:", message.parts.length);
       // Ensure thread exists before persisting the message
       await ensureACPThreadExists();
       // Persist the finished assistant message to database
-      threadApi.upsertMessage(message, threadId).catch((err) => {
-        console.error("[ChatBot] Failed to persist ACP message:", err);
-      });
+      try {
+        await threadApi.upsertMessage(message, threadId);
+        console.log("[ChatBot] Successfully persisted ACP assistant message:", message.id);
+      } catch (err) {
+        console.error("[ChatBot] Failed to persist ACP assistant message:", err);
+      }
+      // Refresh thread list to show the chat in sidebar
+      mutate("/api/thread");
+    }, [threadId, ensureACPThreadExists]),
+    onUserMessage: useCallback(async (message: UIMessage) => {
+      console.log("[ChatBot] ACP user message created:", message.id);
+      // Ensure thread exists before persisting the user message
+      await ensureACPThreadExists();
+      // Persist the user message to database
+      try {
+        await threadApi.upsertMessage(message, threadId);
+        console.log("[ChatBot] Successfully persisted ACP user message:", message.id);
+      } catch (err) {
+        console.error("[ChatBot] Failed to persist ACP user message:", err);
+      }
       // Refresh thread list to show the chat in sidebar
       mutate("/api/thread");
     }, [threadId, ensureACPThreadExists]),
@@ -967,39 +986,12 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     }
   }, [isACPAgent, initialMessages, acpChat.messages.length, acpChat.setMessages]);
 
-  // Persist ACP messages when new ones are added
+  // Track message count for initialization detection
+  // (persistence is now handled explicitly via onFinish and onUserMessage callbacks)
   useEffect(() => {
     if (!isACPAgent) return;
-
-    const currentCount = acpChat.messages.length;
-    const prevCount = prevAcpMessageCountRef.current;
-
-    // Only persist when we have new messages (not on initial load from DB)
-    // Allow persisting even when prevCount is 0 for brand new conversations
-    if (currentCount > prevCount && currentCount > 0) {
-      // Skip if these are initial messages loaded from database
-      const isInitialLoad = prevCount === 0 && initialMessages.length > 0;
-      if (isInitialLoad) {
-        prevAcpMessageCountRef.current = currentCount;
-        return;
-      }
-
-      const newMessages = acpChat.messages.slice(prevCount);
-      console.log("[ChatBot] Persisting new ACP messages:", newMessages.length);
-
-      // Create thread then persist messages
-      ensureACPThreadExists().then(() => {
-        // Persist each new message
-        for (const msg of newMessages) {
-          threadApi.upsertMessage(msg, threadId).catch((err) => {
-            console.error("[ChatBot] Failed to persist ACP message:", err);
-          });
-        }
-      });
-    }
-
-    prevAcpMessageCountRef.current = currentCount;
-  }, [isACPAgent, acpChat.messages, threadId, initialMessages.length, ensureACPThreadExists]);
+    prevAcpMessageCountRef.current = acpChat.messages.length;
+  }, [isACPAgent, acpChat.messages.length]);
 
   // Generate title for new ACP chats (when we have user + assistant messages)
   // For ACP agents, we use a simple fallback title since they don't support title generation API
@@ -1143,7 +1135,40 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     stop,
   } = useChat({
     id: threadId,
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    // CRITICAL FIX: Custom auto-continue logic that respects plan completion
+    // This prevents the agent from restarting tasks after all tasks are completed
+    sendAutomaticallyWhen: ({ messages: msgs }) => {
+      // Check if plan is marked completed in store - don't auto-continue
+      const currentPlan = appStore.getState().threadPlans[threadId];
+      if (currentPlan?.status === "completed") {
+        clientLogger.info("[ChatBot] Plan completed - stopping auto-continue");
+        return false;
+      }
+
+      // Also check for STOP signals in the last message's tool results
+      const lastMessage = msgs.at(-1);
+      if (lastMessage?.role === "assistant" && lastMessage.parts) {
+        const hasStopSignal = lastMessage.parts.some((part: any) => {
+          if (part.type === "tool-invocation" && part.state === "result") {
+            const result = part.result;
+            return (
+              result?.STOP === true ||
+              result?.allTasksComplete === true ||
+              result?.planStatus === "completed" ||
+              result?.STOP_AGENT_LOOP === true
+            );
+          }
+          return false;
+        });
+        if (hasStopSignal) {
+          clientLogger.info("[ChatBot] Stop signal detected - stopping auto-continue");
+          return false;
+        }
+      }
+
+      // Fall back to default behavior for normal tool call continuation
+      return lastAssistantMessageIsCompleteWithToolCalls({ messages: msgs });
+    },
     onError: (error) => {
       console.error("[ChatBot] useChat error:", error);
       console.error("[ChatBot] useChat error stack:", error?.stack);
@@ -1954,8 +1979,8 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       {particle}
       <ResizablePanelGroup direction="horizontal" className="h-full w-full">
         <ResizablePanel
-          defaultSize={theaterMode.isOpen ? 40 : 100}
-          minSize={theaterMode.isOpen ? 15 : 30}
+          defaultSize={theaterMode.isOpen ? 65 : 100}
+          minSize={theaterMode.isOpen ? 30 : 30}
           className={cn(
             "flex flex-col min-w-0 relative h-full z-40",
             emptyMessage && "justify-center pb-24",
@@ -2070,7 +2095,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
               <div className="h-16 w-1 rounded-full bg-white/20 transition-all duration-300 hover:bg-white/50 hover:w-1.5 active:bg-primary active:w-1.5" />
             </ResizableHandle>
             <ResizablePanel
-              defaultSize={60}
+              defaultSize={35}
               minSize={20}
               className="z-50 bg-transparent pl-2 py-4 pr-4 transition-[flex-grow] duration-300 ease-in-out"
             >

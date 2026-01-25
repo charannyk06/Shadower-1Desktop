@@ -163,6 +163,7 @@ export function TheaterPanel() {
     theaterMode,
     threadFiles,
     currentThreadId,
+    workingDirectory,
     mutate: appStoreMutate,
     filesVersion,
   } = useAppStore(
@@ -170,6 +171,7 @@ export function TheaterPanel() {
       theaterMode: state.theaterMode,
       threadFiles: state.threadFiles,
       currentThreadId: state.currentThreadId,
+      workingDirectory: state.workingDirectory,
       mutate: state.mutate,
       filesVersion: state.theaterMode.filesVersion || 0,
     })),
@@ -194,15 +196,9 @@ export function TheaterPanel() {
   const [editedContent, setEditedContent] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch workspace files from API when theater opens, thread changes, or files version changes
+  // Fetch workspace files and working directory files when theater opens
   useEffect(() => {
-    if (!currentThreadId) {
-      setWorkspaceFiles([]);
-      return;
-    }
-
     // Always fetch when theater is open
-    // This ensures we get the latest files every time the panel is opened
     if (!theaterMode.isOpen) {
       return;
     }
@@ -211,8 +207,10 @@ export function TheaterPanel() {
     setWorkspaceFilesLoading(true);
 
     console.log(
-      "[TheaterPanel] Fetching workspace files for thread:",
+      "[TheaterPanel] Fetching files for thread:",
       currentThreadId,
+      "workingDirectory:",
+      workingDirectory?.path,
       "version:",
       filesVersion,
     );
@@ -221,44 +219,85 @@ export function TheaterPanel() {
     const api =
       typeof window !== "undefined" ? (window as any).electronAPI : null;
 
-    if (api?.files?.listFiles) {
-      // Use IPC to list workspace files
-      api.files
-        .listFiles("workspace")
-        .then((files: any[]) => {
-          if (cancelled) return;
-          // Filter files for this thread (if they have thread metadata)
-          const threadFiles = files.filter(
-            (f: any) => !f.threadId || f.threadId === currentThreadId,
-          );
-          console.log(
-            "[TheaterPanel] Received workspace files via IPC:",
-            threadFiles.length,
-          );
-          setWorkspaceFiles(threadFiles);
-        })
-        .catch((err: Error) => {
-          if (cancelled) return;
-          console.error("Failed to load workspace files via IPC:", err);
-          setWorkspaceFiles([]);
-        })
-        .finally(() => {
-          if (!cancelled) setWorkspaceFilesLoading(false);
-        });
-    } else {
-      // No Electron API available - just return empty array
-      // In Electron desktop app, HTTP endpoints require auth that's handled via IPC
-      console.log(
-        "[TheaterPanel] Electron API not available, skipping workspace files fetch",
-      );
+    if (!api?.files) {
+      console.log("[TheaterPanel] Electron API not available, skipping files fetch");
       setWorkspaceFiles([]);
       setWorkspaceFilesLoading(false);
+      return;
     }
+
+    // Fetch both workspace files and working directory files
+    const fetchPromises: Promise<any>[] = [];
+
+    // 1. Fetch internal workspace files (from app storage)
+    fetchPromises.push(
+      api.files.listFiles("workspace").catch((err: Error) => {
+        console.error("Failed to load workspace files:", err);
+        return [];
+      })
+    );
+
+    // 2. Fetch working directory files (the user's selected folder snapshot)
+    if (workingDirectory?.path) {
+      fetchPromises.push(
+        api.files
+          .listWorkingDirectory({ directoryPath: workingDirectory.path, maxDepth: 2 })
+          .then((result: { success: boolean; files: any[]; error?: string }) => {
+            if (result.success) {
+              return result.files;
+            }
+            console.error("Failed to load working directory:", result.error);
+            return [];
+          })
+          .catch((err: Error) => {
+            console.error("Failed to load working directory files:", err);
+            return [];
+          })
+      );
+    }
+
+    Promise.all(fetchPromises)
+      .then(([storageFiles, workingDirFiles = []]) => {
+        if (cancelled) return;
+
+        // Filter storage files for this thread
+        const filteredStorageFiles = (storageFiles || []).filter(
+          (f: any) => !f.threadId || f.threadId === currentThreadId,
+        );
+
+        // Transform working directory files to match the expected format
+        const transformedWorkingDirFiles = (workingDirFiles || [])
+          .filter((f: any) => !f.isDirectory) // Only include files, not directories
+          .map((f: any) => ({
+            name: f.relativePath || f.name,
+            size: f.size,
+            type: f.type,
+            source: "working-directory" as const,
+            url: `file://${f.path}`,
+            uploadedAt: f.uploadedAt,
+            path: f.path,
+          }));
+
+        // Combine both sources
+        const allFiles = [...filteredStorageFiles, ...transformedWorkingDirFiles];
+
+        console.log(
+          "[TheaterPanel] Received files - storage:",
+          filteredStorageFiles.length,
+          "workingDir:",
+          transformedWorkingDirFiles.length,
+        );
+
+        setWorkspaceFiles(allFiles);
+      })
+      .finally(() => {
+        if (!cancelled) setWorkspaceFilesLoading(false);
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [theaterMode.isOpen, currentThreadId, filesVersion]);
+  }, [theaterMode.isOpen, currentThreadId, workingDirectory?.path, filesVersion]);
 
   // Combine Artifacts + Uploaded Files
   const allItems = useMemo(() => {
@@ -387,13 +426,58 @@ export function TheaterPanel() {
   // Open a file in the inline viewer
   const openFileViewer = useCallback(async (item: any) => {
     const filename = item.filename || item.name || item.title || "Untitled";
-    const content = item.content || "";
+    let content = item.content || "";
 
     // Determine if editable using the utility function (O(1) Set lookup)
     const isEditable = isEditableFile(filename);
 
+    // Check if this is a file from the working directory that needs to be read from disk
+    // Working directory files have their URL stored in content, not actual file content
+    const api = typeof window !== "undefined" ? (window as any).electronAPI : null;
+
+    // Get the file path - could be from item.path (working dir files) or extracted from file:// URL
+    let filePath: string | null = null;
+
+    if (item.path && typeof item.path === "string" && item.path.startsWith("/")) {
+      // Direct filesystem path (from working directory listing)
+      filePath = item.path;
+    } else if (typeof content === "string" && content.startsWith("file://")) {
+      // file:// URL - extract the path
+      filePath = content.replace("file://", "");
+    }
+
+    // If we have a file path and the Electron API is available, read the actual file content
+    if (filePath && api?.files?.readTextFile) {
+      console.log("[TheaterPanel] Reading file from disk:", filePath);
+
+      // Set loading state with placeholder
+      setSelectedFile({
+        path: filePath,
+        content: "Loading...",
+        title: filename,
+        isEditable: false, // Disable editing until loaded
+        storageKey: item.storageKey,
+      });
+      setEditedContent("Loading...");
+
+      try {
+        const result = await api.files.readTextFile({ filePath });
+
+        if (result.success && result.content !== null) {
+          console.log("[TheaterPanel] File read successfully:", result.content.length, "chars");
+          content = result.content;
+        } else {
+          console.error("[TheaterPanel] Failed to read file:", result.error);
+          content = `Error reading file: ${result.error || "Unknown error"}`;
+        }
+      } catch (error) {
+        console.error("[TheaterPanel] Error reading file:", error);
+        content = `Error reading file: ${error instanceof Error ? error.message : "Unknown error"}`;
+      }
+    }
+
     setSelectedFile({
-      path: item.storageKey || item.url || filename,
+      path: filePath || item.storageKey || item.url || filename,
       content: typeof content === "string" ? content : JSON.stringify(content, null, 2),
       title: filename,
       isEditable,

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { FileText, X, Check, Copy, Edit3, Save, ArrowLeft, Undo2, Sparkles, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Markdown } from "./markdown";
 import { appStore } from "@/app/store";
@@ -560,45 +561,30 @@ export function InlineDocumentPreview({
     return (
       <>
         {before}
-        {/* Inline diff block */}
-        <span className="inline">
-          {/* Original text - strikethrough with red tint */}
-          <span className="bg-red-500/15 text-red-300/80 line-through decoration-red-400/60 px-0.5 rounded-sm">
-            {originalText}
-          </span>
-          {" "}
-          {/* New text - highlighted with green/blue tint */}
-          <span className="bg-emerald-500/20 text-emerald-200 border-b-2 border-emerald-400/60 px-0.5 rounded-sm">
-            {enhancedText}
-          </span>
-          {/* Inline Accept/Undo buttons */}
-          <span className="inline-flex items-center gap-1 ml-2 align-middle">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleUndoEnhancement();
-              }}
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-white/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded transition-colors cursor-pointer"
-            >
-              Undo
-              <span className="text-white/40 font-mono">ESC</span>
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleAcceptEnhancement();
-              }}
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-white bg-blue-600 hover:bg-blue-500 rounded transition-colors cursor-pointer"
-            >
-              Accept
-              <span className="text-blue-200 font-mono">⌘↵</span>
-            </button>
-          </span>
-        </span>
+        {/* Block diff display for plain text - matches markdown styling */}
+        <div className="my-4 p-4 rounded-xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/15 shadow-inner">
+          {/* Original text - RED STRIKETHROUGH */}
+          <div className="mb-4 pb-4 border-b border-white/10">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-2 h-2 rounded-full bg-red-400/80" />
+              <span className="text-xs font-medium text-red-400/80 uppercase tracking-wide">Original</span>
+            </div>
+            <div className="text-red-300/70 line-through decoration-red-400/60 decoration-2 leading-relaxed whitespace-pre-wrap">
+              {originalText}
+            </div>
+          </div>
+
+          {/* New text - GREEN/NORMAL */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span className="text-xs font-medium text-emerald-400 uppercase tracking-wide">Enhanced</span>
+            </div>
+            <div className="text-emerald-200 leading-relaxed whitespace-pre-wrap">
+              {enhancedText}
+            </div>
+          </div>
+        </div>
         {after}
       </>
     );
@@ -722,36 +708,62 @@ export function InlineDocumentPreview({
           `}</style>
           <div className="writing-panel-markdown">
             {pendingEnhancement ? (
-              // Show content with highlighted change
+              // Show content with inline diff - original strikethrough + new text
               <div>
-                {/* Content before change */}
-                <Markdown>{editedContent.slice(0, pendingEnhancement.startIndex)}</Markdown>
-                
-                {/* The changed section - highlighted */}
-                <div className="my-2 border-l-2 border-emerald-500 pl-3 py-1 bg-emerald-500/10 rounded-r">
-                  <Markdown>{pendingEnhancement.enhancedText}</Markdown>
-                </div>
-                
-                {/* Content after change */}
-                <Markdown>{editedContent.slice(pendingEnhancement.startIndex + pendingEnhancement.enhancedText.length)}</Markdown>
-                
-                {/* Accept/Undo buttons */}
-                <div className="flex items-center gap-2 mt-4 pt-3 border-t border-white/10">
+                {/* TOP TOOLBAR - Accept/Undo (like ChatGPT) */}
+                <div className="flex items-center gap-3 mb-6 p-3 bg-gradient-to-r from-white/[0.08] to-white/[0.04] rounded-xl border border-white/15 shadow-lg">
                   <button
                     type="button"
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoEnhancement(); }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white/70 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md cursor-pointer"
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white/80 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 rounded-lg transition-all cursor-pointer"
                   >
-                    Undo <span className="text-white/40 font-mono text-[10px]">ESC</span>
+                    <Undo2 className="w-4 h-4" />
+                    Undo
                   </button>
+                  <div className="flex items-center gap-1 px-3 py-1.5 bg-white/5 rounded-md border border-white/10">
+                    <span className="text-white/50 font-mono text-xs">ESC</span>
+                  </div>
                   <button
                     type="button"
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAcceptEnhancement(); }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-md cursor-pointer"
+                    className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 rounded-lg shadow-md shadow-emerald-900/30 transition-all cursor-pointer ml-auto"
                   >
-                    Accept <span className="text-blue-200 font-mono text-[10px]">⌘↵</span>
+                    <Check className="w-4 h-4" />
+                    Accept
+                    <span className="text-emerald-200/80 font-mono text-xs ml-1">⌘↵</span>
                   </button>
                 </div>
+
+                {/* Content before change */}
+                <Markdown>{editedContent.slice(0, pendingEnhancement.startIndex)}</Markdown>
+
+                {/* DIFF BLOCK - Shows BOTH original (strikethrough) and new text */}
+                <div className="my-4 p-4 rounded-xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/15 shadow-inner">
+                  {/* Original text - RED STRIKETHROUGH */}
+                  <div className="mb-4 pb-4 border-b border-white/10">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-2 h-2 rounded-full bg-red-400/80" />
+                      <span className="text-xs font-medium text-red-400/80 uppercase tracking-wide">Original</span>
+                    </div>
+                    <div className="text-red-300/70 line-through decoration-red-400/60 decoration-2 leading-relaxed">
+                      {pendingEnhancement.originalText}
+                    </div>
+                  </div>
+
+                  {/* New text - GREEN/NORMAL */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <span className="text-xs font-medium text-emerald-400 uppercase tracking-wide">Enhanced</span>
+                    </div>
+                    <div className="text-emerald-200 leading-relaxed">
+                      <Markdown>{pendingEnhancement.enhancedText}</Markdown>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Content after change */}
+                <Markdown>{editedContent.slice(pendingEnhancement.startIndex + pendingEnhancement.enhancedText.length)}</Markdown>
               </div>
             ) : (
               <Markdown>{editedContent}</Markdown>
@@ -763,14 +775,66 @@ export function InlineDocumentPreview({
 
     if (type === "code") {
       return (
-        <pre className="p-4 text-xs font-mono text-white/90 overflow-x-auto">
-          <code>{pendingEnhancement ? renderContentWithHighlight(editedContent) : editedContent}</code>
-        </pre>
+        <div className="p-4">
+          {/* TOP TOOLBAR for code type */}
+          {pendingEnhancement && (
+            <div className="flex items-center gap-3 mb-4 p-3 bg-gradient-to-r from-white/[0.08] to-white/[0.04] rounded-xl border border-white/15 shadow-lg">
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoEnhancement(); }}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white/80 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 rounded-lg transition-all cursor-pointer"
+              >
+                <Undo2 className="w-4 h-4" />
+                Undo
+              </button>
+              <div className="flex items-center gap-1 px-3 py-1.5 bg-white/5 rounded-md border border-white/10">
+                <span className="text-white/50 font-mono text-xs">ESC</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAcceptEnhancement(); }}
+                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 rounded-lg shadow-md shadow-emerald-900/30 transition-all cursor-pointer ml-auto"
+              >
+                <Check className="w-4 h-4" />
+                Accept
+                <span className="text-emerald-200/80 font-mono text-xs ml-1">⌘↵</span>
+              </button>
+            </div>
+          )}
+          <pre className="text-xs font-mono text-white/90 overflow-x-auto">
+            <code>{pendingEnhancement ? renderContentWithHighlight(editedContent) : editedContent}</code>
+          </pre>
+        </div>
       );
     }
 
     return (
       <div className="p-6 text-sm text-white/90 whitespace-pre-wrap break-words leading-relaxed">
+        {/* TOP TOOLBAR for plain text type */}
+        {pendingEnhancement && (
+          <div className="flex items-center gap-3 mb-6 p-3 bg-gradient-to-r from-white/[0.08] to-white/[0.04] rounded-xl border border-white/15 shadow-lg">
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleUndoEnhancement(); }}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white/80 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 rounded-lg transition-all cursor-pointer"
+            >
+              <Undo2 className="w-4 h-4" />
+              Undo
+            </button>
+            <div className="flex items-center gap-1 px-3 py-1.5 bg-white/5 rounded-md border border-white/10">
+              <span className="text-white/50 font-mono text-xs">ESC</span>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAcceptEnhancement(); }}
+              className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 rounded-lg shadow-md shadow-emerald-900/30 transition-all cursor-pointer ml-auto"
+            >
+              <Check className="w-4 h-4" />
+              Accept
+              <span className="text-emerald-200/80 font-mono text-xs ml-1">⌘↵</span>
+            </button>
+          </div>
+        )}
         {pendingEnhancement ? renderContentWithHighlight(editedContent) : editedContent}
       </div>
     );
@@ -874,7 +938,7 @@ export function InlineDocumentPreview({
             "scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent",
             type === "code" && "bg-[#0D0D0D]",
             // Edit mode: larger area, no max height constraint
-            isEditing ? "min-h-[300px] max-h-[600px]" : "min-h-[150px] max-h-[500px]",
+            isEditing ? "min-h-[400px] max-h-[800px]" : "min-h-[300px] max-h-[700px]",
             (isEnhancing || pendingEnhancement) && "select-none"
           )}
           onMouseUp={!isEditing && !isEnhancing && !pendingEnhancement ? handleTextSelection : undefined}
@@ -893,8 +957,8 @@ export function InlineDocumentPreview({
           </div>
         )}
 
-        {/* Selection toolbar - refined design */}
-        {selection && !showChangePrompt && !isEnhancing && !pendingEnhancement && (
+        {/* Selection toolbar - rendered via portal to avoid transform containment issues */}
+        {selection && !showChangePrompt && !isEnhancing && !pendingEnhancement && typeof document !== 'undefined' && createPortal(
           <div
             className="fixed bg-[#1a1a1a]/95 backdrop-blur-md border border-white/20 rounded-lg shadow-2xl p-1.5 flex items-center gap-1 z-[9999] pointer-events-auto"
             style={{ top: selectionPos.top, left: selectionPos.left }}
@@ -932,11 +996,12 @@ export function InlineDocumentPreview({
             >
               <X className="w-3 h-3" />
             </Button>
-          </div>
+          </div>,
+          document.body
         )}
 
-        {/* Change instruction input - refined */}
-        {showChangePrompt && !isEnhancing && (
+        {/* Change instruction input - rendered via portal to avoid transform containment issues */}
+        {showChangePrompt && !isEnhancing && typeof document !== 'undefined' && createPortal(
           <div
             className="fixed bg-[#1a1a1a]/95 backdrop-blur-md border border-white/20 rounded-lg shadow-2xl p-3 z-[9999] w-72 pointer-events-auto"
             style={{ top: selectionPos.top, left: selectionPos.left }}
@@ -995,16 +1060,26 @@ export function InlineDocumentPreview({
                 </Button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
       </div>
 
-      {/* Subtle indicator for pending enhancement */}
+      {/* Bottom status bar for pending enhancement */}
       {pendingEnhancement && (
-        <div className="px-4 py-2 border-t border-white/10 bg-gradient-to-r from-blue-500/5 via-transparent to-transparent">
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-            <span className="text-xs text-white/50">Review changes inline • ESC to undo • ⌘↵ to accept</span>
+        <div className="px-4 py-3 border-t border-emerald-500/20 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-sm font-medium text-emerald-300/90">Changes ready for review</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-white/40">
+              <span className="font-mono">ESC</span>
+              <span>to undo</span>
+              <span className="mx-1">•</span>
+              <span className="font-mono">⌘↵</span>
+              <span>to accept</span>
+            </div>
           </div>
         </div>
       )}

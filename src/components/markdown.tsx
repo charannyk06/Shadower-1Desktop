@@ -23,7 +23,18 @@ const FadeIn = memo(({ children }: PropsWithChildren) => {
 });
 FadeIn.displayName = "FadeIn";
 
-export const WordByWordFadeIn = memo(({ children }: PropsWithChildren) => {
+interface WordByWordFadeInProps {
+  children: React.ReactNode;
+  streaming?: boolean;
+}
+
+export const WordByWordFadeIn = memo(({ children, streaming }: WordByWordFadeInProps) => {
+  // STREAMING FIX: Skip word-by-word animation during streaming to prevent flickering
+  // Animations restart on every render during streaming, causing visual jank
+  if (streaming) {
+    return <>{children}</>;
+  }
+
   const childrens = [children]
     .flat()
     .flatMap((child) => (isString(child) ? child.split(" ") : child));
@@ -32,7 +43,8 @@ export const WordByWordFadeIn = memo(({ children }: PropsWithChildren) => {
   );
 });
 WordByWordFadeIn.displayName = "WordByWordFadeIn";
-const components: Partial<Components> = {
+// Create components with streaming-aware WordByWordFadeIn
+const createComponents = (streaming?: boolean): Partial<Components> => ({
   table: ({ node, children, ...props }) => {
     return (
       <div className="my-4">
@@ -52,14 +64,14 @@ const components: Partial<Components> = {
   th: ({ node, children, ...props }) => {
     return (
       <TableHead {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </TableHead>
     );
   },
   td: ({ node, children, ...props }) => {
     return (
       <TableCell {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </TableCell>
     );
   },
@@ -74,7 +86,7 @@ const components: Partial<Components> = {
     return (
       <div className="px-4">
         <blockquote className="relative bg-accent/30 p-6 rounded-2xl my-6 overflow-hidden border">
-          <WordByWordFadeIn>{children}</WordByWordFadeIn>
+          <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
         </blockquote>
       </div>
     );
@@ -82,7 +94,7 @@ const components: Partial<Components> = {
   p: ({ children }) => {
     return (
       <p className="leading-6 my-4 break-words">
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </p>
     );
   },
@@ -103,7 +115,7 @@ const components: Partial<Components> = {
   li: ({ node, children, ...props }) => {
     return (
       <li className="py-2 break-words" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </li>
     );
   },
@@ -117,7 +129,7 @@ const components: Partial<Components> = {
   strong: ({ node, children, ...props }) => {
     return (
       <span className="font-semibold" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </span>
     );
   },
@@ -130,49 +142,49 @@ const components: Partial<Components> = {
         {...toAny(props)}
       >
         <LinkIcon className="size-3.5" />
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </a>
     );
   },
   h1: ({ node, children, ...props }) => {
     return (
       <h1 className="text-3xl font-semibold mt-6 mb-2" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h1>
     );
   },
   h2: ({ node, children, ...props }) => {
     return (
       <h2 className="text-2xl font-semibold mt-6 mb-2" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h2>
     );
   },
   h3: ({ node, children, ...props }) => {
     return (
       <h3 className="text-xl font-semibold mt-6 mb-2" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h3>
     );
   },
   h4: ({ node, children, ...props }) => {
     return (
       <h4 className="text-lg font-semibold mt-6 mb-2" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h4>
     );
   },
   h5: ({ node, children, ...props }) => {
     return (
       <h5 className="text-base font-semibold mt-6 mb-2" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h5>
     );
   },
   h6: ({ node, children, ...props }) => {
     return (
       <h6 className="text-sm font-semibold mt-6 mb-2" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h6>
     );
   },
@@ -184,15 +196,18 @@ const components: Partial<Components> = {
       <img className="mx-auto rounded-lg" src={src} alt={alt} {...rest} />
     ) : null;
   },
-};
+});
+
+// Static components for non-streaming use (memoization-friendly)
+const components = createComponents(false);
 
 // Compact components for inline/tight markdown rendering (e.g., subagent output)
-const compactComponents: Partial<Components> = {
-  ...components,
+const createCompactComponents = (streaming?: boolean): Partial<Components> => ({
+  ...createComponents(streaming),
   p: ({ children }) => {
     return (
       <p className="leading-5 my-1 break-words">
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </p>
     );
   },
@@ -213,56 +228,56 @@ const compactComponents: Partial<Components> = {
   li: ({ node, children, ...props }) => {
     return (
       <li className="py-0.5 break-words" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </li>
     );
   },
   h1: ({ node, children, ...props }) => {
     return (
       <h1 className="text-base font-semibold mt-2 mb-1" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h1>
     );
   },
   h2: ({ node, children, ...props }) => {
     return (
       <h2 className="text-sm font-semibold mt-2 mb-1" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h2>
     );
   },
   h3: ({ node, children, ...props }) => {
     return (
       <h3 className="text-sm font-semibold mt-1.5 mb-0.5" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h3>
     );
   },
   h4: ({ node, children, ...props }) => {
     return (
       <h4 className="text-xs font-semibold mt-1.5 mb-0.5" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h4>
     );
   },
   h5: ({ node, children, ...props }) => {
     return (
       <h5 className="text-xs font-semibold mt-1 mb-0.5" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h5>
     );
   },
   h6: ({ node, children, ...props }) => {
     return (
       <h6 className="text-xs font-semibold mt-1 mb-0.5" {...props}>
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </h6>
     );
   },
   blockquote: ({ children }) => {
     return (
       <blockquote className="relative bg-accent/30 p-2 rounded-md my-1 overflow-hidden border-l-2 border-accent">
-        <WordByWordFadeIn>{children}</WordByWordFadeIn>
+        <WordByWordFadeIn streaming={streaming}>{children}</WordByWordFadeIn>
       </blockquote>
     );
   },
@@ -280,21 +295,32 @@ const compactComponents: Partial<Components> = {
       </div>
     );
   },
-};
+});
+
+// Static compact components for non-streaming use (memoization-friendly)
+const compactComponents = createCompactComponents(false);
 
 interface MarkdownProps {
   children: string;
   compact?: boolean;
+  /** When true, disables word-by-word animations to prevent flickering during streaming */
+  streaming?: boolean;
 }
 
-const NonMemoizedMarkdown = ({ children, compact = false }: MarkdownProps) => {
+const NonMemoizedMarkdown = ({ children, compact = false, streaming = false }: MarkdownProps) => {
+  // Use streaming-aware components when streaming is active
+  // This prevents animations from restarting on every render
+  const markdownComponents = streaming
+    ? (compact ? createCompactComponents(true) : createComponents(true))
+    : (compact ? compactComponents : components);
+
   return (
     <article className="w-full h-full relative">
       {isJson(children) ? (
         <JsonView data={children} />
       ) : (
         <ReactMarkdown
-          components={compact ? compactComponents : components}
+          components={markdownComponents}
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
         >
@@ -309,5 +335,6 @@ export const Markdown = memo(
   NonMemoizedMarkdown,
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&
-    prevProps.compact === nextProps.compact,
+    prevProps.compact === nextProps.compact &&
+    prevProps.streaming === nextProps.streaming,
 );
