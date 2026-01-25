@@ -3000,32 +3000,33 @@ export function registerAIHandlers() {
         const isFirstUserMessage = userMessageCount === 1;
 
         // RAG INJECTION LOGIC:
-        // - RAG MODE: Inject on EVERY turn for local models (that's the point of RAG mode)
-        // - OTHER MODES: Only inject on FIRST message
-        // - CLOUD models: Auto-inject on first message in non-RAG modes
+        // - RAG MODE: Inject on EVERY turn for ALL models (cloud + local)
+        // - REGULAR/AGENT MODE: Inject on first 3 messages for better context
+        // This ensures cloud models like Groq/X.AI get knowledge context in RAG mode
         const isSmallModelForRag = isLocalModel && isSmallLocalModel(chatModel!.model);
 
-        console.log(`[RAG] isSmallModelForRag: ${isSmallModelForRag}`);
-        console.log(`[RAG] isFirstUserMessage: ${isFirstUserMessage} (turn ${userMessageCount})`);
+        // Decision matrix logging for debugging
+        console.log(`[RAG] Decision matrix:`);
+        console.log(`  - chatMode: ${chatMode || "regular"}`);
+        console.log(`  - isLocalModel: ${isLocalModel}`);
+        console.log(`  - isSmallModel: ${isSmallModelForRag}`);
+        console.log(`  - userMessageCount: ${userMessageCount}`);
 
-        // RAG mode = every turn, other modes = first message only
+        // RAG mode = every turn for ALL models, regular mode = first 3 messages
         const shouldInjectRag =
-          (chatMode === "rag" && isLocalModel) ||                          // RAG mode + local = every turn
-          (isFirstUserMessage && isSmallModelForRag) ||                    // Small local + first msg (any mode)
-          (isFirstUserMessage && !isLocalModel && chatMode !== "rag");     // Cloud + first msg + not RAG
+          (chatMode === "rag") ||                                          // RAG mode = always inject (cloud + local)
+          (userMessageCount <= 3);                                         // First 3 messages in any mode
 
-        console.log(`[RAG] shouldInjectRag: ${shouldInjectRag}`);
+        console.log(`  - shouldInjectRag: ${shouldInjectRag}`);
 
         // Log RAG decision
         if (shouldInjectRag) {
-          const reason = (chatMode === "rag" && isLocalModel)
+          const reason = (chatMode === "rag")
             ? "RAG mode (every turn)"
-            : isSmallModelForRag
-              ? "small local model (first message)"
-              : "cloud model (first message)";
-          console.log(`[RAG] ✓ Will inject context for: ${reason}, turn ${userMessageCount}`);
+            : `regular mode (turn ${userMessageCount}/3)`;
+          console.log(`[RAG] ✓ Will inject context for: ${reason}`);
         } else {
-          console.log(`[RAG] Skipping injection (turn ${userMessageCount}, mode: ${chatMode || "regular"})`);
+          console.log(`[RAG] Skipping injection (turn ${userMessageCount} > 3, mode: ${chatMode || "regular"})`);
         }
 
         // Get model-specific RAG limits (optimized for small models)
