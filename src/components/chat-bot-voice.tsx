@@ -664,7 +664,7 @@ function ConversationView({
                       part={toolPart}
                       showActions={false}
                       messageId={message.id}
-                      isLast={toolPart.state.startsWith("input")}
+                      isLast={toolPart.state?.startsWith("input") ?? false}
                       threadId={threadId || undefined}
                     />
                   );
@@ -702,7 +702,7 @@ function CompactMessageView({
     <div className="relative w-full h-full overflow-hidden">
       <div className="absolute bottom-6 max-h-[80vh] overflow-y-auto left-6 z-10 flex-col gap-2 hidden md:flex">
         {toolParts.map((toolPart, index) => {
-          const isExecuting = toolPart?.state.startsWith("input");
+          const isExecuting = toolPart?.state?.startsWith("input") ?? false;
           if (!toolPart) return null;
           return (
             <Dialog key={index}>

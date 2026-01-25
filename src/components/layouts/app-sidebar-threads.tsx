@@ -3,7 +3,7 @@
 import { threadApi, threadFetcher } from "@/lib/electron/thread-api";
 import { appStore } from "@/app/store";
 import { useMounted } from "@/hooks/use-mounted";
-import { ChevronDown, ChevronUp, MoreHorizontal, Trash } from "lucide-react";
+import { ChevronDown, ChevronUp, Code2, MoreHorizontal, Trash } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -276,6 +276,10 @@ export function AppSidebarThreads() {
                               navigate({ to: `/chat/${thread.id}` });
                             }}
                           >
+                            {/* Show coding agent icon for ACP chats */}
+                            {thread.provider === "coding-agents" && (
+                              <Code2 className="h-3.5 w-3.5 flex-shrink-0 text-purple-500" />
+                            )}
                             {generatingTitleThreadIds.includes(thread.id) ? (
                               <TextShimmer className="truncate min-w-0">
                                 {thread.title || "New Chat"}

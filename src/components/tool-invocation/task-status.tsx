@@ -61,12 +61,12 @@ function PureTaskStatusInvocation({
   }, [currentThreadId, threadPlans, input?.taskId]);
 
   const result = useMemo(() => {
-    if (!part.state.startsWith("output")) return null;
+    if (!part.state?.startsWith("output")) return null;
     return part.output as TaskStatusOutput;
   }, [part.state, part.output]);
 
   // Loading state - show minimal indicator
-  if (!part.state.startsWith("output")) {
+  if (!part.state?.startsWith("output")) {
     return (
       <div className="flex items-center gap-2 text-sm">
         <CircleDotIcon className="h-4 w-4 text-muted-foreground" />
