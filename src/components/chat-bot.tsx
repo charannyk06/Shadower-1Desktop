@@ -1154,8 +1154,14 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         // TanStack Router detects URL changes and re-routes, causing the component
         // to remount and lose the streaming state. URL is updated in onFinish instead.
         const lastMessage = messages.at(-1)!;
+        
+        // Ensure message has parts array (convert content to parts if needed)
+        if (!lastMessage.parts && (lastMessage as any).content) {
+          (lastMessage as any).parts = [{ type: "text", text: (lastMessage as any).content }];
+        }
+        
         // Filter out UI-only parts (e.g., source-url) so the model doesn't receive unknown parts
-        const attachments: ChatAttachment[] = lastMessage.parts.reduce(
+        const attachments: ChatAttachment[] = (lastMessage.parts || []).reduce(
           (acc: ChatAttachment[], part: any) => {
             if (part?.type === "file") {
               acc.push({
@@ -1178,7 +1184,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         );
 
         // Filter out source-url parts, but ensure at least one part remains
-        const filteredParts = lastMessage.parts.filter((p: any) => p?.type !== "source-url");
+        const filteredParts = (lastMessage.parts || []).filter((p: any) => p?.type !== "source-url");
 
         const sanitizedLastMessage = {
           ...lastMessage,
@@ -1192,16 +1198,16 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             (body as { model: ChatModel })?.model ?? latestRef.current.model,
           toolChoice: latestRef.current.toolChoice,
           chatMode: latestRef.current.chatMode,
-          allowedAppDefaultToolkit: latestRef.current.allowedAppDefaultToolkit,
+          allowedAppDefaultToolkit: latestRef.current.allowedAppDefaultToolkit || [],
           allowedMcpServers: latestRef.current.mentions?.length
             ? {}
-            : latestRef.current.allowedMcpServers,
-          mentions: latestRef.current.mentions,
+            : latestRef.current.allowedMcpServers || {},
+          mentions: latestRef.current.mentions || [],
           message: sanitizedLastMessage,
           imageTool: {
             model: latestRef.current.threadImageToolModel[threadId],
           },
-          attachments,
+          attachments: attachments || [],
           workingDirectory: latestRef.current.workingDirectory ?? undefined,
         };
         return { body: requestBody };
@@ -1522,6 +1528,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     ]);
 
     messages.forEach((m) => {
+      if (!m.parts) return;
       m.parts.forEach((p) => {
         // Use AI SDK v6 pattern - tool parts have type like "tool-{name}"
         if (!isToolUIPart(p)) return;
