@@ -65,6 +65,11 @@ function getToolIcon(toolName: string): {
   icon: LucideIcon;
   color: string;
 } {
+  // Guard against undefined/null/empty tool names
+  if (!toolName || typeof toolName !== "string") {
+    return { icon: HammerIcon, color: "text-muted-foreground" };
+  }
+
   const name = toolName.toLowerCase();
 
   // Visualization tools

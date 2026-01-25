@@ -336,7 +336,7 @@ export function registerVoiceHandlers(auth?: ElectronAuthService) {
     "voice:transcribe",
     async (
       _event,
-      data: {
+      _data: {
         audio: string; // base64 encoded audio
         language?: string;
       }

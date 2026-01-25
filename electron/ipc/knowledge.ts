@@ -79,32 +79,17 @@ async function extractTextFromFile(
 
     case "pdf":
       try {
-        // Try pdf-parse - supports both v1 and v2 API
-        const pdfParse = await import("pdf-parse");
+        // Use pdf-parse v2 API
+        const { PDFParse } = await import("pdf-parse");
 
-        let text: string;
-        let pageCount = 0;
-        let pdfInfo: Record<string, unknown> = {};
-
-        // Check which API version is available
-        if (typeof pdfParse.PDFParse === 'function') {
-          // v2 API: PDFParse is a class
-          const parser = new pdfParse.PDFParse({ data: buffer });
-          const textResult = await parser.getText();
-          text = textResult.text;
-          const infoResult = await parser.getInfo();
-          pageCount = infoResult.total || textResult.pages?.length || 0;
-          pdfInfo = infoResult.info || {};
-          await parser.destroy();
-        } else if (typeof pdfParse.default === 'function') {
-          // v1 API: default export is a function
-          const result = await pdfParse.default(buffer);
-          text = result.text;
-          pageCount = result.numpages || 0;
-          pdfInfo = result.info || {};
-        } else {
-          throw new Error("pdf-parse module not found or has incompatible API");
-        }
+        // v2 API: PDFParse is a class
+        const parser = new PDFParse({ data: buffer });
+        const textResult = await parser.getText();
+        const text = textResult.text;
+        const infoResult = await parser.getInfo();
+        const pageCount = infoResult.total || textResult.pages?.length || 0;
+        const pdfInfo = infoResult.info || {};
+        await parser.destroy();
 
         if (!text || text.trim().length === 0) {
           throw new Error("PDF contains no extractable text. It may be image-based or scanned.");

@@ -170,6 +170,130 @@ const logger = globalLogger.withDefaults({
 });
 
 /**
+ * Reconstructs plan state from message history
+ * This is crucial for handling auto-continue after tool calls complete
+ * Without this, a new request would create a fresh context and start a new plan
+ *
+ * @param messages - Array of model messages with tool-call and tool-result content
+ * @returns Reconstructed plan state if found, null otherwise
+ */
+type ModelMessage = {
+  role: string;
+  content: string | Array<{
+    type: string;
+    toolName?: string;
+    args?: Record<string, any>;
+    toolCallId?: string;
+    result?: any;
+    text?: string;
+  }>;
+};
+
+export function reconstructPlanFromMessages(
+  messages: ModelMessage[],
+): { plan: import("./agent-state").AgentPlan | null; isCompleted: boolean } {
+  let plan: import("./agent-state").AgentPlan | null = null;
+  const taskStatuses = new Map<string, import("./agent-state").AgentTask["status"]>();
+  const taskResults = new Map<string, any>();
+
+  for (const msg of messages) {
+    // Only process assistant messages with structured content
+    if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+
+    for (const part of msg.content) {
+      if (part.type === "tool-call") {
+        // Handle createPlan tool call
+        if (part.toolName === "createPlan" && part.args) {
+          const args = part.args as {
+            request?: string;
+            tasks?: Array<{ description: string; assignedAgent?: string }>;
+          };
+
+          if (args.tasks && Array.isArray(args.tasks)) {
+            const now = new Date().toISOString();
+            const planId = `plan-reconstructed-${Date.now()}`;
+
+            plan = {
+              id: planId,
+              request: args.request || "Reconstructed plan",
+              tasks: args.tasks.map((t, i) => ({
+                id: `${planId}-task-${i}`,
+                description: t.description,
+                status: "pending" as const,
+                assignedAgent: t.assignedAgent,
+                createdAt: now,
+                updatedAt: now,
+              })),
+              status: "planning" as const,
+              progress: 0,
+              createdAt: now,
+              updatedAt: now,
+            };
+
+            logger.info(
+              `[reconstructPlanFromMessages] Found createPlan with ${args.tasks.length} tasks`,
+            );
+          }
+        }
+
+        // Handle updateTaskStatus tool call
+        if (part.toolName === "updateTaskStatus" && part.args) {
+          const args = part.args as {
+            taskId?: string;
+            status?: import("./agent-state").AgentTask["status"];
+            result?: any;
+          };
+
+          if (args.taskId && args.status) {
+            taskStatuses.set(args.taskId, args.status);
+            if (args.result !== undefined) {
+              taskResults.set(args.taskId, args.result);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Apply accumulated status updates to the reconstructed plan
+  if (plan) {
+    for (const task of plan.tasks) {
+      const status = taskStatuses.get(task.id);
+      if (status) {
+        task.status = status;
+        task.updatedAt = new Date().toISOString();
+      }
+      const result = taskResults.get(task.id);
+      if (result !== undefined) {
+        task.result = result;
+      }
+    }
+
+    // Recalculate plan state
+    const allCompleted = plan.tasks.every((t) => t.status === "completed");
+    const anyFailed = plan.tasks.some((t) => t.status === "failed");
+    const anyInProgress = plan.tasks.some((t) => t.status === "in-progress");
+    const completedCount = plan.tasks.filter((t) => t.status === "completed").length;
+
+    plan.progress = Math.round((completedCount / plan.tasks.length) * 100);
+
+    if (allCompleted) {
+      plan.status = "completed";
+    } else if (anyFailed && !anyInProgress) {
+      plan.status = "failed";
+    } else if (anyInProgress) {
+      plan.status = "executing";
+    }
+
+    logger.info(
+      `[reconstructPlanFromMessages] Reconstructed plan: status=${plan.status}, progress=${plan.progress}%`,
+    );
+  }
+
+  return { plan, isCompleted: plan?.status === "completed" };
+}
+
+/**
  * Wraps tools with call tracking to prevent infinite loops
  * Returns a blocked result if a tool is called too many times
  */
@@ -880,16 +1004,14 @@ IMPORTANT: Do NOT output a plan as text - you MUST call this function to create 
           });
         }
 
-        // DO NOT send STOP signal here - let the agent continue to:
-        // 1. Assess if the user's request is truly complete
-        // 2. Potentially add more tasks if needed
-        // 3. Provide a final response naturally
-        // The agent will stop naturally when it responds without tool calls
+        // CRITICAL FIX: Send STOP_AGENT_LOOP signal to prevent auto-continue loop
+        // The frontend's sendAutomaticallyWhen callback checks for this signal
+        // and stops the auto-continue behavior when plan is complete
         return {
           taskId,
           newStatus: status,
           taskDescription: task?.description,
-          message: `All ${totalTasks} planned tasks are now complete. Review if the user's original request has been fully satisfied. If more work is needed, you can add additional tasks. Otherwise, provide a comprehensive summary response.`,
+          message: `All ${totalTasks} planned tasks are now complete. Provide a comprehensive summary of what was accomplished.`,
           completedTasks: updatedPlan.tasks
             .filter((t) => t.status === "completed")
             .map((t) => ({ description: t.description, result: t.result })),
@@ -897,6 +1019,7 @@ IMPORTANT: Do NOT output a plan as text - you MUST call this function to create 
           planStatus: updatedPlan.status,
           remainingTasks: 0,
           allTasksComplete: true,
+          STOP_AGENT_LOOP: true, // Signal to stop auto-continue in frontend
         };
       }
 
@@ -1857,6 +1980,18 @@ export interface AutonomousAgentConfig extends OrchestratorConfig {
   dataStream?: UIMessageStreamWriter;
   /** Continuous mode: don't stop on plan completion, run until maxSteps */
   continuousMode?: boolean;
+  /** Messages for plan reconstruction (handles stateless auto-continue) */
+  messages?: Array<{
+    role: string;
+    content: string | Array<{
+      type: string;
+      toolName?: string;
+      args?: Record<string, any>;
+      toolCallId?: string;
+      result?: any;
+      text?: string;
+    }>;
+  }>;
 }
 
 /**
@@ -1877,6 +2012,7 @@ export function createAutonomousAgent(config: AutonomousAgentConfig): {
     onPersistState,
     dataStream,
     continuousMode = false,
+    messages,
   } = config;
 
   // Create or restore context manager
@@ -1899,6 +2035,21 @@ export function createAutonomousAgent(config: AutonomousAgentConfig): {
     if (persistedState.planData?.status === "completed") {
       planAlreadyComplete = true;
       logger.info("Restored plan is already COMPLETE - will block new plans");
+    }
+  } else if (messages && messages.length > 0) {
+    // CRITICAL FIX: Reconstruct plan from message history when no persisted state
+    // This handles the auto-continue case where sendAutomaticallyWhen triggers a new request
+    const { plan, isCompleted } = reconstructPlanFromMessages(messages);
+    if (plan) {
+      ctx.restorePlan(plan);
+      logger.info(
+        `Reconstructed plan from messages: status=${plan.status}, progress=${plan.progress}%`,
+      );
+
+      if (isCompleted) {
+        planAlreadyComplete = true;
+        logger.info("Reconstructed plan is already COMPLETE - will block new plans");
+      }
     }
   }
 
@@ -2549,8 +2700,12 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     if (lastStep?.toolResults) {
       const hasStopOrComplete = lastStep.toolResults.some((r: any) => {
         const result = r.result;
-        // Force text response on explicit STOP OR allTasksComplete
-        return result?.STOP === true || result?.allTasksComplete === true;
+        // Force text response on explicit STOP, allTasksComplete, or STOP_AGENT_LOOP
+        return (
+          result?.STOP === true ||
+          result?.allTasksComplete === true ||
+          result?.STOP_AGENT_LOOP === true
+        );
       });
       if (hasStopOrComplete) {
         logger.info("[prepareStep] STOP/Complete signal detected - forcing text-only response");
@@ -2628,9 +2783,9 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
       if (lastStep?.toolResults) {
         for (const r of lastStep.toolResults) {
           const result = (r as any).result;
-          // Stop on explicit STOP signal
-          if (result?.STOP === true) {
-            logger.info("[stopWhen] Explicit STOP signal received");
+          // Stop on explicit STOP signal or STOP_AGENT_LOOP
+          if (result?.STOP === true || result?.STOP_AGENT_LOOP === true) {
+            logger.info("[stopWhen] Explicit STOP/STOP_AGENT_LOOP signal received");
             return true;
           }
         }
