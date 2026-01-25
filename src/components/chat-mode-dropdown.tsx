@@ -9,6 +9,7 @@ import {
 import {
   Check,
   CheckIcon,
+  Database,
   Infinity,
   ListTodo,
 } from "lucide-react";
@@ -47,8 +48,10 @@ export const ChatModeDropdown = ({ disabled }: { disabled?: boolean }) => {
         e.preventDefault();
         e.stopPropagation();
         appStoreMutate(({ chatMode }) => {
+          // Cycle through: regular -> agent -> rag -> regular
+          const nextMode = chatMode === "regular" ? "agent" : chatMode === "agent" ? "rag" : "regular";
           return {
-            chatMode: chatMode === "regular" ? "agent" : "regular",
+            chatMode: nextMode,
           };
         });
         setChatModeChangeInfo(true);
@@ -82,12 +85,12 @@ export const ChatModeDropdown = ({ disabled }: { disabled?: boolean }) => {
                 size={"sm"}
                 className={cn(
                   "rounded-full p-2! data-[state=open]:bg-input! hover:bg-input!",
-                  chatMode === "agent" && "text-primary",
+                  (chatMode === "agent" || chatMode === "rag") && "text-primary",
                   open && "bg-input!",
                 )}
                 onClick={() => setOpen(true)}
               >
-                {chatMode === "agent" ? <Infinity /> : <ListTodo />}
+                {chatMode === "agent" ? <Infinity /> : chatMode === "rag" ? <Database /> : <ListTodo />}
               </Button>
             </TooltipTrigger>
             <TooltipContent className="flex items-center gap-2" side="top">
@@ -138,6 +141,23 @@ export const ChatModeDropdown = ({ disabled }: { disabled?: boolean }) => {
               </div>
               <p className="text-xs text-muted-foreground">
                 Standard chat with tool access
+              </p>
+            </div>
+          </DropdownMenuItem>
+          <div className="px-2 py-1">
+            <DropdownMenuSeparator />
+          </div>
+          <DropdownMenuItem
+            onClick={() => appStoreMutate({ chatMode: "rag" })}
+          >
+            <div className="flex flex-col gap-2 w-full">
+              <div className="flex items-center gap-2">
+                <Database />
+                <span className="font-bold">RAG</span>
+                {chatMode === "rag" && <Check className="ml-auto" />}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Chat-only mode with memory context (no tools)
               </p>
             </div>
           </DropdownMenuItem>

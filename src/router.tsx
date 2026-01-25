@@ -35,21 +35,19 @@ const HomePage = lazy(() => import("./routes/index"));
 const ChatThreadPage = lazy(() => import("./routes/chat.$threadId"));
 const AgentsPage = lazy(() => import("./routes/agents"));
 const AgentPage = lazy(() => import("./routes/agent.$agentId"));
-const WorkflowListPage = lazy(() => import("./routes/workflow"));
-const WorkflowEditorPage = lazy(() => import("./routes/workflow.$workflowId"));
 const McpPage = lazy(() => import("./routes/mcp"));
 const McpCreatePage = lazy(() => import("./routes/mcp.create"));
 const McpModifyPage = lazy(() => import("./routes/mcp.$serverId.modify"));
 const McpTestPage = lazy(() => import("./routes/mcp.$serverId.test"));
 const ModelsPage = lazy(() => import("./routes/models"));
 const KnowledgePage = lazy(() => import("./routes/knowledge"));
+const KnowledgeBaseDetailPage = lazy(
+  () => import("./routes/knowledge.$knowledgeBaseId"),
+);
 const SignInPage = lazy(() => import("./routes/auth.sign-in"));
 const SignUpPage = lazy(() => import("./routes/auth.sign-up"));
 const SignUpEmailPage = lazy(() => import("./routes/auth.sign-up.email"));
 const SetupPage = lazy(() => import("./routes/setup"));
-const McpOAuthCallbackPage = lazy(
-  () => import("./routes/api.mcp.oauth.callback"),
-);
 
 // Root route
 const rootRoute = createRootRoute({
@@ -145,18 +143,6 @@ const agentRoute = createRoute({
   component: withErrorBoundary(AgentPage),
 });
 
-const workflowListRoute = createRoute({
-  getParentRoute: () => chatLayoutRoute,
-  path: "/workflow",
-  component: withErrorBoundary(WorkflowListPage),
-});
-
-const workflowEditorRoute = createRoute({
-  getParentRoute: () => chatLayoutRoute,
-  path: "/workflow/$workflowId",
-  component: withErrorBoundary(WorkflowEditorPage),
-});
-
 const mcpRoute = createRoute({
   getParentRoute: () => chatLayoutRoute,
   path: "/mcp",
@@ -199,19 +185,18 @@ const knowledgeRoute = createRoute({
   component: withErrorBoundary(KnowledgePage),
 });
 
+const knowledgeBaseDetailRoute = createRoute({
+  getParentRoute: () => chatLayoutRoute,
+  path: "/knowledge/$knowledgeBaseId",
+  component: withErrorBoundary(KnowledgeBaseDetailPage),
+});
+
 // ==================== PUBLIC ROUTES ====================
 
 const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup",
   component: withErrorBoundary(SetupPage),
-});
-
-// MCP OAuth callback route (handles /api/mcp/oauth/callback)
-const mcpOAuthCallbackRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/api/mcp/oauth/callback",
-  component: withErrorBoundary(McpOAuthCallbackPage),
 });
 
 // ==================== BUILD ROUTE TREE ====================
@@ -226,19 +211,17 @@ const routeTree = rootRoute.addChildren([
     chatThreadRoute,
     agentsRoute,
     agentRoute,
-    workflowListRoute,
-    workflowEditorRoute,
     mcpRoute,
     mcpCreateRoute,
     mcpModifyRoute,
     mcpTestRoute,
     modelsRoute,
     knowledgeRoute,
+    knowledgeBaseDetailRoute,
   ]),
 
   // Public routes
   setupRoute,
-  mcpOAuthCallbackRoute,
 ]);
 
 // Create router instance

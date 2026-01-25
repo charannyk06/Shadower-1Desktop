@@ -1,6 +1,10 @@
 import { UIMessage } from "ai";
 import { ChatMention } from "app-types/chat";
 
+// Re-export voice hooks
+export { useOpenAIVoiceChat, OPENAI_VOICE } from "./open-ai/use-voice-chat.openai";
+export { useLocalVoiceChat, getLocalVoices } from "./local/use-voice-chat.local";
+
 export type UIMessageWithCompleted = UIMessage & { completed: boolean };
 
 export interface VoiceChatSession {

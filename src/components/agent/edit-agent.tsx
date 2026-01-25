@@ -3,7 +3,6 @@
 import { ShareableActions } from "@/components/shareable-actions";
 import { useMutateAgents } from "@/hooks/queries/use-agents";
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
-import { useWorkflowToolList } from "@/hooks/queries/use-workflow-tool-list";
 import { useObjectState } from "@/hooks/use-object-state";
 import {
   Agent,
@@ -13,7 +12,6 @@ import {
 } from "app-types/agent";
 import { ChatMention } from "app-types/chat";
 import { MCPServerInfo } from "app-types/mcp";
-import { WorkflowSummary } from "app-types/workflow";
 import { DefaultToolName } from "lib/ai/tools";
 import { BACKGROUND_COLORS } from "lib/const";
 import { notify } from "lib/notify";
@@ -116,8 +114,6 @@ export default function EditAgent({
   ]);
 
   const { data: mcpList, isLoading: isMcpLoading } = useMcpList();
-  const { data: workflowToolList, isLoading: isWorkflowLoading } =
-    useWorkflowToolList();
 
   const assignToolsByNames = useCallback(
     (toolNames: string[]) => {
@@ -146,16 +142,6 @@ export default function EditAgent({
         });
       });
 
-      (workflowToolList as WorkflowSummary[])?.forEach((workflow) => {
-        if (toolNames.includes(workflow.name)) {
-          allMentions.push({
-            type: "workflow",
-            name: workflow.name,
-            workflowId: workflow.id,
-          });
-        }
-      });
-
       if (allMentions.length > 0) {
         setAgent((prev) => ({
           instructions: {
@@ -165,7 +151,7 @@ export default function EditAgent({
         }));
       }
     },
-    [mcpList, workflowToolList, setAgent],
+    [mcpList, setAgent],
   );
 
   const saveAgent = useCallback(() => {
@@ -244,8 +230,8 @@ export default function EditAgent({
   }, []);
 
   const isLoadingTool = useMemo(() => {
-    return isMcpLoading || isWorkflowLoading;
-  }, [isMcpLoading, isWorkflowLoading]);
+    return isMcpLoading;
+  }, [isMcpLoading]);
 
   // Map snake_case tool names to camelCase DefaultToolName enum values
   const toolNameMap: Record<string, DefaultToolName> = {

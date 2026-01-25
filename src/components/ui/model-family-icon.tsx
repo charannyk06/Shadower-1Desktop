@@ -5,6 +5,7 @@ import { MetaIcon } from "./meta-icon";
 import { MicrosoftIcon } from "./microsoft-icon";
 import { MistralIcon } from "./mistral-icon";
 import { NousResearchIcon } from "./nousresearch-icon";
+import { OpenAIIcon } from "./openai-icon";
 import { QwenIcon } from "./qwen-icon";
 import { ZhipuIcon } from "./zhipu-icon";
 
@@ -38,6 +39,9 @@ const MODEL_FAMILY_ICONS: Record<string, React.FC<{ className?: string }>> = {
 
   // DeepSeek models -> DeepSeek
   deepseek: DeepSeekIcon,
+
+  // GPT-OSS models -> OpenAI
+  "gpt-oss": OpenAIIcon,
 };
 
 export function ModelFamilyIcon({
@@ -68,6 +72,7 @@ export function getModelFamilyProviderName(family: string): string {
     granite: "IBM",
     hermes: "Nous Research",
     deepseek: "DeepSeek",
+    "gpt-oss": "OpenAI",
   };
 
   return providers[family.toLowerCase()] || family;

@@ -20,6 +20,11 @@ interface ChatModelInfo {
     | "responses-api-only";
   reasoningEffort?: string[];
   thinkingLevel?: string[];
+  // ACP Agent-specific fields
+  isACPAgent?: boolean;
+  acpProvider?: "anthropic" | "openai" | "google";
+  acpAuthenticated?: boolean;
+  acpRunning?: boolean;
 }
 
 /**

@@ -30,7 +30,7 @@ import {
   startAuthorization,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { BASE_URL, IS_MCP_SERVER_REMOTE_ONLY, IS_VERCEL_ENV } from "lib/const";
+import { BASE_URL } from "lib/const";
 import { safe } from "ts-safe";
 import { PgOAuthClientProvider } from "./pg-oauth-provider";
 
@@ -38,7 +38,7 @@ type ClientOptions = {
   autoDisconnectSeconds?: number;
 };
 
-const CONNET_TIMEOUT = IS_VERCEL_ENV ? 30000 : 120000;
+const CONNET_TIMEOUT = 120000; // 2 minutes for Electron
 const MCP_MAX_TOTAL_TIMEOUT = process.env.MCP_MAX_TOTAL_TIMEOUT
   ? Number.parseInt(process.env.MCP_MAX_TOTAL_TIMEOUT, 10)
   : undefined;
@@ -207,11 +207,6 @@ export class MCPClient {
 
       // Create appropriate transport based on server config type
       if (isMaybeStdioConfig(this.serverConfig)) {
-        // Skip stdio transport
-        if (IS_MCP_SERVER_REMOTE_ONLY) {
-          throw new Error("VERCEL: Stdio transport is not supported");
-        }
-
         const config = MCPStdioConfigZodSchema.parse(this.serverConfig);
         this.transport = new StdioClientTransport({
           command: config.command,

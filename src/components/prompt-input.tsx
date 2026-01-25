@@ -34,7 +34,6 @@ import { ChatModeDropdown } from "./chat-mode-dropdown";
 import { useThreadFileUploader } from "@/hooks/use-thread-file-uploader";
 import { cn } from "@/lib/utils";
 import { Editor } from "@tiptap/react";
-import { WorkflowSummary } from "app-types/workflow";
 import { DefaultToolName } from "lib/ai/tools";
 import equal from "lib/equal";
 import { useTranslation } from "react-i18next";
@@ -274,19 +273,6 @@ export default function PromptInput({
     [mentions, threadId],
   );
 
-  const onSelectWorkflow = useCallback(
-    (workflow: WorkflowSummary) => {
-      addMention({
-        type: "workflow",
-        name: workflow.name,
-        icon: workflow.icon,
-        workflowId: workflow.id,
-        description: workflow.description,
-      });
-    },
-    [addMention],
-  );
-
   const onSelectAgent = useCallback(
     (agent: AgentSummary) => {
       appStoreMutate((prev) => {
@@ -435,8 +421,7 @@ export default function PromptInput({
                 {mentions.map((mention, i) => {
                   return (
                     <div key={i} className="flex items-center gap-2">
-                      {mention.type === "workflow" ||
-                      mention.type === "agent" ? (
+                      {mention.type === "agent" ? (
                         <Avatar
                           className="size-6 p-1 ring ring-border rounded-full flex-shrink-0"
                           style={mention.icon?.style}
@@ -595,7 +580,6 @@ export default function PromptInput({
                         className="mx-1"
                         align="start"
                         side="top"
-                        onSelectWorkflow={onSelectWorkflow}
                         onSelectAgent={onSelectAgent}
                         onGenerateImage={handleGenerateImage}
                         mentions={mentions}

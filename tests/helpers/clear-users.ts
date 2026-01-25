@@ -8,7 +8,6 @@ import {
   SessionTable,
   UserTable,
   VerificationTable,
-  WorkflowTable,
 } from "../../src/lib/db/sqlite/schema.sqlite";
 
 /**
@@ -29,10 +28,7 @@ export async function clearAllUsers() {
   // 4. Clear chat threads (depends on users)
   await db.delete(ChatThreadTable);
 
-  // 5. Clear workflows (depends on users)
-  await db.delete(WorkflowTable);
-
-  // 6. Clear agents (depends on users)
+  // 5. Clear agents (depends on users)
   await db.delete(AgentTable);
 
   // 7. Clear MCP servers (depends on users)

@@ -42,6 +42,10 @@ import { useFileDragOverlay } from "@/hooks/use-file-drag-overlay";
 import { useToRef } from "@/hooks/use-latest";
 import { useMounted } from "@/hooks/use-mounted";
 import { useThreadFileUploader } from "@/hooks/use-thread-file-uploader";
+import { useACPChat } from "@/hooks/use-acp-chat";
+import { ACPPermissionDialog } from "./acp/permission-dialog";
+import { respondToACPPermission } from "@/lib/electron/acp-api";
+import type { RespondToPermissionRequest, ACPPermissionRequest } from "@/types/acp";
 import {
   ChatApiSchemaRequestBody,
   ChatAttachment,
@@ -858,6 +862,48 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
   const [showParticles, setShowParticles] = useState(isFirstTime);
 
+  // Check if current model is an ACP agent (provider === "coding-agents")
+  const isACPAgent = model?.provider === "coding-agents";
+  const acpAgentId = isACPAgent ? model?.model : null;
+
+  // ACP Permission dialog state
+  const [acpPermissionOpen, setACPPermissionOpen] = useState(false);
+  const [acpPermissionRequest, setACPPermissionRequest] = useState<ACPPermissionRequest | null>(null);
+
+  // Handle ACP permission response
+  const handleACPPermissionRespond = useCallback((response: RespondToPermissionRequest) => {
+    respondToACPPermission(response.requestId, response.optionId, response.rememberGlobally)
+      .then(() => {
+        setACPPermissionOpen(false);
+        setACPPermissionRequest(null);
+      })
+      .catch((err) => {
+        console.error("[ChatBot] Failed to respond to ACP permission:", err);
+        toast.error("Failed to respond to permission request");
+      });
+  }, []);
+
+  // Use ACP chat hook when an ACP agent is selected
+  const acpChat = useACPChat({
+    threadId,
+    agentId: acpAgentId || "",
+    onFinish: useCallback((message: UIMessage) => {
+      console.log("[ChatBot] ACP message finished:", message.id);
+    }, []),
+    onError: useCallback((error: Error) => {
+      console.error("[ChatBot] ACP error:", error);
+      toast.error("Agent error: " + error.message);
+    }, []),
+  });
+
+  // Handle ACP permission requests from the hook
+  useEffect(() => {
+    if (acpChat.pendingPermission) {
+      setACPPermissionRequest(acpChat.pendingPermission);
+      setACPPermissionOpen(true);
+    }
+  }, [acpChat.pendingPermission]);
+
   const onFinish = useCallback(
     (options: {
       message: UIMessage;
@@ -1009,6 +1055,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             model: latestRef.current.threadImageToolModel[threadId],
           },
           attachments,
+          workingDirectory: latestRef.current.workingDirectory ?? undefined,
         };
         return { body: requestBody };
       },
@@ -1471,15 +1518,26 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       // But simpler: just grab the latest assistant message from the ref (which we have via useToRef)
       // AFTER a small tick, or trust that _addToolResult accepts the result.
 
-      // Wait for next tick for state to update in latestRef
-      setTimeout(async () => {
+      // CRITICAL: Capture current threadId to prevent stale closure issues
+      // If user navigates to a different thread before the microtask runs,
+      // we should not upsert to the old thread
+      const currentThreadId = threadId;
+
+      // Use queueMicrotask instead of setTimeout for immediate but safe execution
+      // This ensures React state has updated but doesn't create a race condition
+      queueMicrotask(async () => {
+        // Verify thread hasn't changed (user navigated away)
+        if (latestRef.current.threadId !== currentThreadId) {
+          return;
+        }
+
         const latestMessages = latestRef.current.messages;
         const lastMessage = latestMessages.at(-1);
         if (lastMessage?.role === "assistant") {
           // We need to save this message because it now contains the tool result
-          await threadApi.upsertMessage(lastMessage, threadId);
+          await threadApi.upsertMessage(lastMessage, currentThreadId);
         }
-      }, 0);
+      });
     },
     [_addToolResult, threadId], // Removed sendMessage
   );
@@ -1500,37 +1558,83 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     workingDirectory,
   });
 
+  // Unified chat state - use ACP chat when an ACP agent is selected
+  const unifiedMessages = isACPAgent ? acpChat.messages : messages;
+  // Map ACP "initializing" status to "ready" for UI components (they don't understand "initializing")
+  const unifiedStatus = isACPAgent
+    ? (acpChat.status === "initializing" ? "ready" : acpChat.status)
+    : status;
+  const unifiedError = isACPAgent ? acpChat.error : error;
+
+  // Unified sendMessage - routes to ACP or regular chat
+  const unifiedSendMessage = useCallback(
+    async (messageOrOptions: any) => {
+      if (isACPAgent) {
+        // For ACP agents, extract text content and send via ACP
+        let content: string;
+        if (typeof messageOrOptions === "string") {
+          content = messageOrOptions;
+        } else if (messageOrOptions?.parts) {
+          // UIMessage format
+          const textPart = messageOrOptions.parts.find((p: any) => p.type === "text");
+          content = textPart?.text || "";
+        } else if (messageOrOptions?.content) {
+          content = messageOrOptions.content;
+        } else {
+          content = String(messageOrOptions);
+        }
+        await acpChat.sendMessage(content);
+      } else {
+        // Regular AI SDK chat
+        sendMessage(messageOrOptions);
+      }
+    },
+    [isACPAgent, acpChat, sendMessage]
+  );
+
+  // Unified stop
+  const unifiedStop = useCallback(() => {
+    if (isACPAgent) {
+      acpChat.stop();
+    } else {
+      stop();
+    }
+  }, [isACPAgent, acpChat, stop]);
+
+  // Check if ACP session is still initializing
+  const isACPInitializing = isACPAgent && acpChat.status === "initializing";
+
   const isLoading = useMemo(
-    () => status === "streaming" || status === "submitted",
-    [status],
+    () => unifiedStatus === "streaming" || unifiedStatus === "submitted" || isACPInitializing,
+    [unifiedStatus, isACPInitializing],
   );
 
   const emptyMessage = useMemo(
-    () => messages.length === 0 && !error,
-    [messages.length, error],
+    () => unifiedMessages.length === 0 && !unifiedError,
+    [unifiedMessages.length, unifiedError],
   );
 
   const isInitialThreadEntry = useMemo(
     () =>
       initialMessages.length > 0 &&
-      initialMessages.at(-1)?.id === messages.at(-1)?.id,
-    [messages],
+      initialMessages.at(-1)?.id === unifiedMessages.at(-1)?.id,
+    [unifiedMessages],
   );
 
   const isPendingToolCall = useMemo(() => {
-    if (status != "ready") return false;
-    const lastMessage = messages.at(-1);
+    if (unifiedStatus != "ready") return false;
+    const lastMessage = unifiedMessages.at(-1);
     if (lastMessage?.role != "assistant") return false;
     const lastPart = lastMessage.parts.at(-1);
     if (!lastPart) return false;
     if (!isToolUIPart(lastPart)) return false;
     if (lastPart.state.startsWith("output")) return false;
     return true;
-  }, [status, messages]);
+  }, [unifiedStatus, unifiedMessages]);
 
   const space = useMemo(() => {
-    if (!isLoading || error) return false;
-    const lastMessage = messages.at(-1);
+    if (!isLoading || unifiedError) return false;
+    const lastMessage = unifiedMessages.at(-1);
     if (lastMessage?.role == "user") return "think";
     const lastPart = lastMessage?.parts.at(-1);
     if (!lastPart) return "think";
@@ -1541,7 +1645,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       return lastMessage?.parts.length == 1 ? "think" : "space";
     }
     return false;
-  }, [isLoading, messages.at(-1)]);
+  }, [isLoading, unifiedMessages.at(-1), unifiedError]);
 
   const particle = useMemo(() => {
     return (
@@ -1724,21 +1828,21 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
               ref={containerRef}
               onScroll={handleScroll}
             >
-              {messages.map((message, index) => {
-                const isLastMessage = messages.length - 1 === index;
+              {unifiedMessages.map((message, index) => {
+                const isLastMessage = unifiedMessages.length - 1 === index;
                 return (
                   <PreviewMessage
                     threadId={threadId}
                     messageIndex={index}
-                    prevMessage={messages[index - 1]}
+                    prevMessage={unifiedMessages[index - 1]}
                     key={message.id}
                     message={message}
-                    status={status}
+                    status={unifiedStatus}
                     addToolResult={addToolResult}
                     isLoading={isLoading || isPendingToolCall}
                     isLastMessage={isLastMessage}
-                    setMessages={setMessages}
-                    sendMessage={sendMessage}
+                    setMessages={isACPAgent ? acpChat.setMessages : setMessages}
+                    sendMessage={unifiedSendMessage}
                     className={
                       isLastMessage &&
                       message.role != "user" &&
@@ -1761,20 +1865,20 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
                 </>
               )}
 
-              {error && <ErrorMessage error={error} />}
+              {unifiedError && <ErrorMessage error={unifiedError} />}
               <div className="min-w-0 min-h-52" />
             </div>
           )}
 
           <div
             className={clsx(
-              messages.length > 0 && "absolute bottom-14",
+              unifiedMessages.length > 0 && "absolute bottom-14",
               "w-full z-10",
             )}
           >
             <div className="max-w-3xl mx-auto relative flex justify-center items-center -top-2">
               <ScrollToBottomButton
-                show={!isAtBottom && messages.length > 0}
+                show={!isAtBottom && unifiedMessages.length > 0}
                 onClick={scrollToBottom}
               />
             </div>
@@ -1782,10 +1886,10 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             <PromptInput
               input={input}
               threadId={threadId}
-              sendMessage={sendMessage}
+              sendMessage={unifiedSendMessage}
               setInput={setInput}
               isLoading={isLoading || isPendingToolCall}
-              onStop={stop}
+              onStop={unifiedStop}
               onFocus={isFirstTime ? undefined : handleFocus}
             />
           </div>
@@ -1793,6 +1897,13 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             threadId={threadId}
             onClose={() => setIsDeleteThreadPopupOpen(false)}
             open={isDeleteThreadPopupOpen}
+          />
+          {/* ACP Permission Dialog for coding agents */}
+          <ACPPermissionDialog
+            open={acpPermissionOpen}
+            onOpenChange={setACPPermissionOpen}
+            request={acpPermissionRequest}
+            onRespond={handleACPPermissionRespond}
           />
         </ResizablePanel>
 

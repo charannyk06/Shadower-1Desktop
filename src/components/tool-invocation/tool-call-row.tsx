@@ -22,7 +22,6 @@ import {
   GlobeIcon,
   GripIcon,
   HammerIcon,
-  HardDriveUploadIcon,
   ImageIcon,
   KeyboardIcon,
   MousePointerClickIcon,
@@ -97,9 +96,6 @@ function getToolIcon(toolName: string): {
     name.includes("fetch")
   ) {
     return { icon: GlobeIcon, color: "text-blue-400" };
-  }
-  if (name === DefaultToolName.Http.toLowerCase() || name.includes("http")) {
-    return { icon: HardDriveUploadIcon, color: "text-blue-300" };
   }
 
   // File operations

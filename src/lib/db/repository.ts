@@ -207,7 +207,6 @@ export const chatRepository: ChatRepository = new Proxy({} as ChatRepository, {
 export { sqliteAgentRepository as agentRepository } from "./sqlite/repositories/agent-repository.sqlite";
 export { sqliteAgentStateRepository as agentStateRepository } from "./sqlite/repositories/agent-state-repository.sqlite";
 export { sqliteMcpRepository as mcpRepository } from "./sqlite/repositories/mcp-repository.sqlite";
-export { sqliteWorkflowRepository as workflowRepository } from "./sqlite/repositories/workflow-repository.sqlite";
 export { sqliteBrowserSessionRepository as browserSessionRepository } from "./sqlite/repositories/browser-session-repository.sqlite";
 
 // Newly migrated SQLite repositories

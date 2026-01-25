@@ -166,24 +166,18 @@ const runMigrations = (sqliteInstance: SqliteDatabase) => {
     }
   }
 
-  // Workflow table migrations
+  // Drop workflow tables (workflows removed from application)
+  if (tableExists(sqliteInstance, "workflow_edge")) {
+    console.log("[SQLite] Dropping workflow_edge table (workflows removed)...");
+    sqliteInstance.exec(`DROP TABLE IF EXISTS workflow_edge`);
+  }
+  if (tableExists(sqliteInstance, "workflow_node")) {
+    console.log("[SQLite] Dropping workflow_node table (workflows removed)...");
+    sqliteInstance.exec(`DROP TABLE IF EXISTS workflow_node`);
+  }
   if (tableExists(sqliteInstance, "workflow")) {
-    if (!columnExists(sqliteInstance, "workflow", "version")) {
-      console.log("[SQLite] Adding version column to workflow table...");
-      sqliteInstance.exec(
-        `ALTER TABLE workflow ADD COLUMN version TEXT NOT NULL DEFAULT '0.1.0'`,
-      );
-    }
-    if (!columnExists(sqliteInstance, "workflow", "icon")) {
-      console.log("[SQLite] Adding icon column to workflow table...");
-      sqliteInstance.exec(`ALTER TABLE workflow ADD COLUMN icon TEXT`);
-    }
-    if (!columnExists(sqliteInstance, "workflow", "is_published")) {
-      console.log("[SQLite] Adding is_published column to workflow table...");
-      sqliteInstance.exec(
-        `ALTER TABLE workflow ADD COLUMN is_published INTEGER NOT NULL DEFAULT 0`,
-      );
-    }
+    console.log("[SQLite] Dropping workflow table (workflows removed)...");
+    sqliteInstance.exec(`DROP TABLE IF EXISTS workflow`);
   }
 
   console.log("[SQLite] Migrations complete");
@@ -289,19 +283,6 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
         enabled INTEGER NOT NULL DEFAULT 1,
         user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
         visibility TEXT NOT NULL DEFAULT 'private',
-        created_at INTEGER,
-        updated_at INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS workflow (
-        id TEXT PRIMARY KEY,
-        version TEXT NOT NULL DEFAULT '0.1.0',
-        name TEXT NOT NULL,
-        icon TEXT,
-        description TEXT,
-        is_published INTEGER NOT NULL DEFAULT 0,
-        visibility TEXT NOT NULL DEFAULT 'private',
-        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
         created_at INTEGER,
         updated_at INTEGER
       );
@@ -484,32 +465,6 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
         state TEXT UNIQUE,
         created_at INTEGER,
         updated_at INTEGER
-      );
-    `);
-
-    // Level 8: Tables depending on workflow
-    sqliteInstance.exec(`
-      CREATE TABLE IF NOT EXISTS workflow_node (
-        id TEXT PRIMARY KEY,
-        version TEXT NOT NULL DEFAULT '0.1.0',
-        workflow_id TEXT NOT NULL REFERENCES workflow(id) ON DELETE CASCADE,
-        kind TEXT NOT NULL,
-        name TEXT NOT NULL,
-        description TEXT,
-        ui_config TEXT DEFAULT '{}',
-        node_config TEXT DEFAULT '{}',
-        created_at INTEGER,
-        updated_at INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS workflow_edge (
-        id TEXT PRIMARY KEY,
-        version TEXT NOT NULL DEFAULT '0.1.0',
-        workflow_id TEXT NOT NULL REFERENCES workflow(id) ON DELETE CASCADE,
-        source TEXT NOT NULL,
-        target TEXT NOT NULL,
-        ui_config TEXT DEFAULT '{}',
-        created_at INTEGER
       );
     `);
 
@@ -763,7 +718,6 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
       CREATE INDEX IF NOT EXISTS agent_exec_log_action_type_idx ON agent_execution_log(action_type);
       CREATE INDEX IF NOT EXISTS mcp_oauth_session_server_id_idx ON mcp_oauth_session(mcp_server_id);
       CREATE INDEX IF NOT EXISTS mcp_oauth_session_state_idx ON mcp_oauth_session(state);
-      CREATE INDEX IF NOT EXISTS workflow_node_kind_idx ON workflow_node(kind);
       CREATE INDEX IF NOT EXISTS browser_session_thread_idx ON browser_session(thread_id);
       CREATE INDEX IF NOT EXISTS browser_session_user_idx ON browser_session(user_id);
       CREATE INDEX IF NOT EXISTS browser_session_status_idx ON browser_session(status);

@@ -19,11 +19,6 @@
     "strictPropertyInitialization": false,
     "noUnusedParameters": false,
     "noImplicitAny": false,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
     "paths": {
       "ui/*": ["./src/components/ui/*"],
       "auth/*": ["./src/lib/auth/*"],
@@ -35,16 +30,13 @@
     }
   },
   "include": [
-    "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts",
     "src/types/global.d.ts",
     "vitest.setup.ts",
     "vitest.config.ts",
     "drizzle.config.ts",
-    "tests/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    "tests/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

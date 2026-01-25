@@ -26,18 +26,9 @@ export const ChatGreeting = () => {
   );
   const { t } = useTranslation();
 
-  // Debug: log user data to understand what's being returned
-  console.log(
-    "[ChatGreeting] user data:",
-    JSON.stringify(user),
-    "isLoading:",
-    isLoading,
-  );
-
   const word = useMemo(() => {
     // Get the user's name, with fallback
     const userName = user?.name?.trim();
-    console.log("[ChatGreeting] computed userName:", userName);
 
     // If no name or still loading, show greetings without name
     if (!userName) {

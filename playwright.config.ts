@@ -24,7 +24,7 @@ export default defineConfig({
       ]
     : [["html"], ["list"]],
   use: {
-    baseURL: process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000",
+    baseURL: process.env.BASE_URL || "http://localhost:5173",
     ignoreHTTPSErrors: true,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
@@ -53,8 +53,8 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "pnpm start",
-    url: "http://localhost:3000",
+    command: "pnpm dev",
+    url: "http://localhost:5173",
     reuseExistingServer: !process.env.CI,
     timeout: 180 * 1000, // 3 minutes for build and start
     stdout: "pipe",

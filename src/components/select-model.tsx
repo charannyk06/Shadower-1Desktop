@@ -3,7 +3,7 @@
 import { appStore } from "@/app/store";
 import { useChatModels } from "@/hooks/queries/use-chat-models";
 import { ChatModel } from "app-types/chat";
-import { CheckIcon, ChevronDown } from "lucide-react";
+import { CheckIcon, ChevronDown, Terminal } from "lucide-react";
 import { Fragment, PropsWithChildren, memo, useEffect, useState } from "react";
 import { Button } from "ui/button";
 
@@ -153,7 +153,7 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
                       }}
                       data-testid={`model-provider-${provider.provider}`}
                     >
-                      {provider.models.map((item) => (
+                      {provider.models.map((item: any) => (
                         <CommandItem
                           key={item.name}
                           className="cursor-pointer"
@@ -180,6 +180,13 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
                           ) : (
                             <div className="ml-3" />
                           )}
+                          {/* Show provider icon for ACP agents */}
+                          {item.isACPAgent && item.acpProvider && (
+                            <ModelProviderIcon
+                              provider={item.acpProvider}
+                              className="size-3 mr-1"
+                            />
+                          )}
                           <span className="pr-1">
                             {(item.displayName || item.name).replace(
                               /:free$/i,
@@ -189,6 +196,12 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
                           {item.isToolCallUnsupported && (
                             <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
                               No tools
+                            </div>
+                          )}
+                          {/* Show auth status for ACP agents */}
+                          {item.isACPAgent && !item.acpAuthenticated && (
+                            <div className="ml-auto flex items-center gap-1 text-xs text-amber-500">
+                              Not authenticated
                             </div>
                           )}
                         </CommandItem>
@@ -208,6 +221,16 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
 const ProviderHeader = memo(function ProviderHeader({
   provider,
 }: { provider: string }) {
+  // Special handling for coding agents (ACP)
+  if (provider === "coding-agents") {
+    return (
+      <div className="text-sm text-muted-foreground flex items-center gap-1.5 group-hover:text-foreground transition-colors duration-300">
+        <Terminal className="size-3" />
+        Coding Agents
+      </div>
+    );
+  }
+
   return (
     <div className="text-sm text-muted-foreground flex items-center gap-1.5 group-hover:text-foreground transition-colors duration-300">
       {provider === "openai" ? (

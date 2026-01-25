@@ -152,17 +152,20 @@ export const openaiImageTool = createTool({
       abortSignal,
       messages: latestMessages,
       tools: {
+        // Type assertion needed for OpenAI built-in tools compatibility with AI SDK v6
         image_generation: openai.tools.imageGeneration({
           outputFormat: "webp",
           model: "gpt-image-1-mini",
-        }),
+        }) as any,
       },
       toolChoice: "required",
     });
 
     for (const toolResult of result.staticToolResults) {
       if (toolResult.toolName === "image_generation") {
-        const base64Image = toolResult.output.result;
+        // Type assertion for OpenAI image generation tool output
+        const output = toolResult.output as { result: string };
+        const base64Image = output.result;
         const uploadedImage = await serverFileStorage
           .upload(Buffer.from(base64Image, "base64"), {
             contentType: "image/webp",

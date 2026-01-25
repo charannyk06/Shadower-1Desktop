@@ -9,7 +9,6 @@ import { cn, noop } from "lib/utils";
 import { ChevronDownIcon, HammerIcon, Loader, XIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { MCPIcon } from "ui/mcp-icon";
 
 interface AgentToolSelectorProps {
@@ -87,14 +86,6 @@ export function AgentToolSelector({
             />
           ) : m.type === "mcpServer" ? (
             <MCPIcon className="size-3" />
-          ) : m.type === "workflow" ? (
-            <Avatar
-              style={m.icon?.style}
-              className="size-3 ring-[1px] ring-input rounded-full"
-            >
-              <AvatarImage src={m.icon?.value} />
-              <AvatarFallback>{m.name.slice(0, 1)}</AvatarFallback>
-            </Avatar>
           ) : (
             <HammerIcon className="size-3" />
           )}

@@ -16,7 +16,7 @@ import {
  */
 
 const skipCollaboraTests =
-  !process.env.NEXT_PUBLIC_COLLABORA_URL || !process.env.WOPI_SECRET;
+  !process.env.COLLABORA_URL || !process.env.WOPI_SECRET;
 
 test.describe("Collabora Integration - Document Editing", () => {
   test.use({ storageState: TEST_USERS.admin.authFile });

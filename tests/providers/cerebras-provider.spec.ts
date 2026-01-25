@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { TEST_USERS } from "../constants/test-users";
 import {
   cerebrasHasApiKey,
   getModelsForProvider,
@@ -11,7 +12,7 @@ import {
  * and returns correct model information.
  */
 test.describe("Cerebras Provider Integration", () => {
-  test.use({ storageState: "tests/.auth/admin.json" });
+  test.use({ storageState: TEST_USERS.admin.authFile });
 
   test.describe("Provider Availability", () => {
     test("should include Cerebras in providers list", async ({ page }) => {
