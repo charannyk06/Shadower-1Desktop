@@ -49,6 +49,18 @@ export const PROMPT_PASTE_MAX_LENGTH = 1000;
 export const FILE_BASED_MCP_CONFIG =
   getEnv("VITE_FILE_BASED_MCP_CONFIG", "FILE_BASED_MCP_CONFIG") === "true";
 
+export const IS_VERCEL_ENV =
+  typeof process !== "undefined" &&
+  process.env &&
+  (process.env.VERCEL === "1" || process.env.VERCEL_ENV !== undefined);
+
+export const IS_DOCKER_ENV =
+  typeof process !== "undefined" &&
+  process.env &&
+  (process.env.DOCKER === "1" ||
+    process.env.IS_DOCKER === "true" ||
+    Boolean(process.env.DOCKER_CONTAINER));
+
 export const COOKIE_KEY_SIDEBAR_STATE = "sidebar:state";
 export const COOKIE_KEY_LOCALE = "i18n:locale";
 
