@@ -5,7 +5,7 @@ import { SidebarGroupContent } from "ui/sidebar";
 import { Tooltip } from "ui/tooltip";
 
 import { Shortcuts, getShortcutKeyList } from "lib/keyboard-shortcuts";
-import { GitBranch, BrainIcon, Box } from "lucide-react";
+import { BrainIcon, Box } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MCPIcon } from "ui/mcp-icon";
@@ -71,18 +71,6 @@ export function AppSidebarMenus() {
                 <SidebarMenuButton className="font-semibold">
                   <Box className="size-4" />
                   {t("Layout.models")}
-                </SidebarMenuButton>
-              </Link>
-            </SidebarMenuItem>
-          </Tooltip>
-        </SidebarMenu>
-        <SidebarMenu>
-          <Tooltip>
-            <SidebarMenuItem>
-              <Link to="/workflow">
-                <SidebarMenuButton className="font-semibold">
-                  <GitBranch className="size-4" />
-                  {t("Layout.workflow")}
                 </SidebarMenuButton>
               </Link>
             </SidebarMenuItem>

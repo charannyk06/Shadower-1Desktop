@@ -57,12 +57,13 @@ const staticModels: AllModels = {
     "grok-3-mini": xai("grok-3-mini"),
   },
   ollama: {
-    // Type assertion needed due to ollama-ai-provider-v2 using @ai-sdk/provider@2.0.0
-    // while AI SDK v6 uses @ai-sdk/provider@3.0.2
+    // ai-sdk-ollama provides enhanced tool calling reliability
     "llama3.3": ollama("llama3.3") as unknown as LanguageModel,
     qwen3: ollama("qwen3") as unknown as LanguageModel,
     gemma3: ollama("gemma3") as unknown as LanguageModel,
     "deepseek-r1": ollama("deepseek-r1") as unknown as LanguageModel,
+    "qwen3-vl:4b": ollama("qwen3-vl:4b") as unknown as LanguageModel,
+    "granite4:latest": ollama("granite4:latest") as unknown as LanguageModel,
   },
   // Groq models - keys match FULL IDs from dynamic fetcher
   groq: {

@@ -5,12 +5,14 @@ import { DEFAULT_VOICE_TOOLS, UIMessageWithCompleted } from "lib/ai/speech";
 
 import {
   OPENAI_VOICE,
-  useOpenAIVoiceChat as OpenAIVoiceChat,
+  useOpenAIVoiceChat,
 } from "lib/ai/speech/open-ai/use-voice-chat.openai";
+import { useLocalVoiceChat } from "lib/ai/speech/local/use-voice-chat.local";
 import { cn, groupBy, isNull } from "lib/utils";
 import {
   CheckIcon,
   ChevronRight,
+  ComputerIcon,
   Loader,
   MessageSquareMoreIcon,
   MessagesSquareIcon,
@@ -134,6 +136,23 @@ export function ChatBotVoice() {
     return agentMentions;
   }, [agentId, agent, mcpList, allowedMcpServers]);
 
+  // Select voice chat hook based on provider
+  const voiceProvider = voiceChat.options.provider || "openai";
+
+  // OpenAI voice chat (cloud-based, WebRTC)
+  const openAIVoice = useOpenAIVoiceChat({
+    toolMentions,
+    agentId,
+    ...voiceChat.options.providerOptions,
+  });
+
+  // Local voice chat (Whisper STT + Ollama/LM Studio + System TTS)
+  const localVoice = useLocalVoiceChat({
+    agentId,
+    ...voiceChat.options.providerOptions,
+  });
+
+  // Use the appropriate hook based on provider selection
   const {
     isListening,
     isAssistantSpeaking,
@@ -146,11 +165,7 @@ export function ChatBotVoice() {
     startListening,
     stop,
     stopListening,
-  } = OpenAIVoiceChat({
-    toolMentions,
-    agentId,
-    ...voiceChat.options.providerOptions,
-  });
+  } = voiceProvider === "local" ? localVoice : openAIVoice;
 
   const startWithSound = useCallback(() => {
     if (!startAudio.current) {
@@ -251,7 +266,7 @@ export function ChatBotVoice() {
 
   useEffect(() => {
     if (voiceChat.isOpen) {
-      // startWithSound();
+      startWithSound();
     } else if (isActive) {
       stop();
     }
@@ -372,11 +387,17 @@ export function ChatBotVoice() {
                     <DropdownMenuGroup className="cursor-pointer">
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger
-                          className="flex items-center gap-2 cursor-pointer"
+                          className={cn(
+                            "flex items-center gap-2 cursor-pointer",
+                            voiceProvider === "openai" && "font-medium"
+                          )}
                           icon=""
                         >
                           <OpenAIIcon className="size-3.5 stroke-none fill-foreground" />
-                          Open AI
+                          OpenAI
+                          {voiceProvider === "openai" && (
+                            <CheckIcon className="size-3 ml-auto" />
+                          )}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuPortal>
                           <DropdownMenuSubContent>
@@ -401,34 +422,56 @@ export function ChatBotVoice() {
                                 >
                                   {key}
 
-                                  {value ===
-                                    voiceChat.options.providerOptions
-                                      ?.voice && (
-                                    <CheckIcon className="size-3.5" />
-                                  )}
+                                  {voiceProvider === "openai" &&
+                                    value ===
+                                      voiceChat.options.providerOptions
+                                        ?.voice && (
+                                      <CheckIcon className="size-3.5" />
+                                    )}
                                 </DropdownMenuItem>
                               ),
                             )}
                           </DropdownMenuSubContent>
                         </DropdownMenuPortal>
                       </DropdownMenuSub>
+                      <DropdownMenuItem
+                        className={cn(
+                          "flex items-center gap-2 cursor-pointer",
+                          voiceProvider === "local" && "font-medium"
+                        )}
+                        onClick={() =>
+                          appStoreMutate({
+                            voiceChat: {
+                              ...voiceChat,
+                              options: {
+                                provider: "local",
+                                providerOptions: {},
+                              },
+                            },
+                          })
+                        }
+                      >
+                        <ComputerIcon className="size-3.5" />
+                        Local (System TTS)
+                        {voiceProvider === "local" && (
+                          <CheckIcon className="size-3 ml-auto" />
+                        )}
+                      </DropdownMenuItem>
                       <DropdownMenuSub>
-                        <DropdownMenuSub>
-                          <DropdownMenuSubTrigger
-                            className="flex items-center gap-2 text-muted-foreground"
-                            icon=""
-                          >
-                            <GeminiIcon className="size-3.5" />
-                            Gemini
-                          </DropdownMenuSubTrigger>
-                          <DropdownMenuPortal>
-                            <DropdownMenuSubContent>
-                              <div className="text-xs text-muted-foreground p-6">
-                                Not Implemented Yet
-                              </div>
-                            </DropdownMenuSubContent>
-                          </DropdownMenuPortal>
-                        </DropdownMenuSub>
+                        <DropdownMenuSubTrigger
+                          className="flex items-center gap-2 text-muted-foreground"
+                          icon=""
+                        >
+                          <GeminiIcon className="size-3.5" />
+                          Gemini
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuPortal>
+                          <DropdownMenuSubContent>
+                            <div className="text-xs text-muted-foreground p-6">
+                              Not Implemented Yet
+                            </div>
+                          </DropdownMenuSubContent>
+                        </DropdownMenuPortal>
                       </DropdownMenuSub>
                     </DropdownMenuGroup>
                   </DropdownMenuContent>

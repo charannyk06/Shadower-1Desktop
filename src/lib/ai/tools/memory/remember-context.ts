@@ -10,19 +10,19 @@ const rememberContextSchema: JSONSchema7 = {
     query: {
       type: "string",
       description:
-        "The search query to find relevant context from past conversations",
+        "The search query to find relevant context from past conversations and knowledge bases. Be specific and use relevant keywords.",
     },
     limit: {
       type: "number",
-      description: "Maximum number of relevant messages to retrieve",
-      default: 5,
+      description: "Maximum number of relevant results to retrieve",
+      default: 10,
       minimum: 1,
       maximum: 20,
     },
     scoreThreshold: {
       type: "number",
-      description: "Minimum relevance score threshold (0-1)",
-      default: 0.7,
+      description: "Minimum relevance score threshold (0-1). Lower values return more results.",
+      default: 0.5,
       minimum: 0,
       maximum: 1,
     },
@@ -34,10 +34,10 @@ const rememberContextSchema: JSONSchema7 = {
     userId: {
       type: "string",
       description:
-        "User ID for security filtering (required for proper results)",
+        "Optional user ID (defaults to local-user in single-user mode)",
     },
   },
-  required: ["query", "userId"],
+  required: ["query"],  // SINGLE-USER MODE: Only query is required
   additionalProperties: false,
 };
 
@@ -75,8 +75,9 @@ export const rememberContextTool = createTool({
   inputSchema: jsonSchemaToZod(rememberContextSchema),
   execute: async (params) => {
     return safe(async () => {
-      const { query, limit = 5, scoreThreshold = 0.7, threadId } = params;
-      const userId = (params as any).userId as string | undefined;
+      const { query, limit = 10, scoreThreshold = 0.5, threadId } = params;
+      // SINGLE-USER MODE: userId is optional, defaults to "local-user"
+      const userId = (params as any).userId as string || "local-user";
 
       if (!query || query.trim().length < 3) {
         return {
@@ -91,34 +92,22 @@ export const rememberContextTool = createTool({
 
       const start = performance.now();
 
-      // SECURITY: Require userId for proper data isolation
-      if (!userId) {
-        logger.error("[RememberContext] userId is required but not provided");
-        return {
-          isError: true,
-          error: "userId is required for secure context retrieval",
-          results: [],
-          count: 0,
-          query,
-          elapsedMs: 0,
-        };
-      }
-
       try {
         // Check if running in Electron with memory API available
         if (
           typeof window !== "undefined" &&
           (window as any).electron?.memory?.search
         ) {
-          logger.info("[RememberContext] Using Electron IPC memory search");
+          logger.info(`[RememberContext] Searching for: "${query.slice(0, 50)}..."`);
 
-          const effectiveThreshold = Math.max(0.1, scoreThreshold);
+          // Use lower threshold for better recall in agentic RAG
+          const effectiveThreshold = Math.max(0.3, scoreThreshold);
 
           const response = await (window as any).electron.memory.search(query, {
             collections: ["messages", "documents", "knowledge"],
-            limit: limit * 2,
+            limit: Math.max(limit, 10), // At least 10 results for agentic RAG
             scoreThreshold: effectiveThreshold,
-            userId,
+            userId, // Will use default "local-user" if not provided
             threadId,
           });
 

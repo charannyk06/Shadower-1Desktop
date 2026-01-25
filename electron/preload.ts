@@ -72,7 +72,7 @@ export interface ElectronAPI {
       toggle: (
         userId: string,
         itemId: string,
-        itemType: "agent" | "workflow" | "mcp",
+        itemType: "agent" | "mcp",
         isCurrentlyBookmarked: boolean,
       ) => Promise<{ success: boolean; isBookmarked: boolean }>;
     };
@@ -87,24 +87,6 @@ export interface ElectronAPI {
       create: (data: any) => Promise<any>;
       update: (id: string, data: any) => Promise<any>;
       delete: (id: string) => Promise<void>;
-    };
-    workflows: {
-      getAll: (userId: string) => Promise<any[]>;
-      getById: (id: string) => Promise<any>;
-      create: (data: any) => Promise<any>;
-      update: (id: string, data: any) => Promise<any>;
-      delete: (id: string) => Promise<void>;
-      saveNodes: (workflowId: string, nodes: any[]) => Promise<void>;
-      saveEdges: (workflowId: string, edges: any[]) => Promise<void>;
-      saveStructure: (
-        workflowId: string,
-        data: {
-          nodes?: any[];
-          edges?: any[];
-          deleteNodes?: string[];
-          deleteEdges?: string[];
-        },
-      ) => Promise<{ success: boolean }>;
     };
     mcp: {
       getServers: () => Promise<any[]>;
@@ -282,6 +264,162 @@ export interface ElectronAPI {
     query: (naturalLanguageQuery: string) => Promise<any>;
   };
 
+  // Knowledge Base & Document Management (Full RAG System)
+  knowledge: {
+    // Knowledge Base CRUD
+    createBase: (data: {
+      name: string;
+      description?: string;
+      userId: string;
+    }) => Promise<{
+      knowledgeBase: {
+        id: string;
+        name: string;
+        description?: string;
+        documentCount: number;
+        totalChunks: number;
+        isActive: boolean;
+        createdAt: string;
+        updatedAt: string;
+      } | null;
+      error?: string;
+    }>;
+    listBases: (userId: string) => Promise<{
+      knowledgeBases: Array<{
+        id: string;
+        name: string;
+        description?: string;
+        documentCount: number;
+        totalChunks: number;
+        isActive: boolean;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+    }>;
+    getBase: (
+      id: string,
+      userId: string,
+    ) => Promise<{
+      knowledgeBase: {
+        id: string;
+        name: string;
+        description?: string;
+        documentCount: number;
+        totalChunks: number;
+        isActive: boolean;
+        createdAt: string;
+        updatedAt: string;
+      } | null;
+    }>;
+    updateBase: (
+      id: string,
+      userId: string,
+      data: { name?: string; description?: string },
+    ) => Promise<{
+      knowledgeBase: {
+        id: string;
+        name: string;
+        description?: string;
+        documentCount: number;
+        totalChunks: number;
+        isActive: boolean;
+        createdAt: string;
+        updatedAt: string;
+      } | null;
+      error?: string;
+    }>;
+    deleteBase: (
+      id: string,
+      userId: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+
+    // Document Management
+    selectFile: () => Promise<{
+      filePath: string;
+      fileName: string;
+    } | null>;
+    uploadDocument: (data: {
+      knowledgeBaseId: string;
+      userId: string;
+      filePath: string;
+      fileName: string;
+    }) => Promise<{
+      document: {
+        id: string;
+        knowledgeBaseId: string;
+        fileName: string;
+        fileType: string;
+        fileSize: number;
+        chunkCount: number;
+        status: "pending" | "processing" | "indexed" | "failed";
+        errorMessage?: string;
+        createdAt: string;
+        updatedAt: string;
+      } | null;
+      error?: string;
+    }>;
+    listDocuments: (
+      knowledgeBaseId: string,
+      userId: string,
+    ) => Promise<{
+      documents: Array<{
+        id: string;
+        knowledgeBaseId: string;
+        fileName: string;
+        fileType: string;
+        fileSize: number;
+        chunkCount: number;
+        status: "pending" | "processing" | "indexed" | "failed";
+        errorMessage?: string;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+    }>;
+    deleteDocument: (
+      documentId: string,
+      userId: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+
+    // Memory List
+    listMemories: (params: {
+      userId: string;
+      page?: number;
+      limit?: number;
+      source?: "all" | "messages" | "documents" | "knowledge";
+      search?: string;
+    }) => Promise<{
+      memories: Array<{
+        id: string;
+        content: string;
+        role?: "user" | "assistant";
+        source?: "messages" | "knowledge" | "documents";
+        threadId?: string;
+        messageId?: string;
+        createdAt?: string;
+        knowledgeBaseId?: string;
+        knowledgeBaseName?: string;
+        fileName?: string;
+        documentType?: string;
+        title?: string;
+      }>;
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+        hasMore: boolean;
+      };
+    }>;
+
+    // Statistics
+    getStats: () => Promise<{
+      messages: number;
+      documents: number;
+      available: boolean;
+      totalKnowledgeBases?: number;
+      totalChunks?: number;
+    }>;
+  };
 
   // Browser automation (agent-browser powered)
   browser: {
@@ -574,23 +712,6 @@ export interface ElectronAPI {
     }>;
   };
 
-  // Workflow execution (streaming events)
-  workflow: {
-    execute: (
-      workflowId: string,
-      input: Record<string, any>,
-    ) => Promise<{ success: boolean; error?: string }>;
-    cancel: (
-      workflowId: string,
-    ) => Promise<{ success: boolean; cancelled: boolean }>;
-    onEvent: (
-      callback: (data: {
-        workflowId: string;
-        event: { type: string; [key: string]: any };
-      }) => void,
-    ) => () => void;
-  };
-
   // AI streaming (IPC-based, no HTTP server needed)
   ai: {
     stream: (request: {
@@ -598,7 +719,7 @@ export interface ElectronAPI {
       messages: any[];
       chatModel: { provider: string; model: string };
       toolChoice?: string;
-      chatMode?: "regular" | "agent";
+      chatMode?: "regular" | "agent" | "rag";
       allowedAppDefaultToolkit?: string[];
       allowedMcpServers?: Record<string, any>;
       mentions?: any[];
@@ -638,6 +759,13 @@ export interface ElectronAPI {
         text?: string;
       }) => void,
     ) => () => void;
+    // PERFORMANCE: Batched chunk handler for faster streaming
+    onStreamChunkBatch: (
+      callback: (data: {
+        threadId: string;
+        chunks: any[];
+      }) => void,
+    ) => () => void;
     onStreamEnd: (
       callback: (data: {
         threadId: string;
@@ -667,30 +795,6 @@ export interface ElectronAPI {
     ) => () => void;
     onThreadCreated: (
       callback: (data: { threadId: string; title: string }) => void,
-    ) => () => void;
-    // Workflow generation
-    workflowGenerate: (request: {
-      messages: any[];
-      availableTools: any[];
-      currentWorkflowState: { nodes: any[]; edges: any[] };
-      chatModel: { provider: string; model: string };
-    }) => Promise<{ success?: boolean; error?: string; sessionId?: string }>;
-    workflowAbort: (sessionId: string) => Promise<{ success: boolean }>;
-    onWorkflowChunk: (
-      callback: (data: { sessionId: string; chunk: string }) => void,
-    ) => () => void;
-    onWorkflowEnd: (
-      callback: (data: { sessionId: string; finishReason?: string }) => void,
-    ) => () => void;
-    onWorkflowError: (
-      callback: (data: { sessionId: string; error: string }) => void,
-    ) => () => void;
-    onWorkflowStep: (
-      callback: (data: {
-        sessionId: string;
-        stepType: string;
-        toolCallCount: number;
-      }) => void,
     ) => () => void;
   };
 
@@ -770,7 +874,6 @@ export interface ElectronAPI {
         isToolCallSupported: boolean;
         isImageInputSupported: boolean;
         isReasoningModel: boolean;
-        workflowGenerationSupport: "full" | "limited" | "none";
         toolCallUnsupportedReason?:
           | "reasoning-model"
           | "built-in-tools"
@@ -870,6 +973,17 @@ export interface ElectronAPI {
       }>;
       error?: string;
     }>;
+    ollamaWarmup: (data: { modelName: string; baseUrl?: string }) => Promise<{
+      success: boolean;
+      message?: string;
+      loadDuration?: number;
+      error?: string;
+    }>;
+    ollamaUnload: (data: { modelName: string; baseUrl?: string }) => Promise<{
+      success: boolean;
+      message?: string;
+      error?: string;
+    }>;
 
     // LM Studio-specific
     lmstudioCheckHealth: () => Promise<{
@@ -925,6 +1039,209 @@ export interface ElectronAPI {
         percent: number;
         message: string;
       }) => void,
+    ) => () => void;
+  };
+
+  // Voice operations (OpenAI Realtime + Local STT/TTS)
+  voice: {
+    // OpenAI Realtime session
+    createOpenAISession: (data: {
+      model?: string;
+      voice?: string;
+      agentId?: string;
+      mentions?: any[];
+      instructions?: string;
+      tools?: any[];
+    }) => Promise<{
+      id: string;
+      object: string;
+      model: string;
+      expires_at: number;
+      modalities: string[];
+      instructions: string;
+      voice: string;
+      input_audio_format: string;
+      output_audio_format: string;
+      input_audio_transcription: any;
+      turn_detection: any;
+      tools: any[];
+      tool_choice: string;
+      temperature: number;
+      max_response_output_tokens: number | string;
+      client_secret: {
+        value: string;
+        expires_at: number;
+      };
+    }>;
+
+    // Local TTS (Text-to-Speech)
+    synthesize: (data: {
+      text: string;
+      voice?: string;
+      rate?: number;
+    }) => Promise<{
+      audio: string; // base64 encoded audio
+      format: "aiff" | "wav";
+    }>;
+
+    // Get available TTS voices
+    getAvailableVoices: () => Promise<
+      Array<{
+        name: string;
+        language: string;
+      }>
+    >;
+
+    // Local STT (Speech-to-Text) - Whisper
+    transcribe: (data: {
+      audio: string; // base64 encoded audio
+      language?: string;
+    }) => Promise<{
+      text: string;
+    }>;
+  };
+
+  // ACP (Agent Client Protocol) - External coding agents
+  acp: {
+    // Agent management
+    listAgents: (forceRefresh?: boolean) => Promise<
+      Array<{
+        id: string;
+        installed: boolean;
+        authenticated: boolean;
+        running: boolean;
+        error?: string;
+        version?: string;
+      }>
+    >;
+    getAgentStatus: (agentId: string) => Promise<{
+      id: string;
+      installed: boolean;
+      authenticated: boolean;
+      running: boolean;
+      error?: string;
+      version?: string;
+    } | undefined>;
+    getInstalledAgents: () => Promise<
+      Array<{
+        id: string;
+        installed: boolean;
+        authenticated: boolean;
+        running: boolean;
+        error?: string;
+        version?: string;
+      }>
+    >;
+    startAgent: (agentId: string) => Promise<void>;
+    stopAgent: (agentId: string) => Promise<void>;
+
+    // Session management
+    createSession: (request: {
+      agentId: string;
+      workingDirectory?: string;
+      mcpServers?: Array<{
+        name: string;
+        command: string;
+        args?: string[];
+        env?: Record<string, string>;
+      }>;
+    }) => Promise<{
+      id: string;
+      agentId: string;
+      status: "active" | "idle" | "error";
+      createdAt: Date;
+    }>;
+
+    // Prompting
+    prompt: (request: {
+      agentId: string;
+      sessionId: string;
+      message: string;
+      contextFiles?: string[];
+    }) => Promise<{
+      content: string;
+      usage?: {
+        inputTokens: number;
+        outputTokens: number;
+      };
+    }>;
+    cancel: (agentId: string, sessionId: string) => Promise<void>;
+
+    // Authentication
+    authenticate: (
+      agentId: string,
+      methodId: string
+    ) => Promise<{ success: boolean; message?: string }>;
+
+    // Permission handling
+    respondPermission: (request: {
+      requestId: string;
+      optionId: string;
+      rememberGlobally?: boolean;
+    }) => Promise<void>;
+
+    // Event listeners
+    onAgentStarted: (
+      callback: (data: { agentId: string }) => void
+    ) => () => void;
+    onAgentExit: (
+      callback: (data: { agentId: string; code: number | null }) => void
+    ) => () => void;
+    onAgentError: (
+      callback: (data: { agentId: string; error: string }) => void
+    ) => () => void;
+    onAgentAuthenticated: (
+      callback: (data: { agentId: string }) => void
+    ) => () => void;
+    onAuthRequired: (
+      callback: (data: {
+        agentId: string;
+        methods: Array<{ id: string; name: string; description?: string }>;
+      }) => void
+    ) => () => void;
+    onSessionCreated: (
+      callback: (data: {
+        agentId: string;
+        session: {
+          id: string;
+          agentId: string;
+          status: "active" | "idle" | "error";
+          createdAt: Date;
+        };
+      }) => void
+    ) => () => void;
+    onSessionUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        status: "active" | "idle" | "error";
+      }) => void
+    ) => () => void;
+    onMessageChunk: (
+      callback: (data: {
+        sessionId: string;
+        agentId: string;
+        messageId: string;
+        type: "text" | "thinking" | "tool_call" | "tool_result" | "error";
+        content: string | { id?: string; name?: string; input?: unknown; output?: unknown; state?: string };
+        done?: boolean;
+      }) => void
+    ) => () => void;
+    onPermissionRequest: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        requestId: string;
+        title: string;
+        description?: string;
+        options: Array<{
+          id: string;
+          label: string;
+          description?: string;
+          isDefault?: boolean;
+        }>;
+        metadata?: Record<string, unknown>;
+      }) => void
     ) => () => void;
   };
 }
@@ -1002,28 +1319,6 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.invoke("db:agents:update", id, data),
       delete: (id: string) => ipcRenderer.invoke("db:agents:delete", id),
     },
-    workflows: {
-      getAll: (userId: string) =>
-        ipcRenderer.invoke("db:workflows:getAll", userId),
-      getById: (id: string) => ipcRenderer.invoke("db:workflows:getById", id),
-      create: (data: any) => ipcRenderer.invoke("db:workflows:create", data),
-      update: (id: string, data: any) =>
-        ipcRenderer.invoke("db:workflows:update", id, data),
-      delete: (id: string) => ipcRenderer.invoke("db:workflows:delete", id),
-      saveNodes: (workflowId: string, nodes: any[]) =>
-        ipcRenderer.invoke("db:workflows:saveNodes", workflowId, nodes),
-      saveEdges: (workflowId: string, edges: any[]) =>
-        ipcRenderer.invoke("db:workflows:saveEdges", workflowId, edges),
-      saveStructure: (
-        workflowId: string,
-        data: {
-          nodes?: any[];
-          edges?: any[];
-          deleteNodes?: string[];
-          deleteEdges?: string[];
-        },
-      ) => ipcRenderer.invoke("db:workflows:saveStructure", workflowId, data),
-    },
     mcp: {
       getServers: () => ipcRenderer.invoke("db:mcp:getServers"),
       getServerById: (id: string) =>
@@ -1083,7 +1378,7 @@ const electronAPI: ElectronAPI = {
       toggle: (
         userId: string,
         itemId: string,
-        itemType: "agent" | "workflow" | "mcp",
+        itemType: "agent" | "mcp",
         isCurrentlyBookmarked: boolean,
       ) =>
         ipcRenderer.invoke(
@@ -1093,32 +1388,6 @@ const electronAPI: ElectronAPI = {
           itemType,
           isCurrentlyBookmarked,
         ),
-    },
-  },
-
-  // Workflow execution (streaming events via IPC)
-  workflow: {
-    execute: (workflowId: string, input: Record<string, any>) =>
-      ipcRenderer.invoke("workflow:execute", workflowId, input),
-    cancel: (workflowId: string) =>
-      ipcRenderer.invoke("workflow:cancel", workflowId),
-    onEvent: (
-      callback: (data: {
-        workflowId: string;
-        event: { type: string; [key: string]: any };
-      }) => void,
-    ) => {
-      const handler = (
-        _event: any,
-        data: {
-          workflowId: string;
-          event: { type: string; [key: string]: any };
-        },
-      ) => callback(data);
-      ipcRenderer.on("workflow:event", handler);
-      return () => {
-        ipcRenderer.removeListener("workflow:event", handler);
-      };
     },
   },
 
@@ -1201,6 +1470,49 @@ const electronAPI: ElectronAPI = {
     clearCache: () => ipcRenderer.invoke("memory:clearCache"),
     generateEmbedding: (text: string) =>
       ipcRenderer.invoke("memory:generateEmbedding", text),
+  },
+
+  // Knowledge Base & Document Management (Full RAG System)
+  knowledge: {
+    // Knowledge Base CRUD
+    createBase: (data: { name: string; description?: string; userId: string }) =>
+      ipcRenderer.invoke("knowledge:createBase", data),
+    listBases: (userId: string) =>
+      ipcRenderer.invoke("knowledge:listBases", userId),
+    getBase: (id: string, userId: string) =>
+      ipcRenderer.invoke("knowledge:getBase", id, userId),
+    updateBase: (
+      id: string,
+      userId: string,
+      data: { name?: string; description?: string }
+    ) => ipcRenderer.invoke("knowledge:updateBase", id, userId, data),
+    deleteBase: (id: string, userId: string) =>
+      ipcRenderer.invoke("knowledge:deleteBase", id, userId),
+
+    // Document Management
+    selectFile: () => ipcRenderer.invoke("knowledge:selectFile"),
+    uploadDocument: (data: {
+      knowledgeBaseId: string;
+      userId: string;
+      filePath: string;
+      fileName: string;
+    }) => ipcRenderer.invoke("knowledge:uploadDocument", data),
+    listDocuments: (knowledgeBaseId: string, userId: string) =>
+      ipcRenderer.invoke("knowledge:listDocuments", knowledgeBaseId, userId),
+    deleteDocument: (documentId: string, userId: string) =>
+      ipcRenderer.invoke("knowledge:deleteDocument", documentId, userId),
+
+    // Memory List
+    listMemories: (params: {
+      userId: string;
+      page?: number;
+      limit?: number;
+      source?: "all" | "messages" | "documents" | "knowledge";
+      search?: string;
+    }) => ipcRenderer.invoke("knowledge:listMemories", params),
+
+    // Statistics
+    getStats: () => ipcRenderer.invoke("knowledge:getStats"),
   },
 
   // RAG
@@ -1379,6 +1691,17 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on("ai:stream:chunk", handler);
       return () => ipcRenderer.removeListener("ai:stream:chunk", handler);
     },
+    // PERFORMANCE: Batched chunk handler for faster streaming
+    onStreamChunkBatch: (
+      callback: (data: {
+        threadId: string;
+        chunks: any[];
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("ai:stream:chunk:batch", handler);
+      return () => ipcRenderer.removeListener("ai:stream:chunk:batch", handler);
+    },
     onStreamEnd: (
       callback: (data: {
         threadId: string;
@@ -1432,47 +1755,6 @@ const electronAPI: ElectronAPI = {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("ai:thread:created", handler);
       return () => ipcRenderer.removeListener("ai:thread:created", handler);
-    },
-    // Workflow generation
-    workflowGenerate: (request: {
-      messages: any[];
-      availableTools: any[];
-      currentWorkflowState: { nodes: any[]; edges: any[] };
-      chatModel: { provider: string; model: string };
-    }) => ipcRenderer.invoke("ai:workflow:generate", request),
-    workflowAbort: (sessionId: string) =>
-      ipcRenderer.invoke("ai:workflow:abort", sessionId),
-    onWorkflowChunk: (
-      callback: (data: { sessionId: string; chunk: string }) => void,
-    ) => {
-      const handler = (_event: any, data: any) => callback(data);
-      ipcRenderer.on("ai:workflow:chunk", handler);
-      return () => ipcRenderer.removeListener("ai:workflow:chunk", handler);
-    },
-    onWorkflowEnd: (
-      callback: (data: { sessionId: string; finishReason?: string }) => void,
-    ) => {
-      const handler = (_event: any, data: any) => callback(data);
-      ipcRenderer.on("ai:workflow:end", handler);
-      return () => ipcRenderer.removeListener("ai:workflow:end", handler);
-    },
-    onWorkflowError: (
-      callback: (data: { sessionId: string; error: string }) => void,
-    ) => {
-      const handler = (_event: any, data: any) => callback(data);
-      ipcRenderer.on("ai:workflow:error", handler);
-      return () => ipcRenderer.removeListener("ai:workflow:error", handler);
-    },
-    onWorkflowStep: (
-      callback: (data: {
-        sessionId: string;
-        stepType: string;
-        toolCallCount: number;
-      }) => void,
-    ) => {
-      const handler = (_event: any, data: any) => callback(data);
-      ipcRenderer.on("ai:workflow:step", handler);
-      return () => ipcRenderer.removeListener("ai:workflow:step", handler);
     },
   },
 
@@ -1547,6 +1829,10 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("models:ollama:getLibraryModels"),
     ollamaSearchLibrary: (data: { query: string }) =>
       ipcRenderer.invoke("models:ollama:searchLibrary", data),
+    ollamaWarmup: (data: { modelName: string; baseUrl?: string }) =>
+      ipcRenderer.invoke("models:ollama:warmup", data),
+    ollamaUnload: (data: { modelName: string; baseUrl?: string }) =>
+      ipcRenderer.invoke("models:ollama:unload", data),
 
     // LM Studio-specific
     lmstudioCheckHealth: () => ipcRenderer.invoke("models:lmstudio:checkHealth"),
@@ -1580,6 +1866,178 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on("models:ollama:install:progress", handler);
       return () =>
         ipcRenderer.removeListener("models:ollama:install:progress", handler);
+    },
+  },
+
+  // Voice operations (OpenAI Realtime + Local STT/TTS)
+  voice: {
+    // OpenAI Realtime session creation
+    createOpenAISession: (data: {
+      model?: string;
+      voice?: string;
+      agentId?: string;
+      mentions?: any[];
+      instructions?: string;
+      tools?: any[];
+    }) => ipcRenderer.invoke("voice:createOpenAISession", data),
+
+    // Local TTS (Text-to-Speech)
+    synthesize: (data: { text: string; voice?: string; rate?: number }) =>
+      ipcRenderer.invoke("voice:synthesize", data),
+
+    // Get available TTS voices
+    getAvailableVoices: () => ipcRenderer.invoke("voice:getAvailableVoices"),
+
+    // Local STT (Speech-to-Text)
+    transcribe: (data: { audio: string; language?: string }) =>
+      ipcRenderer.invoke("voice:transcribe", data),
+  },
+
+  // ACP (Agent Client Protocol) - External coding agents
+  acp: {
+    // Agent management
+    listAgents: (forceRefresh?: boolean) =>
+      ipcRenderer.invoke("acp:list-agents", forceRefresh),
+    getAgentStatus: (agentId: string) =>
+      ipcRenderer.invoke("acp:get-agent-status", agentId),
+    getInstalledAgents: () => ipcRenderer.invoke("acp:get-installed-agents"),
+    startAgent: (agentId: string) =>
+      ipcRenderer.invoke("acp:start-agent", agentId),
+    stopAgent: (agentId: string) =>
+      ipcRenderer.invoke("acp:stop-agent", agentId),
+
+    // Session management
+    createSession: (request: {
+      agentId: string;
+      workingDirectory?: string;
+      mcpServers?: Array<{
+        name: string;
+        command: string;
+        args?: string[];
+        env?: Record<string, string>;
+      }>;
+    }) => ipcRenderer.invoke("acp:create-session", request),
+
+    // Prompting
+    prompt: (request: {
+      agentId: string;
+      sessionId: string;
+      message: string;
+      contextFiles?: string[];
+    }) => ipcRenderer.invoke("acp:prompt", request),
+    cancel: (agentId: string, sessionId: string) =>
+      ipcRenderer.invoke("acp:cancel", agentId, sessionId),
+
+    // Authentication
+    authenticate: (agentId: string, methodId: string) =>
+      ipcRenderer.invoke("acp:authenticate", agentId, methodId),
+
+    // Permission handling
+    respondPermission: (request: {
+      requestId: string;
+      optionId: string;
+      rememberGlobally?: boolean;
+    }) => ipcRenderer.invoke("acp:respond-permission", request),
+
+    // Event listeners
+    onAgentStarted: (callback: (data: { agentId: string }) => void) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:agent-started", handler);
+      return () => ipcRenderer.removeListener("acp:agent-started", handler);
+    },
+    onAgentExit: (
+      callback: (data: { agentId: string; code: number | null }) => void
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:agent-exit", handler);
+      return () => ipcRenderer.removeListener("acp:agent-exit", handler);
+    },
+    onAgentError: (
+      callback: (data: { agentId: string; error: string }) => void
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:agent-error", handler);
+      return () => ipcRenderer.removeListener("acp:agent-error", handler);
+    },
+    onAgentAuthenticated: (callback: (data: { agentId: string }) => void) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:agent-authenticated", handler);
+      return () =>
+        ipcRenderer.removeListener("acp:agent-authenticated", handler);
+    },
+    onAuthRequired: (
+      callback: (data: {
+        agentId: string;
+        methods: Array<{ id: string; name: string; description?: string }>;
+      }) => void
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:auth-required", handler);
+      return () => ipcRenderer.removeListener("acp:auth-required", handler);
+    },
+    onSessionCreated: (
+      callback: (data: {
+        agentId: string;
+        session: {
+          id: string;
+          agentId: string;
+          status: "active" | "idle" | "error";
+          createdAt: Date;
+        };
+      }) => void
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:session-created", handler);
+      return () => ipcRenderer.removeListener("acp:session-created", handler);
+    },
+    onSessionUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        status: "active" | "idle" | "error";
+      }) => void
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:session-update", handler);
+      return () => ipcRenderer.removeListener("acp:session-update", handler);
+    },
+    onMessageChunk: (
+      callback: (data: {
+        sessionId: string;
+        agentId: string;
+        messageId: string;
+        type: "text" | "thinking" | "tool_call" | "tool_result" | "error";
+        content: string | { id?: string; name?: string; input?: unknown; output?: unknown; state?: string };
+        done?: boolean;
+      }) => void
+    ) => {
+      const handler = (_event: any, data: any) => {
+        console.log("[Preload] ACP message-chunk received:", JSON.stringify(data, null, 2));
+        callback(data);
+      };
+      ipcRenderer.on("acp:message-chunk", handler);
+      return () => ipcRenderer.removeListener("acp:message-chunk", handler);
+    },
+    onPermissionRequest: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        requestId: string;
+        title: string;
+        description?: string;
+        options: Array<{
+          id: string;
+          label: string;
+          description?: string;
+          isDefault?: boolean;
+        }>;
+        metadata?: Record<string, unknown>;
+      }) => void
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:permission-request", handler);
+      return () =>
+        ipcRenderer.removeListener("acp:permission-request", handler);
     },
   },
 };

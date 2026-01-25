@@ -1,7 +1,6 @@
 import { Tool } from "ai";
 import logger from "logger";
 import { AppDefaultToolkit, DefaultToolName } from ".";
-import { httpFetchTool } from "./http/fetch";
 import { createBarChartTool } from "./visualization/create-bar-chart";
 import { createLineChartTool } from "./visualization/create-line-chart";
 import { createPieChartTool } from "./visualization/create-pie-chart";
@@ -60,9 +59,6 @@ export const APP_DEFAULT_TOOL_KIT: Record<
   [AppDefaultToolkit.WebSearch]: {
     [DefaultToolName.WebSearch]: exaSearchTool,
     [DefaultToolName.WebContent]: exaContentsTool,
-  },
-  [AppDefaultToolkit.Http]: {
-    [DefaultToolName.Http]: httpFetchTool,
   },
   // Browser automation tools (Local Chrome DevTools Protocol via agent-browser)
   [AppDefaultToolkit.Browser]: {
@@ -178,9 +174,6 @@ export function createAppDefaultToolKit(
         [DefaultToolName.WebSearch]: exaSearchTool,
         [DefaultToolName.WebContent]: exaContentsTool,
       },
-      [AppDefaultToolkit.Http]: {
-        [DefaultToolName.Http]: httpFetchTool,
-      },
       // Browser tools work without thread context
       [AppDefaultToolkit.Browser]: {
         // Session Management
@@ -292,9 +285,6 @@ export function createAppDefaultToolKit(
     [AppDefaultToolkit.WebSearch]: {
       [DefaultToolName.WebSearch]: exaSearchTool,
       [DefaultToolName.WebContent]: exaContentsTool,
-    },
-    [AppDefaultToolkit.Http]: {
-      [DefaultToolName.Http]: httpFetchTool,
     },
     // Browser automation tools (Local Chrome DevTools) - context-aware versions
     [AppDefaultToolkit.Browser]: {

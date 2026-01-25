@@ -6,6 +6,12 @@ import fs from "fs-extra";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DuckDBDatabase = any;
 
+/**
+ * Embedding dimension - MUST match the local embedding service (all-MiniLM-L6-v2)
+ * Changed from 1536 (OpenAI) to 384 (local transformers.js) for local-first RAG
+ */
+const EMBEDDING_DIMENSION = 384;
+
 // DuckDB Vector Store for ultra-fast local vector search
 export class VectorStore {
   private static _instance: VectorStore | null = null;
@@ -84,11 +90,92 @@ export class VectorStore {
       // Continue without VSS - we'll use array_cosine_similarity which is built-in
     }
 
+    // Check for dimension migration (1536 -> 384 or any mismatch)
+    await this.migrateIfNeeded();
+
     // Create tables for document and message embeddings
     await this.createTables();
 
     this.initialized = true;
     console.log("[VectorStore] DuckDB Vector Store initialized successfully");
+  }
+
+  /**
+   * Check if existing tables have wrong embedding dimensions and migrate if needed.
+   * This handles the transition from OpenAI embeddings (1536) to local embeddings (384).
+   *
+   * IMPORTANT: This migration is DESTRUCTIVE - old embeddings are incompatible with
+   * the new local embedding model and must be regenerated.
+   */
+  private async migrateIfNeeded(): Promise<void> {
+    try {
+      // Check if document_embeddings table exists
+      const tables = await this.runQuery(
+        "SELECT table_name FROM information_schema.tables WHERE table_name IN ('document_embeddings', 'message_embeddings')"
+      );
+
+      if (!tables || tables.length === 0) {
+        // Tables don't exist yet, no migration needed
+        return;
+      }
+
+      // Check column info to detect dimension mismatch
+      // DuckDB array types include dimension info
+      const columns = await this.runQuery(
+        "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'document_embeddings' AND column_name = 'embedding'"
+      );
+
+      if (columns && columns.length > 0) {
+        const dataType = columns[0].data_type || '';
+        // Check if it's still using old 1536 dimensions
+        if (dataType.includes('1536')) {
+          // Get counts before dropping for user awareness
+          let docCount = 0;
+          let msgCount = 0;
+          try {
+            const docResult = await this.runQuery("SELECT COUNT(*) as count FROM document_embeddings");
+            const msgResult = await this.runQuery("SELECT COUNT(*) as count FROM message_embeddings");
+            docCount = docResult?.[0]?.count || 0;
+            msgCount = msgResult?.[0]?.count || 0;
+          } catch {
+            // Ignore count errors
+          }
+
+          // Log migration notice with high visibility
+          console.warn("=".repeat(80));
+          console.warn("[VectorStore] ⚠️  MIGRATION NOTICE: Upgrading to Local Embeddings");
+          console.warn("=".repeat(80));
+          console.warn("[VectorStore] Detected old OpenAI embedding schema (1536 dimensions)");
+          console.warn("[VectorStore] Migrating to local embeddings (384 dimensions)");
+          console.warn("");
+          if (docCount > 0 || msgCount > 0) {
+            console.warn(`[VectorStore] ⚠️  DATA WILL BE CLEARED:`);
+            console.warn(`[VectorStore]    - ${docCount} document embeddings`);
+            console.warn(`[VectorStore]    - ${msgCount} message embeddings`);
+            console.warn("[VectorStore] Documents will be re-indexed automatically when accessed.");
+            console.warn("[VectorStore] Conversation memory will rebuild as you chat.");
+          }
+          console.warn("");
+          console.warn("[VectorStore] ✓ Benefits of local embeddings:");
+          console.warn("[VectorStore]    - Works completely offline");
+          console.warn("[VectorStore]    - No API costs");
+          console.warn("[VectorStore]    - Faster responses (no network latency)");
+          console.warn("=".repeat(80));
+
+          // Drop old tables (embeddings must be regenerated with new dimensions)
+          // This is a necessary destructive migration - old 1536-dim embeddings are
+          // incompatible with new 384-dim local model and cannot be converted.
+          await this.runStatement("DROP TABLE IF EXISTS document_embeddings");
+          await this.runStatement("DROP TABLE IF EXISTS message_embeddings");
+
+          console.warn("[VectorStore] ✓ Migration complete. New tables will use 384-dimension local embeddings.");
+          console.warn("=".repeat(80));
+        }
+      }
+    } catch (error) {
+      // If migration check fails, continue anyway - createTables will handle it
+      console.warn("[VectorStore] Migration check failed, continuing:", error);
+    }
   }
 
   // Run a statement without parameters (for DDL, INSTALL, LOAD, etc.)
@@ -108,31 +195,53 @@ export class VectorStore {
 
   private async createTables() {
     // Documents table with embeddings
+    // user_id column added for security filtering
     await this.runStatement(`
       CREATE TABLE IF NOT EXISTS document_embeddings (
         id VARCHAR PRIMARY KEY,
         thread_id VARCHAR,
+        user_id VARCHAR,
         content TEXT,
-        embedding FLOAT[1536],
+        embedding FLOAT[384],
         metadata JSON,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
+    // Add user_id column if it doesn't exist (migration for existing tables)
+    try {
+      await this.runStatement(`
+        ALTER TABLE document_embeddings ADD COLUMN IF NOT EXISTS user_id VARCHAR
+      `);
+    } catch {
+      // Column may already exist or ALTER not supported
+    }
+
     // Message embeddings for conversation context
+    // user_id column added for security filtering
     await this.runStatement(`
       CREATE TABLE IF NOT EXISTS message_embeddings (
         id VARCHAR PRIMARY KEY,
         thread_id VARCHAR,
+        user_id VARCHAR,
         message_id VARCHAR,
         role VARCHAR,
         content TEXT,
-        embedding FLOAT[1536],
+        embedding FLOAT[384],
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    console.log("[VectorStore] Tables created successfully");
+    // Add user_id column if it doesn't exist (migration for existing tables)
+    try {
+      await this.runStatement(`
+        ALTER TABLE message_embeddings ADD COLUMN IF NOT EXISTS user_id VARCHAR
+      `);
+    } catch {
+      // Column may already exist or ALTER not supported
+    }
+
+    console.log("[VectorStore] Tables created successfully (with user_id columns)");
   }
 
   private runQuery(sql: string, params: any[] = []): Promise<any> {
@@ -196,6 +305,7 @@ export class VectorStore {
 
     // Build WHERE clause with parameterized queries
     const conditions: string[] = [];
+
     if (filter?.thread_id) {
       // SECURITY: Validate thread_id format before use
       if (!this.validateThreadId(filter.thread_id)) {
@@ -208,7 +318,19 @@ export class VectorStore {
       conditions.push(`thread_id = ?`);
       params.push(filter.thread_id);
     }
-    // Note: userId is stored in metadata JSON for security filtering
+
+    // SECURITY: Filter by user_id for data isolation
+    if (filter?.user_id) {
+      if (!this.validateThreadId(filter.user_id)) {
+        console.error(
+          "[VectorStore] Invalid user_id format:",
+          filter.user_id,
+        );
+        throw new Error("Invalid user_id format");
+      }
+      conditions.push(`user_id = ?`);
+      params.push(filter.user_id);
+    }
 
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -221,12 +343,22 @@ export class VectorStore {
     ) {
       throw new Error("Invalid embedding format");
     }
+
+    // Validate embedding dimension matches expected size
+    if (queryEmbedding.length !== EMBEDDING_DIMENSION) {
+      console.error(
+        `[VectorStore] Embedding dimension mismatch: expected ${EMBEDDING_DIMENSION}, got ${queryEmbedding.length}`
+      );
+      throw new Error(`Embedding dimension mismatch: expected ${EMBEDDING_DIMENSION}, got ${queryEmbedding.length}`);
+    }
+
     const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
     // SECURITY: Validate limit is a positive integer
     const safeLimit = Math.min(Math.max(1, Math.floor(Number(limit))), 1000);
 
-    // Query with all relevant fields for messages
+    // Query with all relevant fields
+    // Include user_id in select for security verification in calling code
     const query =
       collection === "messages"
         ? `
@@ -235,10 +367,11 @@ export class VectorStore {
         content,
         metadata,
         thread_id,
+        user_id,
         message_id,
         role,
         created_at,
-        array_cosine_similarity(embedding, ${embeddingStr}::FLOAT[1536]) as similarity
+        array_cosine_similarity(embedding, ${embeddingStr}::FLOAT[384]) as similarity
       FROM ${table}
       ${whereClause}
       ORDER BY similarity DESC
@@ -250,8 +383,9 @@ export class VectorStore {
         content,
         metadata,
         thread_id,
+        user_id,
         created_at,
-        array_cosine_similarity(embedding, ${embeddingStr}::FLOAT[1536]) as similarity
+        array_cosine_similarity(embedding, ${embeddingStr}::FLOAT[384]) as similarity
       FROM ${table}
       ${whereClause}
       ORDER BY similarity DESC
@@ -260,7 +394,8 @@ export class VectorStore {
 
     try {
       const results = await this.runQuery(query, params);
-      return results;
+      console.log(`[VectorStore] Search in ${collection}: ${results?.length || 0} results`);
+      return results || [];
     } catch (error) {
       console.error("[VectorStore] Search error:", error);
       throw error;
@@ -280,6 +415,7 @@ export class VectorStore {
       embedding: number[];
       metadata?: any;
       thread_id?: string;
+      user_id?: string;
       message_id?: string;
       role?: string;
     }>,
@@ -295,6 +431,8 @@ export class VectorStore {
     const table =
       collection === "documents" ? "document_embeddings" : "message_embeddings";
 
+    let insertedCount = 0;
+
     // Batch insert for performance
     for (const item of items) {
       // SECURITY: Validate embedding is array of numbers only
@@ -305,37 +443,56 @@ export class VectorStore {
         console.error("[VectorStore] Invalid embedding format for item:", item.id);
         continue;
       }
+
+      // Validate embedding dimension matches expected size
+      if (item.embedding.length !== EMBEDDING_DIMENSION) {
+        const errorMsg = `[VectorStore] Embedding dimension mismatch for item ${item.id}: expected ${EMBEDDING_DIMENSION}, got ${item.embedding.length}. ` +
+          `This may indicate mixing local embeddings (384) with OpenAI embeddings (1536). ` +
+          `Re-index your documents to fix this.`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
+      }
+
       const embeddingStr = `[${item.embedding.join(",")}]`;
 
       // SECURITY: Safely serialize metadata as JSON string for parameterized query
       const metadataJson = item.metadata ? JSON.stringify(item.metadata) : null;
 
-      if (collection === "documents") {
-        await this.runQuery(
-          `
-          INSERT INTO ${table} (id, content, embedding, metadata, thread_id)
-          VALUES (?, ?, ${embeddingStr}::FLOAT[1536], ?::JSON, ?)
-        `,
-          [item.id, item.content, metadataJson, item.thread_id || null],
-        );
-      } else {
-        await this.runQuery(
-          `
-          INSERT INTO ${table} (id, thread_id, message_id, role, content, embedding)
-          VALUES (?, ?, ?, ?, ?, ${embeddingStr}::FLOAT[1536])
-        `,
-          [
-            item.id,
-            item.thread_id || null,
-            item.message_id || null,
-            item.role || null,
-            item.content,
-          ],
-        );
+      // Extract user_id from metadata if not provided directly
+      const userId = item.user_id || item.metadata?.userId || null;
+
+      try {
+        if (collection === "documents") {
+          await this.runQuery(
+            `
+            INSERT INTO ${table} (id, content, embedding, metadata, thread_id, user_id)
+            VALUES (?, ?, ${embeddingStr}::FLOAT[384], ?::JSON, ?, ?)
+          `,
+            [item.id, item.content, metadataJson, item.thread_id || null, userId],
+          );
+        } else {
+          await this.runQuery(
+            `
+            INSERT INTO ${table} (id, thread_id, user_id, message_id, role, content, embedding)
+            VALUES (?, ?, ?, ?, ?, ?, ${embeddingStr}::FLOAT[384])
+          `,
+            [
+              item.id,
+              item.thread_id || null,
+              userId,
+              item.message_id || null,
+              item.role || null,
+              item.content,
+            ],
+          );
+        }
+        insertedCount++;
+      } catch (insertError) {
+        console.error(`[VectorStore] Failed to insert item ${item.id}:`, insertError);
       }
     }
 
-    console.log(`[VectorStore] Inserted ${items.length} items into ${table}`);
+    console.log(`[VectorStore] Inserted ${insertedCount}/${items.length} items into ${table}`);
   }
 
   /**

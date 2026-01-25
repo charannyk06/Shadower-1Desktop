@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { TEST_USERS } from "../constants/test-users";
 import { ensureSidebarOpen } from "../helpers/sidebar-helper";
 
 // Use regular user auth state for user settings tests
-test.use({ storageState: "tests/.auth/regular-user.json" });
+test.use({ storageState: TEST_USERS.regular.authFile });
 
 test.describe("User Settings Popup", () => {
   test("should open user settings popup from sidebar", async ({ page }) => {

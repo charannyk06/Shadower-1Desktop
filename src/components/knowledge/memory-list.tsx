@@ -23,7 +23,7 @@ interface Memory {
   id: string;
   content: string;
   role?: "user" | "assistant";
-  source?: "memory" | "knowledge" | "documents";
+  source?: "messages" | "knowledge" | "documents";
   threadId?: string;
   messageId?: string;
   createdAt?: string;
@@ -422,8 +422,9 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
                     e.preventDefault();
                     e.stopPropagation();
                     startTransition(() => {
+                      // Clear role filter when switching to knowledge (role doesn't apply)
                       navigate({
-                        to: buildUrl({ source: "knowledge", page: 1 }),
+                        to: buildUrl({ source: "knowledge", page: 1, role: null }),
                       });
                     });
                   }}
@@ -456,8 +457,9 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
                     e.preventDefault();
                     e.stopPropagation();
                     startTransition(() => {
+                      // Clear role filter when switching to documents (role doesn't apply)
                       navigate({
-                        to: buildUrl({ source: "documents", page: 1 }),
+                        to: buildUrl({ source: "documents", page: 1, role: null }),
                       });
                     });
                   }}

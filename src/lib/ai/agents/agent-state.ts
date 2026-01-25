@@ -95,18 +95,22 @@ export interface AgentContextManager {
  * - Share context between steps and sub-agents
  */
 // Maximum calls per tool to prevent infinite loops
-const MAX_TOOL_CALLS_PER_TOOL = 10;
+// Increased from 10 to 15 to reduce false positives for legitimate multi-step operations
+const MAX_TOOL_CALLS_PER_TOOL = 15;
 
 // Some tools are allowed more calls (planning tools that need multiple updates)
 const TOOL_CALL_LIMITS: Record<string, number> = {
   updateTaskStatus: 25, // Needs to be called for each task (in-progress + completed)
   setContext: 20,
   getContext: 30,
-  getAllContext: 10,
+  getAllContext: 15,
   getPlanStatus: 15,
   getNextTask: 15,
   desktop_command: 30, // Desktop command needs multiple calls for file operations, code execution, etc.
-  // All other tools default to MAX_TOOL_CALLS_PER_TOOL (10)
+  webSearch: 20, // Research tasks may need multiple searches
+  remember_context: 20, // Memory operations often need multiple calls
+  read_file: 25, // File reading for code analysis
+  // All other tools default to MAX_TOOL_CALLS_PER_TOOL (15)
 };
 
 export function createAgentContext(): AgentContextManager {

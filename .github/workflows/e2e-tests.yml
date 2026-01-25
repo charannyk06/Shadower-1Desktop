@@ -19,10 +19,7 @@ jobs:
 
       # Authentication
       BETTER_AUTH_SECRET: test-secret-key-for-ci-only-not-for-production-use
-      BETTER_AUTH_URL: http://localhost:3000
-
-      # Application
-      NEXT_PUBLIC_BASE_URL: http://localhost:3000
+      BETTER_AUTH_URL: http://localhost:5173
 
       # LLM Provider (OpenRouter with free models)
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -35,7 +32,7 @@ jobs:
       BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
 
       # Collabora Integration - Optional: tests skip if not set
-      NEXT_PUBLIC_COLLABORA_URL: ${{ secrets.COLLABORA_URL }}
+      COLLABORA_URL: ${{ secrets.COLLABORA_URL }}
       WOPI_SECRET: ${{ secrets.WOPI_SECRET }}
 
       # Cerebras Provider - Optional: tests skip if not set
@@ -47,8 +44,6 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       # Feature flags
-      DISABLE_SIGN_UP: 0
-      DISABLE_EMAIL_SIGN_IN: 0
       FILE_BASED_MCP_CONFIG: false
 
       # App Integrations (Composio)

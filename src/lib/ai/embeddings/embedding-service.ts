@@ -221,8 +221,8 @@ export async function generateBatchEmbeddings(
       batches.push(textsToEmbed.slice(i, i + BATCH_SIZE));
     }
 
-    // Process batches in parallel (up to 3 concurrent for rate limiting)
-    const concurrency = Math.min(3, batches.length);
+    // Process batches in parallel (up to 6 concurrent - OpenAI handles this well)
+    const concurrency = Math.min(6, batches.length);
     for (let i = 0; i < batches.length; i += concurrency) {
       const batchPromises = batches
         .slice(i, i + concurrency)

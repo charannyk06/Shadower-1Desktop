@@ -1,7 +1,6 @@
 export enum AppDefaultToolkit {
   Visualization = "visualization",
   WebSearch = "webSearch",
-  Http = "http",
   // Browser and Desktop automation toolkits (local execution)
   Browser = "browser",
   Desktop = "desktop",
@@ -19,7 +18,6 @@ export enum DefaultToolName {
   CreateTable = "createTable",
   WebSearch = "webSearch",
   WebContent = "webContent",
-  Http = "http",
   // Browser automation tools (Local Chrome DevTools Protocol via agent-browser)
   BrowserCreateSession = "browserCreateSession",
   BrowserCloseSession = "browserCloseSession",

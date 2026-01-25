@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 import { WriteIcon } from "ui/write-icon";
 
 interface ShareableActionsProps {
-  type: "agent" | "workflow" | "mcp";
+  type: "agent" | "mcp";
   isOwner: boolean;
   editHref?: string;
   onDelete?: () => void;

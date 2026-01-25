@@ -134,29 +134,13 @@ export function useOpenAIVoiceChat(props?: VoiceChatOptions): VoiceChatSession {
 
   const createSession =
     useCallback(async (): Promise<OpenAIRealtimeSession> => {
-      const response = await fetch(
-        `/api/chat/openai-realtime?model=${model}&voice=${voice}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model,
-            voice,
-            agentId: props?.agentId,
-            mentions: props?.toolMentions,
-          }),
-        },
-      );
-      if (response.status !== 200) {
-        throw new Error(await response.text());
-      }
-      const session = await response.json();
-      if (session.error) {
-        throw new Error(session.error.message);
-      }
-
+      // Use Electron IPC to create session (secure API key handling in main process)
+      const session = await window.electronAPI.voice.createOpenAISession({
+        model,
+        voice,
+        agentId: props?.agentId,
+        mentions: props?.toolMentions,
+      });
       return session;
     }, [model, voice, props?.toolMentions, props?.agentId]);
 

@@ -100,10 +100,6 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
       abortSignal: AbortSignal | undefined;
     } & ChatRequestOptions,
   ): Promise<ReadableStream<UIMessageChunk>> {
-    console.log(
-      "[AI Transport] sendMessages called for chatId:",
-      options.chatId,
-    );
     const { messages, abortSignal, body: optionsBody, chatId } = options;
 
     // Prepare the body using the provided function if available
@@ -123,20 +119,16 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
 
     // In Electron production (static export), use IPC
     if (shouldUseElectronTransport()) {
-      const stream = this.sendViaIPC({
+      return this.sendViaIPC({
         messages,
         body,
         id: chatId,
         abortSignal,
       });
-      console.log("[AI Transport] Returning IPC stream for chatId:", chatId);
-      return stream;
     }
 
     // Fall back to HTTP for dev mode
-    const httpStream = this.sendViaHTTP({ ...options, body });
-    console.log("[AI Transport] Returning HTTP stream");
-    return httpStream;
+    return this.sendViaHTTP({ ...options, body });
   }
 
   /**
@@ -221,6 +213,7 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
     // Track abort and cleanup functions
     let aborted = false;
     let cleanupChunk: (() => void) | undefined;
+    let cleanupChunkBatch: (() => void) | undefined;
     let cleanupEnd: (() => void) | undefined;
     let cleanupError: (() => void) | undefined;
     let cleanupStep: (() => void) | undefined;
@@ -228,6 +221,7 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
 
     const cleanup = () => {
       cleanupChunk?.();
+      cleanupChunkBatch?.();
       cleanupEnd?.();
       cleanupError?.();
       cleanupStep?.();
@@ -237,7 +231,6 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
     let streamController: ReadableStreamDefaultController<UIMessageChunk> | null =
       null;
     let streamClosed = false;
-    let chunkCounter = 0;
 
     // Track active reasoning parts to synthesize missing reasoning-start chunks
     // This prevents the "Received reasoning-delta for missing reasoning part" error
@@ -248,18 +241,15 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
     // (common with thinking models like qwen3 that use extractReasoningMiddleware)
     const activeTextIds = new Set<string>();
 
-    // Async function that ONLY handles prepare/start calls
-    // NO listener setup here - that's done synchronously in start()
+    // Async function that handles prepare/start calls
     const startStreamingAsync = async (
       ctrl: ReadableStreamDefaultController<UIMessageChunk>,
     ) => {
       try {
-        // Use the working directory passed via options (preferred) or fall back to store
-        // Using options is more reliable as it avoids potential stale state in async callbacks
-        const workingDirectory = this.options.workingDirectory ?? appStore.getState().workingDirectory;
+        // Priority: requestBody > constructor options > store (fallback)
+        const workingDirectory = (requestBody as any).workingDirectory ?? this.options.workingDirectory ?? appStore.getState().workingDirectory;
 
-        // Prepare the stream (sets up model, tools, but doesn't start streaming)
-        console.log("[AI Transport] Preparing stream for thread:", id, "with working directory:", workingDirectory?.path || "not set");
+        // Prepare the stream
         const prepareResult = await api.ai.stream({
           threadId: id,
           messages,
@@ -272,51 +262,35 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
           message: requestBody.message,
           imageTool: requestBody.imageTool,
           attachments: requestBody.attachments,
-          workingDirectory, // Pass the working directory to the AI
+          workingDirectory,
         });
 
         if (prepareResult?.error) {
-          console.error("[AI Transport] Prepare failed:", prepareResult.error);
           cleanup();
           ctrl.error(new Error(prepareResult.error));
           return;
         }
 
-        // Start the actual streaming (listeners are already registered!)
-        console.log("[AI Transport] Starting stream for thread:", id);
+        // Start the actual streaming
         const startResult = await api.ai.startStream({ threadId: id });
 
         if (startResult?.error) {
-          console.error("[AI Transport] Start failed:", startResult.error);
           cleanup();
           ctrl.error(new Error(startResult.error));
           return;
         }
-
-        console.log(
-          "[AI Transport] Stream started successfully for thread:",
-          id,
-        );
       } catch (error: any) {
-        console.error("[AI Transport] Error in stream setup:", error);
         cleanup();
         if (!aborted) {
           try {
             ctrl.error(error);
-          } catch {
-            // Controller may already be errored
-          }
+          } catch {}
         }
       }
     };
 
     const stream = new ReadableStream<UIMessageChunk>({
       start(ctrl) {
-        console.log(
-          "[AI Transport] ReadableStream start() called for thread:",
-          id,
-        );
-        console.log("[AI Transport] Controller desiredSize:", ctrl.desiredSize);
         streamController = ctrl;
 
         // STEP 1: Set up abort handler SYNCHRONOUSLY
@@ -333,249 +307,188 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
         });
 
         // STEP 2: Register ALL IPC listeners SYNCHRONOUSLY
-        // This is CRITICAL - listeners must be attached before any async work
         // ipcRenderer.on() is synchronous, so listeners are ready immediately
-        console.log("[AI Transport] Setting up IPC listeners for thread:", id);
 
         cleanupChunk = api.ai.onStreamChunk(
           (data: { threadId: string; chunk?: string }) => {
             if (aborted || data.threadId !== id) return;
 
             const chunkData = data.chunk || "";
-            if (chunkData) {
-              try {
-                const parsed = JSON.parse(chunkData);
-                chunkCounter++;
-                // Log ALL chunks to debug the missing text-start issue
-                const chunkType = parsed?.type;
-                const chunkId = parsed?.id;
-                console.log(
-                  `[AI Transport] Chunk #${chunkCounter} type: "${chunkType}" id: "${chunkId}"`,
-                );
+            if (!chunkData) return;
 
-                // CRITICAL DEBUG: Track text-start chunks specifically
-                if (chunkType === "text-start") {
-                  console.log(
-                    `[AI Transport] *** TEXT-START CHUNK RECEIVED *** id: ${chunkId}`,
-                  );
-                }
+            try {
+              const parsed = JSON.parse(chunkData);
+              const chunkType = parsed?.type;
+              const chunkId = parsed?.id;
 
-                // Track finish chunk for debugging title generation issues
-                if (chunkType === "finish") {
-                  console.log(
-                    `[AI Transport] *** FINISH CHUNK RECEIVED *** finishReason: ${parsed.finishReason}`,
-                    JSON.stringify(parsed, null, 2),
-                  );
-                }
-
-                // FIX: Ensure finish and finish-step chunks always have valid usage data to prevent
-                // "Cannot read properties of undefined (reading 'inputTokens')" error
-                // AI SDK v6 expects nested usage structure: { inputTokens: { total: number }, outputTokens: { total: number } }
-                if (chunkType === "finish" || chunkType === "finish-step") {
-                  if (!parsed.usage) {
-                    parsed.usage = {
-                      inputTokens: { total: 0 },
-                      outputTokens: { total: 0 },
-                    };
-                    console.log(
-                      `[AI Transport] Added default usage data to ${chunkType} chunk`,
-                    );
-                  } else {
-                    // Ensure inputTokens has the nested structure
-                    if (!parsed.usage.inputTokens) {
-                      parsed.usage.inputTokens = { total: 0 };
-                    } else if (typeof parsed.usage.inputTokens === "number") {
-                      parsed.usage.inputTokens = { total: parsed.usage.inputTokens };
-                    } else if (!parsed.usage.inputTokens.total) {
-                      parsed.usage.inputTokens.total = 0;
-                    }
-                    // Ensure outputTokens has the nested structure
-                    if (!parsed.usage.outputTokens) {
-                      parsed.usage.outputTokens = { total: 0 };
-                    } else if (typeof parsed.usage.outputTokens === "number") {
-                      parsed.usage.outputTokens = { total: parsed.usage.outputTokens };
-                    } else if (!parsed.usage.outputTokens.total) {
-                      parsed.usage.outputTokens.total = 0;
-                    }
-                  }
-                }
-
-                // REASONING CHUNK FIX: Track reasoning-start and synthesize missing starts
-                // The AI SDK throws an error if reasoning-delta arrives before reasoning-start
-                // This can happen with some models or when chunks arrive out of order
-                if (chunkType === "reasoning-start" && chunkId) {
-                  activeReasoningIds.add(chunkId);
-                  console.log(
-                    `[AI Transport] *** REASONING-START CHUNK *** id: ${chunkId}`,
-                  );
-                } else if (chunkType === "reasoning-delta" && chunkId) {
-                  // Check if we've seen the reasoning-start for this ID
-                  if (!activeReasoningIds.has(chunkId)) {
-                    // Synthesize a reasoning-start chunk BEFORE processing this delta
-                    console.log(
-                      `[AI Transport] *** SYNTHESIZING MISSING REASONING-START *** id: ${chunkId}`,
-                    );
-                    const syntheticStart = {
-                      type: "reasoning-start",
-                      id: chunkId,
-                    };
-                    if (streamController && !streamClosed) {
-                      try {
-                        streamController.enqueue(syntheticStart as UIMessageChunk);
-                      } catch (e) {
-                        console.error(
-                          "[AI Transport] Failed to enqueue synthetic reasoning-start:",
-                          e,
-                        );
-                      }
-                    }
-                    activeReasoningIds.add(chunkId);
-                  }
-                } else if (chunkType === "reasoning-end" && chunkId) {
-                  // Clean up tracking for completed reasoning
-                  activeReasoningIds.delete(chunkId);
-                }
-
-                // TEXT CHUNK FIX: Track text-start and synthesize missing starts
-                // The AI SDK ignores text-delta if there's no text-start for that part
-                // This can happen with thinking models using extractReasoningMiddleware
-                if (chunkType === "text-start" && chunkId) {
-                  activeTextIds.add(chunkId);
-                  console.log(
-                    `[AI Transport] *** TEXT-START TRACKED *** id: ${chunkId}`,
-                  );
-                } else if (chunkType === "text-delta" && chunkId) {
-                  // Check if we've seen the text-start for this ID
-                  if (!activeTextIds.has(chunkId)) {
-                    // Synthesize a text-start chunk BEFORE processing this delta
-                    console.log(
-                      `[AI Transport] *** SYNTHESIZING MISSING TEXT-START *** id: ${chunkId}`,
-                    );
-                    const syntheticStart = {
-                      type: "text-start",
-                      id: chunkId,
-                    };
-                    if (streamController && !streamClosed) {
-                      try {
-                        streamController.enqueue(syntheticStart as UIMessageChunk);
-                      } catch (e) {
-                        console.error(
-                          "[AI Transport] Failed to enqueue synthetic text-start:",
-                          e,
-                        );
-                      }
-                    }
-                    activeTextIds.add(chunkId);
-                  }
-                } else if (chunkType === "text-end" && chunkId) {
-                  // Clean up tracking for completed text
-                  activeTextIds.delete(chunkId);
-                }
-
-                // Full structure for first 15 chunks and important chunk types
-                if (
-                  chunkCounter <= 15 ||
-                  chunkType === "text-start" ||
-                  chunkType === "text-delta" ||
-                  chunkType === "start" ||
-                  chunkType === "step-start"
-                ) {
-                  console.log(
-                    `[AI Transport] Chunk #${chunkCounter} full structure:`,
-                    JSON.stringify(parsed, null, 2),
-                  );
-                }
-                if (streamController && !streamClosed) {
-                  try {
-                    console.log(
-                      "[AI Transport] Before enqueue - desiredSize:",
-                      streamController.desiredSize,
-                    );
-                    streamController.enqueue(parsed as UIMessageChunk);
-                    console.log(
-                      "[AI Transport] After enqueue - desiredSize:",
-                      streamController.desiredSize,
-                      "chunk type:",
-                      parsed?.type,
-                    );
-                    if (chunkCounter === 1) {
-                      console.log(
-                        "[AI Transport] First chunk enqueued directly",
-                      );
-                    }
-                  } catch (enqueueError: any) {
-                    if (enqueueError.name !== "RangeError") {
-                      console.error(
-                        "[AI Transport] Failed to enqueue chunk:",
-                        enqueueError,
-                      );
-                    }
-                  }
+              // Ensure finish chunks have valid usage data
+              if (chunkType === "finish" || chunkType === "finish-step") {
+                if (!parsed.usage) {
+                  parsed.usage = {
+                    inputTokens: { total: 0 },
+                    outputTokens: { total: 0 },
+                  };
                 } else {
-                  console.warn(
-                    "[AI Transport] Cannot enqueue - controller:",
-                    !!streamController,
-                    "closed:",
-                    streamClosed,
-                  );
+                  if (!parsed.usage.inputTokens) {
+                    parsed.usage.inputTokens = { total: 0 };
+                  } else if (typeof parsed.usage.inputTokens === "number") {
+                    parsed.usage.inputTokens = { total: parsed.usage.inputTokens };
+                  }
+                  if (!parsed.usage.outputTokens) {
+                    parsed.usage.outputTokens = { total: 0 };
+                  } else if (typeof parsed.usage.outputTokens === "number") {
+                    parsed.usage.outputTokens = { total: parsed.usage.outputTokens };
+                  }
                 }
-              } catch (e) {
-                console.error(
-                  "[AI Transport] Failed to parse chunk:",
-                  e,
-                  "chunk:",
-                  chunkData,
-                );
               }
-            } else {
-              console.warn(
-                "[AI Transport] Received empty chunk for thread:",
-                id,
-              );
+
+              // Handle reasoning chunks - synthesize missing starts
+              if (chunkType === "reasoning-start" && chunkId) {
+                activeReasoningIds.add(chunkId);
+              } else if (chunkType === "reasoning-delta" && chunkId) {
+                if (!activeReasoningIds.has(chunkId)) {
+                  if (streamController && !streamClosed) {
+                    try {
+                      streamController.enqueue({ type: "reasoning-start", id: chunkId } as UIMessageChunk);
+                    } catch {}
+                  }
+                  activeReasoningIds.add(chunkId);
+                }
+              } else if (chunkType === "reasoning-end" && chunkId) {
+                activeReasoningIds.delete(chunkId);
+              }
+
+              // Handle text chunks - synthesize missing starts
+              if (chunkType === "text-start" && chunkId) {
+                activeTextIds.add(chunkId);
+              } else if (chunkType === "text-delta" && chunkId) {
+                if (!activeTextIds.has(chunkId)) {
+                  if (streamController && !streamClosed) {
+                    try {
+                      streamController.enqueue({ type: "text-start", id: chunkId } as UIMessageChunk);
+                    } catch {}
+                  }
+                  activeTextIds.add(chunkId);
+                }
+              } else if (chunkType === "text-end" && chunkId) {
+                activeTextIds.delete(chunkId);
+              }
+
+              // Enqueue the chunk
+              if (streamController && !streamClosed) {
+                try {
+                  streamController.enqueue(parsed as UIMessageChunk);
+                } catch {}
+              }
+            } catch {
+              // Skip invalid chunks
             }
           },
         );
 
+        // PERFORMANCE: Handle batched chunks for faster streaming
+        if (api.ai.onStreamChunkBatch) {
+          cleanupChunkBatch = api.ai.onStreamChunkBatch(
+            (data: { threadId: string; chunks: any[] }) => {
+              if (aborted || data.threadId !== id) return;
+
+              for (const chunk of data.chunks) {
+                try {
+                  const chunkType = chunk?.type;
+                  const chunkId = chunk?.id;
+
+                  // Handle usage data for finish chunks
+                  if (chunkType === "finish" || chunkType === "finish-step") {
+                    if (!chunk.usage) {
+                      chunk.usage = {
+                        inputTokens: { total: 0 },
+                        outputTokens: { total: 0 },
+                      };
+                    } else {
+                      if (!chunk.usage.inputTokens) {
+                        chunk.usage.inputTokens = { total: 0 };
+                      } else if (typeof chunk.usage.inputTokens === "number") {
+                        chunk.usage.inputTokens = { total: chunk.usage.inputTokens };
+                      }
+                      if (!chunk.usage.outputTokens) {
+                        chunk.usage.outputTokens = { total: 0 };
+                      } else if (typeof chunk.usage.outputTokens === "number") {
+                        chunk.usage.outputTokens = { total: chunk.usage.outputTokens };
+                      }
+                    }
+                  }
+
+                  // Handle reasoning chunks
+                  if (chunkType === "reasoning-start" && chunkId) {
+                    activeReasoningIds.add(chunkId);
+                  } else if (chunkType === "reasoning-delta" && chunkId) {
+                    if (!activeReasoningIds.has(chunkId)) {
+                      if (streamController && !streamClosed) {
+                        try {
+                          streamController.enqueue({ type: "reasoning-start", id: chunkId } as any);
+                        } catch {}
+                      }
+                      activeReasoningIds.add(chunkId);
+                    }
+                  } else if (chunkType === "reasoning-end" && chunkId) {
+                    activeReasoningIds.delete(chunkId);
+                  }
+
+                  // Handle text chunks
+                  if (chunkType === "text-start" && chunkId) {
+                    activeTextIds.add(chunkId);
+                  } else if (chunkType === "text-delta" && chunkId) {
+                    if (!activeTextIds.has(chunkId)) {
+                      if (streamController && !streamClosed) {
+                        try {
+                          streamController.enqueue({ type: "text-start", id: chunkId } as any);
+                        } catch {}
+                      }
+                      activeTextIds.add(chunkId);
+                    }
+                  } else if (chunkType === "text-end" && chunkId) {
+                    activeTextIds.delete(chunkId);
+                  }
+
+                  // Enqueue the chunk
+                  if (streamController && !streamClosed) {
+                    try {
+                      streamController.enqueue(chunk as any);
+                    } catch {}
+                  }
+                } catch {
+                  // Skip invalid chunks
+                }
+              }
+            },
+          );
+        }
+
         cleanupEnd = api.ai.onStreamEnd(
           (data: { threadId: string; usage?: any; finishReason?: string }) => {
             if (data.threadId !== id) return;
-            console.log(
-              "[AI Transport] Stream ended for thread:",
-              id,
-              "finishReason:",
-              data.finishReason,
-            );
-            // Don't close the stream immediately - give time for the finish chunk to be processed
-            // The finish chunk triggers onFinish callback in useChat, and we need to ensure
-            // it's fully processed before closing the stream
-            setTimeout(() => {
+            // CRITICAL: Handle end immediately - no delay needed
+            // The main process sends ai:stream:end AFTER all chunks are sent and the stream is complete
+            // Using queueMicrotask ensures any pending chunk handlers complete first
+            queueMicrotask(() => {
               cleanup();
               streamClosed = true;
               if (!aborted && streamController) {
                 try {
                   streamController.close();
-                } catch {
-                  // Controller may already be closed
-                }
+                } catch {}
               }
-            }, 100); // Small delay to ensure finish chunk is processed
+            });
           },
         );
 
         cleanupError = api.ai.onStreamError(
           (data: { threadId: string; error: string }) => {
             if (data.threadId !== id) return;
-            console.error(
-              "[AI Transport] Stream error for thread:",
-              id,
-              data.error,
-            );
             cleanup();
             try {
               ctrl.error(new Error(data.error));
-            } catch {
-              // Controller may already be errored
-            }
+            } catch {}
           },
         );
 
@@ -596,7 +509,6 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
           cleanupWarning = api.ai.onStreamWarning(
             (data: { threadId: string; message: string; type?: string }) => {
               if (data.threadId !== id) return;
-              console.warn("[AI Transport] Stream warning:", data.message);
               // Import toast dynamically to avoid circular deps
               import("sonner").then(({ toast }) => {
                 toast.warning("Model Limitation", {
@@ -608,21 +520,15 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
           );
         }
 
-        // STEP 3: NOW start async prepare/start (listeners are guaranteed ready!)
-        // This is intentionally non-blocking - the stream is returned immediately
-        // but listeners are already attached to receive chunks
+        // STEP 3: Start async prepare/start (listeners are guaranteed ready!)
         startStreamingAsync(ctrl);
       },
 
-      pull(ctrl) {
-        console.log(
-          "[AI Transport] Stream pull() called - consumer is reading, desiredSize:",
-          ctrl.desiredSize,
-        );
+      pull() {
+        // No-op: stream is push-based via IPC
       },
 
       cancel() {
-        console.log("[AI Transport] Stream cancelled for thread:", id);
         aborted = true;
         cleanup();
         api.ai?.abort?.(id);

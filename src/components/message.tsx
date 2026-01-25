@@ -24,60 +24,114 @@ import type { SubAgentEvent } from "./tool-invocation/sub-agent-view";
 
 type RenderUnit =
   | { type: "part"; part: any; index: number }
-  | { type: "subAgentTile"; events: SubAgentEvent[]; index: number };
+  | { type: "subAgentTile"; events: SubAgentEvent[]; index: number; stableKey: string };
 
 /**
- * Groups ALL sub-agent events into a single SubAgentTile, placed at the position
- * of the first sub-agent event. This prevents multiple tiles when events are
- * interleaved with regular parts (e.g., orchestrator text while sub-agent runs).
+ * Groups ALL sub-agent events into a single SubAgentTile, placed AFTER the
+ * spawning tool call (spawnSystemAgent or spawnAgent). This ensures the
+ * "Spawn system agent" tool call appears BEFORE the agent tile in the UI.
  *
  * The SubAgentTile component internally groups events by agentId.
  */
 function mergeAndGroupParts(parts: any[]): RenderUnit[] {
   const result: RenderUnit[] = [];
   const allSubAgentEvents: SubAgentEvent[] = [];
-  let firstSubAgentIndex = -1;
   let partIndex = 0;
 
-  // First pass: collect all sub-agent events and find position of first one
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
+  // First pass: collect all sub-agent events and group by agentId
+  const subAgentEventsByAgent: Record<string, SubAgentEvent[]> = {};
+  for (const part of parts) {
     const partType = typeof part.type === "string" ? part.type : "";
-
     if (partType.startsWith("data-sub-agent-")) {
-      if (firstSubAgentIndex === -1) {
-        firstSubAgentIndex = i;
+      const event = part as SubAgentEvent;
+      allSubAgentEvents.push(event);
+      const agentId = event.data?.agentId;
+      if (agentId) {
+        if (!subAgentEventsByAgent[agentId]) {
+          subAgentEventsByAgent[agentId] = [];
+        }
+        subAgentEventsByAgent[agentId].push(event);
       }
-      allSubAgentEvents.push(part as SubAgentEvent);
     }
   }
 
-  // Second pass: build render units, inserting single SubAgentTile at first sub-agent position
-  let subAgentTileInserted = false;
+  // Track which agents have had their tiles inserted
+  const insertedAgentTiles = new Set<string>();
+  let allAgentsTileInserted = false;
 
+  // Second pass: build render units, inserting SubAgentTile after spawn tool calls
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
     const partType = typeof part.type === "string" ? part.type : "";
 
-    // Skip all sub-agent events (they're grouped into one tile)
+    // Skip all sub-agent events (they're grouped into tiles)
     if (partType.startsWith("data-sub-agent-")) {
-      // Insert the single SubAgentTile at the position of the first sub-agent event
-      if (!subAgentTileInserted && allSubAgentEvents.length > 0) {
-        result.push({
-          type: "subAgentTile",
-          events: allSubAgentEvents,
-          index: partIndex++,
-        });
-        subAgentTileInserted = true;
-      }
       continue;
     }
 
-    // Add regular part
+    // Add regular part first
     result.push({
       type: "part",
       part,
       index: partIndex++,
+    });
+
+    // Check if this is a spawn tool call - insert SubAgentTile AFTER it
+    if (isToolUIPart(part)) {
+      const toolPart = part as ToolUIPart;
+      // Extract tool name from the type (e.g., "tool-spawnSystemAgent" -> "spawnSystemAgent")
+      const toolName = typeof toolPart.type === "string" && toolPart.type.startsWith("tool-")
+        ? toolPart.type.slice(5)
+        : "";
+      const isSpawnTool =
+        toolName === "spawnSystemAgent" || toolName === "spawnAgent";
+
+      if (isSpawnTool && !allAgentsTileInserted) {
+        // For spawnSystemAgent, the agentId is "system-{agentType}"
+        // For spawnAgent, we'd need to match by task or other means
+        const args = (toolPart as any).input;
+        let matchedAgentId: string | null = null;
+
+        if (toolName === "spawnSystemAgent" && args?.agentType) {
+          matchedAgentId = `system-${args.agentType}`;
+        }
+
+        // If we found a matching agent with events, insert its tile
+        if (matchedAgentId && subAgentEventsByAgent[matchedAgentId]) {
+          if (!insertedAgentTiles.has(matchedAgentId)) {
+            result.push({
+              type: "subAgentTile",
+              events: subAgentEventsByAgent[matchedAgentId],
+              index: partIndex++,
+              stableKey: matchedAgentId, // Stable key based on agentId
+            });
+            insertedAgentTiles.add(matchedAgentId);
+          }
+        } else if (allSubAgentEvents.length > 0 && !allAgentsTileInserted) {
+          // Fallback: insert all sub-agent events as one tile after spawn tool
+          // Use first agentId for stable key
+          const firstAgentId = allSubAgentEvents[0]?.data?.agentId || "fallback";
+          result.push({
+            type: "subAgentTile",
+            events: allSubAgentEvents,
+            index: partIndex++,
+            stableKey: firstAgentId,
+          });
+          allAgentsTileInserted = true;
+        }
+      }
+    }
+  }
+
+  // If there are sub-agent events but no spawn tool call was found,
+  // append the tile at the end (fallback for edge cases)
+  if (allSubAgentEvents.length > 0 && !allAgentsTileInserted && insertedAgentTiles.size === 0) {
+    const firstAgentId = allSubAgentEvents[0]?.data?.agentId || "fallback";
+    result.push({
+      type: "subAgentTile",
+      events: allSubAgentEvents,
+      index: partIndex++,
+      stableKey: firstAgentId,
     });
   }
 
@@ -150,7 +204,7 @@ const PurePreviewMessage = ({
             if (unit.type === "subAgentTile") {
               return (
                 <SubAgentTile
-                  key={`sub-agent-tile-${message.id}-${unit.index}`}
+                  key={`sub-agent-tile-${message.id}-${unit.stableKey}`}
                   events={unit.events}
                   threadId={threadId}
                 />

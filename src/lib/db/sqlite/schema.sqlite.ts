@@ -3,7 +3,6 @@ import type { Agent } from "app-types/agent";
 import type { ChatMetadata } from "app-types/chat";
 import type { MCPServerConfig } from "app-types/mcp";
 import type { UserPreferences } from "app-types/user";
-import type { DBEdge, DBNode, DBWorkflow } from "app-types/workflow";
 import {
   integer,
   sqliteTable,
@@ -542,84 +541,6 @@ export const McpOAuthSessionTable = sqliteTable(
 );
 
 // ============================================================================
-// Workflow Tables
-// ============================================================================
-
-// Workflow Table
-export const WorkflowTable = sqliteTable("workflow", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => randomUUID()),
-  version: text("version").notNull().default("0.1.0"),
-  name: text("name").notNull(),
-  icon: text("icon", { mode: "json" }).$type<DBWorkflow["icon"]>(),
-  description: text("description"),
-  isPublished: integer("is_published", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  userId: text("user_id")
-    .notNull()
-    .references(() => UserTable.id, { onDelete: "cascade" }),
-  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-});
-
-// Workflow Node Data Table
-export const WorkflowNodeDataTable = sqliteTable(
-  "workflow_node",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => randomUUID()),
-    version: text("version").notNull().default("0.1.0"),
-    workflowId: text("workflow_id")
-      .notNull()
-      .references(() => WorkflowTable.id, { onDelete: "cascade" }),
-    kind: text("kind").notNull(),
-    name: text("name").notNull(),
-    description: text("description"),
-    uiConfig: text("ui_config", { mode: "json" })
-      .$type<DBNode["uiConfig"]>()
-      .default({}),
-    nodeConfig: text("node_config", { mode: "json" })
-      .$type<Partial<DBNode["nodeConfig"]>>()
-      .default({}),
-    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
-      currentTimestamp,
-    ),
-  },
-  (table) => ({
-    kindIdx: index("workflow_node_kind_idx").on(table.kind),
-  }),
-);
-
-// Workflow Edge Table
-export const WorkflowEdgeTable = sqliteTable("workflow_edge", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => randomUUID()),
-  version: text("version").notNull().default("0.1.0"),
-  workflowId: text("workflow_id")
-    .notNull()
-    .references(() => WorkflowTable.id, { onDelete: "cascade" }),
-  source: text("source").notNull(),
-  target: text("target").notNull(),
-  uiConfig: text("ui_config", { mode: "json" })
-    .$type<DBEdge["uiConfig"]>()
-    .default({}),
-  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
-    currentTimestamp,
-  ),
-});
-
-// ============================================================================
 // Thread File Context (for per-thread file persistence in local execution)
 // ============================================================================
 
@@ -877,6 +798,137 @@ export const VectorIndexTable = sqliteTable(
 );
 
 // ============================================================================
+// Knowledge Base & Document Tables (RAG System)
+// ============================================================================
+
+// Knowledge Base Table - Collections of documents for RAG
+export const KnowledgeBaseTable = sqliteTable(
+  "knowledge_base",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    name: text("name").notNull(),
+    description: text("description"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => UserTable.id, { onDelete: "cascade" }),
+    documentCount: integer("document_count").notNull().default(0),
+    totalChunks: integer("total_chunks").notNull().default(0),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    metadata: text("metadata", { mode: "json" }).$type<
+      Record<string, unknown>
+    >(),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+  },
+  (table) => ({
+    userIdx: index("knowledge_base_user_idx").on(table.userId),
+    nameIdx: index("knowledge_base_name_idx").on(table.name),
+  }),
+);
+
+// Document Table - Files uploaded to knowledge bases
+export const DocumentTable = sqliteTable(
+  "document",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    knowledgeBaseId: text("knowledge_base_id")
+      .notNull()
+      .references(() => KnowledgeBaseTable.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => UserTable.id, { onDelete: "cascade" }),
+    fileName: text("file_name").notNull(),
+    fileType: text("file_type").notNull(), // pdf, docx, txt, md, etc.
+    filePath: text("file_path"), // Local path to original file
+    fileSize: integer("file_size").notNull(),
+    mimeType: text("mime_type"),
+    // Content extraction
+    extractedText: text("extracted_text"), // Full text content
+    chunkCount: integer("chunk_count").notNull().default(0),
+    // Processing status
+    status: text("status", {
+      enum: ["pending", "processing", "indexed", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    errorMessage: text("error_message"),
+    // Metadata
+    title: text("title"),
+    author: text("author"),
+    pageCount: integer("page_count"),
+    wordCount: integer("word_count"),
+    metadata: text("metadata", { mode: "json" }).$type<
+      Record<string, unknown>
+    >(),
+    // Timestamps
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+    indexedAt: integer("indexed_at", { mode: "timestamp" }),
+  },
+  (table) => ({
+    knowledgeBaseIdx: index("document_kb_idx").on(table.knowledgeBaseId),
+    userIdx: index("document_user_idx").on(table.userId),
+    statusIdx: index("document_status_idx").on(table.status),
+    fileTypeIdx: index("document_file_type_idx").on(table.fileType),
+  }),
+);
+
+// Document Chunk Table - Chunks of documents for vector search
+export const DocumentChunkTable = sqliteTable(
+  "document_chunk",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    documentId: text("document_id")
+      .notNull()
+      .references(() => DocumentTable.id, { onDelete: "cascade" }),
+    knowledgeBaseId: text("knowledge_base_id")
+      .notNull()
+      .references(() => KnowledgeBaseTable.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => UserTable.id, { onDelete: "cascade" }),
+    chunkIndex: integer("chunk_index").notNull(),
+    content: text("content").notNull(),
+    // Metadata for context
+    startPage: integer("start_page"),
+    endPage: integer("end_page"),
+    startOffset: integer("start_offset"),
+    endOffset: integer("end_offset"),
+    // Vector search reference
+    vectorId: text("vector_id"), // ID in DuckDB vector store
+    isIndexed: integer("is_indexed", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    metadata: text("metadata", { mode: "json" }).$type<
+      Record<string, unknown>
+    >(),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+  },
+  (table) => ({
+    documentIdx: index("chunk_document_idx").on(table.documentId),
+    knowledgeBaseIdx: index("chunk_kb_idx").on(table.knowledgeBaseId),
+    userIdx: index("chunk_user_idx").on(table.userId),
+    indexedIdx: index("chunk_indexed_idx").on(table.isIndexed),
+  }),
+);
+
+// ============================================================================
 // Models & Provider Configuration Tables
 // ============================================================================
 
@@ -1019,6 +1071,61 @@ export const ApiKeyTable = sqliteTable(
 );
 
 // ============================================================================
+// ACP Agent Permission Tables
+// ============================================================================
+
+// ACP Permission Table - Store global permission approvals for ACP agents
+export const ACPPermissionTable = sqliteTable(
+  "acp_permission",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => UserTable.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").notNull(), // claude-code, codex, gemini, etc.
+    permissionType: text("permission_type", {
+      enum: ["file_edit", "file_write", "file_delete", "terminal_execute", "mcp_tool", "all"],
+    }).notNull(),
+    toolName: text("tool_name"), // Optional specific tool name for granular control
+    scope: text("scope", {
+      enum: ["session", "global"],
+    })
+      .notNull()
+      .default("global"),
+    approvedAt: integer("approved_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+    expiresAt: integer("expires_at", { mode: "timestamp" }), // Optional expiry for session-scoped
+    metadata: text("metadata", { mode: "json" }).$type<{
+      title?: string;
+      message?: string;
+      requestId?: string;
+    }>(),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp,
+    ),
+  },
+  (table) => ({
+    userIdx: index("acp_permission_user_idx").on(table.userId),
+    agentIdx: index("acp_permission_agent_idx").on(table.agentId),
+    typeIdx: index("acp_permission_type_idx").on(table.permissionType),
+    lookupIdx: index("acp_permission_lookup_idx").on(
+      table.userId,
+      table.agentId,
+      table.permissionType,
+    ),
+    uniquePermission: unique("acp_permission_unique").on(
+      table.userId,
+      table.agentId,
+      table.permissionType,
+      table.toolName,
+    ),
+  }),
+);
+
+// ============================================================================
 // Type Exports
 // ============================================================================
 
@@ -1046,18 +1153,19 @@ export type ToolCustomizationEntity =
 export type McpServerCustomizationEntity =
   typeof McpServerCustomizationTable.$inferSelect;
 export type McpOAuthSessionEntity = typeof McpOAuthSessionTable.$inferSelect;
-export type WorkflowEntity = typeof WorkflowTable.$inferSelect;
-export type WorkflowNodeDataEntity = typeof WorkflowNodeDataTable.$inferSelect;
-export type WorkflowEdgeEntity = typeof WorkflowEdgeTable.$inferSelect;
 export type ThreadWorkspaceContextEntity =
   typeof ThreadWorkspaceContextTable.$inferSelect;
 export type ThreadFileContextEntity = ThreadWorkspaceContextEntity;
 export type BrowserSessionEntity = typeof BrowserSessionTable.$inferSelect;
 export type ResearchTaskEntity = typeof ResearchTaskTable.$inferSelect;
 export type VectorIndexEntity = typeof VectorIndexTable.$inferSelect;
+export type KnowledgeBaseEntity = typeof KnowledgeBaseTable.$inferSelect;
+export type DocumentEntity = typeof DocumentTable.$inferSelect;
+export type DocumentChunkEntity = typeof DocumentChunkTable.$inferSelect;
 export type ProviderConfigEntity = typeof ProviderConfigTable.$inferSelect;
 export type LocalModelEntity = typeof LocalModelTable.$inferSelect;
 export type ApiKeyEntity = typeof ApiKeyTable.$inferSelect;
+export type ACPPermissionEntity = typeof ACPPermissionTable.$inferSelect;
 
 // Insert types (for inserting into database - includes optional fields with defaults)
 export type UserInsert = typeof UserTable.$inferInsert;
@@ -1083,14 +1191,15 @@ export type ToolCustomizationInsert =
 export type McpServerCustomizationInsert =
   typeof McpServerCustomizationTable.$inferInsert;
 export type McpOAuthSessionInsert = typeof McpOAuthSessionTable.$inferInsert;
-export type WorkflowInsert = typeof WorkflowTable.$inferInsert;
-export type WorkflowNodeDataInsert = typeof WorkflowNodeDataTable.$inferInsert;
-export type WorkflowEdgeInsert = typeof WorkflowEdgeTable.$inferInsert;
 export type ThreadWorkspaceContextInsert =
   typeof ThreadWorkspaceContextTable.$inferInsert;
 export type BrowserSessionInsert = typeof BrowserSessionTable.$inferInsert;
 export type ResearchTaskInsert = typeof ResearchTaskTable.$inferInsert;
 export type VectorIndexInsert = typeof VectorIndexTable.$inferInsert;
+export type KnowledgeBaseInsert = typeof KnowledgeBaseTable.$inferInsert;
+export type DocumentInsert = typeof DocumentTable.$inferInsert;
+export type DocumentChunkInsert = typeof DocumentChunkTable.$inferInsert;
 export type ProviderConfigInsert = typeof ProviderConfigTable.$inferInsert;
 export type LocalModelInsert = typeof LocalModelTable.$inferInsert;
 export type ApiKeyInsert = typeof ApiKeyTable.$inferInsert;
+export type ACPPermissionInsert = typeof ACPPermissionTable.$inferInsert;

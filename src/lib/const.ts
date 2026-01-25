@@ -44,41 +44,20 @@ const checkIsDev = (): boolean => {
 export const IS_DEV = checkIsDev();
 export const IS_BROWSER = typeof window !== "undefined";
 
-declare const EdgeRuntime: any;
-export const IS_EDGE_RUNTIME = typeof EdgeRuntime !== "undefined";
-
 export const PROMPT_PASTE_MAX_LENGTH = 1000;
 
-export const IS_VERCEL_ENV = getEnv("VITE_VERCEL", "VERCEL") === "1";
-export const IS_DOCKER_ENV =
-  getEnv("VITE_DOCKER_BUILD", "DOCKER_BUILD") === "1";
-
-export const IS_MCP_SERVER_REMOTE_ONLY = IS_VERCEL_ENV;
 export const FILE_BASED_MCP_CONFIG =
   getEnv("VITE_FILE_BASED_MCP_CONFIG", "FILE_BASED_MCP_CONFIG") === "true";
 
 export const COOKIE_KEY_SIDEBAR_STATE = "sidebar:state";
 export const COOKIE_KEY_LOCALE = "i18n:locale";
 
+// Electron-only: BASE_URL for local development
 export const BASE_URL = (() => {
   const betterAuthUrl = getEnv("VITE_BETTER_AUTH_URL", "BETTER_AUTH_URL");
   if (betterAuthUrl) return betterAuthUrl;
 
-  if (IS_VERCEL_ENV) {
-    const vercelEnv = getEnv("VITE_VERCEL_ENV", "VERCEL_ENV");
-    const productionUrl = getEnv(
-      "VITE_VERCEL_PROJECT_PRODUCTION_URL",
-      "VERCEL_PROJECT_PRODUCTION_URL",
-    );
-    const vercelUrl = getEnv("VITE_VERCEL_URL", "VERCEL_URL");
-
-    const vercelDomain =
-      (vercelEnv === "production" ? productionUrl : vercelUrl) || vercelUrl;
-
-    if (vercelDomain) return `https://${vercelDomain}`;
-  }
-
-  const port = getEnv("VITE_PORT", "PORT") || "3000";
+  const port = getEnv("VITE_PORT", "PORT") || "5173";
   return `http://localhost:${port}`;
 })().replace(/\/+$/, "");
 

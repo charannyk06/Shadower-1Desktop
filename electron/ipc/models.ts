@@ -7,6 +7,8 @@ import * as ollamaService from "../services/ollama-service";
 import * as lmStudioService from "../services/lm-studio-service";
 import { CURATED_LOCAL_MODELS } from "../../src/lib/ai/curated-local-models";
 import { localModelSupportsTools } from "../../src/lib/ai/providers/capabilities";
+import { getACPAgentManager } from "../services/acp-agent-service";
+import { AGENT_DISPLAY_NAMES, AGENT_ICON_PROVIDERS } from "../services/acp-agents";
 
 // =============================================================================
 // LOCAL MODEL PERFORMANCE CACHE
@@ -1487,7 +1489,10 @@ export function registerModelsHandlers() {
           } else {
             // Create new
             const isVision =
-              model.name.includes("vision") || model.name.includes("llava");
+              model.name.includes("vision") || 
+              model.name.includes("llava") ||
+              /-vl[:\-]/i.test(model.name) || // qwen3-vl, qwen2-vl, etc.
+              model.name.endsWith("-vl");
 
             // Get dynamic tool support for Ollama, use heuristic fallback for others
             const isToolCallSupported =
@@ -1554,7 +1559,9 @@ export function registerModelsHandlers() {
             downloadProgress: 0,
             isVision:
               data.modelName.includes("vision") ||
-              data.modelName.includes("llava"),
+              data.modelName.includes("llava") ||
+              /-vl[:\-]/i.test(data.modelName) || // qwen3-vl, qwen2-vl, etc.
+              data.modelName.endsWith("-vl"),
             isToolCallSupported: localModelSupportsTools(data.modelName),
             userId: user.id,
           })
@@ -1981,7 +1988,7 @@ export function registerModelsHandlers() {
                 quantization: model.details?.quantization_level,
                 family: model.details?.family,
                 status: "available",
-                isVision: model.name.includes("vision") || model.name.includes("llava"),
+                isVision: model.name.includes("vision") || model.name.includes("llava") || /-vl[:\-]/i.test(model.name) || model.name.endsWith("-vl"),
                 isToolCallSupported: localModelSupportsTools(model.name), // Use fast pattern matching
               });
             }
@@ -2019,13 +2026,46 @@ export function registerModelsHandlers() {
         }
       }
 
+      // Get installed ACP agents
+      let acpAgents: Array<{
+        id: string;
+        name: string;
+        displayName: string;
+        installed: boolean;
+        authenticated: boolean;
+        running: boolean;
+        iconProvider: "anthropic" | "openai" | "google";
+        isACPAgent: true;
+      }> = [];
+
+      try {
+        const acpManager = getACPAgentManager();
+        const detectedAgents = await acpManager.detectInstalledAgents();
+        acpAgents = detectedAgents
+          .filter((agent) => agent.installed)
+          .map((agent) => ({
+            id: agent.id,
+            name: agent.id,
+            displayName: AGENT_DISPLAY_NAMES[agent.id] || agent.id,
+            installed: agent.installed,
+            authenticated: agent.authenticated,
+            running: agent.running,
+            iconProvider: AGENT_ICON_PROVIDERS[agent.id] || "anthropic",
+            isACPAgent: true as const,
+          }));
+        log.info(`[IPC] Detected ${acpAgents.length} installed ACP agents`);
+      } catch (acpError) {
+        log.warn("[IPC] Failed to detect ACP agents:", acpError);
+      }
+
       const duration = Date.now() - startTime;
-      log.info(`[IPC] models:getAvailableModels completed in ${duration}ms (${localModels.length} local models)`);
+      log.info(`[IPC] models:getAvailableModels completed in ${duration}ms (${localModels.length} local models, ${acpAgents.length} ACP agents)`);
 
       return {
         cloudProviders: apiKeys.map((k) => k.providerId),
         providers,
         localModels,
+        acpAgents,
       };
     } catch (error) {
       console.error("[IPC] Error getting available models:", error);
@@ -2239,6 +2279,116 @@ export function registerModelsHandlers() {
       };
     }
   });
+
+  // ========================================================================
+  // Model Warmup / Preload
+  // ========================================================================
+  
+  /**
+   * Warmup / preload a model into Ollama's memory
+   * This sends a minimal request to load the model so subsequent requests are fast.
+   * Uses keep_alive: -1 to keep the model loaded indefinitely.
+   */
+  ipcMain.handle(
+    "models:ollama:warmup",
+    async (_event, data: { modelName: string; baseUrl?: string }) => {
+      const baseUrl = data.baseUrl || "http://localhost:11434";
+      
+      log.info(`[Models] Warming up Ollama model: ${data.modelName}`);
+      
+      try {
+        // Send a minimal generate request with keep_alive to load model into memory
+        // The empty prompt + num_predict: 1 makes this very fast
+        const startTime = Date.now();
+        
+        const response = await fetch(`${baseUrl}/api/generate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: data.modelName,
+            prompt: "", // Empty prompt - just load the model
+            stream: false,
+            keep_alive: "10m", // Keep loaded for 10 minutes (safer than indefinite)
+            options: {
+              num_predict: 1,  // Minimal output
+              num_ctx: 512,    // Minimal context for warmup
+              num_batch: 64,   // Small batch for safety
+            },
+          }),
+          signal: AbortSignal.timeout(120000), // 2 minute timeout for model loading
+        });
+
+        const elapsed = Date.now() - startTime;
+        
+        if (response.ok) {
+          const result = await response.json();
+          log.info(`[Models] Model ${data.modelName} warmed up in ${elapsed}ms. Load duration: ${result.load_duration ? Math.round(result.load_duration / 1000000) + 'ms' : 'N/A'}`);
+          return {
+            success: true,
+            message: `Model loaded in ${elapsed}ms`,
+            loadDuration: result.load_duration,
+          };
+        } else {
+          const errorText = await response.text();
+          log.error(`[Models] Warmup failed for ${data.modelName}: ${response.status} - ${errorText}`);
+          return {
+            success: false,
+            error: `HTTP ${response.status}: ${errorText}`,
+          };
+        }
+      } catch (error) {
+        log.error(`[Models] Error warming up model ${data.modelName}:`, error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
+
+  /**
+   * Unload a model from Ollama's memory to free up resources
+   */
+  ipcMain.handle(
+    "models:ollama:unload",
+    async (_event, data: { modelName: string; baseUrl?: string }) => {
+      const baseUrl = data.baseUrl || "http://localhost:11434";
+      
+      log.info(`[Models] Unloading Ollama model: ${data.modelName}`);
+      
+      try {
+        const response = await fetch(`${baseUrl}/api/generate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: data.modelName,
+            prompt: "",
+            stream: false,
+            keep_alive: 0, // Unload immediately
+          }),
+          signal: AbortSignal.timeout(10000), // 10 second timeout
+        });
+
+        if (response.ok) {
+          log.info(`[Models] Model ${data.modelName} unloaded successfully`);
+          return { success: true, message: "Model unloaded" };
+        } else {
+          const errorText = await response.text();
+          return { success: false, error: `HTTP ${response.status}: ${errorText}` };
+        }
+      } catch (error) {
+        log.error(`[Models] Error unloading model ${data.modelName}:`, error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
 
   console.log("[IPC] Models handlers registered");
 }

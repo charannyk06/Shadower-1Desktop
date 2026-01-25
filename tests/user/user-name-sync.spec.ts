@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { TEST_USERS } from "../constants/test-users";
 import { ensureSidebarOpen } from "../helpers/sidebar-helper";
 
 test.describe("User Name Synchronization", () => {
-  test.use({ storageState: "tests/.auth/regular-user.json" });
+  test.use({ storageState: TEST_USERS.regular.authFile });
 
   test("should update sidebar name when user changes their own name", async ({
     page,
@@ -82,7 +83,7 @@ test.describe("User Name Synchronization", () => {
     browser,
   }) => {
     const context = await browser.newContext({
-      storageState: "tests/.auth/admin.json",
+      storageState: TEST_USERS.admin.authFile,
     });
     const page = await context.newPage();
 

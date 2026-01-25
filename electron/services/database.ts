@@ -797,6 +797,73 @@ const createTablesFromSchema = () => {
     `);
     console.log("[Database] ✓ Created vector_index and fragment tables");
 
+    // Level 14: Knowledge Base and Document tables (RAG System)
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS knowledge_base (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        document_count INTEGER NOT NULL DEFAULT 0,
+        total_chunks INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        metadata TEXT,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS knowledge_base_user_idx ON knowledge_base(user_id);
+      CREATE INDEX IF NOT EXISTS knowledge_base_name_idx ON knowledge_base(name);
+
+      CREATE TABLE IF NOT EXISTS document (
+        id TEXT PRIMARY KEY,
+        knowledge_base_id TEXT NOT NULL REFERENCES knowledge_base(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        file_type TEXT NOT NULL,
+        file_path TEXT,
+        file_size INTEGER NOT NULL,
+        mime_type TEXT,
+        extracted_text TEXT,
+        chunk_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        error_message TEXT,
+        title TEXT,
+        author TEXT,
+        page_count INTEGER,
+        word_count INTEGER,
+        metadata TEXT,
+        created_at INTEGER,
+        updated_at INTEGER,
+        indexed_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS document_kb_idx ON document(knowledge_base_id);
+      CREATE INDEX IF NOT EXISTS document_user_idx ON document(user_id);
+      CREATE INDEX IF NOT EXISTS document_status_idx ON document(status);
+      CREATE INDEX IF NOT EXISTS document_file_type_idx ON document(file_type);
+
+      CREATE TABLE IF NOT EXISTS document_chunk (
+        id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL REFERENCES document(id) ON DELETE CASCADE,
+        knowledge_base_id TEXT NOT NULL REFERENCES knowledge_base(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        chunk_index INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        start_page INTEGER,
+        end_page INTEGER,
+        start_offset INTEGER,
+        end_offset INTEGER,
+        vector_id TEXT,
+        is_indexed INTEGER NOT NULL DEFAULT 0,
+        metadata TEXT,
+        created_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS document_chunk_doc_idx ON document_chunk(document_id);
+      CREATE INDEX IF NOT EXISTS document_chunk_kb_idx ON document_chunk(knowledge_base_id);
+      CREATE INDEX IF NOT EXISTS document_chunk_user_idx ON document_chunk(user_id);
+      CREATE INDEX IF NOT EXISTS document_chunk_vector_idx ON document_chunk(vector_id);
+    `);
+    console.log("[Database] ✓ Created knowledge_base, document, and document_chunk tables");
+
     // Create provider and model tables
     sqlite.exec(`
       CREATE TABLE IF NOT EXISTS provider_config (
@@ -932,6 +999,10 @@ const verifyTablesCreated = () => {
     "provider_config",
     "api_key",
     "local_model",
+    // Knowledge base and document tables (RAG system)
+    "knowledge_base",
+    "document",
+    "document_chunk",
   ];
 
   const missingTables: string[] = [];

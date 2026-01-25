@@ -610,32 +610,24 @@ interface InternalMasterSlideConfig {
 function generateLogoCode(config: InternalMasterSlideConfig): string {
   if (!config.branding?.logoUrl) return "";
   return `
-// Logo will be fetched and added to master slides
+// Logo will be fetched and added to master slides using fetch()
 let logoData = null;
 try {
-  const https = require('https');
-  const http = require('http');
   const logoUrl = ${JSON.stringify(config.branding.logoUrl)};
-  const protocol = logoUrl.startsWith('https') ? https : http;
 
-  logoData = await new Promise((resolve, reject) => {
-    protocol.get(logoUrl, (response) => {
-      if (response.statusCode === 301 || response.statusCode === 302) {
-        protocol.get(response.headers.location, (res) => {
-          const chunks = [];
-          res.on('data', chunk => chunks.push(chunk));
-          res.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
-          res.on('error', reject);
-        });
-        return;
-      }
-      const chunks = [];
-      response.on('data', chunk => chunks.push(chunk));
-      response.on('end', () => resolve(Buffer.concat(chunks).toString('base64')));
-      response.on('error', reject);
-    }).on('error', reject);
+  const response = await fetch(logoUrl, {
+    method: 'GET',
+    redirect: 'follow'
   });
-  console.log('Logo fetched successfully');
+
+  if (response.ok) {
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    logoData = buffer.toString('base64');
+    console.log('Logo fetched successfully');
+  } else {
+    console.warn('Could not fetch logo: HTTP', response.status);
+  }
 } catch (err) {
   console.warn('Could not fetch logo:', err.message);
 }

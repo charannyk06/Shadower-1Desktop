@@ -20,7 +20,6 @@ const DEFAULT_TOOL_NAME_MAP: Record<string, string> = {
   // Web tools
   [DefaultToolName.WebSearch]: "Web Search",
   [DefaultToolName.WebContent]: "Get Web Content",
-  [DefaultToolName.Http]: "HTTP Request",
 
   // Browser automation tools
   [DefaultToolName.BrowserCreateSession]: "Create Browser Session",
@@ -109,6 +108,39 @@ const DESKTOP_TOOL_NAME_MAP: Record<string, string> = {
   desktop_command: "Run Command",
   desktop_stream: "Start Stream",
   desktop_close: "Close Desktop",
+};
+
+/**
+ * Maps Electron desktop tools (created in electron/ipc/ai.ts) to friendly names
+ * These tools are local to the desktop app and provide direct system access
+ */
+const ELECTRON_TOOL_NAME_MAP: Record<string, string> = {
+  // Terminal
+  terminal_execute: "Run Terminal Command",
+  // File operations (with and without local_ prefix for MCP compatibility)
+  file_read: "Read File",
+  file_write: "Write File",
+  file_list: "List Directory",
+  file_search: "Search Files",
+  local_file_read: "Read File (Local)",
+  local_file_write: "Write File (Local)",
+  local_file_list: "List Directory (Local)",
+  local_file_search: "Search Files (Local)",
+  // Web search (with and without local_ prefix)
+  web_search: "Web Search",
+  web_fetch: "Fetch Web Content",
+  local_web_search: "Web Search (Local)",
+  local_web_fetch: "Fetch Web Content (Local)",
+  // Browser
+  browser_open: "Open in Browser",
+  local_browser_open: "Open in Browser (Local)",
+  // Clipboard
+  clipboard_read: "Read Clipboard",
+  clipboard_write: "Write to Clipboard",
+  // System
+  system_info: "Get System Info",
+  // Memory
+  memory_search: "Search Memory",
 };
 
 /**
@@ -201,6 +233,34 @@ function formatMCPToolName(toolName: string): string {
 }
 
 /**
+ * Gets the original tool name for a renamed local_ prefixed tool
+ * This is used for display purposes when tools are renamed to avoid MCP conflicts
+ */
+export function getOriginalToolName(toolName: string): string {
+  if (toolName.startsWith("local_")) {
+    return toolName.slice(6); // Remove 'local_' prefix
+  }
+  return toolName;
+}
+
+/**
+ * Gets the display name for a tool, stripping local_ prefix for cleaner UI
+ * Use this when you want to show the user-friendly name without "(Local)" suffix
+ */
+export function getCleanDisplayName(toolName: string): string {
+  // Get the original name if it's a local_ prefixed tool
+  const originalName = getOriginalToolName(toolName);
+
+  // Look up in Electron tools map (prefer the non-local version)
+  if (ELECTRON_TOOL_NAME_MAP[originalName]) {
+    return ELECTRON_TOOL_NAME_MAP[originalName];
+  }
+
+  // Fall back to the full getFriendlyToolName logic
+  return getFriendlyToolName(toolName).displayName;
+}
+
+/**
  * Gets a friendly display name for a tool
  */
 export function getFriendlyToolName(toolName: string): FriendlyToolName {
@@ -208,6 +268,13 @@ export function getFriendlyToolName(toolName: string): FriendlyToolName {
   if (!toolName || typeof toolName !== "string") {
     return {
       displayName: "Unknown Tool",
+    };
+  }
+
+  // Check if it's an Electron desktop tool (takes priority)
+  if (ELECTRON_TOOL_NAME_MAP[toolName]) {
+    return {
+      displayName: ELECTRON_TOOL_NAME_MAP[toolName],
     };
   }
 

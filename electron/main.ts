@@ -15,7 +15,6 @@ import log from "electron-log/main";
 import { registerAuthHandlers } from "./ipc/auth";
 import { registerChatHandlers } from "./ipc/chat";
 import { registerAgentHandlers } from "./ipc/agents";
-import { registerWorkflowHandlers } from "./ipc/workflows";
 import { registerMcpHandlers } from "./ipc/mcp";
 import { registerUserHandlers } from "./ipc/user";
 import { registerFileHandlers } from "./ipc/files";
@@ -26,6 +25,9 @@ import { registerVectorHandlers } from "./ipc/vector";
 import { registerMemoryHandlers } from "./ipc/memory";
 import { registerBrowserHandlers } from "./ipc/browser";
 import { registerDialogHandlers } from "./ipc/dialog";
+import { registerKnowledgeHandlers } from "./ipc/knowledge";
+import { registerVoiceHandlers } from "./ipc/voice";
+import { registerACPHandlers, cleanupACPAgents } from "./ipc/acp";
 
 // Static imports for services
 import { ElectronAuthService } from "./services/auth";
@@ -247,7 +249,6 @@ app.whenReady().then(async () => {
   registerHandler("Auth", registerAuthHandlers);
   registerHandler("Chat", registerChatHandlers);
   registerHandler("Agent", registerAgentHandlers);
-  registerHandler("Workflow", registerWorkflowHandlers);
   registerHandler("MCP", registerMcpHandlers);
   registerHandler("User", registerUserHandlers);
   registerHandler("File", registerFileHandlers);
@@ -256,6 +257,18 @@ app.whenReady().then(async () => {
   registerHandler("AI", registerAIHandlers);
   registerHandler("Browser", registerBrowserHandlers);
   registerHandler("Dialog", registerDialogHandlers);
+
+  // Voice handlers (OpenAI Realtime + Local STT/TTS)
+  try {
+    const authService = ElectronAuthService.getInstance();
+    registerVoiceHandlers(authService);
+    console.log("[Main] Voice handlers registered");
+  } catch (voiceError) {
+    log.warn(
+      "[Main] Voice handlers registration failed (non-critical):",
+      voiceError instanceof Error ? voiceError.message : voiceError,
+    );
+  }
 
   // Vector handlers are optional (may fail if DuckDB not available)
   try {
@@ -279,6 +292,57 @@ app.whenReady().then(async () => {
     );
   }
 
+  // Knowledge handlers (full RAG system with document management)
+  try {
+    registerKnowledgeHandlers();
+    console.log("[Main] Knowledge handlers registered");
+
+    // DIAGNOSTIC: Check vector store state at startup
+    setTimeout(async () => {
+      try {
+        const { getVectorStore } = await import("./services/vector-store");
+        const { getEmbeddingService } = await import("./services/embedding");
+
+        const vectorStore = getVectorStore();
+        const embeddingService = getEmbeddingService();
+
+        await vectorStore.initialize();
+        await embeddingService.initialize();
+
+        const stats = await vectorStore.getStats();
+        const embeddingAvailable = embeddingService.isAvailable();
+
+        console.log(`[DIAG] ========== RAG SYSTEM STATUS ==========`);
+        console.log(`[DIAG] Vector Store Available: ${vectorStore.isAvailable()}`);
+        console.log(`[DIAG] Embedding Service Available: ${embeddingAvailable}`);
+        console.log(`[DIAG] Indexed Messages: ${stats.messages}`);
+        console.log(`[DIAG] Indexed Documents: ${stats.documents}`);
+        if (stats.documents === 0) {
+          console.log(`[DIAG] ⚠️ NO DOCUMENTS INDEXED - RAG will not find any knowledge base content!`);
+        }
+        console.log(`[DIAG] ==========================================`);
+      } catch (diagError) {
+        console.error("[DIAG] Failed to get RAG system status:", diagError);
+      }
+    }, 3000); // Check after 3 seconds to let services initialize
+  } catch (knowledgeError) {
+    log.warn(
+      "[Main] Knowledge handlers not available (non-critical):",
+      knowledgeError instanceof Error ? knowledgeError.message : knowledgeError,
+    );
+  }
+
+  // ACP handlers (Agent Client Protocol - external coding agents)
+  try {
+    registerACPHandlers();
+    console.log("[Main] ACP handlers registered");
+  } catch (acpError) {
+    log.warn(
+      "[Main] ACP handlers not available (non-critical):",
+      acpError instanceof Error ? acpError.message : acpError,
+    );
+  }
+
   log.info("[Main] IPC handler registration completed");
 
   createWindow();
@@ -299,6 +363,35 @@ app.whenReady().then(async () => {
     log.error("[Main] Failed to register global shortcuts:", error);
   }
 
+  // ============================================
+  // MODEL LIMITS CACHE WARMUP (PERFORMANCE)
+  // Pre-fetch model context limits from all providers
+  // so first message doesn't block on API fetches
+  // ============================================
+  try {
+    const { warmModelLimitsCache } = await import(
+      "../src/lib/ai/dynamic-models/model-service"
+    );
+    // Fire and forget - don't await, let it run in background
+    warmModelLimitsCache().catch((err) => {
+      log.warn("[Main] Model limits cache warmup failed (non-critical):", err);
+    });
+    log.info("[Main] Model limits cache warmup started");
+  } catch (error) {
+    log.warn("[Main] Model limits cache warmup skipped:", error);
+  }
+
+  // ============================================
+  // AUTOMATIC OLLAMA MODEL WARMUP (PERFORMANCE)
+  // Pre-load the last-used Ollama model into memory
+  // so first chat is instant (no model loading delay)
+  // ============================================
+  try {
+    warmupLastUsedOllamaModel();
+  } catch (error) {
+    log.warn("[Main] Ollama warmup skipped:", error);
+  }
+
   // On macOS, re-create window when dock icon is clicked and no windows are open
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -306,6 +399,78 @@ app.whenReady().then(async () => {
     }
   });
 });
+
+/**
+ * Warmup an Ollama model on app startup if Ollama provider is configured
+ * This pre-loads a model into memory so first chat is instant
+ */
+async function warmupLastUsedOllamaModel() {
+  // Delay warmup to not block app startup
+  setTimeout(async () => {
+    try {
+      const { getDatabase, schema } = await import("./services/database");
+      const db = getDatabase();
+      const { eq } = await import("drizzle-orm");
+
+      // Check if Ollama provider is configured and enabled
+      const [providerConfig] = await db
+        .select()
+        .from(schema.ProviderConfigTable)
+        .where(eq(schema.ProviderConfigTable.providerId, "ollama"))
+        .limit(1);
+
+      if (!providerConfig || !providerConfig.enabled) {
+        log.info("[Main] Ollama provider not configured or disabled - skipping warmup");
+        return;
+      }
+
+      const baseUrl = providerConfig?.baseUrl || "http://localhost:11434";
+
+      // Get the first available local model for this provider to use for warmup
+      const [localModel] = await db
+        .select()
+        .from(schema.LocalModelTable)
+        .where(eq(schema.LocalModelTable.providerId, "ollama"))
+        .limit(1);
+
+      if (!localModel) {
+        log.info("[Main] No Ollama models found in database - skipping warmup");
+        return;
+      }
+
+      log.info(`[Main] Warming up Ollama model: ${localModel.name}`);
+
+      // Send warmup request (keep_alive: "10m" keeps model loaded for 10 minutes)
+      const startTime = Date.now();
+      const response = await fetch(`${baseUrl}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: localModel.name,
+          prompt: "", // Empty prompt - just load model
+          stream: false,
+          keep_alive: "10m", // Keep loaded for 10 minutes (safer than indefinite)
+          options: {
+            num_predict: 1,
+            num_ctx: 512,  // Minimal context for warmup
+            num_batch: 64, // Small batch for safety
+          },
+        }),
+        signal: AbortSignal.timeout(180000), // 3 minute timeout for large models
+      });
+
+      if (response.ok) {
+        const elapsed = Date.now() - startTime;
+        log.info(`[Main] Ollama model ${localModel.name} warmed up in ${elapsed}ms - ready for instant responses!`);
+      } else {
+        log.warn(`[Main] Ollama warmup returned status ${response.status}`);
+      }
+    } catch (error) {
+      // Non-critical - don't fail app startup
+      log.warn("[Main] Ollama warmup failed (non-critical):", error instanceof Error ? error.message : error);
+    }
+  }, 3000); // Wait 3 seconds after app start to not block UI
+}
 
 /**
  * Initialize system tray with context menu
@@ -484,6 +649,14 @@ app.on("will-quit", () => {
 
 // macOS: Quit app when user quits via Cmd+Q
 app.on("before-quit", async () => {
+  // Stop all ACP agents
+  try {
+    await cleanupACPAgents();
+    console.log("[Main] ACP agents stopped successfully");
+  } catch (error) {
+    console.error("[Main] Error stopping ACP agents:", error);
+  }
+
   // Close vector services
   try {
     closeVectorStore();

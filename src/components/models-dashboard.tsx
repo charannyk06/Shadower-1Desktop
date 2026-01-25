@@ -1,6 +1,15 @@
 "use client";
 
 import { modelsFetcher, modelsApi } from "@/lib/electron/models-api";
+import {
+  listACPAgents,
+  startACPAgent,
+  stopACPAgent,
+  authenticateACPAgent,
+  AGENT_DISPLAY_NAMES,
+  AGENT_ICON_PROVIDERS,
+} from "@/lib/electron/acp-api";
+import type { ACPAgentStatus } from "@/types/acp";
 import { mutate } from "swr";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,11 +49,14 @@ import {
   HardDrive,
   Key,
   Loader2,
+  LogIn,
   Play,
   Plus,
   RefreshCw,
   Server,
+  Square,
   Box,
+  Terminal,
   Trash2,
   X,
   Zap,
@@ -208,6 +220,13 @@ export default function ModelsDashboard() {
     new Map(),
   );
 
+  // ACP Coding Agents state
+  const [acpAgents, setAcpAgents] = useState<ACPAgentStatus[]>([]);
+  const [loadingAcpAgents, setLoadingAcpAgents] = useState(false);
+  const [startingAgent, setStartingAgent] = useState<string | null>(null);
+  const [stoppingAgent, setStoppingAgent] = useState<string | null>(null);
+  const [authenticatingAgent, setAuthenticatingAgent] = useState<string | null>(null);
+
   // Fetch data using SWR
   const {
     data: apiKeysData,
@@ -360,12 +379,28 @@ export default function ModelsDashboard() {
     }
   }, []);
 
+  // Fetch ACP agents
+  const fetchAcpAgents = useCallback(async (forceRefresh = false) => {
+    setLoadingAcpAgents(true);
+    try {
+      const agents = await listACPAgents(forceRefresh);
+      setAcpAgents(agents);
+    } catch (error) {
+      console.error("Failed to fetch ACP agents:", error);
+    } finally {
+      setLoadingAcpAgents(false);
+    }
+  }, []);
+
   // Check health on mount and tab change
   useEffect(() => {
     if (activeTab === "local-models") {
       checkOllamaHealth();
     }
-  }, [activeTab, checkOllamaHealth]);
+    if (activeTab === "coding-agents") {
+      fetchAcpAgents();
+    }
+  }, [activeTab, checkOllamaHealth, fetchAcpAgents]);
 
   // Start Ollama service
   const handleStartOllama = useCallback(async () => {
@@ -412,6 +447,61 @@ export default function ModelsDashboard() {
       }
     },
     [mutateLocalModels],
+  );
+
+  // Start an ACP agent
+  const handleStartAgent = useCallback(
+    async (agentId: string) => {
+      setStartingAgent(agentId);
+      try {
+        await startACPAgent(agentId);
+        toast.success(`Started ${AGENT_DISPLAY_NAMES[agentId] || agentId}`);
+        await fetchAcpAgents(true);
+      } catch (error: any) {
+        toast.error(error.message || `Failed to start ${agentId}`);
+      } finally {
+        setStartingAgent(null);
+      }
+    },
+    [fetchAcpAgents],
+  );
+
+  // Stop an ACP agent
+  const handleStopAgent = useCallback(
+    async (agentId: string) => {
+      setStoppingAgent(agentId);
+      try {
+        await stopACPAgent(agentId);
+        toast.success(`Stopped ${AGENT_DISPLAY_NAMES[agentId] || agentId}`);
+        await fetchAcpAgents(true);
+      } catch (error: any) {
+        toast.error(error.message || `Failed to stop ${agentId}`);
+      } finally {
+        setStoppingAgent(null);
+      }
+    },
+    [fetchAcpAgents],
+  );
+
+  // Authenticate an ACP agent
+  const handleAuthenticateAgent = useCallback(
+    async (agentId: string) => {
+      setAuthenticatingAgent(agentId);
+      try {
+        const result = await authenticateACPAgent(agentId);
+        if (result.success) {
+          toast.success(`Authenticated ${AGENT_DISPLAY_NAMES[agentId] || agentId}`);
+          await fetchAcpAgents(true);
+        } else {
+          toast.error(result.message || `Failed to authenticate ${agentId}`);
+        }
+      } catch (error: any) {
+        toast.error(error.message || `Failed to authenticate ${agentId}`);
+      } finally {
+        setAuthenticatingAgent(null);
+      }
+    },
+    [fetchAcpAgents],
   );
 
   // Download a curated model
@@ -573,7 +663,7 @@ export default function ModelsDashboard() {
             onValueChange={setActiveTab}
             className="w-full"
           >
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="api-keys" className="gap-2">
                 <Key className="size-4" />
                 API Keys
@@ -581,6 +671,10 @@ export default function ModelsDashboard() {
               <TabsTrigger value="local-models" className="gap-2">
                 <HardDrive className="size-4" />
                 Local Models
+              </TabsTrigger>
+              <TabsTrigger value="coding-agents" className="gap-2">
+                <Terminal className="size-4" />
+                Coding Agents
               </TabsTrigger>
               <TabsTrigger value="cloud-providers" className="gap-2">
                 <Cloud className="size-4" />
@@ -1392,6 +1486,189 @@ export default function ModelsDashboard() {
                   );
                 })}
               </div>
+            </TabsContent>
+
+            {/* Coding Agents Tab */}
+            <TabsContent value="coding-agents" className="space-y-4 mt-4">
+              <div className="text-sm text-muted-foreground mb-4">
+                Manage AI coding agents for codebase understanding, file edits, and terminal commands.
+              </div>
+
+              {loadingAcpAgents && acpAgents.length === 0 ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-20 w-full" />
+                  ))}
+                </div>
+              ) : (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-muted">
+                          <Terminal className="size-5" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-lg">Coding Agents</CardTitle>
+                          <CardDescription>
+                            {acpAgents.filter((a) => a.installed).length} agent
+                            {acpAgents.filter((a) => a.installed).length !== 1 ? "s" : ""}{" "}
+                            available
+                          </CardDescription>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => fetchAcpAgents(true)}
+                        disabled={loadingAcpAgents}
+                      >
+                        {loadingAcpAgents ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="size-4 mr-1" />
+                        )}
+                        Refresh
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {acpAgents.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-muted-foreground mb-4">
+                          No coding agents detected. Install one to get started:
+                        </p>
+                        <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+                          <code className="bg-muted px-2 py-1 rounded inline-block">
+                            npm install -g @anthropic-ai/claude-code
+                          </code>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {acpAgents.map((agent) => {
+                          const displayName = AGENT_DISPLAY_NAMES[agent.id] || agent.id;
+                          const iconProvider = AGENT_ICON_PROVIDERS[agent.id] || "openai";
+                          const isStarting = startingAgent === agent.id;
+                          const isStopping = stoppingAgent === agent.id;
+                          const isAuthenticating = authenticatingAgent === agent.id;
+
+                          return (
+                            <div
+                              key={agent.id}
+                              className={cn(
+                                "flex items-center justify-between p-3 rounded-lg",
+                                agent.running
+                                  ? "bg-green-500/10 border border-green-500/30"
+                                  : agent.installed
+                                    ? "bg-muted/50"
+                                    : "bg-muted/30 opacity-60"
+                              )}
+                            >
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div className="p-1.5 rounded-md bg-background shrink-0">
+                                  <ModelProviderIcon
+                                    provider={iconProvider}
+                                    className="size-4"
+                                  />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="font-medium">{displayName}</p>
+                                    {agent.version && (
+                                      <Badge variant="secondary" className="text-xs">
+                                        v{agent.version}
+                                      </Badge>
+                                    )}
+                                    {!agent.installed && (
+                                      <Badge variant="outline" className="text-xs">
+                                        Not Installed
+                                      </Badge>
+                                    )}
+                                    {agent.installed && agent.authenticated && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs text-blue-500 border-blue-500/30"
+                                      >
+                                        Authenticated
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {agent.id === "claude-code" && "Anthropic's AI coding assistant"}
+                                    {agent.id === "codex" && "OpenAI's code-specialized model"}
+                                    {agent.id === "gemini" && "Google's multimodal AI assistant"}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0 ml-2">
+                                {agent.installed && agent.running ? (
+                                  <>
+                                    <Badge
+                                      variant="outline"
+                                      className="text-green-600 border-green-600/30"
+                                    >
+                                      <CheckCircle2 className="size-3 mr-1" />
+                                      Running
+                                    </Badge>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => handleStopAgent(agent.id)}
+                                      disabled={isStopping}
+                                    >
+                                      {isStopping ? (
+                                        <Loader2 className="size-4 animate-spin" />
+                                      ) : (
+                                        <Square className="size-4" />
+                                      )}
+                                    </Button>
+                                    {!agent.authenticated && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handleAuthenticateAgent(agent.id)}
+                                        disabled={isAuthenticating}
+                                      >
+                                        {isAuthenticating ? (
+                                          <Loader2 className="size-4 animate-spin" />
+                                        ) : (
+                                          <>
+                                            <LogIn className="size-4 mr-1" />
+                                            Login
+                                          </>
+                                        )}
+                                      </Button>
+                                    )}
+                                  </>
+                                ) : agent.installed ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleStartAgent(agent.id)}
+                                    disabled={isStarting}
+                                  >
+                                    {isStarting ? (
+                                      <Loader2 className="size-4 animate-spin" />
+                                    ) : (
+                                      <>
+                                        <Play className="size-4 mr-1" />
+                                        Start
+                                      </>
+                                    )}
+                                  </Button>
+                                ) : (
+                                  <Badge variant="secondary">Unavailable</Badge>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
 
             {/* Cloud Providers Tab */}

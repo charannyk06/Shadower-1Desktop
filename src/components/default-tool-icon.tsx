@@ -12,7 +12,6 @@ import {
   GlobeIcon,
   GripIcon,
   HammerIcon,
-  HardDriveUploadIcon,
   ImageIcon,
   KeyboardIcon,
   MousePointerClickIcon,
@@ -65,13 +64,6 @@ export function DefaultToolIcon({
     }
     if (name === DefaultToolName.WebContent) {
       return <GlobeIcon className={cn("size-3.5 text-blue-400", className)} />;
-    }
-    if (name === DefaultToolName.Http) {
-      return (
-        <HardDriveUploadIcon
-          className={cn("size-3.5 text-blue-300", className)}
-        />
-      );
     }
 
     // Browser automation tools (Local Chrome DevTools Protocol)

@@ -339,7 +339,7 @@ async function getDynamicModelLimits(
     }
 
     // Get static fallback limits in case maxOutputTokens is missing
-    const staticLimits = getModelLimits(provider, model);
+    const staticLimits = getStaticModelLimits(provider, model);
 
     // Try exact match first
     const exactMatch = cached.models.find((m) => m.id === model);
@@ -403,13 +403,10 @@ async function getDynamicModelLimits(
 }
 
 /**
- * Get model limits for a specific provider and model
- * Handles model name variations (dots vs dashes, suffixes like -reasoning)
- *
- * This is the synchronous version that uses static fallbacks.
- * For dynamic limits, use getModelLimitsAsync instead.
+ * Get model limits from static lookup table
+ * Used internally for fallback when dynamic fetch fails
  */
-export function getModelLimits(
+function getStaticModelLimits(
   provider: string,
   model: string,
 ): ProviderModelLimits {
@@ -481,7 +478,7 @@ export async function getModelLimitsAsync(
   logger.error(
     `[Provider Limits] ⚠️ CRITICAL: Falling back to STATIC limits for ${provider}/${model} - dynamic fetch failed! This should not happen in production.`,
   );
-  const staticLimits = getModelLimits(provider, model);
+  const staticLimits = getStaticModelLimits(provider, model);
   logger.warn(
     `[Provider Limits] Static fallback values: ${staticLimits.contextWindow} tokens (may be outdated!)`,
   );
@@ -490,26 +487,7 @@ export async function getModelLimitsAsync(
 
 /**
  * Get the effective context limit (context window - reserved output tokens)
- * This is the maximum number of input tokens we can safely use
- *
- * ⚠️ DEPRECATED: This sync version uses static fallbacks.
- * Use getEffectiveContextLimitAsync instead for dynamic limits.
- */
-export function getEffectiveContextLimit(
-  provider: string,
-  model: string,
-): number {
-  logger.warn(
-    `[Provider Limits] Using deprecated sync getEffectiveContextLimit for ${provider}/${model} - use async version instead!`,
-  );
-  return getModelLimits(provider, model).effectiveLimit;
-}
-
-/**
- * Get the effective context limit (async version)
- * ALWAYS uses dynamically fetched model limits from provider APIs
- *
- * This is the PRIMARY method - it ensures we always have up-to-date limits.
+ * Uses dynamically fetched model limits from provider APIs
  */
 export async function getEffectiveContextLimitAsync(
   provider: string,
@@ -521,17 +499,7 @@ export async function getEffectiveContextLimitAsync(
 
 /**
  * Get the total context window size
- *
- * This is the synchronous version that uses static fallbacks.
- * For dynamic limits, use getContextWindowSizeAsync instead.
- */
-export function getContextWindowSize(provider: string, model: string): number {
-  return getModelLimits(provider, model).contextWindow;
-}
-
-/**
- * Get the total context window size (async version)
- * First checks dynamically fetched model limits from APIs, then falls back to static values
+ * Uses dynamically fetched model limits from APIs
  */
 export async function getContextWindowSizeAsync(
   provider: string,
@@ -543,17 +511,7 @@ export async function getContextWindowSizeAsync(
 
 /**
  * Get the maximum output tokens for a model
- *
- * This is the synchronous version that uses static fallbacks.
- * For dynamic limits, use getMaxOutputTokensAsync instead.
- */
-export function getMaxOutputTokens(provider: string, model: string): number {
-  return getModelLimits(provider, model).maxOutputTokens;
-}
-
-/**
- * Get the maximum output tokens for a model (async version)
- * First checks dynamically fetched model limits from APIs, then falls back to static values
+ * Uses dynamically fetched model limits from APIs
  */
 export async function getMaxOutputTokensAsync(
   provider: string,
