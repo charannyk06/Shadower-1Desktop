@@ -56,7 +56,7 @@ function PurePlanViewInvocation({ part }: Readonly<PlanViewInvocationProps>) {
 
   const input = part.input as PlanInput | undefined;
   const toolResult = useMemo(() => {
-    if (!part.state.startsWith("output")) return null;
+    if (!part.state?.startsWith("output")) return null;
     return part.output as PlanOutput;
   }, [part.state, part.output]);
 
@@ -110,7 +110,7 @@ function PurePlanViewInvocation({ part }: Readonly<PlanViewInvocationProps>) {
   }, [isAllDone]);
 
   // Loading state
-  if (!part.state.startsWith("output")) {
+  if (!part.state?.startsWith("output")) {
     return (
       <div className="flex items-center gap-2 text-sm">
         <ListTodoIcon className="h-4 w-4 text-muted-foreground" />

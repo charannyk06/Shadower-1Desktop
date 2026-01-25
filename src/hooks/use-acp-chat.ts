@@ -199,7 +199,7 @@ export function useACPChat({
                             toolCallId: toolContent.id || generateUUID(),
                             toolName: toolContent.name || "unknown",
                             args: toolContent.input || {},
-                            state: "partial-call",
+                            state: "input-available",
                           },
                         } as any,
                       ],
@@ -231,7 +231,7 @@ export function useACPChat({
                           ...toolPart,
                           toolInvocation: {
                             ...toolPart.toolInvocation,
-                            state: "result",
+                            state: "output-available",
                             result: resultContent.output,
                           },
                         };

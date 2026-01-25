@@ -113,7 +113,6 @@ export interface AppState {
       | "image"
       | "pdf"
       | "office"
-      | "browser"
       | "desktop"
       | "research";
     content?: any;
@@ -128,13 +127,12 @@ export interface AppState {
     executionArtifacts?: any[]; // For File Explorer: List of all artifacts from the run
     threadArtifacts?: { [threadId: string]: any[] }; // Thread-scoped registry of artifacts
     filesVersion?: number; // Incremented when local files change, triggers re-fetch
-    defaultTab?: "preview" | "files"; // Default tab to open when theater opens
-    // Browser session state
-    browserSession?: {
-      sessionId: string;
-      provider: "chrome-devtools" | "local-terminal";
-      currentUrl?: string;
-      replayUrl?: string;
+    defaultTab?: "all-files" | "changes"; // Default tab to open when theater opens
+    // Session changes tracking (for Changes tab)
+    sessionChanges?: {
+      created: string[];
+      modified: string[];
+      deleted: string[];
     };
     // Desktop session state (local terminal)
     desktopSession?: {

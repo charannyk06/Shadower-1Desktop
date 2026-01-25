@@ -121,6 +121,7 @@ export const ChatThreadTable = sqliteTable("chat_thread", {
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     currentTimestamp,
   ),
+  provider: text("provider"), // Provider identifier (e.g., "coding-agents" for ACP chats)
 });
 
 // Chat Message Table

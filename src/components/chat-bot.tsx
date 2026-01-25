@@ -883,18 +883,165 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       });
   }, []);
 
+  // Track if we've already generated title for this thread
+  const acpTitleGeneratedRef = useRef<string | null>(null);
+
+  // Track previous ACP messages count to detect new messages for persistence
+  const prevAcpMessageCountRef = useRef(0);
+  // Track if we've already created the ACP thread
+  const acpThreadCreatedRef = useRef<string | null>(null);
+  // Promise to track ongoing thread creation
+  const acpThreadCreationPromiseRef = useRef<Promise<void> | null>(null);
+
+  // Helper function to ensure ACP thread exists before persisting messages
+  const ensureACPThreadExists = useCallback(async () => {
+    // Return existing promise if thread creation is already in progress
+    if (acpThreadCreationPromiseRef.current) {
+      return acpThreadCreationPromiseRef.current;
+    }
+
+    // Skip if already created for this thread
+    if (acpThreadCreatedRef.current === threadId) {
+      return Promise.resolve();
+    }
+
+    const createThread = async () => {
+      try {
+        // Create thread with coding-agents provider
+        await threadApi.create({
+          id: threadId,
+          title: "New Chat",
+          provider: "coding-agents",
+        });
+        console.log("[ChatBot] Created ACP thread with provider:", threadId);
+        // Only mark as created on successful creation
+        acpThreadCreatedRef.current = threadId;
+      } catch (err: any) {
+        // Thread might already exist, that's ok - mark as created
+        // Only mark if it's a duplicate/exists error, not a real failure
+        const isDuplicateError = err?.message?.includes("UNIQUE constraint") ||
+          err?.message?.includes("already exists") ||
+          err?.code === "SQLITE_CONSTRAINT";
+        if (isDuplicateError) {
+          console.log("[ChatBot] Thread already exists:", threadId);
+          acpThreadCreatedRef.current = threadId;
+        } else {
+          console.error("[ChatBot] Failed to create ACP thread:", err);
+          // Don't mark as created on real errors - allow retry
+        }
+      } finally {
+        acpThreadCreationPromiseRef.current = null;
+      }
+    };
+
+    acpThreadCreationPromiseRef.current = createThread();
+    return acpThreadCreationPromiseRef.current;
+  }, [threadId]);
+
   // Use ACP chat hook when an ACP agent is selected
   const acpChat = useACPChat({
     threadId,
     agentId: acpAgentId || "",
-    onFinish: useCallback((message: UIMessage) => {
+    onFinish: useCallback(async (message: UIMessage) => {
       console.log("[ChatBot] ACP message finished:", message.id);
-    }, []),
+      // Ensure thread exists before persisting the message
+      await ensureACPThreadExists();
+      // Persist the finished assistant message to database
+      threadApi.upsertMessage(message, threadId).catch((err) => {
+        console.error("[ChatBot] Failed to persist ACP message:", err);
+      });
+      // Refresh thread list to show the chat in sidebar
+      mutate("/api/thread");
+    }, [threadId, ensureACPThreadExists]),
     onError: useCallback((error: Error) => {
       console.error("[ChatBot] ACP error:", error);
       toast.error("Agent error: " + error.message);
     }, []),
   });
+
+  // Initialize ACP messages with saved messages from database
+  useEffect(() => {
+    if (isACPAgent && initialMessages.length > 0 && acpChat.messages.length === 0) {
+      console.log("[ChatBot] Initializing ACP chat with saved messages:", initialMessages.length);
+      acpChat.setMessages(initialMessages);
+    }
+  }, [isACPAgent, initialMessages, acpChat.messages.length, acpChat.setMessages]);
+
+  // Persist ACP messages when new ones are added
+  useEffect(() => {
+    if (!isACPAgent) return;
+
+    const currentCount = acpChat.messages.length;
+    const prevCount = prevAcpMessageCountRef.current;
+
+    // Only persist when we have new messages (not on initial load from DB)
+    // Allow persisting even when prevCount is 0 for brand new conversations
+    if (currentCount > prevCount && currentCount > 0) {
+      // Skip if these are initial messages loaded from database
+      const isInitialLoad = prevCount === 0 && initialMessages.length > 0;
+      if (isInitialLoad) {
+        prevAcpMessageCountRef.current = currentCount;
+        return;
+      }
+
+      const newMessages = acpChat.messages.slice(prevCount);
+      console.log("[ChatBot] Persisting new ACP messages:", newMessages.length);
+
+      // Create thread then persist messages
+      ensureACPThreadExists().then(() => {
+        // Persist each new message
+        for (const msg of newMessages) {
+          threadApi.upsertMessage(msg, threadId).catch((err) => {
+            console.error("[ChatBot] Failed to persist ACP message:", err);
+          });
+        }
+      });
+    }
+
+    prevAcpMessageCountRef.current = currentCount;
+  }, [isACPAgent, acpChat.messages, threadId, initialMessages.length, ensureACPThreadExists]);
+
+  // Generate title for new ACP chats (when we have user + assistant messages)
+  // For ACP agents, we use a simple fallback title since they don't support title generation API
+  useEffect(() => {
+    if (!isACPAgent) return;
+    if (acpTitleGeneratedRef.current === threadId) return; // Already generated for this thread
+
+    const messages = acpChat.messages;
+    const hasUserAndAssistant =
+      messages.some((m) => m.role === "user") &&
+      messages.some((m) => m.role === "assistant");
+
+    if (hasUserAndAssistant && messages.length >= 2 && messages.length < 4) {
+      // Check if thread needs a title from the store state
+      const { threadList, mutate: storeMutate } = appStore.getState();
+      const currentThread = threadList.find((t) => t.id === threadId);
+      const needsTitle = !currentThread?.title || currentThread.title === "New Chat";
+
+      if (needsTitle) {
+        console.log("[ChatBot] Setting fallback title for ACP chat");
+        // For ACP agents, use the first user message as title (they don't support AI title generation)
+        const firstUserMessage = messages.find((m) => m.role === "user");
+        const textPart = firstUserMessage?.parts.find((p) => p.type === "text") as TextUIPart | undefined;
+        const userText = textPart?.text || "";
+        const fallbackTitle = truncateString(userText, 50) || "ACP Chat";
+
+        // Update store directly
+        const newList = threadList.map((t) =>
+          t.id === threadId ? { ...t, title: fallbackTitle } : t
+        );
+        storeMutate({ threadList: newList });
+
+        // Also update in database
+        threadApi.update(threadId, { title: fallbackTitle }).catch((err) => {
+          console.error("[ChatBot] Failed to update ACP thread title:", err);
+        });
+
+        acpTitleGeneratedRef.current = threadId;
+        mutate("/api/thread");
+      }
+    }
+  }, [isACPAgent, acpChat.messages, threadId]);
 
   // Handle ACP permission requests from the hook
   useEffect(() => {
@@ -1174,8 +1321,8 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             type: undefined,
             title: undefined,
             executionArtifacts: undefined,
-            // Keep isOpen but reset to files tab if it was showing content
-            defaultTab: state.theaterMode.isOpen ? "files" : undefined,
+            // Keep isOpen but reset to changes tab if it was showing content
+            defaultTab: state.theaterMode.isOpen ? "changes" : undefined,
           },
         };
       }
@@ -1392,7 +1539,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         const hasData = !!result;
 
         // In v6, completed states start with "output"
-        if (!hasData && !p.state.startsWith("output")) return;
+        if (!hasData && !p.state?.startsWith("output")) return;
 
         if (!result) return;
 
@@ -1628,7 +1775,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     const lastPart = lastMessage.parts.at(-1);
     if (!lastPart) return false;
     if (!isToolUIPart(lastPart)) return false;
-    if (lastPart.state.startsWith("output")) return false;
+    if (lastPart.state?.startsWith("output")) return false;
     return true;
   }, [unifiedStatus, unifiedMessages]);
 

@@ -30,6 +30,7 @@ import {
 import { Badge } from "ui/badge";
 import { Button } from "ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
+import { InlineDocumentPreview } from "./inline-document-preview";
 import { Markdown } from "./markdown";
 import { MessageEditor } from "./message-editor";
 
@@ -290,6 +291,37 @@ export const UserMessagePart = memo(
 );
 UserMessagePart.displayName = "UserMessagePart";
 
+// Minimum character length for content to be shown in document preview
+const DOCUMENT_PREVIEW_MIN_LENGTH = 500;
+
+// Detect if text content qualifies for document preview (long text, code blocks, structured markdown)
+function isDocumentContent(text: string): { isDocument: boolean; type: "markdown" | "code" | "text"; language?: string } {
+  // Check for code blocks (```lang ... ```)
+  const codeBlockMatch = text.match(/^```(\w*)\n[\s\S]+```$/m);
+  if (codeBlockMatch && text.length > 200) {
+    return { isDocument: true, type: "code", language: codeBlockMatch[1] || undefined };
+  }
+
+  // Check for multiple code blocks indicating generated code
+  const codeBlockCount = (text.match(/```/g) || []).length / 2;
+  if (codeBlockCount >= 2) {
+    return { isDocument: true, type: "code" };
+  }
+
+  // Check for structured markdown (multiple headings)
+  const headingCount = (text.match(/^#{1,3}\s/gm) || []).length;
+  if (headingCount >= 2 && text.length > DOCUMENT_PREVIEW_MIN_LENGTH) {
+    return { isDocument: true, type: "markdown" };
+  }
+
+  // Long text content
+  if (text.length > DOCUMENT_PREVIEW_MIN_LENGTH * 2) {
+    return { isDocument: true, type: "text" };
+  }
+
+  return { isDocument: false, type: "text" };
+}
+
 export const AssistMessagePart = memo(function AssistMessagePart({
   part,
   showActions,
@@ -305,8 +337,12 @@ export const AssistMessagePart = memo(function AssistMessagePart({
   const [isLoading, setIsLoading] = useState(false);
   const agentList = appStore((state) => state.agentList);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDocPreview, setShowDocPreview] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const metadata = message.metadata as ChatMetadata | undefined;
+
+  // Detect document content
+  const documentInfo = useMemo(() => isDocumentContent(part.text), [part.text]);
 
   const agent = useMemo(() => {
     return agentList.find((a) => a.id === metadata?.agentId);
@@ -364,6 +400,14 @@ export const AssistMessagePart = memo(function AssistMessagePart({
       .unwrap();
   };
 
+  // Handle request for changes from document preview
+  const handleRequestChanges = useCallback((selectedText: string, instruction: string) => {
+    if (sendMessage) {
+      const changeRequest = `Please modify this text: "${selectedText}"\n\nInstruction: ${instruction}`;
+      sendMessage({ role: "user", content: changeRequest } as any);
+    }
+  }, [sendMessage]);
+
   return (
     <div
       className={cn(
@@ -377,7 +421,31 @@ export const AssistMessagePart = memo(function AssistMessagePart({
           "opacity-50 border border-destructive bg-card rounded-lg": isError,
         })}
       >
-        <Markdown>{part.text}</Markdown>
+        {documentInfo.isDocument && showDocPreview ? (
+          <InlineDocumentPreview
+            content={part.text}
+            type={documentInfo.type}
+            language={documentInfo.language}
+            onRequestChanges={handleRequestChanges}
+            sendMessage={sendMessage ? (msg) => sendMessage({ role: "user", content: msg } as any) : undefined}
+            className="my-2"
+          />
+        ) : (
+          <>
+            <Markdown>{part.text}</Markdown>
+            {documentInfo.isDocument && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="self-start text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setShowDocPreview(true)}
+              >
+                <FileIcon className="w-3 h-3 mr-1" />
+                Open as document
+              </Button>
+            )}
+          </>
+        )}
       </div>
       {showActions && (
         <div className="flex w-full">
@@ -800,7 +868,7 @@ export const ToolMessagePart = memo(
     const toolName = useMemo(() => getToolName(part), [part.type]);
 
     const isCompleted = useMemo(() => {
-      return state.startsWith("output");
+      return state?.startsWith("output") ?? false;
     }, [state]);
 
     const [expanded, setExpanded] = useState(false);

@@ -27,7 +27,7 @@ import type Database from "better-sqlite3";
 // ============================================================================
 // SCHEMA VERSION - INCREMENT THIS WHEN ADDING NEW MIGRATIONS
 // ============================================================================
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 // App version for tracking (updated on release)
 export const APP_VERSION = "1.0.0";
@@ -292,6 +292,15 @@ const migrations: Migration[] = [
         `);
         console.log("[Migration] Created acp_permission table");
       }
+    },
+  },
+
+  {
+    version: 4,
+    name: "add_thread_provider",
+    description: "Add provider column to chat_thread for identifying coding agent chats",
+    up: (db) => {
+      addColumnIfNotExists(db, "chat_thread", "provider", "TEXT");
     },
   },
 

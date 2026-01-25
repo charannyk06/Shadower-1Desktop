@@ -546,6 +546,28 @@ export class VectorStore {
   }
 
   /**
+   * Delete all embeddings for a specific user
+   * @param userId - User ID to delete embeddings for
+   */
+  async deleteByUser(userId: string): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    if (!this.available) {
+      return;
+    }
+
+    await this.runQuery("DELETE FROM document_embeddings WHERE user_id = ?", [
+      userId,
+    ]);
+    await this.runQuery("DELETE FROM message_embeddings WHERE user_id = ?", [
+      userId,
+    ]);
+
+    console.log(`[VectorStore] Deleted all embeddings for user: ${userId}`);
+  }
+
+  /**
    * Get statistics about the vector store
    */
   async getStats(): Promise<{

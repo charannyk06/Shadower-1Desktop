@@ -24,7 +24,7 @@ function PureWebSearchToolInvocation({ part }: WebSearchToolInvocationProps) {
   const { t } = useTranslation();
 
   const result = useMemo(() => {
-    if (!part.state.startsWith("output")) return null;
+    if (!part.state?.startsWith("output")) return null;
     return part.output as ExaSearchResponse & {
       isError: boolean;
       error?: string;
@@ -67,7 +67,7 @@ function PureWebSearchToolInvocation({ part }: WebSearchToolInvocationProps) {
     );
   }, [result?.results, errorSrc]);
 
-  if (!part.state.startsWith("output"))
+  if (!part.state?.startsWith("output"))
     return (
       <div className="flex items-center gap-2 text-sm">
         <GlobalIcon className="size-5 wiggle text-muted-foreground" />

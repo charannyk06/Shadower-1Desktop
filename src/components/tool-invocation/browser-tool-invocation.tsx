@@ -1,19 +1,15 @@
 "use client";
 
-import { appStore } from "@/app/store";
 import { ToolUIPart } from "ai";
 import {
   CheckCircle2,
   ExternalLink,
-  Eye,
   Globe,
   Loader2,
-  Maximize2,
   XCircle,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { Button } from "ui/button";
-import { useShallow } from "zustand/shallow";
 
 interface BrowserToolResult {
   success: boolean;
@@ -44,20 +40,13 @@ interface BrowserToolInvocationProps {
 
 /**
  * Component to display browser tool invocation results (browser_navigate, browser_act, etc.)
- * Shows screenshots inline and provides "View Live" button to open Theater Mode
+ * Shows screenshots inline in chat - no theater mode integration
  */
 export const BrowserToolInvocation = memo(function BrowserToolInvocation({
   part,
-  threadId,
 }: BrowserToolInvocationProps) {
-  const { mutate } = appStore(
-    useShallow((state) => ({
-      mutate: state.mutate,
-    })),
-  );
-
   const result = useMemo(() => {
-    if (part.state.startsWith("input")) return null;
+    if (part.state?.startsWith("input")) return null;
     return part.output as BrowserToolResult;
   }, [part.state, part.output]);
 
@@ -70,55 +59,6 @@ export const BrowserToolInvocation = memo(function BrowserToolInvocation({
     part.state === "input-streaming" || part.state === "input-available";
   const hasError = !result?.success && result?.error;
   const hasScreenshot = !!result?.screenshot;
-
-  // Auto-populate theater mode state when session is created
-  useEffect(() => {
-    if (result?.sessionId && threadId) {
-      console.log("[BrowserToolInvocation] Setting browser session in store:", {
-        sessionId: result.sessionId,
-        currentUrl: result.currentUrl || result.url,
-        replayUrl: result.replayUrl,
-      });
-
-      mutate((state) => ({
-        theaterMode: {
-          ...state.theaterMode,
-          browserSession: {
-            sessionId: result.sessionId!,
-            provider: "chrome-devtools",
-            currentUrl: result.currentUrl || result.url,
-            replayUrl: result.replayUrl,
-          },
-        },
-      }));
-    }
-  }, [
-    result?.sessionId,
-    result?.currentUrl,
-    result?.url,
-    result?.replayUrl,
-    threadId,
-    mutate,
-  ]);
-
-  const openInTheater = useCallback(() => {
-    if (!result?.sessionId) return;
-
-    mutate((state) => ({
-      theaterMode: {
-        ...state.theaterMode,
-        isOpen: true,
-        type: "browser",
-        title: `Browser Session`,
-        browserSession: {
-          sessionId: result.sessionId!,
-          provider: "chrome-devtools",
-          currentUrl: result.currentUrl || result.url,
-          replayUrl: result.replayUrl,
-        },
-      },
-    }));
-  }, [result, mutate]);
 
   const openReplay = useCallback(() => {
     if (result?.replayUrl) {
@@ -179,17 +119,6 @@ export const BrowserToolInvocation = memo(function BrowserToolInvocation({
           )}
         </div>
         <div className="flex items-center gap-1">
-          {result.sessionId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={openInTheater}
-              className="h-7 text-xs gap-1"
-            >
-              <Maximize2 className="size-3" />
-              View Live
-            </Button>
-          )}
           {result.replayUrl && (
             <Button
               variant="ghost"
@@ -224,22 +153,13 @@ export const BrowserToolInvocation = memo(function BrowserToolInvocation({
         <div className="text-sm text-muted-foreground">{result.message}</div>
       )}
 
-      {/* Screenshot */}
+      {/* Screenshot - inline display only */}
       {hasScreenshot && (
-        <div className="relative group">
-          <img
-            src={result.screenshot}
-            alt="Browser screenshot"
-            className="w-full rounded-md border shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
-            onClick={openInTheater}
-          />
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded-md">
-            <Button variant="secondary" size="sm" className="gap-1">
-              <Eye className="size-3" />
-              View Live
-            </Button>
-          </div>
-        </div>
+        <img
+          src={result.screenshot}
+          alt="Browser screenshot"
+          className="w-full rounded-md border shadow-sm"
+        />
       )}
 
       {/* Elements found (for observe) */}
