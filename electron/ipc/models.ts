@@ -7,6 +7,8 @@ import * as ollamaService from "../services/ollama-service";
 import * as lmStudioService from "../services/lm-studio-service";
 import { CURATED_LOCAL_MODELS } from "../../src/lib/ai/curated-local-models";
 import { localModelSupportsTools } from "../../src/lib/ai/providers/capabilities";
+import { getACPAgentManager } from "../services/acp-agent-service";
+import { AGENT_DISPLAY_NAMES, AGENT_ICON_PROVIDERS } from "../services/acp-agents";
 
 // =============================================================================
 // LOCAL MODEL PERFORMANCE CACHE
@@ -2024,13 +2026,46 @@ export function registerModelsHandlers() {
         }
       }
 
+      // Get installed ACP agents
+      let acpAgents: Array<{
+        id: string;
+        name: string;
+        displayName: string;
+        installed: boolean;
+        authenticated: boolean;
+        running: boolean;
+        iconProvider: "anthropic" | "openai" | "google";
+        isACPAgent: true;
+      }> = [];
+
+      try {
+        const acpManager = getACPAgentManager();
+        const detectedAgents = await acpManager.detectInstalledAgents();
+        acpAgents = detectedAgents
+          .filter((agent) => agent.installed)
+          .map((agent) => ({
+            id: agent.id,
+            name: agent.id,
+            displayName: AGENT_DISPLAY_NAMES[agent.id] || agent.id,
+            installed: agent.installed,
+            authenticated: agent.authenticated,
+            running: agent.running,
+            iconProvider: AGENT_ICON_PROVIDERS[agent.id] || "anthropic",
+            isACPAgent: true as const,
+          }));
+        log.info(`[IPC] Detected ${acpAgents.length} installed ACP agents`);
+      } catch (acpError) {
+        log.warn("[IPC] Failed to detect ACP agents:", acpError);
+      }
+
       const duration = Date.now() - startTime;
-      log.info(`[IPC] models:getAvailableModels completed in ${duration}ms (${localModels.length} local models)`);
+      log.info(`[IPC] models:getAvailableModels completed in ${duration}ms (${localModels.length} local models, ${acpAgents.length} ACP agents)`);
 
       return {
         cloudProviders: apiKeys.map((k) => k.providerId),
         providers,
         localModels,
+        acpAgents,
       };
     } catch (error) {
       console.error("[IPC] Error getting available models:", error);

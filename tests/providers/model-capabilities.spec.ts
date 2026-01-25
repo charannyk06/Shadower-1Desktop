@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { TEST_USERS } from "../constants/test-users";
 import {
   ModelInfo,
   combineFilters,
@@ -15,7 +16,7 @@ import {
  * are properly returned and have correct values.
  */
 test.describe("Model Capabilities API", () => {
-  test.use({ storageState: "tests/.auth/admin.json" });
+  test.use({ storageState: TEST_USERS.admin.authFile });
 
   test.describe("Capability Fields Structure", () => {
     test("should return workflowGenerationSupport field for all models", async ({

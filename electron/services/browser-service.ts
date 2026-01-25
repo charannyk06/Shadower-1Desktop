@@ -19,7 +19,6 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import * as http from "http";
 import { app } from "electron";
 
 // Default CDP port for user browser connection
@@ -139,82 +138,62 @@ function getUserChromeProfilePath(): string | null {
 
 /**
  * Check if Chrome is already running with CDP on a given port
+ * Uses fetch() instead of http module for cleaner code
  */
 async function checkCdpAvailable(port: number): Promise<string | null> {
-  return new Promise((resolve) => {
-    const req = http.request(
-      {
-        hostname: "127.0.0.1",
-        port,
-        path: "/json/version",
-        method: "GET",
-        timeout: 2000,
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            const json = JSON.parse(data);
-            resolve(json.webSocketDebuggerUrl || null);
-          } catch {
-            resolve(null);
-          }
-        });
-      }
-    );
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-    req.on("error", () => resolve(null));
-    req.on("timeout", () => {
-      req.destroy();
-      resolve(null);
+    const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+      method: "GET",
+      signal: controller.signal,
     });
 
-    req.end();
-  });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const json = await response.json();
+    return json.webSocketDebuggerUrl || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Check if Chrome has at least one page ready (for CDP connection)
  * agent-browser requires at least one page with a URL to connect
+ * Uses fetch() instead of http module for cleaner code
  */
 async function checkCdpHasPages(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const req = http.request(
-      {
-        hostname: "127.0.0.1",
-        port,
-        path: "/json/list",
-        method: "GET",
-        timeout: 2000,
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            const pages = JSON.parse(data);
-            // Check if there's at least one page with a URL
-            const hasValidPage = Array.isArray(pages) && pages.some(
-              (p: { url?: string; type?: string }) =>
-                p.type === "page" && p.url && p.url.length > 0
-            );
-            resolve(hasValidPage);
-          } catch {
-            resolve(false);
-          }
-        });
-      }
-    );
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-    req.on("error", () => resolve(false));
-    req.on("timeout", () => {
-      req.destroy();
-      resolve(false);
+    const response = await fetch(`http://127.0.0.1:${port}/json/list`, {
+      method: "GET",
+      signal: controller.signal,
     });
 
-    req.end();
-  });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const pages = await response.json();
+    // Check if there's at least one page with a URL
+    const hasValidPage = Array.isArray(pages) && pages.some(
+      (p: { url?: string; type?: string }) =>
+        p.type === "page" && p.url && p.url.length > 0
+    );
+    return hasValidPage;
+  } catch {
+    return false;
+  }
 }
 
 // NOTE: Helper function to check if Chrome is running via lock files
@@ -498,7 +477,7 @@ async function getOrLaunchChromeWithCdp(
 ): Promise<string> {
   // PRIORITY 1: Check if Chrome is already running with CDP
   log.info(`[Browser] Checking for existing Chrome CDP on port ${port}...`);
-  let existingWsUrl = await checkCdpAvailable(port);
+  const existingWsUrl = await checkCdpAvailable(port);
 
   if (existingWsUrl) {
     log.info(`[Browser] Found existing Chrome CDP at ${existingWsUrl}`);

@@ -246,7 +246,8 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
       ctrl: ReadableStreamDefaultController<UIMessageChunk>,
     ) => {
       try {
-        const workingDirectory = this.options.workingDirectory ?? appStore.getState().workingDirectory;
+        // Priority: requestBody > constructor options > store (fallback)
+        const workingDirectory = (requestBody as any).workingDirectory ?? this.options.workingDirectory ?? appStore.getState().workingDirectory;
 
         // Prepare the stream
         const prepareResult = await api.ai.stream({
@@ -466,8 +467,10 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
         cleanupEnd = api.ai.onStreamEnd(
           (data: { threadId: string; usage?: any; finishReason?: string }) => {
             if (data.threadId !== id) return;
-            // Small delay to ensure finish chunk is processed
-            setTimeout(() => {
+            // CRITICAL: Handle end immediately - no delay needed
+            // The main process sends ai:stream:end AFTER all chunks are sent and the stream is complete
+            // Using queueMicrotask ensures any pending chunk handlers complete first
+            queueMicrotask(() => {
               cleanup();
               streamClosed = true;
               if (!aborted && streamController) {
@@ -475,7 +478,7 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
                   streamController.close();
                 } catch {}
               }
-            }, 50);
+            });
           },
         );
 

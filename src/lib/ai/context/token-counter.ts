@@ -1,9 +1,6 @@
 import { UIMessage } from "ai";
-import logger from "logger";
 import {
-  getEffectiveContextLimit,
   getEffectiveContextLimitAsync,
-  getModelLimits,
   getModelLimitsAsync,
 } from "./provider-limits";
 
@@ -134,40 +131,7 @@ export interface ContextUsage {
 
 /**
  * Calculate context usage for a conversation
- *
- * ⚠️ DEPRECATED: This sync version uses static fallbacks.
- * Use calculateContextUsageAsync instead for dynamic limits.
- */
-export function calculateContextUsage(
-  messages: UIMessage[],
-  provider: string,
-  model: string,
-  systemPromptTokens: number = 0,
-  compactionThreshold: number = 0.8,
-): ContextUsage {
-  logger.warn(
-    `[Context] Using deprecated sync calculateContextUsage for ${provider}/${model} - use async version instead!`,
-  );
-  const usedTokens = estimateMessagesTokens(messages) + systemPromptTokens;
-  const limit = getEffectiveContextLimit(provider, model);
-  const percentage = usedTokens / limit;
-  const remaining = Math.max(0, limit - usedTokens);
-  const needsCompaction = percentage >= compactionThreshold;
-
-  return {
-    usedTokens,
-    limit,
-    percentage,
-    remaining,
-    needsCompaction,
-  };
-}
-
-/**
- * Calculate context usage for a conversation (async version)
- * ALWAYS uses dynamically fetched model limits from provider APIs
- *
- * This is the PRIMARY method - it ensures we always have up-to-date limits.
+ * Uses dynamically fetched model limits from provider APIs
  */
 export async function calculateContextUsageAsync(
   messages: UIMessage[],
@@ -235,33 +199,7 @@ export function formatTokens(tokens: number): string {
 
 /**
  * Get model information for display
- *
- * This is the synchronous version that uses static fallbacks.
- * For dynamic limits, use getModelContextInfoAsync instead.
- */
-export function getModelContextInfo(
-  provider: string,
-  model: string,
-): {
-  contextWindow: number;
-  effectiveLimit: number;
-  maxOutput: number;
-  formattedWindow: string;
-  formattedLimit: string;
-} {
-  const limits = getModelLimits(provider, model);
-  return {
-    contextWindow: limits.contextWindow,
-    effectiveLimit: limits.effectiveLimit,
-    maxOutput: limits.maxOutputTokens,
-    formattedWindow: formatTokens(limits.contextWindow),
-    formattedLimit: formatTokens(limits.effectiveLimit),
-  };
-}
-
-/**
- * Get model information for display (async version)
- * First checks dynamically fetched model limits from APIs, then falls back to static values
+ * Uses dynamically fetched model limits from APIs
  */
 export async function getModelContextInfoAsync(
   provider: string,

@@ -25,21 +25,21 @@ export const TEST_USERS: TestUsers = {
   admin: {
     email: process.env.TEST_ADMIN_EMAIL || "admin@test.local",
     password: process.env.TEST_ADMIN_PASSWORD || "testpassword",
-    authFile: ".auth/admin.json",
+    authFile: "tests/.auth/admin.json",
   },
   editor: {
     email: process.env.TEST_EDITOR_EMAIL || "editor@test.local",
     password: process.env.TEST_EDITOR_PASSWORD || "testpassword",
-    authFile: ".auth/editor.json",
+    authFile: "tests/.auth/editor.json",
   },
   editor2: {
     email: process.env.TEST_EDITOR2_EMAIL || "editor2@test.local",
     password: process.env.TEST_EDITOR2_PASSWORD || "testpassword",
-    authFile: ".auth/editor2.json",
+    authFile: "tests/.auth/editor2.json",
   },
   regular: {
     email: process.env.TEST_REGULAR_EMAIL || "user@test.local",
     password: process.env.TEST_REGULAR_PASSWORD || "testpassword",
-    authFile: ".auth/regular.json",
+    authFile: "tests/.auth/regular-user.json",
   },
 };

@@ -12,7 +12,7 @@ interface Memory {
   id: string;
   content: string;
   role?: "user" | "assistant";
-  source?: "memory" | "knowledge" | "documents";
+  source?: "messages" | "knowledge" | "documents";
   threadId?: string;
   messageId?: string;
   createdAt?: string;
@@ -82,7 +82,7 @@ export function MemoryCard({
                         : "outline"
                   }
                 >
-                  {memory.source === "memory"
+                  {memory.source === "messages"
                     ? "Memory"
                     : memory.source === "knowledge"
                       ? "Knowledge Base"

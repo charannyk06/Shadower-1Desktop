@@ -64,19 +64,6 @@ export const ChatMentionSchema = z.discriminatedUnion("type", [
     serverId: z.string(),
   }),
   z.object({
-    type: z.literal("workflow"),
-    name: z.string(),
-    description: z.string().nullish(),
-    workflowId: z.string(),
-    icon: z
-      .object({
-        type: z.literal("emoji"),
-        value: z.string(),
-        style: z.record(z.string(), z.string()).optional(),
-      })
-      .nullish(),
-  }),
-  z.object({
     type: z.literal("agent"),
     name: z.string(),
     description: z.string().nullish(),
@@ -103,12 +90,16 @@ export const chatApiSchemaRequestBodySchema = z.object({
     })
     .optional(),
   toolChoice: z.enum(["auto", "none", "manual"]),
-  chatMode: z.enum(["regular", "agent"]).optional(),
+  chatMode: z.enum(["regular", "agent", "rag"]).optional(),
   mentions: z.array(ChatMentionSchema).optional(),
   imageTool: z.object({ model: z.string().optional() }).optional(),
   allowedMcpServers: z.record(z.string(), AllowedMCPServerZodSchema).optional(),
   allowedAppDefaultToolkit: z.array(z.string()).optional(),
   attachments: z.array(ChatAttachmentSchema).optional(),
+  workingDirectory: z.object({
+    path: z.string(),
+    name: z.string(),
+  }).optional(),
 });
 
 export type ChatApiSchemaRequestBody = z.infer<

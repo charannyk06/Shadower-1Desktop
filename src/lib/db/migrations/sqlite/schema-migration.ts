@@ -27,7 +27,7 @@ import type Database from "better-sqlite3";
 // ============================================================================
 // SCHEMA VERSION - INCREMENT THIS WHEN ADDING NEW MIGRATIONS
 // ============================================================================
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 // App version for tracking (updated on release)
 export const APP_VERSION = "1.0.0";
@@ -173,6 +173,125 @@ const migrations: Migration[] = [
       // This is the baseline - all tables are created via CREATE TABLE IF NOT EXISTS
       // This migration just marks that we've established the schema version system
       console.log("[Migration] Establishing schema version baseline v1");
+    },
+  },
+
+  {
+    version: 2,
+    name: "add_knowledge_base_tables",
+    description: "Add knowledge_base, document, and document_chunk tables for RAG system",
+    up: (db) => {
+      // Create knowledge_base table if not exists
+      if (!tableExists(db, "knowledge_base")) {
+        db.exec(`
+          CREATE TABLE knowledge_base (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+            document_count INTEGER NOT NULL DEFAULT 0,
+            total_chunks INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            metadata TEXT,
+            created_at INTEGER,
+            updated_at INTEGER
+          );
+          CREATE INDEX knowledge_base_user_idx ON knowledge_base(user_id);
+          CREATE INDEX knowledge_base_name_idx ON knowledge_base(name);
+        `);
+        console.log("[Migration] Created knowledge_base table");
+      }
+
+      // Create document table if not exists
+      if (!tableExists(db, "document")) {
+        db.exec(`
+          CREATE TABLE document (
+            id TEXT PRIMARY KEY,
+            knowledge_base_id TEXT NOT NULL REFERENCES knowledge_base(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+            file_name TEXT NOT NULL,
+            file_type TEXT NOT NULL,
+            file_path TEXT,
+            file_size INTEGER NOT NULL,
+            mime_type TEXT,
+            extracted_text TEXT,
+            chunk_count INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            error_message TEXT,
+            title TEXT,
+            author TEXT,
+            page_count INTEGER,
+            word_count INTEGER,
+            metadata TEXT,
+            created_at INTEGER,
+            updated_at INTEGER,
+            indexed_at INTEGER
+          );
+          CREATE INDEX document_kb_idx ON document(knowledge_base_id);
+          CREATE INDEX document_user_idx ON document(user_id);
+          CREATE INDEX document_status_idx ON document(status);
+          CREATE INDEX document_file_type_idx ON document(file_type);
+        `);
+        console.log("[Migration] Created document table");
+      }
+
+      // Create document_chunk table if not exists
+      if (!tableExists(db, "document_chunk")) {
+        db.exec(`
+          CREATE TABLE document_chunk (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL REFERENCES document(id) ON DELETE CASCADE,
+            knowledge_base_id TEXT NOT NULL REFERENCES knowledge_base(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+            chunk_index INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            start_page INTEGER,
+            end_page INTEGER,
+            start_offset INTEGER,
+            end_offset INTEGER,
+            vector_id TEXT,
+            is_indexed INTEGER NOT NULL DEFAULT 0,
+            metadata TEXT,
+            created_at INTEGER
+          );
+          CREATE INDEX document_chunk_doc_idx ON document_chunk(document_id);
+          CREATE INDEX document_chunk_kb_idx ON document_chunk(knowledge_base_id);
+          CREATE INDEX document_chunk_user_idx ON document_chunk(user_id);
+          CREATE INDEX document_chunk_vector_idx ON document_chunk(vector_id);
+        `);
+        console.log("[Migration] Created document_chunk table");
+      }
+    },
+  },
+
+  {
+    version: 3,
+    name: "add_acp_permission_table",
+    description: "Add acp_permission table for ACP agent global permission storage",
+    up: (db) => {
+      // Create acp_permission table if not exists
+      if (!tableExists(db, "acp_permission")) {
+        db.exec(`
+          CREATE TABLE acp_permission (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+            agent_id TEXT NOT NULL,
+            permission_type TEXT NOT NULL,
+            tool_name TEXT,
+            scope TEXT NOT NULL DEFAULT 'global',
+            approved_at INTEGER,
+            expires_at INTEGER,
+            metadata TEXT,
+            created_at INTEGER
+          );
+          CREATE INDEX acp_permission_user_idx ON acp_permission(user_id);
+          CREATE INDEX acp_permission_agent_idx ON acp_permission(agent_id);
+          CREATE INDEX acp_permission_type_idx ON acp_permission(permission_type);
+          CREATE INDEX acp_permission_lookup_idx ON acp_permission(user_id, agent_id, permission_type);
+          CREATE UNIQUE INDEX acp_permission_unique ON acp_permission(user_id, agent_id, permission_type, tool_name);
+        `);
+        console.log("[Migration] Created acp_permission table");
+      }
     },
   },
 

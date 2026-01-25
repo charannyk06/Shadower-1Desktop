@@ -32,35 +32,7 @@ export function CreateKnowledgeBaseDialog({
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [minChunkSize, setMinChunkSize] = useState("100");
-  const [maxChunkSize, setMaxChunkSize] = useState("1024");
-  const [overlap, setOverlap] = useState("200");
-  const [files, setFiles] = useState<File[]>([]);
   const [creating, setCreating] = useState(false);
-
-  const [isDragActive, setIsDragActive] = useState(false);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || []);
-    setFiles((prev) => [...prev, ...selectedFiles]);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragActive(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragActive(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragActive(false);
-    const droppedFiles = Array.from(e.dataTransfer.files);
-    setFiles((prev) => [...prev, ...droppedFiles]);
-  };
 
   const handleCreate = async () => {
     if (!name.trim()) {
@@ -68,37 +40,30 @@ export function CreateKnowledgeBaseDialog({
       return;
     }
 
-    if (files.length === 0) {
-      toast.error(t("Knowledge.filesRequired"));
-      return;
-    }
-
     setCreating(true);
     try {
-      // Desktop mode: Knowledge bases with file uploads require IPC implementation
-      // For now, show a message that this feature is coming soon
-      toast.info("Knowledge base creation with file uploads is coming soon to desktop mode");
+      // Get current user ID
+      const user = await window.electronAPI.auth.getCurrentUser();
+      const userId = user?.id || "local-user";
 
-      // TODO: Implement file reading via Electron dialog and IPC
-      // const fileContents = await Promise.all(
-      //   files.map(async (file) => ({
-      //     name: file.name,
-      //     content: await file.text(),
-      //   }))
-      // );
-      // await window.electronAPI.knowledge.createBase({
-      //   name,
-      //   description,
-      //   files: fileContents,
-      //   chunkingParams: { minChunkSize, maxChunkSize, overlap },
-      // });
+      // Create the knowledge base via IPC
+      const result = await window.electronAPI.knowledge.createBase({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        userId,
+      });
+
+      if (!result.knowledgeBase) {
+        throw new Error(result.error || "Failed to create knowledge base");
+      }
+
+      toast.success(t("Knowledge.knowledgeBaseCreated"));
 
       onOpenChange(false);
 
       // Reset form
       setName("");
       setDescription("");
-      setFiles([]);
 
       onCreated?.();
     } catch (error: any) {
@@ -110,11 +75,11 @@ export function CreateKnowledgeBaseDialog({
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} direction="top">
+    <Drawer handleOnly open={open} onOpenChange={onOpenChange} direction="top">
       <DrawerPortal>
         <DrawerContent
           style={{ userSelect: "text" }}
-          className="max-h-[100vh]! w-full rounded-none flex flex-col overflow-hidden p-4 md:p-6"
+          className="!max-h-[100vh] !h-full w-full !border-none !rounded-none !mb-0 flex flex-col bg-card overflow-hidden p-4 md:p-6"
         >
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -158,102 +123,9 @@ export function CreateKnowledgeBaseDialog({
                 />
               </div>
 
-              <div className="space-y-4">
-                <h3 className="font-semibold">
-                  {t("Knowledge.chunkingParameters")}
-                </h3>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="minChunkSize">
-                      {t("Knowledge.minChunkSize")}
-                    </Label>
-                    <Input
-                      id="minChunkSize"
-                      type="number"
-                      value={minChunkSize}
-                      onChange={(e) => setMinChunkSize(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="maxChunkSize">
-                      {t("Knowledge.maxChunkSize")}
-                    </Label>
-                    <Input
-                      id="maxChunkSize"
-                      type="number"
-                      value={maxChunkSize}
-                      onChange={(e) => setMaxChunkSize(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="overlap">{t("Knowledge.overlap")}</Label>
-                    <Input
-                      id="overlap"
-                      type="number"
-                      value={overlap}
-                      onChange={(e) => setOverlap(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {t("Knowledge.chunkingNote")}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label>{t("Knowledge.uploadDocuments")}</Label>
-                <div
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  onClick={() => document.getElementById("file-input")?.click()}
-                  className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                    isDragActive
-                      ? "border-primary bg-primary/5"
-                      : "border-muted-foreground/25 hover:border-muted-foreground/50"
-                  }`}
-                >
-                  <input
-                    id="file-input"
-                    type="file"
-                    multiple
-                    accept=".pdf,.doc,.docx,.txt,.csv,.xls,.xlsx,.md,.ppt,.pptx,.html"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    {isDragActive
-                      ? t("Knowledge.dropFilesHere")
-                      : t("Knowledge.dropFilesOrClick")}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {t("Knowledge.supportedFileTypes")}
-                  </p>
-                </div>
-                {files.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    {files.map((file, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between p-2 bg-muted rounded"
-                      >
-                        <span className="text-sm">{file.name}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            setFiles((prev) =>
-                              prev.filter((_, i) => i !== index),
-                            )
-                          }
-                        >
-                          ×
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <p className="text-sm text-muted-foreground">
+                {t("Knowledge.addDocumentsAfterCreate") || "After creating the knowledge base, you can add documents using the upload button on the detail page."}
+              </p>
             </div>
             <div className="flex items-center justify-end gap-3 pt-6 border-t mt-6">
               <Button variant="outline" onClick={() => onOpenChange(false)}>

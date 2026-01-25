@@ -41,6 +41,18 @@ const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 let ollamaServeProcess: ChildProcess | null = null;
 
 // ============================================
+// HEALTH CHECK CACHING
+// Prevents excessive API calls during rapid UI refreshes
+// ============================================
+interface CachedHealthResult {
+  health: OllamaHealth;
+  timestamp: number;
+}
+let cachedHealth: CachedHealthResult | null = null;
+let healthCheckInFlight: Promise<OllamaHealth> | null = null;
+const HEALTH_CACHE_TTL_MS = 3000; // 3 seconds
+
+// ============================================
 // PERFORMANCE ENVIRONMENT VARIABLES
 // These dramatically improve local model speed!
 // ============================================
@@ -160,14 +172,54 @@ export async function isOllamaRunning(
 }
 
 /**
- * Get comprehensive Ollama health status
+ * Get comprehensive Ollama health status with caching
+ *
+ * Features:
+ * - Returns cached result if within TTL (3 seconds default)
+ * - Deduplicates concurrent requests (only one in-flight at a time)
+ * - Graceful fallback on errors
  */
 export async function checkOllamaHealth(
-  baseUrl: string = DEFAULT_OLLAMA_URL
+  baseUrl: string = DEFAULT_OLLAMA_URL,
+  options: { forceRefresh?: boolean } = {}
 ): Promise<OllamaHealth> {
+  const now = Date.now();
+
+  // Return cached result if valid and not forcing refresh
+  if (!options.forceRefresh && cachedHealth &&
+      (now - cachedHealth.timestamp < HEALTH_CACHE_TTL_MS)) {
+    log.debug("[Ollama] Health check returning cached result");
+    return cachedHealth.health;
+  }
+
+  // If a check is already in flight, wait for it (deduplication)
+  if (healthCheckInFlight) {
+    log.debug("[Ollama] Health check already in flight, waiting...");
+    return healthCheckInFlight;
+  }
+
+  // Perform actual health check
+  healthCheckInFlight = performHealthCheck(baseUrl);
+
   try {
-    const installed = await isOllamaInstalled();
-    const running = await isOllamaRunning(baseUrl);
+    const health = await healthCheckInFlight;
+    cachedHealth = { health, timestamp: Date.now() };
+    return health;
+  } finally {
+    healthCheckInFlight = null;
+  }
+}
+
+/**
+ * Internal: Actually performs the health check
+ */
+async function performHealthCheck(baseUrl: string): Promise<OllamaHealth> {
+  try {
+    // Run both checks in parallel for speed
+    const [installed, running] = await Promise.all([
+      isOllamaInstalled(),
+      isOllamaRunning(baseUrl),
+    ]);
 
     return {
       installed: installed.installed,
@@ -186,12 +238,23 @@ export async function checkOllamaHealth(
 }
 
 /**
+ * Invalidate health cache (call after starting/stopping Ollama)
+ */
+export function invalidateHealthCache(): void {
+  cachedHealth = null;
+  log.info("[Ollama] Health cache invalidated");
+}
+
+/**
  * Start Ollama service
  */
 export async function startOllamaService(): Promise<{
   success: boolean;
   message: string;
 }> {
+  // Invalidate cache before starting
+  invalidateHealthCache();
+
   // Check if already running
   if (await isOllamaRunning()) {
     return { success: true, message: "Ollama is already running" };
@@ -269,6 +332,8 @@ export async function startOllamaService(): Promise<{
     // Wait for service to start
     const started = await waitForOllama();
     if (started) {
+      // Invalidate cache after successful start
+      invalidateHealthCache();
       return { success: true, message: "Ollama service started successfully" };
     } else {
       return { success: false, message: "Ollama service failed to start within timeout" };
@@ -302,6 +367,9 @@ async function waitForOllama(
  * Stop Ollama service (if we started it)
  */
 export function stopOllamaService(): void {
+  // Invalidate cache when stopping
+  invalidateHealthCache();
+
   if (ollamaServeProcess) {
     log.info("[Ollama] Stopping Ollama serve process");
     try {

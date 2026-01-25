@@ -127,11 +127,11 @@ export interface DocumentChange {
 // ============================================================================
 
 /**
- * Generate download file helper code (works for both http and https)
+ * Generate download file helper code using fetch()
  */
 function generateDownloadHelperCode(): string {
   return `
-// Download file from URL helper
+// Download file from URL helper using fetch()
 async function downloadFile(url, dest) {
   const fs = require('fs');
   const path = require('path');
@@ -142,39 +142,26 @@ async function downloadFile(url, dest) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
-    const protocol = url.startsWith('https') ? require('https') : require('http');
-
-    const request = protocol.get(url, (response) => {
-      // Handle redirects
-      if (response.statusCode === 301 || response.statusCode === 302) {
-        const redirectUrl = response.headers.location;
-        downloadFile(redirectUrl, dest).then(resolve).catch(reject);
-        return;
-      }
-
-      if (response.statusCode !== 200) {
-        reject(new Error(\`Failed to download: HTTP \${response.statusCode}\`));
-        return;
-      }
-
-      response.pipe(file);
-      file.on('finish', () => {
-        file.close(() => resolve());
-      });
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow'
     });
 
-    request.on('error', (err) => {
-      fs.unlink(dest, () => {});
-      reject(err);
-    });
+    if (!response.ok) {
+      throw new Error(\`Failed to download: HTTP \${response.status}\`);
+    }
 
-    file.on('error', (err) => {
-      fs.unlink(dest, () => {});
-      reject(err);
-    });
-  });
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    fs.writeFileSync(dest, buffer);
+  } catch (err) {
+    // Clean up partial file if it exists
+    if (fs.existsSync(dest)) {
+      fs.unlinkSync(dest);
+    }
+    throw err;
+  }
 }
 `;
 }

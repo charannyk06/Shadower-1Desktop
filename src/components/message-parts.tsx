@@ -45,10 +45,6 @@ import { useCopy } from "@/hooks/use-copy";
 import { useTranslation } from "react-i18next";
 import { Separator } from "ui/separator";
 
-import {
-  VercelAIWorkflowToolStreamingResult,
-  VercelAIWorkflowToolStreamingResultTag,
-} from "app-types/workflow";
 import { DefaultToolName, ImageToolName } from "lib/ai/tools";
 import equal from "lib/equal";
 import {
@@ -64,7 +60,6 @@ import { BACKGROUND_COLORS, EMOJI_DATA } from "lib/const";
 import { notify } from "lib/notify";
 import { ModelProviderIcon } from "ui/model-provider-icon";
 import type { ToolStatus } from "ui/tool-status-badge";
-import { WorkflowInvocation } from "./tool-invocation/workflow-invocation";
 
 const ToolCallCard = lazy(() =>
   import("./tool-invocation/tool-call-card").then((mod) => ({
@@ -905,11 +900,6 @@ export const ToolMessagePart = memo(
       return null;
     }, [isCompleted, output, state, errorText]);
 
-    const isWorkflowTool = useMemo(
-      () => VercelAIWorkflowToolStreamingResultTag.isMaybe(result),
-      [result],
-    );
-
     const CustomToolComponent = useMemo(() => {
       if (
         toolName === DefaultToolName.WebSearch ||
@@ -1033,16 +1023,12 @@ export const ToolMessagePart = memo(
     }, [toolName, state, onToolCallDirect, result, input]);
 
     const isExpanded = useMemo(() => {
-      return expanded || result === null || isWorkflowTool;
-    }, [expanded, result, isWorkflowTool]);
+      return expanded || result === null;
+    }, [expanded, result]);
 
     const isExecuting = useMemo(() => {
-      if (isWorkflowTool)
-        return (
-          (result as VercelAIWorkflowToolStreamingResult)?.status == "running"
-        );
       return !isCompleted && isLast;
-    }, [isWorkflowTool, isCompleted, result, isLast]);
+    }, [isCompleted, isLast]);
 
     const toolStatus: ToolStatus = useMemo(() => {
       if (isError || state === "output-error") return "error";
@@ -1054,13 +1040,6 @@ export const ToolMessagePart = memo(
     const renderToolContent = () => {
       if (CustomToolComponent) {
         return CustomToolComponent;
-      }
-      if (isWorkflowTool) {
-        return (
-          <WorkflowInvocation
-            result={result as VercelAIWorkflowToolStreamingResult}
-          />
-        );
       }
       return (
         <div className="space-y-3">

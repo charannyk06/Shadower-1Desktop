@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
+import { TEST_USERS } from "../constants/test-users";
 
 test.describe("Dynamic Models System", () => {
-  test.use({ storageState: "tests/.auth/admin.json" });
+  test.use({ storageState: TEST_USERS.admin.authFile });
 
   test.describe("Models API Route", () => {
     test("should return models with display names from dynamic system", async ({

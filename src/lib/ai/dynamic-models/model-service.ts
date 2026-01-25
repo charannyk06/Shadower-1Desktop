@@ -25,6 +25,12 @@ import {
 const CACHE_KEY_PREFIX = "dynamic-models:";
 const CACHE_KEY_ALL_PROVIDERS = "dynamic-models:all-providers";
 
+// Local providers have faster timeouts and fewer retries
+const LOCAL_PROVIDERS: ProviderName[] = ["ollama", "lmstudio"];
+const LOCAL_TIMEOUT_MS = 5000; // 5 seconds for local (increased to handle cold starts)
+const LOCAL_MAX_RETRIES = 2; // 2 retries for local (handles model loading delays)
+const LOCAL_BACKOFF_MS = 1000; // 1 second backoff for local
+
 type ProviderFetcher = (timeoutMs: number) => Promise<DynamicModelInfo[]>;
 
 const PROVIDER_FETCHERS: Record<ProviderName, ProviderFetcher> = {
@@ -91,15 +97,18 @@ async function fetchProviderModels(
     return staticResult;
   }
 
-  // Retry logic for reliability
-  const maxRetries = 2;
+  // Use reduced retries and timeouts for local providers (Ollama, LM Studio)
+  const isLocalProvider = LOCAL_PROVIDERS.includes(provider);
+  const maxRetries = isLocalProvider ? LOCAL_MAX_RETRIES : 2;
+  const baseTimeout = isLocalProvider ? LOCAL_TIMEOUT_MS : config.timeoutMs;
+  const backoffMs = isLocalProvider ? LOCAL_BACKOFF_MS : 1000;
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const fetcher = PROVIDER_FETCHERS[provider];
-      // Increase timeout on retries
-      const timeout = config.timeoutMs * (attempt + 1);
+      // Local providers: fixed timeout, cloud: increasing timeout on retries
+      const timeout = isLocalProvider ? baseTimeout : baseTimeout * (attempt + 1);
       const models = await fetcher(timeout);
 
       if (models.length === 0) {
@@ -108,14 +117,20 @@ async function fetchProviderModels(
             `[Dynamic Models] No models returned from ${provider} (attempt ${attempt + 1}/${maxRetries + 1}), retrying...`,
           );
           await new Promise((resolve) =>
-            setTimeout(resolve, 1000 * (attempt + 1)),
-          ); // Exponential backoff
+            setTimeout(resolve, backoffMs * (attempt + 1)),
+          );
           continue;
         }
-        // Last attempt failed - this is bad, but we'll still try to use what we have
-        logger.error(
-          `[Dynamic Models] ⚠️ CRITICAL: No models returned from ${provider} after ${maxRetries + 1} attempts!`,
-        );
+        // Last attempt failed - use fallback models
+        if (!isLocalProvider) {
+          logger.error(
+            `[Dynamic Models] ⚠️ CRITICAL: No models returned from ${provider} after ${maxRetries + 1} attempts!`,
+          );
+        } else {
+          logger.info(
+            `[Dynamic Models] Local provider ${provider} returned no models (not running?)`,
+          );
+        }
         const fallbackModels = STATIC_FALLBACK_MODELS[provider] || [];
         const result: ProviderModelsResult = {
           provider,
@@ -150,14 +165,20 @@ async function fetchProviderModels(
           `[Dynamic Models] Fetch failed for ${provider} (attempt ${attempt + 1}/${maxRetries + 1}): ${lastError.message}, retrying...`,
         );
         await new Promise((resolve) =>
-          setTimeout(resolve, 1000 * (attempt + 1)),
-        ); // Exponential backoff
+          setTimeout(resolve, backoffMs * (attempt + 1)),
+        );
         continue;
       }
       // Last attempt failed
-      logger.error(
-        `[Dynamic Models] ⚠️ CRITICAL: Failed to fetch models from ${provider} after ${maxRetries + 1} attempts: ${lastError.message}`,
-      );
+      if (!isLocalProvider) {
+        logger.error(
+          `[Dynamic Models] ⚠️ CRITICAL: Failed to fetch models from ${provider} after ${maxRetries + 1} attempts: ${lastError.message}`,
+        );
+      } else {
+        logger.info(
+          `[Dynamic Models] Local provider ${provider} not available: ${lastError.message}`,
+        );
+      }
     }
   }
 
@@ -205,9 +226,29 @@ export async function getAllProviderModels(
     "cerebras",
   ];
 
-  const results = await Promise.all(
+  // Use Promise.allSettled to prevent slow/failing providers from blocking others
+  const settledResults = await Promise.allSettled(
     providers.map((provider) => fetchProviderModels(provider, mergedConfig)),
   );
+
+  // Extract successful results, use fallback for failed ones
+  const results = settledResults.map((result, index) => {
+    if (result.status === "fulfilled") {
+      return result.value;
+    }
+    // Failed provider - return fallback result
+    const provider = providers[index];
+    logger.warn(
+      `[Dynamic Models] Provider ${provider} failed completely: ${result.reason?.message || "Unknown error"}`,
+    );
+    return {
+      provider,
+      models: STATIC_FALLBACK_MODELS[provider] || [],
+      hasAPIKey: hasAPIKey(provider),
+      fetchedAt: Date.now(),
+      error: result.reason?.message || "Fetch failed",
+    } as ProviderModelsResult;
+  });
 
   const providerOrder = new Map(providers.map((p, i) => [p, i]));
   const sortedResults = results.sort((a, b) => {
@@ -236,6 +277,41 @@ export async function invalidateModelCache(
   }
   await serverCache.delete(CACHE_KEY_ALL_PROVIDERS);
   logger.info(`Invalidated model cache${provider ? ` for ${provider}` : ""}`);
+}
+
+/**
+ * Warm up the model limits cache at app startup
+ * This prevents the first message from blocking on API fetches
+ * Non-blocking - fire and forget
+ */
+export async function warmModelLimitsCache(): Promise<void> {
+  const startTime = Date.now();
+  logger.info("[Model Cache] Warming up model limits cache...");
+
+  try {
+    // Fetch all provider models with shorter timeout for warmup
+    // Use Promise.allSettled so slow providers don't block others
+    const results = await getAllProviderModels({
+      cacheTtlMs: 60 * 60 * 1000, // 1 hour
+      timeoutMs: 5000, // Shorter timeout for warmup (5s instead of 15s)
+      enableDynamicFetch: true,
+    });
+
+    const duration = Date.now() - startTime;
+    const successCount = results.filter((r) => !r.error).length;
+    const totalModels = results.reduce((acc, r) => acc + r.models.length, 0);
+
+    logger.info(
+      `[Model Cache] ✓ Cache warmed in ${duration}ms: ${successCount}/${results.length} providers, ${totalModels} models`,
+    );
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.warn(
+      `[Model Cache] Cache warmup failed after ${duration}ms (will retry on first use):`,
+      error,
+    );
+    // Don't throw - warmup failure shouldn't block app startup
+  }
 }
 
 export function transformToAPIResponse(results: ProviderModelsResult[]): Array<{

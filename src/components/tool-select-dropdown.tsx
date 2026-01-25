@@ -8,14 +8,10 @@ import {
   AtSign,
   ChartColumn,
   ChevronRight,
-  GitBranch,
   GlobeIcon,
-  HardDriveUploadIcon,
   ImagesIcon,
-  InfoIcon,
   Loader,
   MessageCircle,
-  MousePointer2,
   Package,
   Plus,
   ShieldAlertIcon,
@@ -56,20 +52,14 @@ import { MCPIcon } from "ui/mcp-icon";
 import { useTranslation } from "react-i18next";
 
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
-import { useWorkflowToolList } from "@/hooks/queries/use-workflow-tool-list";
 import { ChatMention } from "app-types/chat";
-import { WorkflowSummary } from "app-types/workflow";
 import { AppDefaultToolkit } from "lib/ai/tools";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { CountAnimation } from "ui/count-animation";
 import { Switch } from "ui/switch";
 import { useShallow } from "zustand/shallow";
-import { WorkflowGreeting } from "./workflow/workflow-greeting";
 
 import { AgentSummary } from "app-types/agent";
-import { authClient } from "auth/client";
-import { getCurrentUserId } from "lib/electron/workflow-api";
-import { isElectronMode } from "lib/electron/ai-api";
 import { Separator } from "ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
@@ -88,7 +78,6 @@ interface ToolSelectDropdownProps {
   side?: "left" | "right" | "top" | "bottom";
   disabled?: boolean;
   mentions?: ChatMention[];
-  onSelectWorkflow?: (workflow: WorkflowSummary) => void;
   onSelectAgent?: (agent: AgentSummary) => void;
   onGenerateImage?: (provider?: "google" | "openai") => void;
   className?: string;
@@ -107,7 +96,6 @@ const calculateToolCount = (
 export function ToolSelectDropdown({
   align,
   side,
-  onSelectWorkflow,
   onSelectAgent,
   onGenerateImage,
   mentions,
@@ -138,10 +126,6 @@ export function ToolSelectDropdown({
     );
     return model;
   }, [providers, globalModel]);
-
-  useWorkflowToolList({
-    refreshInterval: 1000 * 60 * 5,
-  });
 
   const agentMention = useMemo(() => {
     return mentions?.find((m) => m.type === "agent");
@@ -255,10 +239,6 @@ export function ToolSelectDropdown({
         </div>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="md:w-72" align={align} side={side}>
-        <WorkflowToolSelector onSelectWorkflow={onSelectWorkflow} />
-        <div className="py-1">
-          <DropdownMenuSeparator />
-        </div>
         <AgentSelector onSelectAgent={onSelectAgent} />
         <div className="py-1">
           <DropdownMenuSeparator />
@@ -446,136 +426,6 @@ function ToolPresets() {
                   </DropdownMenuItem>
                 );
               })
-            )}
-          </DropdownMenuSubContent>
-        </DropdownMenuPortal>
-      </DropdownMenuSub>
-    </DropdownMenuGroup>
-  );
-}
-
-function WorkflowToolSelector({
-  onSelectWorkflow,
-}: {
-  onSelectWorkflow?: (workflow: WorkflowSummary) => void;
-}) {
-  const { t } = useTranslation();
-  const workflowToolList = appStore((state) => state.workflowToolList);
-  const { data: session } = authClient.useSession();
-  // In Electron mode, we need the actual database user ID (UUID), not the hardcoded "local-user"
-  const [electronUserId, setElectronUserId] = useState<string | undefined>();
-
-  useEffect(() => {
-    // Fetch the actual user ID in Electron mode
-    if (isElectronMode()) {
-      getCurrentUserId().then(setElectronUserId);
-    }
-  }, []);
-
-  // Use Electron user ID if available, otherwise fall back to session
-  const currentUserId = electronUserId || session?.user?.id;
-
-  // Ensure we only work with actual workflows
-  const workflowsOnly = workflowToolList.filter((w) => w.type === "workflow");
-
-  // Separate user's workflows from shared workflows
-  const myWorkflows = workflowsOnly.filter((w) => w.userId === currentUserId);
-  const sharedWorkflows = workflowsOnly.filter(
-    (w) => w.userId !== currentUserId,
-  );
-  return (
-    <DropdownMenuGroup>
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger className="text-xs flex items-center gap-2 font-semibold cursor-pointer">
-          <GitBranch className="size-3.5" />
-          {t("Workflow.title")}
-        </DropdownMenuSubTrigger>
-        <DropdownMenuPortal>
-          <DropdownMenuSubContent className="w-80 relative">
-            {myWorkflows.length === 0 && sharedWorkflows.length === 0 ? (
-              <div className="text-sm text-muted-foreground flex flex-col py-6 px-6 gap-4 items-center">
-                <InfoIcon className="size-4" />
-                <p className="whitespace-pre-wrap">{t("Workflow.noTools")}</p>
-
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button variant={"ghost"} className="relative group">
-                      {t("Workflow.whatIsWorkflow")}
-                      <div className="absolute left-0 -top-1.5 opacity-100 group-hover:opacity-0 transition-opacity duration-300">
-                        <MousePointer2 className="rotate-180 text-blue-500 fill-blue-500 size-3 wiggle" />
-                      </div>
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="md:max-w-3xl!">
-                    <DialogTitle className="sr-only">
-                      workflow greeting
-                    </DialogTitle>
-                    <WorkflowGreeting />
-                  </DialogContent>
-                </Dialog>
-              </div>
-            ) : (
-              <>
-                {/* My Workflows */}
-                {myWorkflows.map((workflow) => (
-                  <DropdownMenuItem
-                    key={workflow.id}
-                    className="cursor-pointer"
-                    onClick={() => onSelectWorkflow?.(workflow)}
-                  >
-                    {workflow.icon && workflow.icon.type === "emoji" ? (
-                      <div
-                        style={{
-                          backgroundColor:
-                            workflow.icon?.style?.backgroundColor,
-                        }}
-                        className="p-1 rounded flex items-center justify-center ring ring-background border"
-                      >
-                        <Avatar className="size-3">
-                          <AvatarImage src={workflow.icon?.value} />
-                          <AvatarFallback>
-                            {workflow.name.slice(0, 1)}
-                          </AvatarFallback>
-                        </Avatar>
-                      </div>
-                    ) : null}
-                    <span className="truncate min-w-0">{workflow.name}</span>
-                  </DropdownMenuItem>
-                ))}
-
-                {myWorkflows.length > 0 && sharedWorkflows.length > 0 && (
-                  <DropdownMenuSeparator />
-                )}
-
-                {/* Shared Workflows */}
-                {sharedWorkflows.map((workflow) => (
-                  <DropdownMenuItem
-                    key={workflow.id}
-                    className="cursor-pointer"
-                    onClick={() => onSelectWorkflow?.(workflow)}
-                  >
-                    {workflow.icon && workflow.icon.type === "emoji" ? (
-                      <div
-                        style={{
-                          backgroundColor:
-                            workflow.icon?.style?.backgroundColor,
-                        }}
-                        className="p-1 rounded flex items-center justify-center ring ring-background border"
-                      >
-                        <Avatar className="size-3">
-                          <AvatarImage src={workflow.icon?.value} />
-                          <AvatarFallback>
-                            {workflow.name.slice(0, 1)}
-                          </AvatarFallback>
-                        </Avatar>
-                      </div>
-                    ) : null}
-                    <div className="flex items-center justify-between flex-1 min-w-0">
-                      <span className="truncate min-w-0">{workflow.name}</span>
-                    </div>
-                  </DropdownMenuItem>
-                ))}
-              </>
             )}
           </DropdownMenuSubContent>
         </DropdownMenuPortal>
@@ -886,9 +736,6 @@ function AppDefaultToolKitSelector() {
           break;
         case AppDefaultToolkit.WebSearch:
           icon = GlobeIcon;
-          break;
-        case AppDefaultToolkit.Http:
-          icon = HardDriveUploadIcon;
           break;
       }
       return {

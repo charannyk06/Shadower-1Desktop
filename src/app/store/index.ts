@@ -1,7 +1,6 @@
 import { AgentSummary } from "app-types/agent";
 import { ChatMention, ChatModel, ChatThread } from "app-types/chat";
 import { AllowedMCPServer, MCPServerInfo } from "app-types/mcp";
-import { WorkflowSummary } from "app-types/workflow";
 import { OPENAI_VOICE } from "lib/ai/speech/open-ai/use-voice-chat.openai";
 import { AppDefaultToolkit } from "lib/ai/tools";
 import { create } from "zustand";
@@ -56,10 +55,9 @@ export interface AppState {
   threadList: ChatThread[];
   mcpList: (MCPServerInfo & { id: string })[];
   agentList: AgentSummary[];
-  workflowToolList: WorkflowSummary[];
   currentThreadId: ChatThread["id"] | null;
   toolChoice: "auto" | "none" | "manual";
-  chatMode: "regular" | "agent";
+  chatMode: "regular" | "agent" | "rag";
   allowedMcpServers?: Record<string, AllowedMCPServer>;
   allowedAppDefaultToolkit?: AppDefaultToolkit[];
   generatingTitleThreadIds: string[];
@@ -167,7 +165,6 @@ const initialState: AppState = {
   threadContextUsage: {},
   mcpList: [],
   agentList: [],
-  workflowToolList: [],
   currentThreadId: null,
   toolChoice: "auto",
   chatMode: "regular",
@@ -179,7 +176,6 @@ const initialState: AppState = {
   allowedAppDefaultToolkit: [
     AppDefaultToolkit.Visualization,
     AppDefaultToolkit.WebSearch,
-    AppDefaultToolkit.Http,
     AppDefaultToolkit.Browser,
     AppDefaultToolkit.Desktop,
     AppDefaultToolkit.DataAnalysis,

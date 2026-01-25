@@ -3,7 +3,6 @@
 import { getSystemAgentCustomIcon } from "@/hooks/use-system-agent-icon";
 import { AgentSummary } from "app-types/agent";
 import { MCPServerInfo } from "app-types/mcp";
-import { WorkflowSummary } from "app-types/workflow";
 import { format } from "date-fns";
 import { cn } from "lib/utils";
 import { useTranslation } from "react-i18next";
@@ -28,8 +27,8 @@ export interface ShareableIcon {
   };
 }
 interface ShareableCardProps {
-  type: "agent" | "workflow" | "mcp";
-  item: AgentSummary | WorkflowSummary | MCPServerInfo;
+  type: "agent" | "mcp";
+  item: AgentSummary | MCPServerInfo;
   isOwner?: boolean;
   href: string;
   onDelete?: (itemId: string) => void;
@@ -48,8 +47,7 @@ export function ShareableCard({
   actionsDisabled,
   hideActions = false,
 }: ShareableCardProps) {
-  const { t } = useTranslation();
-  const isPublished = (item as WorkflowSummary).isPublished;
+  const { t: _t } = useTranslation();
 
   // Get effective icon - use custom icon for system agents if available
   const effectiveIcon = useMemo(() => {
@@ -99,16 +97,9 @@ export function ShareableCard({
               >
                 {item.name}
               </span>
-              <div className="text-xs text-muted-foreground flex items-center gap-1 min-w-0">
-                <time className="shrink-0">
-                  {format(item.updatedAt || new Date(), "MMM d, yyyy")}
-                </time>
-                {type === "workflow" && !isPublished && (
-                  <span className="px-2 rounded-sm bg-secondary text-foreground shrink-0">
-                    {t("Workflow.draft")}
-                  </span>
-                )}
-              </div>
+              <time className="text-xs text-muted-foreground shrink-0">
+                {format(item.updatedAt || new Date(), "MMM d, yyyy")}
+              </time>
             </div>
           </CardTitle>
         </CardHeader>

@@ -22,6 +22,11 @@ interface ChatModelInfo {
     | "responses-api-only";
   reasoningEffort?: string[];
   thinkingLevel?: string[];
+  // ACP Agent-specific fields
+  isACPAgent?: boolean;
+  acpProvider?: "anthropic" | "openai" | "google";
+  acpAuthenticated?: boolean;
+  acpRunning?: boolean;
 }
 
 /**
@@ -85,7 +90,7 @@ export const modelsApi = {
                     isImageInputUnsupported: !m.isImageInputSupported,
                     supportedFileMimeTypes: m.supportedFileMimeTypes,
                     isReasoningModel: m.isReasoningModel,
-                    workflowGenerationSupport: m.workflowGenerationSupport,
+                    workflowGenerationSupport: "full" as const,
                     toolCallUnsupportedReason: m.toolCallUnsupportedReason,
                     reasoningEffort: m.reasoningEffort,
                     thinkingLevel: m.thinkingLevel,
@@ -113,9 +118,9 @@ export const modelsApi = {
       }),
     );
 
-    // Also check for local models (Ollama, LM Studio)
+    // Also check for local models (Ollama, LM Studio) and ACP agents
     try {
-      const { localModels } =
+      const { localModels, acpAgents } =
         await window.electronAPI.models.getAvailableModels();
       if (localModels && localModels.length > 0) {
         const ollamaModels = localModels.filter(
@@ -161,14 +166,40 @@ export const modelsApi = {
           });
         }
       }
+
+      // Add ACP agents (Claude Code, Codex, Gemini CLI) as "coding-agents" group
+      if (acpAgents && acpAgents.length > 0) {
+        result.push({
+          provider: "coding-agents",
+          hasAPIKey: true,
+          models: acpAgents.map((agent: any) => ({
+            name: agent.id,
+            displayName: agent.displayName,
+            isToolCallUnsupported: false,
+            isImageInputUnsupported: true,
+            supportedFileMimeTypes: [],
+            isReasoningModel: false,
+            workflowGenerationSupport: "full" as const,
+            // ACP-specific fields
+            isACPAgent: true,
+            acpProvider: agent.iconProvider, // 'anthropic', 'openai', 'google' for icon selection
+            acpAuthenticated: agent.authenticated,
+            acpRunning: agent.running,
+          })),
+        });
+      }
     } catch (e) {
       console.warn("[modelsApi] Failed to get local models:", e);
     }
 
-    // Filter to only include providers with API keys (or local providers with models)
+    // Filter to only include providers with API keys (or local/ACP providers with models)
     return result.filter((p) => {
-      // Local providers (ollama, lmstudio) don't need API keys - include if they have models
-      if (p.provider === "ollama" || p.provider === "lmstudio") {
+      // Local providers (ollama, lmstudio) and coding-agents don't need API keys - include if they have models
+      if (
+        p.provider === "ollama" ||
+        p.provider === "lmstudio" ||
+        p.provider === "coding-agents"
+      ) {
         return p.models && p.models.length > 0;
       }
       // Cloud providers must have API keys
