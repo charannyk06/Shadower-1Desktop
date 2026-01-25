@@ -120,7 +120,7 @@ export function AppHeader() {
                       theaterMode: {
                         ...state.theaterMode,
                         isOpen: true,
-                        defaultTab: "files",
+                        defaultTab: "all-files",
                       },
                     }));
                   }}

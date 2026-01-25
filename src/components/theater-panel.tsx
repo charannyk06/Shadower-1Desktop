@@ -3,36 +3,21 @@
 import { useAppStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useThreadFileUploader } from "@/hooks/use-thread-file-uploader";
-import {
-  type OfficeFileType,
-  convertOfficeFileToHtml,
-  detectOfficeFileType,
-} from "@/lib/office-file-converter";
 import { cn } from "@/lib/utils";
-import { AnimatePresence, motion } from "framer-motion";
 import {
-  AlertCircle,
   Box,
   ChevronRight,
-  Download,
-  ExternalLink,
-  FileIcon,
   FolderIcon,
-  Layout,
   Loader2,
   Maximize2,
   Minimize2,
   Search,
-  Upload,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { FileTypeIcon } from "./file-type-icon";
-import { BrowserPreview } from "./theater/browser-preview";
-import { DesktopPreview } from "./theater/desktop-preview";
 
 // Interface for workspace files from API
 interface WorkspaceFileMetadata {
@@ -43,6 +28,45 @@ interface WorkspaceFileMetadata {
   storageKey?: string;
   url?: string;
   uploadedAt: string;
+}
+
+// Text-based file extensions that can be edited in the inline viewer
+// Using a Set for O(1) lookup performance
+const EDITABLE_FILE_EXTENSIONS = new Set([
+  // JavaScript/TypeScript
+  "js", "jsx", "ts", "tsx", "mjs", "cjs",
+  // Python
+  "py",
+  // Web
+  "css", "scss", "sass", "less", "html", "htm",
+  // Data formats
+  "json", "yaml", "yml", "xml", "csv",
+  // Shell scripts
+  "sh", "bash", "zsh",
+  // Systems languages
+  "go", "rs", "rb", "php", "java", "c", "cpp", "h", "hpp", "cs",
+  // Mobile
+  "swift", "kt",
+  // Other languages
+  "scala", "r", "lua", "pl", "pm", "ex", "exs", "erl", "hrl", "clj", "cljs", "hs", "elm",
+  // Modern frameworks
+  "vue", "svelte", "astro",
+  // GraphQL
+  "graphql", "gql",
+  // Config
+  "toml", "ini", "cfg", "conf", "env", "gitignore", "dockerfile", "makefile", "cmake",
+  // Text/Documentation
+  "txt", "text", "md", "markdown", "rst", "log",
+  // SQL
+  "sql",
+]);
+
+/**
+ * Check if a file is editable based on its extension
+ */
+function isEditableFile(filename: string): boolean {
+  const ext = filename.split(".").pop()?.toLowerCase();
+  return ext ? EDITABLE_FILE_EXTENSIONS.has(ext) : false;
 }
 
 // Helper functions to reduce cognitive complexity
@@ -151,14 +175,24 @@ export function TheaterPanel() {
     })),
   );
 
-  const [activeTab, setActiveTab] = useState<"preview" | "files">(
-    theaterMode.defaultTab || "preview",
+  const [activeTab, setActiveTab] = useState<"all-files" | "changes">(
+    theaterMode.defaultTab || "all-files",
   );
   const [isMaximized, setIsMaximized] = useState(false);
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileMetadata[]>([]);
   const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
-  const { uploadFiles } = useThreadFileUploader(currentThreadId || undefined);
   const isMobile = useIsMobile();
+
+  // Inline file viewer state
+  const [selectedFile, setSelectedFile] = useState<{
+    path: string;
+    content: string;
+    title: string;
+    isEditable: boolean;
+    storageKey?: string;
+  } | null>(null);
+  const [editedContent, setEditedContent] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
 
   // Fetch workspace files from API when theater opens, thread changes, or files version changes
   useEffect(() => {
@@ -226,11 +260,6 @@ export function TheaterPanel() {
     };
   }, [theaterMode.isOpen, currentThreadId, filesVersion]);
 
-  const isUploading = useMemo(() => {
-    const files = threadFiles[currentThreadId || ""] || [];
-    return files.some((f) => f.isUploading);
-  }, [threadFiles, currentThreadId]);
-
   // Combine Artifacts + Uploaded Files
   const allItems = useMemo(() => {
     const threadArtifacts = theaterMode.threadArtifacts || {};
@@ -297,7 +326,7 @@ export function TheaterPanel() {
     if (theaterMode.isOpen && theaterMode.defaultTab) {
       setActiveTab(theaterMode.defaultTab);
     } else if (theaterMode.content) {
-      setActiveTab("preview");
+      setActiveTab("all-files");
     }
   }, [theaterMode.isOpen, theaterMode.defaultTab, theaterMode.content]);
 
@@ -355,204 +384,110 @@ export function TheaterPanel() {
     }));
   };
 
-  const handleDownloadCurrent = () => {
-    const c = theaterMode.content;
-    if (!c) return;
+  // Open a file in the inline viewer
+  const openFileViewer = useCallback(async (item: any) => {
+    const filename = item.filename || item.name || item.title || "Untitled";
+    const content = item.content || "";
 
-    const title = theaterMode.title || "download";
-    const isUrl =
-      typeof c === "string" &&
-      (c.startsWith("http") ||
-        c.startsWith("blob:") ||
-        c.startsWith("data:") ||
-        c.startsWith("/"));
+    // Determine if editable using the utility function (O(1) Set lookup)
+    const isEditable = isEditableFile(filename);
 
-    const link = document.createElement("a");
-    if (isUrl) {
-      link.href = c;
-    } else {
-      // Fallback for text content
-      const blob = new Blob([typeof c === "string" ? c : JSON.stringify(c)], {
-        type: "text/plain",
-      });
-      link.href = URL.createObjectURL(blob);
+    setSelectedFile({
+      path: item.storageKey || item.url || filename,
+      content: typeof content === "string" ? content : JSON.stringify(content, null, 2),
+      title: filename,
+      isEditable,
+      storageKey: item.storageKey,
+    });
+    setEditedContent(typeof content === "string" ? content : JSON.stringify(content, null, 2));
+  }, []);
+
+  // Close the inline file viewer
+  const closeFileViewer = useCallback(() => {
+    setSelectedFile(null);
+    setEditedContent("");
+  }, []);
+
+  // Save edited file content
+  const saveFileContent = useCallback(async () => {
+    if (!selectedFile) return;
+
+    setIsSaving(true);
+    try {
+      const api = typeof window !== "undefined" ? (window as any).electronAPI : null;
+      if (api?.dialog?.writeToPath && selectedFile.path) {
+        await api.dialog.writeToPath(selectedFile.path, editedContent);
+        toast.success("File saved");
+        setSelectedFile((prev) => prev ? { ...prev, content: editedContent } : null);
+      } else {
+        toast.error("Cannot save file - no path available");
+      }
+    } catch (error) {
+      console.error("Error saving file:", error);
+      toast.error("Failed to save file");
+    } finally {
+      setIsSaving(false);
     }
-    link.download = title;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  };
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.length) {
-      await uploadFiles(Array.from(e.target.files));
-      toast.success("Files uploaded");
-      setActiveTab("files");
-    }
-  };
+  }, [selectedFile, editedContent]);
 
   if (!theaterMode.isOpen) return null;
 
   return (
     <div
       className={cn(
-        "bg-[#0A0A0A]/95 backdrop-blur-2xl flex flex-col overflow-hidden relative shadow-[0_32px_64px_-12px_rgba(0,0,0,0.5)] border border-white/5 ring-1 ring-white/5 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]",
-        (() => {
-          if (isMaximized) {
-            return "fixed inset-4 z-[100] rounded-[24px] md:rounded-[24px]";
-          }
-          if (isMobile) {
-            return "h-full w-full rounded-lg";
-          }
-          return "h-full w-full rounded-[40px] md:rounded-[40px]";
-        })(),
+        "bg-[#0A0A0A] border-l border-white/10 flex flex-col overflow-hidden h-full",
+        isMaximized && "fixed inset-4 z-[100] rounded-lg border",
       )}
     >
-      {/* Hidden File Input */}
-      <input
-        type="file"
-        multiple
-        className="hidden"
-        ref={fileInputRef}
-        onChange={onFileChange}
-      />
-
-      {/* --- Ambient Glows --- */}
-      <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent z-20" />
-      <div className="absolute top-0 right-0 w-[1px] h-full bg-gradient-to-b from-transparent via-white/5 to-transparent z-20" />
-
-      {/* --- Header --- */}
-      <div
-        className={cn(
-          "flex-none border-b border-white/5 bg-white/5 relative z-30",
-          isMobile ? "h-auto min-h-12 px-2 py-2" : "h-14 px-4",
-          "flex items-center justify-between",
-        )}
-      >
-        <div className="flex items-center gap-3 min-w-0 flex-1 pr-4">
-          <div className="flex items-center justify-center rounded-full bg-black/40 border border-white/10 shadow-inner flex-shrink-0 p-2 xl:gap-2.5 xl:px-3 xl:py-1.5 xl:justify-start">
-            <Box className="w-4 h-4 xl:w-3.5 xl:h-3.5 text-primary/80 flex-shrink-0" />
-            <span className="hidden xl:inline text-xs font-medium tracking-wide bg-gradient-to-r from-white/90 to-white/60 bg-clip-text text-transparent uppercase whitespace-nowrap">
-              Theater Mode
-            </span>
-          </div>
-          {theaterMode.title && !isMobile && (
-            <>
-              <div className="h-4 w-[1px] bg-white/10 flex-shrink-0" />
-              <span className="text-sm font-medium text-white/70 truncate max-w-[200px]">
-                {theaterMode.title}
-              </span>
-            </>
-          )}
-        </div>
-
-        <div className="flex items-center gap-3 flex-shrink-0">
-          {/* Tab Switcher */}
-          <div
+      {/* --- Header (Conductor-style) --- */}
+      <div className="flex-none h-12 px-4 border-b border-white/10 flex items-center justify-between">
+        {/* Conductor-style flat tabs */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setActiveTab("all-files")}
             className={cn(
-              "flex items-center rounded-full bg-black/40 border border-white/10",
-              isMobile ? "p-0.5 gap-0.5" : "p-1 gap-1.5",
+              "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+              activeTab === "all-files"
+                ? "bg-white/10 text-white"
+                : "text-white/50 hover:text-white/80 hover:bg-white/5"
             )}
           >
-            <button
-              onClick={() => setActiveTab("preview")}
-              className={cn(
-                "rounded-full text-xs font-medium transition-all duration-300 relative overflow-visible whitespace-nowrap",
-                isMobile ? "px-2 py-1" : "px-4 py-1.5",
-                activeTab === "preview"
-                  ? "text-black shadow-[0_0_15px_rgba(255,255,255,0.3)]"
-                  : "text-white/50 hover:text-white/80",
-              )}
-            >
-              {activeTab === "preview" && (
-                <motion.div
-                  layoutId="activeTab"
-                  className="absolute inset-0 bg-white rounded-full z-0"
-                  transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                />
-              )}
-              <span className="relative z-10 flex items-center gap-2">
-                {!isMobile && <Layout className="w-3 h-3 flex-shrink-0" />}
-                <span className={isMobile ? "text-[10px]" : ""}>Preview</span>
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("files")}
-              className={cn(
-                "rounded-full text-xs font-medium transition-all duration-300 relative overflow-visible whitespace-nowrap",
-                isMobile ? "px-2 py-1" : "px-4 py-1.5",
-                activeTab === "files"
-                  ? "text-black shadow-[0_0_15px_rgba(255,255,255,0.3)]"
-                  : "text-white/50 hover:text-white/80",
-              )}
-            >
-              {activeTab === "files" && (
-                <motion.div
-                  layoutId="activeTab"
-                  className="absolute inset-0 bg-white rounded-full z-0"
-                  transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                />
-              )}
-              <span className="relative z-10 flex items-center gap-2">
-                {!isMobile && <Box className="w-3 h-3 flex-shrink-0" />}
-                <span className={isMobile ? "text-[10px]" : ""}>
-                  {isMobile ? `Files` : `Files (${allItems.length})`}
-                </span>
-              </span>
-            </button>
-          </div>
+            All files
+          </button>
+          <button
+            onClick={() => setActiveTab("changes")}
+            className={cn(
+              "px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center gap-2",
+              activeTab === "changes"
+                ? "bg-white/10 text-white"
+                : "text-white/50 hover:text-white/80 hover:bg-white/5"
+            )}
+          >
+            Changes
+            {allItems.length > 0 && (
+              <span className="text-xs text-white/60">{allItems.length}</span>
+            )}
+          </button>
+        </div>
 
+        {/* Right side actions */}
+        <div className="flex items-center gap-1">
           {!isMobile && (
             <>
-              <div className="h-4 w-[1px] bg-white/10 mx-2" />
-
-              {/* Open in New Tab Button - for app/iframe previews */}
-              {activeTab === "preview" &&
-                theaterMode.type === "app" &&
-                theaterMode.content && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-full hover:bg-white/10 text-white/50 hover:text-white"
-                    onClick={() => {
-                      const url =
-                        typeof theaterMode.content === "string"
-                          ? theaterMode.content
-                          : theaterMode.content?.url;
-                      if (url) {
-                        window.open(url, "_blank", "noopener,noreferrer");
-                      }
-                    }}
-                    title="Open in New Tab"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </Button>
-                )}
-
-              {/* Download Button */}
-              {activeTab === "files" && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-full hover:bg-white/10 text-white/50 hover:text-white"
-                  onClick={handleDownloadCurrent}
-                  title="Download Current File"
-                >
-                  <Download className="w-4 h-4" />
-                </Button>
-              )}
+              {/* Search icon placeholder */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white/50 hover:text-white hover:bg-white/5"
+              >
+                <Search className="w-4 h-4" />
+              </Button>
 
               {/* Maximize Toggle */}
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 rounded-full hover:bg-white/10 text-white/50 hover:text-white"
+                className="h-8 w-8 text-white/50 hover:text-white hover:bg-white/5"
                 onClick={() => setIsMaximized(!isMaximized)}
               >
                 {isMaximized ? (
@@ -567,1172 +502,143 @@ export function TheaterPanel() {
           <Button
             variant="ghost"
             size="icon"
-            className={cn(
-              "rounded-full hover:bg-white/10 text-white/50 hover:text-white",
-              isMobile ? "h-7 w-7" : "h-8 w-8",
-            )}
+            className="h-8 w-8 text-white/50 hover:text-white hover:bg-white/5"
             onClick={handleClose}
           >
-            <X className={isMobile ? "w-3.5 h-3.5" : "w-4 h-4"} />
+            <X className="w-4 h-4" />
           </Button>
         </div>
       </div>
 
-      {/* --- Content Area --- */}
-      <div className="flex-1 w-full min-h-0 bg-[#0E0E0E] relative z-10">
-        <AnimatePresence mode="wait">
-          {activeTab === "preview" ? (
-            <motion.div
-              key="preview"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3 }}
-              className={cn("h-full w-full", isMobile ? "p-2" : "p-4")}
-            >
-              <PreviewContent
-                theaterMode={theaterMode}
-                threadId={currentThreadId}
-              />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="files"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-              className={cn("h-full w-full", isMobile ? "p-2" : "p-4")}
-            >
-              <div
-                className={cn(
-                  "h-full w-full overflow-hidden border border-white/10 bg-[#0A0A0A] flex flex-col relative",
-                  isMobile ? "rounded-lg" : "rounded-2xl",
-                )}
-              >
-                <div
-                  className={cn(
-                    "border-b border-white/5 flex items-center justify-between bg-white/5",
-                    isMobile ? "h-10 px-2" : "h-12 px-4",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "font-medium text-white/50 uppercase tracking-widest",
-                      isMobile ? "text-[10px]" : "text-xs",
+      {/* --- Content Area (Conductor-style clean) --- */}
+      <div className="flex-1 w-full min-h-0 overflow-hidden">
+        {activeTab === "all-files" ? (
+          <div className="h-full w-full flex flex-col">
+            {/* Inline file viewer - shows when a file is selected */}
+            {selectedFile ? (
+              <div className="h-full flex flex-col">
+                {/* File viewer header */}
+                <div className="flex items-center justify-between h-10 px-3 border-b border-white/10 flex-shrink-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileTypeIcon filename={selectedFile.title} size={14} />
+                    <span className="text-sm text-white/80 truncate">{selectedFile.title}</span>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {selectedFile.isEditable && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={saveFileContent}
+                        disabled={isSaving}
+                        className="h-7 text-xs text-white/70 hover:text-white hover:bg-white/10"
+                      >
+                        {isSaving ? (
+                          <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                        ) : null}
+                        Save
+                      </Button>
                     )}
-                  >
-                    Workspace Files
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className={cn(
-                      "border border-white/10 hover:bg-white/10 text-white/70",
-                      isMobile ? "h-6 text-[10px] px-2" : "h-7 text-xs",
-                    )}
-                    onClick={handleUploadClick}
-                    disabled={isUploading}
-                  >
-                    {isUploading ? (
-                      <Loader2
-                        className={cn(
-                          "animate-spin",
-                          isMobile ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1",
-                        )}
-                      />
-                    ) : (
-                      <Upload
-                        className={cn(
-                          isMobile ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1",
-                        )}
-                      />
-                    )}
-                    Upload
-                  </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={closeFileViewer}
+                      className="h-7 w-7 text-white/50 hover:text-white hover:bg-white/10"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 </div>
-                <div
-                  className={cn(
-                    "flex-1 overflow-y-auto custom-scrollbar",
-                    isMobile ? "p-2" : "p-4",
-                  )}
-                >
-                  {(() => {
-                    if (workspaceFilesLoading) {
-                      return (
-                        <div className="h-full flex flex-col items-center justify-center text-white/30 gap-4">
-                          <Loader2 className="w-8 h-8 animate-spin" />
-                          <span className="text-xs font-mono uppercase tracking-widest">
-                            Loading Files...
-                          </span>
-                        </div>
-                      );
-                    }
-                    if (allItems.length === 0) {
-                      return (
-                        <div className="h-full flex flex-col items-center justify-center text-white/20 gap-4">
-                          <Box className="w-12 h-12 stroke-1" />
-                          <span className="text-xs font-mono uppercase tracking-widest">
-                            No Artifacts / Files
-                          </span>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-                  {!workspaceFilesLoading && allItems.length > 0 && (
-                    <FileExplorer
-                      items={allItems}
-                      onSelect={(item) => {
-                        // Auto-detect types based on filename/name
-                        const n = (
-                          item.filename ||
-                          item.name ||
-                          ""
-                        ).toLowerCase();
-                        const isHtml = n.match(/\.(html|htm|svg)$/);
-                        const isPdf = n.endsWith(".pdf");
-                        const isOffice = n.match(
-                          /\.(docx|doc|pptx|ppt|xlsx|xls)$/,
-                        );
-                        const isCode = n.match(
-                          /\.(js|jsx|ts|tsx|py|css|scss|sass|less|json|yaml|yml|xml|sql|sh|bash|zsh|go|rs|rb|php|java|c|cpp|h|hpp|cs|swift|kt|scala|r|lua|pl|pm|ex|exs|erl|hrl|clj|cljs|hs|elm|vue|svelte|astro|graphql|gql|toml|ini|cfg|conf|env|gitignore|dockerfile|makefile|cmake|gradle|maven|gemfile|cargo|package|requirements|pipfile|poetry)$/,
-                        );
-                        const isText = n.match(
-                          /\.(txt|text|md|markdown|rst|log|csv)$/,
-                        );
-
-                        // Determine file type
-                        let fileType:
-                          | "image"
-                          | "pdf"
-                          | "office"
-                          | "app"
-                          | "chart"
-                          | "file" = "file";
-                        if (item.type === "image") {
-                          fileType = "image";
-                        } else if (isPdf) {
-                          fileType = "pdf";
-                        } else if (isOffice) {
-                          fileType = "office";
-                        } else if (item.type === "app" || isHtml) {
-                          fileType = "app";
-                        } else if (isCode || isText) {
-                          fileType = "file";
-                        }
-
-                        appStoreMutate((state) => ({
-                          theaterMode: {
-                            ...state.theaterMode,
-                            content: item.content || item.url,
-                            type: fileType,
-                            title: item.title || item.name || item.filename,
-                            defaultTab: "preview", // Override defaultTab when clicking a file
-                            // Store file metadata for Collabora editing
-                            fileMetadata: {
-                              storageKey: item.storageKey,
-                              name: item.name || item.filename || item.title,
-                              size: item.size,
-                              mimeType:
-                                item.mimeType || item.mediaType || item.type,
-                            },
-                          },
-                        }));
-                      }}
+                {/* File content */}
+                <div className="flex-1 overflow-auto p-3">
+                  {selectedFile.isEditable ? (
+                    <textarea
+                      value={editedContent}
+                      onChange={(e) => setEditedContent(e.target.value)}
+                      className="w-full h-full bg-transparent text-sm text-white/90 font-mono resize-none focus:outline-none"
+                      spellCheck={false}
                     />
+                  ) : (
+                    <pre className="text-sm text-white/80 font-mono whitespace-pre-wrap">
+                      {selectedFile.content}
+                    </pre>
                   )}
                 </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-}
-
-function PreviewContent({
-  theaterMode,
-  threadId: _threadId,
-}: {
-  readonly theaterMode: any;
-  threadId?: string | null;
-}) {
-  const {
-    type,
-    content,
-    title,
-    browserSession,
-    desktopSession,
-    researchTask,
-    fileMetadata: _fileMetadata,
-  } = theaterMode;
-  const [officeHtml, setOfficeHtml] = useState<string | null>(null);
-  const [officeLoading, setOfficeLoading] = useState(false);
-  const [officeError, setOfficeError] = useState<string | null>(null);
-  const [textFileContent, setTextFileContent] = useState<string | null>(null);
-  const [textFileLoading, setTextFileLoading] = useState(false);
-  const [htmlContent, setHtmlContent] = useState<string | null>(null);
-  const [htmlLoading, setHtmlLoading] = useState(false);
-  const [_pdfError, _setPdfError] = useState(false);
-  const [pdfError, setPdfError] = useState(false);
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
-  const [pdfLoading, setPdfLoading] = useState(false);
-
-  // Robustly extract content string for code/text views
-  const textContent = useMemo(() => {
-    if (!content) return "";
-    if (typeof content === "string") return content;
-    if (content.content && typeof content.content === "string")
-      return content.content;
-    if (content.text && typeof content.text === "string") return content.text;
-    return JSON.stringify(content, null, 2);
-  }, [content]);
-
-  // Robustly extract URL for app/image views
-  const urlContent = useMemo(() => {
-    if (!content) return undefined;
-    const c =
-      typeof content === "string" ? content : content.url || content.content;
-
-    if (typeof c === "string") {
-      const trimmed = c.trim();
-      if (
-        trimmed.startsWith("http") ||
-        trimmed.startsWith("blob:") ||
-        trimmed.startsWith("data:") ||
-        trimmed.startsWith("/")
-      ) {
-        return trimmed;
-      }
-    }
-    return undefined;
-  }, [content]);
-
-  // Detect office file type from title/filename
-  const officeFileType = useMemo((): OfficeFileType | null => {
-    if (type !== "office") return null;
-    return detectOfficeFileType(title || urlContent);
-  }, [type, title, urlContent]);
-
-  // Convert local office files to HTML (including PPTX)
-  useEffect(() => {
-    let cancelled = false;
-
-    if (type === "office" && urlContent && officeFileType) {
-      // Reset state and start conversion for all office file types (including PPTX)
-      setOfficeHtml(null);
-      setOfficeError(null);
-      setOfficeLoading(true);
-
-      // Perform conversion for all office file types
-      convertOfficeFileToHtml(urlContent, officeFileType, {
-        maxSize: 50 * 1024 * 1024, // 50MB
-        timeout: 30000, // 30 seconds
-      })
-        .then((result) => {
-          // Prevent state updates if component unmounted or content changed
-          if (cancelled) return;
-
-          if (result.success && result.html) {
-            setOfficeHtml(result.html);
-            setOfficeError(null);
-          } else {
-            setOfficeError(result.error || "Failed to convert office file");
-            setOfficeHtml(null);
-          }
-        })
-        .catch((error) => {
-          // Prevent state updates if component unmounted or content changed
-          if (cancelled) return;
-
-          console.error("Office file conversion error:", error);
-          setOfficeError(
-            error instanceof Error
-              ? error.message
-              : "Failed to convert office file",
-          );
-          setOfficeHtml(null);
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setOfficeLoading(false);
-          }
-        });
-    } else {
-      // Not an office file - reset state
-      setOfficeHtml(null);
-      setOfficeError(null);
-      setOfficeLoading(false);
-    }
-
-    // Cleanup function to prevent race conditions
-    return () => {
-      cancelled = true;
-    };
-  }, [type, urlContent, officeFileType]);
-
-  // Fetch HTML content from URLs (especially blob storage) to avoid download issues
-  useEffect(() => {
-    let cancelled = false;
-
-    // Check if textContent is actually HTML or just a URL string
-    const isTextContentJustUrl =
-      textContent &&
-      (textContent.startsWith("http://") ||
-        textContent.startsWith("https://") ||
-        textContent.startsWith("blob:") ||
-        textContent.startsWith("data:"));
-
-    // Always fetch HTML content from external URLs to ensure proper rendering
-    // This prevents download issues (Vercel Blob sets Content-Disposition: attachment)
-    // and allows us to inject CSP meta tags for script execution
-    if (
-      type === "app" &&
-      urlContent &&
-      (!textContent || isTextContentJustUrl) &&
-      (urlContent.startsWith("http://") || urlContent.startsWith("https://")) &&
-      (title?.toLowerCase().endsWith(".html") ||
-        title?.toLowerCase().endsWith(".htm") ||
-        title?.toLowerCase().endsWith(".svg") ||
-        urlContent.includes(".html") ||
-        urlContent.includes(".htm") ||
-        urlContent.includes(".svg"))
-    ) {
-      setHtmlLoading(true);
-      setHtmlContent(null);
-
-      // In desktop mode, we fetch directly - CORS is not an issue
-      const fetchUrl = urlContent;
-
-      fetch(fetchUrl)
-        .then((res) => {
-          if (cancelled) return;
-          if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
-          return res.text();
-        })
-        .then((html) => {
-          if (cancelled) return;
-          if (!html) {
-            setHtmlContent(null);
-            setHtmlLoading(false);
-            return;
-          }
-
-          // Don't inject CSP meta tag - it breaks script execution in srcDoc iframes
-          // because 'self' has no meaning when origin is null (srcDoc context)
-          // The iframe sandbox attribute already provides security isolation
-          setHtmlContent(html);
-          setHtmlLoading(false);
-        })
-        .catch((error) => {
-          if (cancelled) return;
-          console.error("Failed to fetch HTML content:", error);
-          setHtmlContent(null);
-          setHtmlLoading(false);
-        });
-    } else if (type !== "app" || !urlContent) {
-      // Reset state if not an app type or no URL
-      setHtmlContent(null);
-      setHtmlLoading(false);
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [type, urlContent, title, textContent]);
-
-  // Fetch text/code file content from URL if needed
-  useEffect(() => {
-    let cancelled = false;
-
-    // Check if it's a text file that needs fetching
-    const isTextFile =
-      title?.toLowerCase().endsWith(".txt") ||
-      title?.toLowerCase().endsWith(".text") ||
-      title?.toLowerCase().endsWith(".md") ||
-      title?.toLowerCase().endsWith(".markdown");
-
-    // Check if this is a code or text type that needs content fetching
-    const needsContentFetch =
-      type === "code" || type === "text" || (type === "file" && isTextFile);
-
-    // Check if URL is fetchable (absolute or relative)
-    const isFetchableUrl =
-      urlContent &&
-      (urlContent.startsWith("http://") ||
-        urlContent.startsWith("https://") ||
-        urlContent.startsWith("/"));
-
-    // Fetch if it's a text/code file with URL and we don't have content yet
-    if (
-      needsContentFetch &&
-      isFetchableUrl &&
-      (!textContent || textContent.length === 0 || textContent === urlContent)
-    ) {
-      setTextFileLoading(true);
-      setTextFileContent(null);
-
-      // In desktop mode, we fetch directly - CORS is not an issue
-      // Fetch the text content
-      fetch(urlContent)
-        .then((res) => {
-          if (cancelled) return;
-          if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
-          return res.text();
-        })
-        .then((text) => {
-          if (cancelled) return;
-          setTextFileContent(text || null);
-          setTextFileLoading(false);
-        })
-        .catch((error) => {
-          if (cancelled) return;
-          console.error("Failed to fetch text/code file:", error);
-          setTextFileContent(null);
-          setTextFileLoading(false);
-        });
-    } else if (!needsContentFetch) {
-      // Reset state if not a text/code file
-      setTextFileContent(null);
-      setTextFileLoading(false);
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [type, urlContent, title, textContent]);
-
-  // Fetch PDF as blob to bypass Content-Disposition: attachment from Vercel Blob Storage
-  useEffect(() => {
-    let cancelled = false;
-
-    if (
-      type === "pdf" &&
-      urlContent &&
-      (urlContent.startsWith("http://") || urlContent.startsWith("https://")) &&
-      !urlContent.startsWith("blob:")
-    ) {
-      setPdfLoading(true);
-      setPdfBlobUrl(null);
-      setPdfError(false);
-
-      // In desktop mode, we fetch directly - CORS is not an issue
-      const fetchUrl = urlContent;
-
-      fetch(fetchUrl)
-        .then((res) => {
-          if (cancelled) return;
-          if (!res.ok)
-            throw new Error(`Failed to fetch PDF: ${res.statusText}`);
-          return res.blob();
-        })
-        .then((blob) => {
-          if (cancelled || !blob) return;
-          const blobUrl = URL.createObjectURL(blob);
-          setPdfBlobUrl(blobUrl);
-          setPdfLoading(false);
-        })
-        .catch((error) => {
-          if (cancelled) return;
-          console.error("Failed to fetch PDF:", error);
-          setPdfBlobUrl(null);
-          setPdfLoading(false);
-          setPdfError(true);
-        });
-    } else if (type !== "pdf") {
-      // Cleanup blob URL when switching away from PDF
-      if (pdfBlobUrl) {
-        URL.revokeObjectURL(pdfBlobUrl);
-        setPdfBlobUrl(null);
-      }
-      setPdfLoading(false);
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [type, urlContent]);
-
-  // Cleanup blob URL on unmount
-  useEffect(() => {
-    return () => {
-      if (pdfBlobUrl) {
-        URL.revokeObjectURL(pdfBlobUrl);
-      }
-    };
-  }, [pdfBlobUrl]);
-
-  // Browser preview - uses browserSession state instead of content
-  if (type === "browser" && browserSession?.sessionId) {
-    return (
-      <BrowserPreview
-        sessionId={browserSession.sessionId}
-        provider={browserSession.provider}
-        initialUrl={browserSession.currentUrl}
-        replayUrl={browserSession.replayUrl}
-        className="h-full w-full"
-      />
-    );
-  }
-
-  // Desktop preview - uses desktopSession state from local terminal
-  if (type === "desktop" && desktopSession?.sessionId) {
-    return (
-      <DesktopPreview
-        sessionId={desktopSession.sessionId}
-        streamUrl={desktopSession.streamUrl}
-        authKey={desktopSession.authKey}
-        className="h-full w-full"
-      />
-    );
-  }
-
-  // Research progress placeholder - will be implemented with research agent
-  if (type === "research" && researchTask?.taskId) {
-    return (
-      <div className="h-full w-full flex flex-col items-center justify-center text-white/30 gap-4">
-        <div className="w-24 h-24 rounded-3xl bg-white/5 flex items-center justify-center border border-white/5 relative overflow-hidden">
-          <Search className="w-10 h-10 opacity-50" />
-        </div>
-        <p className="font-mono text-xs tracking-widest uppercase">
-          Research In Progress
-        </p>
-        <p className="text-xs text-white/20">{researchTask.query}</p>
-        <p className="text-xs text-white/40">Status: {researchTask.status}</p>
-      </div>
-    );
-  }
-
-  if (!content) {
-    return (
-      <div className="h-full w-full flex flex-col items-center justify-center text-white/30 gap-4">
-        <div className="w-24 h-24 rounded-3xl bg-white/5 flex items-center justify-center border border-white/5 relative overflow-hidden group">
-          <div className="absolute inset-0 bg-gradient-to-tr from-primary/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-          <Box className="w-10 h-10 opacity-50" />
-        </div>
-        <p className="font-mono text-xs tracking-widest uppercase">
-          No Content Selected
-        </p>
-      </div>
-    );
-  }
-
-  if (type === "image" && urlContent) {
-    return (
-      <div className="h-full w-full flex items-center justify-center relative rounded-2xl overflow-hidden border border-white/10 bg-black/20 group">
-        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-20" />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={urlContent}
-          alt="Preview"
-          className="object-contain max-h-full max-w-full p-4 transition-transform duration-500 group-hover:scale-105"
-        />
-      </div>
-    );
-  }
-
-  if (type === "pdf" && urlContent) {
-    // Use blob URL if available (fetched to bypass Content-Disposition: attachment)
-    const pdfSrc = pdfBlobUrl || urlContent;
-
-    return (
-      <div className="h-full w-full rounded-2xl overflow-hidden border border-white/10 bg-white relative shadow-2xl flex flex-col">
-        <div className="h-8 bg-[#f0f0f0] border-b border-gray-200 flex items-center px-4 justify-between">
-          <div className="flex gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
-            <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
-            <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
-          </div>
-          <div className="text-[10px] text-gray-400 font-mono">PDF Preview</div>
-          <a
-            href={urlContent}
-            download={title || "file.pdf"}
-            className="text-gray-400 hover:text-black transition-colors"
-            title="Download PDF"
-          >
-            <Download className="w-3.5 h-3.5" />
-          </a>
-        </div>
-        <div className="flex-1 w-full bg-white relative">
-          {pdfLoading ? (
-            <div className="h-full w-full flex flex-col items-center justify-center text-gray-500 gap-4">
-              <Loader2 className="w-12 h-12 animate-spin opacity-50" />
-              <p className="text-sm">Loading PDF...</p>
-            </div>
-          ) : pdfError ? (
-            <div className="h-full w-full flex flex-col items-center justify-center text-gray-500 gap-4">
-              <AlertCircle className="w-12 h-12 opacity-50" />
-              <div className="text-center space-y-2">
-                <p className="font-medium">Failed to load PDF</p>
-                <p className="text-xs opacity-70">
-                  The PDF cannot be displayed in the browser
-                </p>
-                <a
-                  href={urlContent}
-                  download={title || "file.pdf"}
-                  className="text-xs text-primary hover:underline flex items-center gap-1 justify-center mt-4"
-                >
-                  <Download className="w-3 h-3" />
-                  Download PDF
-                </a>
+            ) : (
+              /* File list - clean Conductor style */
+              <div className="flex-1 overflow-y-auto">
+                {(() => {
+                  if (workspaceFilesLoading) {
+                    return (
+                      <div className="h-full flex flex-col items-center justify-center text-white/30 gap-3">
+                        <Loader2 className="w-6 h-6 animate-spin" />
+                        <span className="text-xs text-white/50">Loading...</span>
+                      </div>
+                    );
+                  }
+                  if (allItems.length === 0) {
+                    return (
+                      <div className="h-full flex flex-col items-center justify-center text-white/30 gap-3">
+                        <FolderIcon className="w-10 h-10 stroke-1" />
+                        <span className="text-sm text-white/50">No files yet</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+                {!workspaceFilesLoading && allItems.length > 0 && (
+                  <FileExplorer
+                    items={allItems}
+                    onSelect={(item) => {
+                      // Open file in inline viewer
+                      openFileViewer(item);
+                    }}
+                  />
+                )}
               </div>
-            </div>
-          ) : (
-            <iframe
-              src={pdfSrc}
-              className="w-full h-full border-0"
-              title="PDF Preview"
-              allow="fullscreen"
-            />
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (type === "office" && urlContent) {
-    const isRemote =
-      urlContent.startsWith("http") &&
-      !urlContent.startsWith("http://localhost");
-
-    // Fallback: Remote files use Google Docs Viewer
-    if (isRemote) {
-      return (
-        <div className="h-full w-full rounded-2xl overflow-hidden border border-white/10 bg-white relative shadow-2xl flex flex-col">
-          <div className="h-8 bg-[#f0f0f0] border-b border-gray-200 flex items-center px-4 justify-between">
-            <div className="flex gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
-              <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
-              <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
-            </div>
-            <div className="text-[10px] text-gray-400 font-mono">
-              Office Preview (Fallback)
-            </div>
-            <div className="flex items-center gap-2">
-              <a
-                href={urlContent}
-                download={title || "file"}
-                className="text-gray-400 hover:text-black transition-colors"
-                title="Download original file"
-              >
-                <Download className="w-3.5 h-3.5" />
-              </a>
-            </div>
+            )}
           </div>
-          <div className="flex-1 w-full bg-white relative">
-{/* SECURITY: Using allow-same-origin is required for Google Docs viewer to work */}
-            <iframe
-              src={`https://docs.google.com/gview?url=${encodeURIComponent(urlContent)}&embedded=true`}
-              className="w-full h-full border-none"
-              title="Office Preview"
-              sandbox="allow-scripts allow-forms"
-              referrerPolicy="no-referrer"
-              onError={(e) => {
-                console.error("Office preview load error:", e);
-              }}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    // Local files: Use client-side conversion
-    // Show loading state
-    if (officeLoading) {
-      return (
-        <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-          <Loader2 className="w-12 h-12 animate-spin opacity-50" />
-          <div className="text-center space-y-2">
-            <p className="font-medium">Converting office file...</p>
-            <p className="text-xs opacity-50">
-              {officeFileType === "docx" && "Converting Word document to HTML"}
-              {officeFileType === "xlsx" &&
-                "Converting Excel spreadsheet to HTML"}
-              {officeFileType === "pptx" && "Preparing preview"}
-            </p>
-          </div>
-        </div>
-      );
-    }
-
-    // Show error state
-    if (officeError) {
-      return (
-        <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-          <div className="flex flex-col items-center gap-3">
-            <AlertCircle className="w-12 h-12 opacity-50" />
-            <div className="text-center space-y-2 max-w-md">
-              <p className="font-medium">Preview unavailable</p>
-              <p className="text-xs opacity-70">{officeError}</p>
-              <div className="flex items-center gap-2 justify-center mt-4">
-                <a
-                  href={urlContent}
-                  download={title || "file"}
-                  className="text-xs text-primary hover:underline flex items-center gap-1"
-                >
-                  <Download className="w-3 h-3" />
-                  Download to view
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Show converted HTML
-    if (officeHtml) {
-      return (
-        <div className="h-full w-full rounded-2xl overflow-hidden border border-border bg-background relative shadow-2xl flex flex-col">
-          <div className="h-8 bg-muted border-b border-border flex items-center px-4 justify-between">
-            <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
-              {officeFileType === "docx" && "Document Preview"}
-              {officeFileType === "xlsx" && "Spreadsheet Preview"}
-              {officeFileType === "pptx" && "Presentation Preview"}
-            </span>
-            <div className="flex items-center gap-2">
-              <a
-                href={urlContent}
-                download={title || "file"}
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                title="Download original file"
-              >
-                <Download className="w-3.5 h-3.5" />
-              </a>
-            </div>
-          </div>
-          <div className="flex-1 overflow-auto bg-background p-6">
-            {/*
-              Security Note: HTML is generated by trusted libraries (mammoth.js for DOCX, SheetJS for XLSX)
-              which produce safe HTML without scripts. Content is from user's own files, not external sources.
-              Both libraries sanitize their output and do not include executable code.
-            */}
-            <div
-              dangerouslySetInnerHTML={{ __html: officeHtml }}
-              className="office-preview-content"
-              style={{
-                maxWidth: "100%",
-                margin: "0 auto",
-              }}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    // PPTX preview (now supported)
-    if (officeFileType === "pptx") {
-      // Show loading state
-      if (officeLoading) {
-        return (
-          <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-            <Loader2 className="w-12 h-12 animate-spin opacity-50" />
-            <div className="text-center space-y-2">
-              <p className="font-medium">Loading PowerPoint preview...</p>
-              <p className="text-xs opacity-50">
-                Converting presentation to preview format
-              </p>
-            </div>
-          </div>
-        );
-      }
-
-      // Show error state
-      if (officeError) {
-        return (
-          <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-            <div className="flex flex-col items-center gap-3">
-              <AlertCircle className="w-12 h-12 opacity-50" />
-              <div className="text-center space-y-2 max-w-md">
-                <p className="font-medium">Preview unavailable</p>
-                <p className="text-xs opacity-70">{officeError}</p>
-                <div className="flex items-center gap-2 justify-center mt-4">
-                  <a
-                    href={urlContent}
-                    download={title || "file"}
-                    className="text-xs text-primary hover:underline flex items-center gap-1"
-                  >
-                    <Download className="w-3 h-3" />
-                    Download to view
-                  </a>
+        ) : (
+          <div className="h-full w-full flex flex-col">
+            {/* Changes tab - shows git status + session changes */}
+            <div className="flex-1 overflow-y-auto">
+              {allItems.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-white/30 gap-3">
+                  <Box className="w-10 h-10 stroke-1" />
+                  <span className="text-sm text-white/50">No changes</span>
                 </div>
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      // Show converted HTML preview
-      if (officeHtml) {
-        return (
-          <div className="h-full w-full rounded-2xl overflow-hidden border border-border bg-background relative shadow-2xl flex flex-col">
-            <div className="h-8 bg-muted border-b border-border flex items-center px-4 justify-between">
-              <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
-                PowerPoint Preview
-              </span>
-              <a
-                href={urlContent}
-                download={title || "file"}
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                title="Download original file"
-              >
-                <Download className="w-3.5 h-3.5" />
-              </a>
-            </div>
-            <div className="flex-1 overflow-auto bg-background p-6">
-              {/*
-                Security Note: HTML is generated by trusted libraries or Office Online Viewer
-                Content is from user's own files, not external sources.
-              */}
-              <div
-                dangerouslySetInnerHTML={{ __html: officeHtml }}
-                className="office-preview-content"
-                style={{
-                  maxWidth: "100%",
-                  margin: "0 auto",
-                }}
-              />
-            </div>
-          </div>
-        );
-      }
-
-      // Fallback: Show download option while loading
-      return (
-        <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-          <FileIcon className="w-16 h-16 opacity-30" />
-          <div className="text-center space-y-2">
-            <p className="font-medium">Preparing PowerPoint preview...</p>
-            <p className="text-xs opacity-50">
-              Please wait while we load the presentation
-            </p>
-            <div className="flex items-center gap-2 justify-center mt-4">
-              <a
-                href={urlContent}
-                download={title || "file"}
-                className="text-xs text-primary hover:underline flex items-center gap-1"
-              >
-                <Download className="w-3 h-3" />
-                Download to view
-              </a>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Unknown office file type fallback
-    return (
-      <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-        <FileIcon className="w-16 h-16 opacity-30" />
-        <div className="text-center space-y-2">
-          <p className="font-medium">
-            Preview not available for local Office files
-          </p>
-          <div className="flex items-center gap-2 justify-center">
-            <a
-              href={urlContent}
-              download={title || "file"}
-              className="text-xs text-primary hover:underline"
-            >
-              Download
-            </a>
-            <span className="text-xs opacity-50">to view</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (type === "app") {
-    // Always use srcDoc for HTML content to ensure proper rendering
-    // Priority: htmlContent (fetched with CSP fix) > textContent (if it's actual HTML, not a URL) > urlContent (fallback to src)
-    // IMPORTANT: Don't use textContent if it's just a URL string - that would render the URL as text
-    const isTextContentActualHtml =
-      textContent &&
-      !textContent.startsWith("http://") &&
-      !textContent.startsWith("https://") &&
-      !textContent.startsWith("blob:") &&
-      !textContent.startsWith("data:") &&
-      (textContent.includes("<") || textContent.includes(">"));
-    const iframeContent =
-      htmlContent || (isTextContentActualHtml ? textContent : null);
-    const useSrcDoc = !!iframeContent;
-    const iframeSrc = useSrcDoc ? undefined : urlContent;
-
-    return (
-      <div className="h-full w-full rounded-2xl overflow-hidden border border-white/10 bg-white relative shadow-2xl flex flex-col">
-        <div className="h-8 bg-[#f0f0f0] border-b border-gray-200 flex items-center px-4 justify-between">
-          <div className="flex gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
-            <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
-            <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
-          </div>
-          <div className="text-[10px] text-gray-400 font-mono">
-            App Preview Mode
-          </div>
-        </div>
-        <div className="flex-1 w-full bg-white relative">
-          {htmlLoading ? (
-            <div className="h-full w-full flex items-center justify-center">
-              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-            </div>
-          ) : (
-            <iframe
-              srcDoc={useSrcDoc ? iframeContent : undefined}
-              src={iframeSrc}
-              className="w-full h-full border-none"
-              title="App Preview"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock"
-              // Note: allow-scripts + allow-same-origin is needed for app previews to work properly.
-              // The iframe sandbox provides security isolation for user-generated content.
-            />
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Code and text file preview - uses existing textFileContent state from useEffect above
-  if (type === "code" || type === "text") {
-    const displayContent =
-      textFileContent ||
-      (textContent && !textContent.startsWith("http") ? textContent : null);
-    const viewerTitle = type === "code" ? "code_viewer" : "text_viewer";
-
-    if (textFileLoading) {
-      return (
-        <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-          <Loader2 className="w-12 h-12 animate-spin opacity-50" />
-          <p className="font-medium">
-            Loading {type === "code" ? "code" : "text file"}...
-          </p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="h-full w-full rounded-2xl overflow-hidden border border-white/10 bg-[#0F0F0F] relative flex flex-col shadow-2xl">
-        <div className="h-8 bg-[#151515] border-b border-white/5 flex items-center px-4 gap-2 justify-between">
-          <div className="flex gap-2 items-center">
-            <div className="flex gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-red-500/20" />
-              <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/20" />
-              <div className="w-2.5 h-2.5 rounded-full bg-green-500/20" />
-            </div>
-            <span className="text-xs text-white/30 font-mono ml-2">
-              {title || viewerTitle}
-            </span>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-white/30 hover:text-white"
-            onClick={() => {
-              const blob = new Blob([displayContent || ""], {
-                type: "text/plain",
-              });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = title || (type === "code" ? "code.txt" : "file.txt");
-              a.click();
-              URL.revokeObjectURL(url);
-            }}
-          >
-            <Download className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-        <div className="flex-1 w-full overflow-auto p-4 font-mono text-sm text-white/90 custom-scrollbar bg-[#0a0a0a]">
-          <pre className="whitespace-pre-wrap break-words leading-relaxed">
-            {displayContent || "No content available"}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  if (type === "file" && urlContent) {
-    // Check if it's a zip/archive file - these can't be previewed in iframes
-    const isArchiveFile = title
-      ?.toLowerCase()
-      .match(/\.(zip|rar|7z|tar|gz|bz2|xz|z|tar\.gz|tar\.bz2)$/);
-
-    if (isArchiveFile) {
-      // Show download message for archive files
-      return (
-        <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-          <FileIcon className="w-16 h-16 opacity-30" />
-          <div className="text-center space-y-2 max-w-md">
-            <p className="font-medium">Archive files cannot be previewed</p>
-            <p className="text-xs opacity-70">
-              Please download the file to extract and view its contents
-            </p>
-            <div className="flex items-center gap-2 justify-center mt-4">
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => {
-                  const a = document.createElement("a");
-                  a.href = urlContent;
-                  a.download = title || "archive.zip";
-                  document.body.appendChild(a);
-                  a.click();
-                  a.remove();
-                }}
-                className="gap-2"
-              >
-                <Download className="w-4 h-4" />
-                Download {title || "Archive"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Check if it's a text file - render content directly with proper styling
-    const isTextFile =
-      title?.toLowerCase().endsWith(".txt") ||
-      title?.toLowerCase().endsWith(".text") ||
-      title?.toLowerCase().endsWith(".md") ||
-      title?.toLowerCase().endsWith(".markdown");
-
-    // Use fetched content or existing textContent
-    const displayText = textFileContent || textContent;
-
-    if (isTextFile) {
-      // Show loading state
-      if (textFileLoading) {
-        return (
-          <div className="h-full w-full flex flex-col items-center justify-center text-white/50 gap-4">
-            <Loader2 className="w-12 h-12 animate-spin opacity-50" />
-            <div className="text-center space-y-2">
-              <p className="font-medium">Loading text file...</p>
-            </div>
-          </div>
-        );
-      }
-
-      // Render text content directly with proper dark theme styling
-      if (displayText) {
-        return (
-          <div className="h-full w-full rounded-2xl overflow-hidden border border-white/10 bg-[#0F0F0F] relative flex flex-col shadow-2xl">
-            <div className="h-8 bg-[#151515] border-b border-white/5 flex items-center px-4 gap-2 justify-between">
-              <div className="flex gap-2 items-center">
-                <div className="flex gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-500/20" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/20" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-500/20" />
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {allItems.map((item, idx) => (
+                    <div
+                      key={item.id || idx}
+                      className="flex items-center justify-between px-4 py-2.5 hover:bg-white/5 cursor-pointer transition-colors"
+                      onClick={() => {
+                        // Open file in inline viewer and switch to All files tab
+                        openFileViewer(item);
+                        setActiveTab("all-files");
+                      }}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileTypeIcon
+                          filename={item.filename || item.name}
+                          size={16}
+                        />
+                        <span className="text-sm text-white/80 truncate">
+                          {item.filename || item.name || item.title}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {/* Status indicator - yellow for modified */}
+                        <div className="w-2 h-2 rounded-sm bg-yellow-500/80" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <span className="text-xs text-white/30 font-mono ml-2">
-                  text_viewer
-                </span>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-white/30 hover:text-white"
-                onClick={() => {
-                  const blob = new Blob([displayText], { type: "text/plain" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = title || "file.txt";
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-              >
-                <Download className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-            <div className="flex-1 w-full overflow-auto p-4 font-mono text-sm text-white/90 custom-scrollbar">
-              <pre className="whitespace-pre-wrap break-words">
-                {displayText}
-              </pre>
+              )}
             </div>
           </div>
-        );
-      }
-    }
-
-    // For other file types, use iframe with proper structure
-    return (
-      <div className="h-full w-full rounded-2xl overflow-hidden border border-white/10 bg-white relative shadow-2xl flex flex-col">
-        <div className="h-8 bg-[#f0f0f0] border-b border-gray-200 flex items-center px-4 justify-between">
-          <div className="flex gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
-            <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
-            <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
-          </div>
-          <span className="text-[10px] text-gray-400 font-mono uppercase tracking-wider">
-            File Preview
-          </span>
-          <a
-            href={urlContent}
-            download={title || undefined}
-            className="text-gray-400 hover:text-black transition-colors"
-            onClick={(e) => {
-              // Only download on explicit click, not on iframe load
-              e.stopPropagation();
-            }}
-            title="Download file"
-          >
-            <Download className="w-3.5 h-3.5" />
-          </a>
-        </div>
-        <div className="flex-1 w-full bg-white relative">
-          {/* SECURITY: Removed allow-same-origin when allow-scripts is present */}
-          <iframe
-            src={urlContent}
-            className="w-full h-full border-none bg-white"
-            title="File Preview"
-            sandbox="allow-scripts allow-forms allow-popups"
-            referrerPolicy="no-referrer"
-            onError={(e) => {
-              console.error("File preview load error:", e);
-            }}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Fallback / Code view
-  return (
-    <div className="h-full w-full rounded-2xl overflow-hidden border border-white/10 bg-[#0F0F0F] relative flex flex-col shadow-2xl">
-      <div className="h-8 bg-[#151515] border-b border-white/5 flex items-center px-4 gap-2 justify-between">
-        <div className="flex gap-2 items-center">
-          <div className="flex gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-500/20" />
-            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/20" />
-            <div className="w-2.5 h-2.5 rounded-full bg-green-500/20" />
-          </div>
-          <span className="text-xs text-white/30 font-mono ml-2">
-            code_viewer
-          </span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 text-white/30 hover:text-white"
-          onClick={() => {
-            const blob = new Blob([textContent], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "code.txt";
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-        >
-          <Download className="w-3.5 h-3.5" />
-        </Button>
-      </div>
-      <div className="flex-1 w-full overflow-auto p-4 font-mono text-sm text-white/70 custom-scrollbar">
-        <pre className="whitespace-pre-wrap break-all">{textContent}</pre>
+        )}
       </div>
     </div>
   );
