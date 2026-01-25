@@ -3,7 +3,7 @@ import { ChatMention } from "app-types/chat";
 
 // Re-export voice hooks
 export { useOpenAIVoiceChat, OPENAI_VOICE } from "./open-ai/use-voice-chat.openai";
-export { useLocalVoiceChat, getLocalVoices } from "./local/use-voice-chat.local";
+export { useLocalVoiceChat, getLocalVoices } from "./local/use-local-voice-chat";
 
 export type UIMessageWithCompleted = UIMessage & { completed: boolean };
 
