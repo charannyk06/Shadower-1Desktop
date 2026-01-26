@@ -28,14 +28,39 @@ const OLLAMA_PATHS: Record<string, string[]> = {
     path.join(os.homedir(), ".ollama", "ollama"),
   ],
   win32: [
-    path.join(process.env.LOCALAPPDATA || "", "Programs", "Ollama", "ollama.exe"),
+    path.join(
+      process.env.LOCALAPPDATA || "",
+      "Programs",
+      "Ollama",
+      "ollama.exe",
+    ),
     path.join(process.env.PROGRAMFILES || "", "Ollama", "ollama.exe"),
-    path.join(os.homedir(), "AppData", "Local", "Programs", "Ollama", "ollama.exe"),
+    path.join(
+      os.homedir(),
+      "AppData",
+      "Local",
+      "Programs",
+      "Ollama",
+      "ollama.exe",
+    ),
   ],
 };
 
-// Default Ollama API URL
-const DEFAULT_OLLAMA_URL = "http://localhost:11434";
+// Default Ollama API URL - supports OLLAMA_BASE_URL env var for remote instances
+const DEFAULT_OLLAMA_URL =
+  process.env.OLLAMA_BASE_URL?.replace(/\/api$/, "") ||
+  "http://localhost:11434";
+
+/**
+ * Get the configured Ollama base URL
+ * Supports both local (default) and remote Ollama instances via OLLAMA_BASE_URL env var
+ */
+export function getOllamaBaseUrl(): string {
+  return (
+    process.env.OLLAMA_BASE_URL?.replace(/\/api$/, "") ||
+    "http://localhost:11434"
+  );
+}
 
 // Track the Ollama serve process if we started it
 let ollamaServeProcess: ChildProcess | null = null;
@@ -158,12 +183,12 @@ function getOllamaVersion(execPath: string): Promise<string> {
  * PERFORMANCE OPTIMIZED: Reduced timeout to 1.5s for faster feedback
  */
 export async function isOllamaRunning(
-  baseUrl: string = DEFAULT_OLLAMA_URL
+  baseUrl: string = DEFAULT_OLLAMA_URL,
 ): Promise<boolean> {
   try {
     const response = await fetch(`${baseUrl}/api/tags`, {
       signal: AbortSignal.timeout(1500), // REDUCED: 1.5s timeout (was 3s)
-      headers: { "Connection": "keep-alive" },
+      headers: { Connection: "keep-alive" },
     });
     return response.ok;
   } catch {
@@ -181,13 +206,16 @@ export async function isOllamaRunning(
  */
 export async function checkOllamaHealth(
   baseUrl: string = DEFAULT_OLLAMA_URL,
-  options: { forceRefresh?: boolean } = {}
+  options: { forceRefresh?: boolean } = {},
 ): Promise<OllamaHealth> {
   const now = Date.now();
 
   // Return cached result if valid and not forcing refresh
-  if (!options.forceRefresh && cachedHealth &&
-      (now - cachedHealth.timestamp < HEALTH_CACHE_TTL_MS)) {
+  if (
+    !options.forceRefresh &&
+    cachedHealth &&
+    now - cachedHealth.timestamp < HEALTH_CACHE_TTL_MS
+  ) {
     log.debug("[Ollama] Health check returning cached result");
     return cachedHealth.health;
   }
@@ -283,7 +311,9 @@ export async function startOllamaService(): Promise<{
       // Otherwise try running ollama serve directly
       const ollamaPath = installed.path || "ollama";
       log.info(`[Ollama] Starting ollama serve from: ${ollamaPath}`);
-      log.info(`[Ollama] Performance ENV: FLASH_ATTENTION=1, KEEP_ALIVE=24h, NUM_PARALLEL=4`);
+      log.info(
+        `[Ollama] Performance ENV: FLASH_ATTENTION=1, KEEP_ALIVE=24h, NUM_PARALLEL=4`,
+      );
 
       ollamaServeProcess = spawn(ollamaPath, ["serve"], {
         detached: true,
@@ -312,7 +342,9 @@ export async function startOllamaService(): Promise<{
           exec(`${envStr} && "${ollamaApp}"`);
         } else {
           // Fall back to starting serve directly with performance env
-          log.info(`[Ollama] Performance ENV: FLASH_ATTENTION=1, KEEP_ALIVE=24h, NUM_PARALLEL=4`);
+          log.info(
+            `[Ollama] Performance ENV: FLASH_ATTENTION=1, KEEP_ALIVE=24h, NUM_PARALLEL=4`,
+          );
           ollamaServeProcess = spawn(ollamaPath, ["serve"], {
             detached: true,
             env: {
@@ -336,7 +368,10 @@ export async function startOllamaService(): Promise<{
       invalidateHealthCache();
       return { success: true, message: "Ollama service started successfully" };
     } else {
-      return { success: false, message: "Ollama service failed to start within timeout" };
+      return {
+        success: false,
+        message: "Ollama service failed to start within timeout",
+      };
     }
   } catch (error: any) {
     log.error("[Ollama] Error starting service:", error);
@@ -349,7 +384,7 @@ export async function startOllamaService(): Promise<{
  */
 async function waitForOllama(
   maxWaitMs: number = 30000,
-  checkIntervalMs: number = 500
+  checkIntervalMs: number = 500,
 ): Promise<boolean> {
   const startTime = Date.now();
 
@@ -385,7 +420,7 @@ export function stopOllamaService(): void {
  * Install Ollama automatically
  */
 export async function installOllama(
-  onProgress?: (progress: InstallProgress) => void
+  onProgress?: (progress: InstallProgress) => void,
 ): Promise<{ success: boolean; message: string }> {
   const platform = os.platform();
   const arch = os.arch();
@@ -446,7 +481,7 @@ export async function installOllama(
 async function installOllamaMacOS(
   downloadUrl: string,
   tempDir: string,
-  onProgress?: (progress: InstallProgress) => void
+  onProgress?: (progress: InstallProgress) => void,
 ): Promise<{ success: boolean; message: string }> {
   const zipPath = path.join(tempDir, "Ollama.zip");
 
@@ -527,7 +562,7 @@ async function installOllamaMacOS(
 async function installOllamaWindows(
   downloadUrl: string,
   tempDir: string,
-  onProgress?: (progress: InstallProgress) => void
+  onProgress?: (progress: InstallProgress) => void,
 ): Promise<{ success: boolean; message: string }> {
   const installerPath = path.join(tempDir, "OllamaSetup.exe");
 
@@ -580,12 +615,14 @@ async function installOllamaWindows(
 async function downloadFile(
   url: string,
   destPath: string,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
 ): Promise<void> {
   const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error(`Failed to download: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Failed to download: ${response.status} ${response.statusText}`,
+    );
   }
 
   const contentLength = response.headers.get("content-length");
@@ -626,7 +663,7 @@ async function downloadFile(
  * PERFORMANCE OPTIMIZED: Reduced timeout to 3s for faster feedback
  */
 export async function getOllamaModels(
-  baseUrl: string = DEFAULT_OLLAMA_URL
+  baseUrl: string = DEFAULT_OLLAMA_URL,
 ): Promise<{
   success: boolean;
   models?: Array<{
@@ -644,7 +681,7 @@ export async function getOllamaModels(
   try {
     const response = await fetch(`${baseUrl}/api/tags`, {
       signal: AbortSignal.timeout(3000), // REDUCED: 3s timeout (was 10s)
-      headers: { "Connection": "keep-alive" },
+      headers: { Connection: "keep-alive" },
     });
 
     if (!response.ok) {
@@ -677,7 +714,7 @@ export async function getOllamaModels(
  */
 export async function showOllamaModel(
   modelName: string,
-  baseUrl: string = DEFAULT_OLLAMA_URL
+  baseUrl: string = DEFAULT_OLLAMA_URL,
 ): Promise<{
   success: boolean;
   model?: any;
@@ -688,7 +725,7 @@ export async function showOllamaModel(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Connection": "keep-alive",
+        Connection: "keep-alive",
       },
       body: JSON.stringify({ name: modelName }),
       signal: AbortSignal.timeout(3000), // REDUCED: 3s timeout (was 10s)
@@ -726,15 +763,12 @@ export async function getOllamaLibraryModels(): Promise<{
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     // Ollama's registry API endpoint
-    const response = await fetch(
-      "https://ollama.com/api/models?sort=popular",
-      {
-        signal: controller.signal,
-        headers: {
-          Accept: "application/json",
-        },
-      }
-    );
+    const response = await fetch("https://ollama.com/api/models?sort=popular", {
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+      },
+    });
 
     clearTimeout(timeoutId);
 
@@ -772,9 +806,7 @@ export async function getOllamaLibraryModels(): Promise<{
 /**
  * Search Ollama library for models
  */
-export async function searchOllamaLibrary(
-  query: string
-): Promise<{
+export async function searchOllamaLibrary(query: string): Promise<{
   success: boolean;
   models?: Array<{
     name: string;
@@ -794,7 +826,7 @@ export async function searchOllamaLibrary(
         headers: {
           Accept: "application/json",
         },
-      }
+      },
     );
 
     clearTimeout(timeoutId);
@@ -824,11 +856,187 @@ export async function searchOllamaLibrary(
   }
 }
 
+// ============================================
+// AUTO-DETECTION SYSTEM
+// Automatically detect Ollama and register models
+// without requiring manual user configuration
+// ============================================
+
+// Track if auto-detection has run
+let autoDetectionRan = false;
+let autoDetectionInterval: NodeJS.Timeout | null = null;
+
+/**
+ * Auto-detect Ollama and return available models
+ * Works with both local and remote Ollama instances (via OLLAMA_BASE_URL)
+ *
+ * This is the core function that enables "zero-config" Ollama support.
+ * Users don't need to manually configure anything - if Ollama is running,
+ * models will automatically appear in the model selector.
+ */
+export async function autoDetectOllamaModels(): Promise<{
+  detected: boolean;
+  running: boolean;
+  models: Array<{
+    name: string;
+    size: number;
+    modified_at: string;
+    details?: {
+      parameter_size?: string;
+      family?: string;
+      quantization_level?: string;
+    };
+  }>;
+  baseUrl: string;
+  isRemote: boolean;
+  version?: string;
+  error?: string;
+}> {
+  const baseUrl = getOllamaBaseUrl();
+  const isRemote = baseUrl !== "http://localhost:11434";
+
+  log.info(
+    `[Ollama Auto-Detect] Checking Ollama at: ${baseUrl} (remote: ${isRemote})`,
+  );
+
+  try {
+    // Check if Ollama is running
+    const running = await isOllamaRunning(baseUrl);
+
+    if (!running) {
+      log.info("[Ollama Auto-Detect] Ollama is not running");
+      return {
+        detected: false,
+        running: false,
+        models: [],
+        baseUrl,
+        isRemote,
+      };
+    }
+
+    // Get version info
+    let version: string | undefined;
+    try {
+      const installed = await isOllamaInstalled();
+      version = installed.version;
+    } catch {
+      // Version check is optional
+    }
+
+    // Fetch available models
+    const modelsResult = await getOllamaModels(baseUrl);
+
+    if (!modelsResult.success || !modelsResult.models) {
+      log.warn(
+        "[Ollama Auto-Detect] Failed to fetch models:",
+        modelsResult.error,
+      );
+      return {
+        detected: true,
+        running: true,
+        models: [],
+        baseUrl,
+        isRemote,
+        version,
+        error: modelsResult.error,
+      };
+    }
+
+    log.info(`[Ollama Auto-Detect] Found ${modelsResult.models.length} models`);
+
+    return {
+      detected: true,
+      running: true,
+      models: modelsResult.models,
+      baseUrl,
+      isRemote,
+      version,
+    };
+  } catch (error: any) {
+    log.error("[Ollama Auto-Detect] Error:", error);
+    return {
+      detected: false,
+      running: false,
+      models: [],
+      baseUrl,
+      isRemote,
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Start background auto-detection polling
+ * This runs periodically to detect when Ollama starts/stops
+ *
+ * @param callback Called whenever Ollama status changes
+ * @param intervalMs Polling interval in milliseconds (default: 30s)
+ */
+export function startAutoDetectionPolling(
+  callback: (
+    result: Awaited<ReturnType<typeof autoDetectOllamaModels>>,
+  ) => void,
+  intervalMs: number = 30000,
+): void {
+  if (autoDetectionInterval) {
+    log.info("[Ollama Auto-Detect] Polling already running");
+    return;
+  }
+
+  log.info(
+    `[Ollama Auto-Detect] Starting background polling every ${intervalMs / 1000}s`,
+  );
+
+  // Run immediately
+  autoDetectOllamaModels()
+    .then(callback)
+    .catch((err) => {
+      log.warn("[Ollama Auto-Detect] Initial detection failed:", err);
+    });
+
+  // Then poll periodically
+  autoDetectionInterval = setInterval(async () => {
+    try {
+      const result = await autoDetectOllamaModels();
+      callback(result);
+    } catch (err) {
+      log.warn("[Ollama Auto-Detect] Polling failed:", err);
+    }
+  }, intervalMs);
+}
+
+/**
+ * Stop background auto-detection polling
+ */
+export function stopAutoDetectionPolling(): void {
+  if (autoDetectionInterval) {
+    clearInterval(autoDetectionInterval);
+    autoDetectionInterval = null;
+    log.info("[Ollama Auto-Detect] Stopped background polling");
+  }
+}
+
+/**
+ * Check if auto-detection has already run
+ */
+export function hasAutoDetectionRun(): boolean {
+  return autoDetectionRan;
+}
+
+/**
+ * Mark auto-detection as run
+ */
+export function markAutoDetectionRan(): void {
+  autoDetectionRan = true;
+}
+
 // Clean up on app quit
 app.on("before-quit", () => {
   stopOllamaService();
+  stopAutoDetectionPolling();
 });
 
 app.on("will-quit", () => {
   stopOllamaService();
+  stopAutoDetectionPolling();
 });

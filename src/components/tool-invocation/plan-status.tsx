@@ -4,7 +4,6 @@ import { ToolUIPart } from "ai";
 import equal from "lib/equal";
 import { toAny } from "lib/utils";
 import { CheckIcon, ClipboardListIcon, XIcon } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { memo, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 
@@ -31,8 +30,6 @@ interface PlanStatusOutput {
 function PurePlanStatusInvocation({
   part,
 }: Readonly<PlanStatusInvocationProps>) {
-  const { t } = useTranslation();
-
   const result = useMemo(() => {
     if (!part.state?.startsWith("output")) return null;
     return part.output as PlanStatusOutput;
@@ -43,7 +40,7 @@ function PurePlanStatusInvocation({
     return (
       <div className="flex items-center gap-2 text-sm">
         <ClipboardListIcon className="h-4 w-4 text-muted-foreground" />
-        <TextShimmer>{t("Chat.Tool.checkingPlanStatus")}</TextShimmer>
+        <TextShimmer>Checking plan status...</TextShimmer>
       </div>
     );
   }

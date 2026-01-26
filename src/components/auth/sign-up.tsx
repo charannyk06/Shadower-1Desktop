@@ -12,7 +12,6 @@ import { SocialAuthenticationProvider } from "app-types/authentication";
 import { authClient } from "auth/client";
 import { cn } from "lib/utils";
 import { Mail } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import SocialProviders from "./social-providers";
@@ -25,7 +24,6 @@ export default function SignUpPage({
   socialAuthenticationProviders: SocialAuthenticationProvider[];
   isFirstUser?: boolean;
 }) {
-  const { t } = useTranslation();
   const handleSocialSignIn = async (provider: SocialAuthenticationProvider) => {
     try {
       await authClient.signIn.social({
@@ -41,10 +39,10 @@ export default function SignUpPage({
     <Card className="w-full md:max-w-md bg-background border-none mx-auto shadow-none">
       <CardHeader>
         <CardTitle className="text-2xl text-center ">
-          {t("Auth.SignUp.title")}
+          Create an account
         </CardTitle>
         <CardDescription className="text-center">
-          {t("Auth.SignUp.signUpDescription")}
+          Start your journey with us
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
@@ -55,7 +53,7 @@ export default function SignUpPage({
             className={cn(buttonVariants({ variant: "default" }), "w-full")}
           >
             <Mail className="size-4" />
-            {t("Auth.SignUp.email")}
+            Email
           </Link>
         )}
         {socialAuthenticationProviders.length > 0 && (
@@ -64,7 +62,7 @@ export default function SignUpPage({
               <div className="flex items-center my-4">
                 <div className="flex-1 h-px bg-accent"></div>
                 <span className="px-4 text-sm text-muted-foreground">
-                  {t("Auth.SignIn.orContinueWith")}
+                  OR CONTINUE WITH
                 </span>
                 <div className="flex-1 h-px bg-accent"></div>
               </div>

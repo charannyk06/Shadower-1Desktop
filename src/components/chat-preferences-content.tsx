@@ -4,7 +4,6 @@ import { userApi, userFetcher } from "@/lib/electron/user-api";
 import { UserPreferences } from "app-types/user";
 import { authClient } from "auth/client";
 import { AlertCircle, ArrowLeft, Loader } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
@@ -21,25 +20,23 @@ import { Textarea } from "ui/textarea";
 import { McpServerCustomizationContent } from "./mcp-customization-popup";
 
 export function UserInstructionsContent() {
-  const { t } = useTranslation();
-
   const responseStyleExamples = useMemo(
     () => [
-      t("Chat.ChatPreferences.responseStyleExample1"),
-      t("Chat.ChatPreferences.responseStyleExample2"),
-      t("Chat.ChatPreferences.responseStyleExample3"),
-      t("Chat.ChatPreferences.responseStyleExample4"),
+      "Keep responses concise and to the point",
+      "Use bullet points for lists",
+      "Include code examples when relevant",
+      "Explain technical concepts simply",
     ],
     [],
   );
 
   const professionExamples = useMemo(
     () => [
-      t("Chat.ChatPreferences.professionExample1"),
-      t("Chat.ChatPreferences.professionExample2"),
-      t("Chat.ChatPreferences.professionExample3"),
-      t("Chat.ChatPreferences.professionExample4"),
-      t("Chat.ChatPreferences.professionExample5"),
+      "Software Engineer",
+      "Data Scientist",
+      "Product Manager",
+      "Designer",
+      "Student",
     ],
     [],
   );
@@ -73,9 +70,8 @@ export function UserInstructionsContent() {
       .ifOk(() => userApi.updatePreferences(preferences))
       .ifOk(() => fetchPreferences())
       .watch((result) => {
-        if (result.isOk)
-          toast.success(t("Chat.ChatPreferences.preferencesSaved"));
-        else toast.error(t("Chat.ChatPreferences.failedToSavePreferences"));
+        if (result.isOk) toast.success("Preferences saved");
+        else toast.error("Failed to save preferences");
       })
       .watch(() => setIsSaving(false));
   };
@@ -96,16 +92,14 @@ export function UserInstructionsContent() {
 
   return (
     <div className="flex flex-col">
-      <h3 className="text-xl font-semibold">
-        {t("Chat.ChatPreferences.userInstructions")}
-      </h3>
+      <h3 className="text-xl font-semibold">User Instructions</h3>
       <p className="text-sm text-muted-foreground py-2 pb-6">
-        {t("Chat.ChatPreferences.userInstructionsDescription")}
+        Customize how the AI responds to you
       </p>
 
       <div className="flex flex-col gap-6 w-full">
         <div className="flex flex-col gap-2">
-          <Label>{t("Chat.ChatPreferences.whatShouldWeCallYou")}</Label>
+          <Label>What should we call you?</Label>
           {isLoading ? (
             <Skeleton className="h-9" />
           ) : (
@@ -122,7 +116,7 @@ export function UserInstructionsContent() {
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label>{t("Chat.ChatPreferences.botName")}</Label>
+          <Label>Bot Name</Label>
           {isLoading ? (
             <Skeleton className="h-9" />
           ) : (
@@ -139,7 +133,7 @@ export function UserInstructionsContent() {
         </div>
 
         <div className="flex flex-col gap-2 text-foreground flex-1">
-          <Label>{t("Chat.ChatPreferences.whatBestDescribesYourWork")}</Label>
+          <Label>What best describes your work?</Label>
           <div className="relative w-full">
             {isLoading ? (
               <Skeleton className="h-9" />
@@ -164,9 +158,7 @@ export function UserInstructionsContent() {
         </div>
         <div className="flex flex-col gap-2 text-foreground">
           <Label>
-            {t(
-              "Chat.ChatPreferences.whatPersonalPreferencesShouldBeTakenIntoAccountInResponses",
-            )}
+            What personal preferences should be taken into account in responses?
           </Label>
           <span className="text-xs text-muted-foreground"></span>
           <div className="relative w-full">
@@ -195,9 +187,9 @@ export function UserInstructionsContent() {
       </div>
       {isDiff && !isValidating && (
         <div className="flex pt-4 items-center justify-end fade-in animate-in duration-300">
-          <Button variant="ghost">{t("Common.cancel")}</Button>
+          <Button variant="ghost">Cancel</Button>
           <Button disabled={isSaving || isLoading} onClick={savePreferences}>
-            {t("Common.save")}
+            Save
             {isSaving && <Loader className="size-4 ml-2 animate-spin" />}
           </Button>
         </div>
@@ -207,7 +199,6 @@ export function UserInstructionsContent() {
 }
 
 export function MCPInstructionsContent() {
-  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [mcpServer, setMcpServer] = useState<
     (MCPServerInfo & { id: string }) | null
@@ -225,7 +216,7 @@ export function MCPInstructionsContent() {
               className="flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground transition-colors mb-8"
             >
               <ArrowLeft className="size-3" />
-              {t("Common.back")}
+              Back
             </button>
             {mcpServer.name}
           </div>
@@ -237,11 +228,9 @@ export function MCPInstructionsContent() {
 
   return (
     <div className="flex flex-col">
-      <h3 className="text-xl font-semibold">
-        {t("Chat.ChatPreferences.mcpInstructions")}
-      </h3>
+      <h3 className="text-xl font-semibold">MCP Instructions</h3>
       <p className="text-sm text-muted-foreground py-2 pb-6">
-        {t("Chat.ChatPreferences.mcpInstructionsDescription")}
+        Configure instructions for MCP servers
       </p>
 
       <div className="flex flex-col gap-6 w-full">
@@ -251,7 +240,7 @@ export function MCPInstructionsContent() {
             onChange={(e) => {
               setSearch(e.target.value);
             }}
-            placeholder={t("Common.search")}
+            placeholder="Search..."
           />
         </div>
         <div className="flex flex-col gap-2 text-foreground flex-1">
@@ -262,7 +251,7 @@ export function MCPInstructionsContent() {
           ) : mcpList?.length === 0 ? (
             <div className="flex flex-col gap-2 text-foreground flex-1">
               <p className="text-center py-8 text-muted-foreground">
-                {t("MCP.configureYourMcpServerConnectionSettings")}
+                Configure your MCP server connection settings
               </p>
             </div>
           ) : (

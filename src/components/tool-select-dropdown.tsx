@@ -49,8 +49,6 @@ import {
 import { Input } from "ui/input";
 import { MCPIcon } from "ui/mcp-icon";
 
-import { useTranslation } from "react-i18next";
-
 import { useMcpList } from "@/hooks/queries/use-mcp-list";
 import { ChatMention } from "app-types/chat";
 import { AppDefaultToolkit } from "lib/ai/tools";
@@ -112,7 +110,6 @@ export function ToolSelectDropdown({
       ]),
     );
 
-  const { t } = useTranslation();
   const { isLoading } = useMcpList();
   const { data: providers } = useChatModels();
   const [globalModel] = appStore(useShallow((state) => [state.chatModel]));
@@ -228,11 +225,11 @@ export function ToolSelectDropdown({
             <TooltipContent align={align} side={side} className="p-4 text-xs  ">
               <div className="flex items-center gap-2">
                 <WrenchIcon className="size-3.5" />
-                <span className="text-sm">{t("Chat.Tool.toolsSetup")}</span>
+                <span className="text-sm">Tools Setup</span>
               </div>
 
               <p className="text-muted-foreground mt-4 whitespace-pre-wrap">
-                {t("Chat.Tool.toolsSetupDescription")}
+                Configure which tools are available for the AI to use
               </p>
             </TooltipContent>
           </Tooltip>
@@ -284,7 +281,6 @@ function ToolPresets() {
   );
   const [open, setOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
-  const { t } = useTranslation();
 
   const presetWithToolCount = useMemo(() => {
     return presets.map((preset) => ({
@@ -296,11 +292,11 @@ function ToolPresets() {
   const addPreset = useCallback(
     (name: string) => {
       if (name.trim() === "") {
-        toast.error(t("Chat.Tool.presetNameCannotBeEmpty"));
+        toast.error("Preset name cannot be empty");
         return;
       }
       if (presets.find((p) => p.name === name)) {
-        toast.error(t("Chat.Tool.presetNameAlreadyExists"));
+        toast.error("Preset name already exists");
         return;
       }
       appStoreMutate((prev) => {
@@ -313,7 +309,7 @@ function ToolPresets() {
       });
       setPresetName("");
       setOpen(false);
-      toast.success(t("Chat.Tool.presetSaved"));
+      toast.success("Preset saved");
     },
     [allowedMcpServers, allowedAppDefaultToolkit, presets],
   );
@@ -338,26 +334,27 @@ function ToolPresets() {
       <DropdownMenuSub>
         <DropdownMenuSubTrigger className="text-xs flex items-center gap-2 font-semibold cursor-pointer">
           <Package className="size-3.5" />
-          {t("Chat.Tool.preset")}
+          Preset
         </DropdownMenuSubTrigger>
         <DropdownMenuPortal>
           <DropdownMenuSubContent className="md:w-80 md:max-h-96 overflow-y-auto">
             <DropdownMenuLabel className="flex items-center text-muted-foreground gap-2 text-xs">
-              {t("Chat.Tool.toolPresets")}
+              Tool Presets
               <div className="flex-1" />
               <Dialog open={open} onOpenChange={setOpen}>
                 <DialogTrigger asChild>
                   <Button variant={"secondary"} size={"sm"} className="text-xs">
-                    {t("Chat.Tool.saveAsPreset")}
+                    Save as Preset
                     <Plus className="size-3.5" />
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>{t("Chat.Tool.saveAsPreset")}</DialogTitle>
+                    <DialogTitle>Save as Preset</DialogTitle>
                   </DialogHeader>
                   <DialogDescription>
-                    {t("Chat.Tool.saveAsPresetDescription")}
+                    Save your current tool configuration as a preset for quick
+                    access
                   </DialogDescription>
                   <Input
                     placeholder="Preset Name"
@@ -377,7 +374,7 @@ function ToolPresets() {
                       addPreset(presetName);
                     }}
                   >
-                    {t("Common.save")}
+                    Save
                   </Button>
                 </DialogContent>
               </Dialog>
@@ -385,9 +382,9 @@ function ToolPresets() {
             <DropdownMenuSeparator />
             {presets.length === 0 ? (
               <div className="text-sm text-muted-foreground w-full h-full flex flex-col items-center justify-center gap-2 py-6">
-                <p>{t("Chat.Tool.noPresetsAvailableYet")}</p>
+                <p>No presets available yet</p>
                 <p className="text-xs px-4">
-                  {t("Chat.Tool.clickSaveAsPresetToGetStarted")}
+                  Click &quot;Save as Preset&quot; to get started
                 </p>
               </div>
             ) : (
@@ -601,7 +598,6 @@ function McpServerToolSelector({
   checked,
   onToolClick,
 }: McpServerToolSelectorProps) {
-  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const filteredTools = useMemo(() => {
@@ -655,7 +651,7 @@ function McpServerToolSelector({
       >
         <input
           autoFocus
-          placeholder={t("Common.search")}
+          placeholder="Search"
           value={search}
           onKeyDown={(e) => {
             e.stopPropagation();
@@ -673,7 +669,7 @@ function McpServerToolSelector({
       <div className="max-h-96 overflow-y-auto">
         {filteredTools.length === 0 ? (
           <div className="text-sm text-muted-foreground w-full h-full flex items-center justify-center py-6">
-            {t("Common.noResults")}
+            No results
           </div>
         ) : (
           filteredTools.map((tool) => (
@@ -704,7 +700,6 @@ function AppDefaultToolKitSelector() {
   const [appStoreMutate, allowedAppDefaultToolkit] = appStore(
     useShallow((state) => [state.mutate, state.allowedAppDefaultToolkit]),
   );
-  const { t } = useTranslation();
   const toggleAppDefaultToolkit = useCallback((toolkit: AppDefaultToolkit) => {
     appStoreMutate((prev) => {
       const newAllowedAppDefaultToolkit = [
@@ -723,11 +718,12 @@ function AppDefaultToolKitSelector() {
   }, []);
 
   const defaultToolInfo = useMemo(() => {
-    const raw = t("Chat.Tool.defaultToolKit", {
-      returnObjects: true,
-    }) as Record<string, string>;
+    const toolkitLabels: Record<string, string> = {
+      [AppDefaultToolkit.Visualization]: "Visualization",
+      [AppDefaultToolkit.WebSearch]: "Web Search",
+    };
     return Object.values(AppDefaultToolkit).map((toolkit) => {
-      const label = raw[toolkit] || toolkit;
+      const label = toolkitLabels[toolkit] || toolkit;
       const id = toolkit;
       let icon = Wrench;
       switch (toolkit) {
@@ -785,7 +781,6 @@ function AgentSelector({
 }: {
   onSelectAgent?: (agent: AgentSummary) => void;
 }) {
-  const { t } = useTranslation();
   const { myAgents } = useAgents({
     filters: ["mine"],
   });
@@ -799,23 +794,21 @@ function AgentSelector({
       >
         <div className="gap-1 z-10">
           <div className="flex items-center mb-4 gap-1">
-            <p className="font-semibold">{t("Layout.createAgent")}</p>
+            <p className="font-semibold">Create Agent</p>
             <ArrowUpRightIcon className="size-3" />
           </div>
-          <p className="text-muted-foreground">
-            {t("Layout.createYourOwnAgent")}
-          </p>
+          <p className="text-muted-foreground">Create your own agent</p>
         </div>
       </Link>
     );
-  }, [myAgents.length, t]);
+  }, [myAgents.length]);
 
   return (
     <DropdownMenuGroup>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger className="text-xs flex items-center gap-2 font-semibold cursor-pointer">
           <MessageCircle className="size-3.5" />
-          {t("Agent.title")}
+          Agent
         </DropdownMenuSubTrigger>
         <DropdownMenuPortal>
           <DropdownMenuSubContent className="w-80 relative">
@@ -858,14 +851,12 @@ function ImageGeneratorSelector({
   onGenerateImage?: (provider?: "google" | "openai") => void;
   modelInfo?: { isToolCallUnsupported?: boolean };
 }) {
-  const { t } = useTranslation();
-
   return (
     <DropdownMenuGroup>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger className="text-xs flex items-center gap-2 font-semibold cursor-pointer">
           <ImagesIcon className="size-3.5" />
-          {t("Chat.generateImage")}
+          Generate Image
         </DropdownMenuSubTrigger>
         <DropdownMenuPortal>
           <DropdownMenuSubContent>

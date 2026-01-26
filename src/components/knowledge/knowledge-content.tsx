@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
 import { BrainIcon, FileTextIcon, PlusIcon } from "lucide-react";
 import { Button } from "ui/button";
 import {
@@ -34,7 +33,6 @@ const KNOWLEDGE_TABS = [
 type TabId = (typeof KNOWLEDGE_TABS)[number]["id"];
 
 export function KnowledgeContent() {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const searchParams = useSearch({ strict: false }) as Record<string, string>;
   const { data: session } = authClient.useSession();
@@ -98,15 +96,15 @@ export function KnowledgeContent() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <BrainIcon className="size-6" />
-            {t("Knowledge.title")}
+            Knowledge
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            {t("Knowledge.description")}
+            Manage your assistant's memory and knowledge bases
           </p>
         </div>
         <Button onClick={() => setCreateDialogOpen(true)}>
           <PlusIcon className="size-4 mr-2" />
-          {t("Knowledge.createKnowledgeBase")}
+          Create Knowledge Base
         </Button>
       </div>
 
@@ -126,9 +124,10 @@ export function KnowledgeContent() {
         {activeTab === "memories" && (
           <Card>
             <CardHeader>
-              <CardTitle>{t("Knowledge.assistantMemory")}</CardTitle>
+              <CardTitle>Assistant Memory</CardTitle>
               <CardDescription>
-                {t("Knowledge.assistantMemoryDescription")}
+                View and manage the assistant's stored memories from your
+                conversations
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -140,9 +139,9 @@ export function KnowledgeContent() {
         {activeTab === "knowledge-bases" && (
           <Card>
             <CardHeader>
-              <CardTitle>{t("Knowledge.knowledgeBases")}</CardTitle>
+              <CardTitle>Knowledge Bases</CardTitle>
               <CardDescription>
-                {t("Knowledge.knowledgeBasesDescription")}
+                Create and manage knowledge bases for RAG retrieval
               </CardDescription>
             </CardHeader>
             <CardContent>

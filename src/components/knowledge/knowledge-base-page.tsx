@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { BrainIcon, FileTextIcon, PlusIcon } from "lucide-react";
 import { Button } from "ui/button";
 import {
@@ -21,7 +20,6 @@ interface KnowledgeBasePageProps {
 }
 
 export function KnowledgeBasePage({ userId }: KnowledgeBasePageProps) {
-  const { t } = useTranslation();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   return (
@@ -30,15 +28,15 @@ export function KnowledgeBasePage({ userId }: KnowledgeBasePageProps) {
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <BrainIcon className="size-8" />
-            {t("Knowledge.title")}
+            Knowledge
           </h1>
           <p className="text-muted-foreground mt-2">
-            {t("Knowledge.description")}
+            Manage your assistant's memory and knowledge bases
           </p>
         </div>
         <Button onClick={() => setCreateDialogOpen(true)}>
           <PlusIcon className="size-4 mr-2" />
-          {t("Knowledge.createKnowledgeBase")}
+          Create Knowledge Base
         </Button>
       </div>
 
@@ -46,20 +44,21 @@ export function KnowledgeBasePage({ userId }: KnowledgeBasePageProps) {
         <TabsList>
           <TabsTrigger value="memories">
             <BrainIcon className="size-4 mr-2" />
-            {t("Knowledge.assistantMemory")}
+            Assistant Memory
           </TabsTrigger>
           <TabsTrigger value="knowledge-bases">
             <FileTextIcon className="size-4 mr-2" />
-            {t("Knowledge.knowledgeBases")}
+            Knowledge Bases
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="memories" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>{t("Knowledge.assistantMemory")}</CardTitle>
+              <CardTitle>Assistant Memory</CardTitle>
               <CardDescription>
-                {t("Knowledge.assistantMemoryDescription")}
+                View and manage the assistant's stored memories from your
+                conversations
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -71,9 +70,9 @@ export function KnowledgeBasePage({ userId }: KnowledgeBasePageProps) {
         <TabsContent value="knowledge-bases" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>{t("Knowledge.knowledgeBases")}</CardTitle>
+              <CardTitle>Knowledge Bases</CardTitle>
               <CardDescription>
-                {t("Knowledge.knowledgeBasesDescription")}
+                Create and manage knowledge bases for RAG retrieval
               </CardDescription>
             </CardHeader>
             <CardContent>

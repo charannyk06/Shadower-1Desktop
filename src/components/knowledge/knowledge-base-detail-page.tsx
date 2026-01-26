@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
 import {
   FileTextIcon,
   TrashIcon,
@@ -69,7 +68,11 @@ interface Document {
 
 const statusConfig: Record<
   string,
-  { icon: React.ComponentType<any>; label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+  {
+    icon: React.ComponentType<any>;
+    label: string;
+    variant: "default" | "secondary" | "destructive" | "outline";
+  }
 > = {
   pending: { icon: ClockIcon, label: "Pending", variant: "secondary" },
   processing: { icon: Loader2Icon, label: "Processing", variant: "outline" },
@@ -89,16 +92,19 @@ export function KnowledgeBaseDetailPage({
   userId: _userId,
   knowledgeBaseId,
 }: KnowledgeBaseDetailPageProps) {
-  const { t: _t } = useTranslation();
   const navigate = useNavigate();
 
   // State
-  const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBase | null>(null);
+  const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBase | null>(
+    null,
+  );
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(
+    null,
+  );
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Load knowledge base and documents
@@ -134,7 +140,9 @@ export function KnowledgeBaseDetailPage({
 
   // Refresh documents periodically if any are processing
   useEffect(() => {
-    const hasProcessing = documents.some((d) => d.status === "processing" || d.status === "pending");
+    const hasProcessing = documents.some(
+      (d) => d.status === "processing" || d.status === "pending",
+    );
     if (!hasProcessing) return;
 
     const interval = setInterval(async () => {
@@ -162,7 +170,7 @@ export function KnowledgeBaseDetailPage({
       const result = await knowledgeApi.uploadDocument(
         knowledgeBaseId,
         file.filePath,
-        file.fileName
+        file.fileName,
       );
 
       if (result) {
@@ -258,12 +266,18 @@ export function KnowledgeBaseDetailPage({
         <CardContent className="pt-6">
           <div className="flex items-center gap-8">
             <div>
-              <div className="text-2xl font-bold">{knowledgeBase.documentCount}</div>
+              <div className="text-2xl font-bold">
+                {knowledgeBase.documentCount}
+              </div>
               <div className="text-sm text-muted-foreground">Documents</div>
             </div>
             <div>
-              <div className="text-2xl font-bold">{knowledgeBase.totalChunks}</div>
-              <div className="text-sm text-muted-foreground">Indexed Chunks</div>
+              <div className="text-2xl font-bold">
+                {knowledgeBase.totalChunks}
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Indexed Chunks
+              </div>
             </div>
             <div className="ml-auto text-right text-sm text-muted-foreground">
               <div>
@@ -291,7 +305,8 @@ export function KnowledgeBaseDetailPage({
             Documents
           </CardTitle>
           <CardDescription>
-            Upload documents to index them for RAG retrieval. Supported formats: TXT, MD, JSON, CSV, DOCX
+            Upload documents to index them for RAG retrieval. Supported formats:
+            TXT, MD, JSON, CSV, DOCX
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -300,7 +315,11 @@ export function KnowledgeBaseDetailPage({
               <FileIcon className="size-12 mb-4" />
               <p className="text-lg">No documents yet</p>
               <p className="text-sm mt-1">Upload a document to get started</p>
-              <Button className="mt-4" onClick={handleUpload} disabled={uploading}>
+              <Button
+                className="mt-4"
+                onClick={handleUpload}
+                disabled={uploading}
+              >
                 {uploading ? (
                   <Loader2Icon className="size-4 mr-2 animate-spin" />
                 ) : (
@@ -374,8 +393,8 @@ export function KnowledgeBaseDetailPage({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Document?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the document and remove all its indexed content
-              from the knowledge base.
+              This will permanently delete the document and remove all its
+              indexed content from the knowledge base.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

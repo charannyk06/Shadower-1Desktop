@@ -70,7 +70,7 @@ const DEBUG_RAG = process.env.DEBUG_RAG === "true";
  * Call this AFTER validation passes to fix type mismatches
  */
 function coerceJsonSchemaArgs(args: any, schema: any): any {
-  if (!args || typeof args !== 'object' || !schema?.properties) {
+  if (!args || typeof args !== "object" || !schema?.properties) {
     return args;
   }
 
@@ -83,24 +83,25 @@ function coerceJsonSchemaArgs(args: any, schema: any): any {
     const expectedType = (propSchema as any).type;
 
     // Coerce string booleans to actual booleans
-    if (expectedType === 'boolean' && typeof value === 'string') {
-      coerced[key] = value.toLowerCase() === 'true' || value === '1';
+    if (expectedType === "boolean" && typeof value === "string") {
+      coerced[key] = value.toLowerCase() === "true" || value === "1";
     }
     // Coerce string numbers to actual numbers
-    else if (expectedType === 'number' && typeof value === 'string') {
+    else if (expectedType === "number" && typeof value === "string") {
       const parsed = parseFloat(value);
       if (!isNaN(parsed)) coerced[key] = parsed;
-    }
-    else if (expectedType === 'integer' && typeof value === 'string') {
+    } else if (expectedType === "integer" && typeof value === "string") {
       const parsed = parseInt(value, 10);
       if (!isNaN(parsed)) coerced[key] = parsed;
     }
     // Coerce string arrays to actual arrays
-    else if (expectedType === 'array' && typeof value === 'string') {
+    else if (expectedType === "array" && typeof value === "string") {
       try {
         const parsed = JSON.parse(value);
         if (Array.isArray(parsed)) coerced[key] = parsed;
-      } catch { /* keep original */ }
+      } catch {
+        /* keep original */
+      }
     }
   }
 
@@ -113,7 +114,7 @@ function coerceJsonSchemaArgs(args: any, schema: any): any {
  * This allows validation to pass, then we coerce in execute
  */
 function makeSchemaPermissive(schema: any): any {
-  if (!schema || typeof schema !== 'object') return schema;
+  if (!schema || typeof schema !== "object") return schema;
 
   const result = { ...schema };
 
@@ -122,12 +123,12 @@ function makeSchemaPermissive(schema: any): any {
     for (const [key, prop] of Object.entries(result.properties)) {
       const p = prop as any;
       // Convert boolean to accept string as well
-      if (p.type === 'boolean') {
-        result.properties[key] = { ...p, type: ['boolean', 'string'] };
+      if (p.type === "boolean") {
+        result.properties[key] = { ...p, type: ["boolean", "string"] };
       }
       // Convert number/integer to accept string as well
-      else if (p.type === 'number' || p.type === 'integer') {
-        result.properties[key] = { ...p, type: [p.type, 'string'] };
+      else if (p.type === "number" || p.type === "integer") {
+        result.properties[key] = { ...p, type: [p.type, "string"] };
       }
     }
   }
@@ -148,7 +149,7 @@ function makeSchemaPermissive(schema: any): any {
 const permissiveBoolean = () =>
   z.union([
     z.boolean(),
-    z.string().transform(v => v.toLowerCase() === 'true' || v === '1')
+    z.string().transform((v) => v.toLowerCase() === "true" || v === "1"),
   ]);
 
 /**
@@ -158,12 +159,272 @@ const permissiveBoolean = () =>
 const permissiveNumber = () =>
   z.union([
     z.number(),
-    z.string().transform(v => {
+    z.string().transform((v) => {
       const parsed = parseFloat(v);
       if (isNaN(parsed)) throw new Error(`Cannot convert "${v}" to number`);
       return parsed;
-    })
+    }),
   ]);
+
+/**
+ * Extract actual value from schema-like objects that local models sometimes send.
+ * Local models often confuse the schema with actual values and send:
+ * {"description": "...", "type": "string", "value": "actual_value"}
+ * instead of just "actual_value"
+ *
+ * This function extracts the actual value from such malformed inputs.
+ */
+function extractValueFromSchemaObject(value: any): any {
+  // If not an object, return as-is
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return value;
+  }
+
+  // Check if this looks like a schema object (has type/description fields)
+  const hasSchemaFields =
+    "type" in value ||
+    "description" in value ||
+    "anyOf" in value ||
+    "oneOf" in value;
+
+  if (!hasSchemaFields) {
+    return value; // Not a schema object, return as-is
+  }
+
+  // Extract the actual value
+  if ("value" in value) {
+    const extractedValue = value.value;
+    console.log(
+      `[AI Tools] Extracted value "${extractedValue}" from schema-like object`,
+    );
+    return extractedValue;
+  }
+
+  // If there's a default, use that
+  if ("default" in value) {
+    console.log(
+      `[AI Tools] Using default value "${value.default}" from schema-like object`,
+    );
+    return value.default;
+  }
+
+  // No value found - return undefined to let defaults kick in
+  console.log(
+    `[AI Tools] Schema-like object has no value field, returning undefined`,
+  );
+  return undefined;
+}
+
+/**
+ * Pre-process all values in an object to extract actual values from schema-like objects.
+ * This handles the case where local models send the entire schema structure as values.
+ */
+function extractValuesFromSchemaObjects(args: any): any {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    return args;
+  }
+
+  const processed: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(args)) {
+    processed[key] = extractValueFromSchemaObject(value);
+  }
+
+  return processed;
+}
+
+/**
+ * Pre-process tool arguments to handle common local model mistakes like:
+ * - Combined parameter names: "directory_pattern" -> split into "directory" and "pattern"
+ * - Wrong parameter names: "dir" -> "directory", "filepath" -> "path"
+ * - Missing required parameters: add defaults based on available context
+ *
+ * This runs BEFORE schema coercion to give us properly structured arguments.
+ */
+function preprocessToolArguments(
+  args: any,
+  schema: z.ZodSchema<any>,
+  toolName?: string,
+): any {
+  if (!args || typeof args !== "object") {
+    return args;
+  }
+
+  const shape = (schema as any)._def?.shape?.();
+  if (!shape) {
+    return args;
+  }
+
+  const expectedKeys = new Set(Object.keys(shape));
+  const processed: Record<string, any> = { ...args };
+
+  // ============================================
+  // STEP 1: Handle combined parameter names
+  // Local models often combine parameters like "directory_pattern" instead of
+  // using separate "directory" and "pattern" parameters
+  // ============================================
+  const combinedParamMappings: Record<
+    string,
+    { keys: string[]; split?: (value: string) => Record<string, string> }
+  > = {
+    // directory_pattern -> directory + pattern
+    directory_pattern: {
+      keys: ["directory", "pattern"],
+      split: (value: string) => {
+        // If value looks like a path with a pattern, split it
+        // e.g., "/home/user/*.txt" -> directory: "/home/user", pattern: "*.txt"
+        // Or just "*.txt" -> directory: default, pattern: "*.txt"
+        if (value.includes("/") || value.includes("\\")) {
+          const lastSep = Math.max(
+            value.lastIndexOf("/"),
+            value.lastIndexOf("\\"),
+          );
+          return {
+            directory: value.substring(0, lastSep) || os.homedir(),
+            pattern: value.substring(lastSep + 1) || "*",
+          };
+        }
+        // Just a pattern, use default directory
+        return { directory: os.homedir(), pattern: value || "*" };
+      },
+    },
+    // path_pattern -> path + pattern (for other tools)
+    path_pattern: {
+      keys: ["path", "pattern"],
+      split: (value: string) => {
+        if (value.includes("/") || value.includes("\\")) {
+          const lastSep = Math.max(
+            value.lastIndexOf("/"),
+            value.lastIndexOf("\\"),
+          );
+          return {
+            path: value.substring(0, lastSep) || os.homedir(),
+            pattern: value.substring(lastSep + 1) || "*",
+          };
+        }
+        return { path: os.homedir(), pattern: value || "*" };
+      },
+    },
+    // dir_pattern -> directory + pattern
+    dir_pattern: {
+      keys: ["directory", "pattern"],
+      split: (value: string) => {
+        if (value.includes("/") || value.includes("\\")) {
+          const lastSep = Math.max(
+            value.lastIndexOf("/"),
+            value.lastIndexOf("\\"),
+          );
+          return {
+            directory: value.substring(0, lastSep) || os.homedir(),
+            pattern: value.substring(lastSep + 1) || "*",
+          };
+        }
+        return { directory: os.homedir(), pattern: value || "*" };
+      },
+    },
+    // search_query -> query (alias)
+    search_query: {
+      keys: ["query"],
+      split: (value: string) => ({ query: value }),
+    },
+    // file_path -> path (alias)
+    file_path: {
+      keys: ["path"],
+      split: (value: string) => ({ path: value }),
+    },
+  };
+
+  for (const [combinedKey, mapping] of Object.entries(combinedParamMappings)) {
+    if (
+      processed[combinedKey] !== undefined &&
+      typeof processed[combinedKey] === "string"
+    ) {
+      // Check if the expected keys exist in the schema
+      const relevantKeys = mapping.keys.filter((k) => expectedKeys.has(k));
+      if (relevantKeys.length > 0 && mapping.split) {
+        console.log(
+          `[AI IPC] Splitting combined parameter "${combinedKey}" into ${relevantKeys.join(", ")} for ${toolName || "tool"}`,
+        );
+        const splitValues = mapping.split(processed[combinedKey]);
+        for (const [key, value] of Object.entries(splitValues)) {
+          if (expectedKeys.has(key) && processed[key] === undefined) {
+            processed[key] = value;
+          }
+        }
+        delete processed[combinedKey];
+      }
+    }
+  }
+
+  // ============================================
+  // STEP 2: Handle parameter name aliases
+  // Local models sometimes use different names for common parameters
+  // ============================================
+  const paramAliases: Record<string, string[]> = {
+    directory: ["dir", "folder", "dirPath", "directoryPath", "searchDir"],
+    pattern: ["searchPattern", "filePattern", "glob", "filter", "searchTerm"],
+    path: ["filePath", "file", "filepath", "pathName"],
+    query: ["searchQuery", "q", "search", "term", "keywords"],
+    command: ["cmd", "shell", "bash", "exec"],
+    url: ["link", "href", "uri", "website"],
+    content: ["text", "body", "data", "value"],
+    maxResults: ["limit", "max", "count", "numResults", "maxCount"],
+  };
+
+  for (const [canonical, aliases] of Object.entries(paramAliases)) {
+    if (expectedKeys.has(canonical) && processed[canonical] === undefined) {
+      // Look for any alias that has a value
+      for (const alias of aliases) {
+        if (processed[alias] !== undefined) {
+          console.log(
+            `[AI IPC] Mapping alias "${alias}" to "${canonical}" for ${toolName || "tool"}`,
+          );
+          processed[canonical] = processed[alias];
+          delete processed[alias];
+          break;
+        }
+      }
+    }
+  }
+
+  // ============================================
+  // STEP 3: Handle tool-specific defaults for missing required params
+  // ============================================
+  if (toolName) {
+    const toolDefaults: Record<string, Record<string, any>> = {
+      file_search: { directory: os.homedir(), pattern: "*", maxResults: 50 },
+      local_file_search: {
+        directory: os.homedir(),
+        pattern: "*",
+        maxResults: 50,
+      },
+      file_list: { path: os.homedir(), recursive: false },
+      local_file_list: { path: os.homedir(), recursive: false },
+      web_search: { query: "", numResults: 5 },
+      local_web_search: { query: "", numResults: 5 },
+      terminal_execute: { command: 'echo "No command specified"' },
+    };
+
+    const defaults = toolDefaults[toolName];
+    if (defaults) {
+      for (const [key, defaultValue] of Object.entries(defaults)) {
+        if (expectedKeys.has(key) && processed[key] === undefined) {
+          console.log(
+            `[AI IPC] Using default for missing required param "${key}" in ${toolName}: ${JSON.stringify(defaultValue)}`,
+          );
+          processed[key] = defaultValue;
+        }
+      }
+    }
+  }
+
+  return processed;
+}
 
 /**
  * Coerce tool arguments to match expected schema types
@@ -172,20 +433,27 @@ const permissiveNumber = () =>
  * - {"path": undefined} instead of {"path": "/some/path"}
  * - {"maxResults": "50"} instead of {"maxResults": 50}
  */
-function coerceToolArguments(args: any, schema: z.ZodSchema<any>): any {
-  if (!args || typeof args !== 'object') {
+function coerceToolArguments(
+  args: any,
+  schema: z.ZodSchema<any>,
+  toolName?: string,
+): any {
+  if (!args || typeof args !== "object") {
     return args;
   }
+
+  // First, preprocess to handle combined params, aliases, and defaults
+  const preprocessed = preprocessToolArguments(args, schema, toolName);
 
   // Get the schema shape if it's a ZodObject
   const shape = (schema as any)._def?.shape?.();
   if (!shape) {
-    return args;
+    return preprocessed;
   }
 
   const coerced: Record<string, any> = {};
 
-  for (const [key, value] of Object.entries(args)) {
+  for (const [key, value] of Object.entries(preprocessed)) {
     const fieldSchema = shape[key];
     if (!fieldSchema) {
       // Unknown field - pass through
@@ -201,44 +469,44 @@ function coerceToolArguments(args: any, schema: z.ZodSchema<any>): any {
     const typeName = innerSchema._def?.typeName;
 
     // Coerce based on expected type
-    if (typeName === 'ZodString') {
+    if (typeName === "ZodString") {
       // Expected string
       if (value === undefined || value === null) {
         // Skip undefined/null - let schema handle defaults
         continue;
-      } else if (typeof value === 'object' && Object.keys(value).length === 0) {
+      } else if (typeof value === "object" && Object.keys(value).length === 0) {
         // Empty object {} -> empty string
-        coerced[key] = '';
-      } else if (typeof value === 'object') {
+        coerced[key] = "";
+      } else if (typeof value === "object") {
         // Non-empty object -> try to stringify meaningfully
         coerced[key] = JSON.stringify(value);
-      } else if (typeof value !== 'string') {
+      } else if (typeof value !== "string") {
         // Convert to string
         coerced[key] = String(value);
       } else {
         coerced[key] = value;
       }
-    } else if (typeName === 'ZodNumber') {
+    } else if (typeName === "ZodNumber") {
       // Expected number
       if (value === undefined || value === null) {
         continue;
-      } else if (typeof value === 'string') {
+      } else if (typeof value === "string") {
         const parsed = parseFloat(value);
         if (!isNaN(parsed)) {
           coerced[key] = parsed;
         }
-      } else if (typeof value === 'number') {
+      } else if (typeof value === "number") {
         coerced[key] = value;
       }
-    } else if (typeName === 'ZodBoolean') {
+    } else if (typeName === "ZodBoolean") {
       // Expected boolean
       if (value === undefined || value === null) {
         continue;
-      } else if (typeof value === 'string') {
-        coerced[key] = value.toLowerCase() === 'true' || value === '1';
-      } else if (typeof value === 'number') {
+      } else if (typeof value === "string") {
+        coerced[key] = value.toLowerCase() === "true" || value === "1";
+      } else if (typeof value === "number") {
         coerced[key] = value !== 0;
-      } else if (typeof value === 'boolean') {
+      } else if (typeof value === "boolean") {
         coerced[key] = value;
       }
     } else {
@@ -257,7 +525,7 @@ function coerceToolArguments(args: any, schema: z.ZodSchema<any>): any {
 function extractValidArgsWithDefaults(
   args: any,
   schema: z.ZodSchema<any>,
-  toolName: string
+  toolName: string,
 ): any {
   const shape = (schema as any)._def?.shape?.();
   if (!shape) {
@@ -270,7 +538,7 @@ function extractValidArgsWithDefaults(
     const value = args?.[key];
 
     // Check if field is optional
-    const isOptional = (fieldSchema as any)._def?.typeName === 'ZodOptional';
+    const isOptional = (fieldSchema as any)._def?.typeName === "ZodOptional";
 
     // Get inner type for optionals
     let innerSchema = fieldSchema as any;
@@ -279,37 +547,43 @@ function extractValidArgsWithDefaults(
     }
     const typeName = innerSchema._def?.typeName;
 
-    if (value !== undefined && value !== null && typeof value !== 'object') {
+    if (value !== undefined && value !== null && typeof value !== "object") {
       // Valid primitive value - use it
       result[key] = value;
-    } else if (value !== undefined && typeof value === 'object' && Object.keys(value).length > 0) {
+    } else if (
+      value !== undefined &&
+      typeof value === "object" &&
+      Object.keys(value).length > 0
+    ) {
       // Non-empty object - try to use or stringify
-      if (typeName === 'ZodString') {
+      if (typeName === "ZodString") {
         result[key] = JSON.stringify(value);
-      } else if (typeName === 'ZodObject' || typeName === 'ZodArray') {
+      } else if (typeName === "ZodObject" || typeName === "ZodArray") {
         result[key] = value;
       }
     } else if (!isOptional) {
       // Required field with bad/missing value - use sensible defaults
-      if (typeName === 'ZodString') {
+      if (typeName === "ZodString") {
         // For path/directory fields, use current working directory or home
-        if (key === 'path' || key === 'directory' || key === 'dir') {
+        if (key === "path" || key === "directory" || key === "dir") {
           result[key] = os.homedir();
-        } else if (key === 'pattern' || key === 'query') {
-          result[key] = '*'; // Wildcard for search patterns
-        } else if (key === 'command') {
+        } else if (key === "pattern" || key === "query") {
+          result[key] = "*"; // Wildcard for search patterns
+        } else if (key === "command") {
           result[key] = 'echo "No command specified"';
-        } else if (key === 'text' || key === 'content') {
-          result[key] = '';
-        } else if (key === 'url') {
-          result[key] = 'https://example.com';
+        } else if (key === "text" || key === "content") {
+          result[key] = "";
+        } else if (key === "url") {
+          result[key] = "https://example.com";
         } else {
-          result[key] = '';
+          result[key] = "";
         }
-        console.log(`[AI IPC] Using default value for ${toolName}.${key}: "${result[key]}"`);
-      } else if (typeName === 'ZodNumber') {
+        console.log(
+          `[AI IPC] Using default value for ${toolName}.${key}: "${result[key]}"`,
+        );
+      } else if (typeName === "ZodNumber") {
         result[key] = 0;
-      } else if (typeName === 'ZodBoolean') {
+      } else if (typeName === "ZodBoolean") {
         result[key] = false;
       }
     }
@@ -348,8 +622,14 @@ async function maybeAutoGenerateTitle(
     }
 
     // Check if thread already has a meaningful title
-    if (thread.title && thread.title !== "New Chat" && thread.title.trim() !== "") {
-      console.log(`[AI IPC] Auto-title: Thread already has title: "${thread.title}"`);
+    if (
+      thread.title &&
+      thread.title !== "New Chat" &&
+      thread.title.trim() !== ""
+    ) {
+      console.log(
+        `[AI IPC] Auto-title: Thread already has title: "${thread.title}"`,
+      );
       return;
     }
 
@@ -361,7 +641,9 @@ async function maybeAutoGenerateTitle(
 
     // Only generate title for new conversations (≤3 messages: system + user + assistant)
     if (messages.length > 3) {
-      console.log(`[AI IPC] Auto-title: Too many messages (${messages.length}), skipping`);
+      console.log(
+        `[AI IPC] Auto-title: Too many messages (${messages.length}), skipping`,
+      );
       return;
     }
 
@@ -384,13 +666,21 @@ async function maybeAutoGenerateTitle(
     // Use the chat model to generate a title
     if (!chatModel) {
       // Fallback title from first few words
-      const fallbackTitle = firstUserMessage?.slice(0, 50).trim() + (firstUserMessage && firstUserMessage.length > 50 ? "..." : "") || "New Chat";
+      const fallbackTitle =
+        firstUserMessage?.slice(0, 50).trim() +
+          (firstUserMessage && firstUserMessage.length > 50 ? "..." : "") ||
+        "New Chat";
       await db
         .update(schema.ChatThreadTable)
         .set({ title: fallbackTitle })
         .where(eq(schema.ChatThreadTable.id, threadId));
-      event.sender.send("ai:title:generated", { threadId, title: fallbackTitle });
-      console.log(`[AI IPC] Auto-title: Used fallback title: "${fallbackTitle}"`);
+      event.sender.send("ai:title:generated", {
+        threadId,
+        title: fallbackTitle,
+      });
+      console.log(
+        `[AI IPC] Auto-title: Used fallback title: "${fallbackTitle}"`,
+      );
       return;
     }
 
@@ -399,13 +689,21 @@ async function maybeAutoGenerateTitle(
 
     if (!apiKey && !isLocalProvider(chatModel.provider)) {
       // Use fallback title
-      const fallbackTitle = firstUserMessage?.slice(0, 50).trim() + (firstUserMessage && firstUserMessage.length > 50 ? "..." : "") || "New Chat";
+      const fallbackTitle =
+        firstUserMessage?.slice(0, 50).trim() +
+          (firstUserMessage && firstUserMessage.length > 50 ? "..." : "") ||
+        "New Chat";
       await db
         .update(schema.ChatThreadTable)
         .set({ title: fallbackTitle })
         .where(eq(schema.ChatThreadTable.id, threadId));
-      event.sender.send("ai:title:generated", { threadId, title: fallbackTitle });
-      console.log(`[AI IPC] Auto-title: No API key, used fallback title: "${fallbackTitle}"`);
+      event.sender.send("ai:title:generated", {
+        threadId,
+        title: fallbackTitle,
+      });
+      console.log(
+        `[AI IPC] Auto-title: No API key, used fallback title: "${fallbackTitle}"`,
+      );
       return;
     }
 
@@ -413,12 +711,18 @@ async function maybeAutoGenerateTitle(
     const model = await getModelInstance(chatModel, apiKey);
 
     if (!model) {
-      const fallbackTitle = firstUserMessage?.slice(0, 50).trim() + (firstUserMessage && firstUserMessage.length > 50 ? "..." : "") || "New Chat";
+      const fallbackTitle =
+        firstUserMessage?.slice(0, 50).trim() +
+          (firstUserMessage && firstUserMessage.length > 50 ? "..." : "") ||
+        "New Chat";
       await db
         .update(schema.ChatThreadTable)
         .set({ title: fallbackTitle })
         .where(eq(schema.ChatThreadTable.id, threadId));
-      event.sender.send("ai:title:generated", { threadId, title: fallbackTitle });
+      event.sender.send("ai:title:generated", {
+        threadId,
+        title: fallbackTitle,
+      });
       return;
     }
 
@@ -449,7 +753,9 @@ async function maybeAutoGenerateTitle(
       .where(eq(schema.ChatThreadTable.id, threadId));
 
     // Send title to renderer
-    console.log(`[AI IPC] Auto-title: SENDING IPC event - threadId: ${threadId}, title: "${title}"`);
+    console.log(
+      `[AI IPC] Auto-title: SENDING IPC event - threadId: ${threadId}, title: "${title}"`,
+    );
     event.sender.send("ai:title:generated", {
       threadId,
       title,
@@ -938,7 +1244,10 @@ async function loadMcpTools(
                   );
 
                   // Coerce string→boolean/number before calling MCP tool
-                  const coercedParams = coerceJsonSchemaArgs(params, originalSchema);
+                  const coercedParams = coerceJsonSchemaArgs(
+                    params,
+                    originalSchema,
+                  );
 
                   try {
                     // Add 60-second timeout for tool execution
@@ -1145,7 +1454,7 @@ function getToolNamesForToolkits(toolkits: string[]): Set<string> {
  */
 function buildAgentSystemPrompt(
   workingDirectory?: { path: string; name: string },
-  isLocalModel: boolean = false
+  isLocalModel: boolean = false,
 ): string {
   // ============================================
   // LOCAL MODEL OPTIMIZATION: Minimal System Prompt
@@ -1257,20 +1566,215 @@ function createElectronTools(
   return {
     // Terminal command execution
     terminal_execute: createTool({
-      description:
-        `Execute a shell command in the terminal. Returns stdout, stderr, and exit code. Default working directory: ${defaultCwd}`,
+      description: `Execute a shell command in the terminal. Returns stdout, stderr, and exit code. Default working directory: ${defaultCwd}`,
       inputSchema: z
-        .object({
-          command: z.string().describe("The command to execute"),
-          cwd: z
-            .string()
-            .optional()
-            .describe(`Working directory (defaults to ${defaultCwd})`),
-          timeout: z
-            .number()
-            .optional()
-            .describe("Timeout in milliseconds (default 30000)"),
-        })
+        .preprocess(
+          // Handle common local model mistakes like wrong param names and malformed commands
+          (input: any) => {
+            if (!input || typeof input !== "object") {
+              return { command: 'echo "No command provided"' };
+            }
+
+            // FIRST: Extract actual values from schema-like objects
+            // Local models sometimes send {"type": "string", "value": "actual"} instead of "actual"
+            const extracted = extractValuesFromSchemaObjects(input);
+            const processed: Record<string, any> = { ...extracted };
+
+            // Handle parameter name aliases for command
+            const cmdAliases = [
+              "cmd",
+              "shell",
+              "bash",
+              "exec",
+              "script",
+              "run",
+            ];
+            for (const alias of cmdAliases) {
+              if (
+                processed[alias] !== undefined &&
+                processed.command === undefined
+              ) {
+                processed.command = processed[alias];
+                delete processed[alias];
+              }
+            }
+
+            // Handle cwd aliases
+            const cwdAliases = [
+              "directory",
+              "dir",
+              "workingDirectory",
+              "working_directory",
+              "path",
+            ];
+            for (const alias of cwdAliases) {
+              if (
+                processed[alias] !== undefined &&
+                processed.cwd === undefined
+              ) {
+                processed.cwd = processed[alias];
+                delete processed[alias];
+              }
+            }
+
+            // ============================================
+            // CRITICAL: Handle malformed command formats from local models
+            // Local models often output commands as Python-style lists or JSON arrays:
+            // - "['ls', '-l']" -> "ls -l"
+            // - ["ls", "-l"] -> "ls -l"
+            // - "['echo', 'hello world']" -> "echo 'hello world'"
+            // ============================================
+            if (processed.command !== undefined) {
+              let cmd = processed.command;
+
+              // Handle actual arrays (not strings)
+              if (Array.isArray(cmd)) {
+                // Join array elements with spaces, quoting elements with spaces
+                cmd = cmd
+                  .map((part: any) => {
+                    const str = String(part);
+                    // Quote if contains spaces and not already quoted
+                    if (
+                      str.includes(" ") &&
+                      !str.startsWith('"') &&
+                      !str.startsWith("'")
+                    ) {
+                      return `"${str}"`;
+                    }
+                    return str;
+                  })
+                  .join(" ");
+                console.log(
+                  `[AI Tools] Converted array command to string: "${cmd}"`,
+                );
+              }
+              // Handle Python-style list strings: "['ls', '-l']" or "['ls', '-la', '/path']"
+              else if (typeof cmd === "string") {
+                // Match Python list syntax: ['item1', 'item2', ...] or ["item1", "item2", ...]
+                const pythonListMatch = cmd.match(
+                  /^\s*\[\s*(['"][^'"]*['"]\s*,?\s*)+\]\s*$/,
+                );
+                if (pythonListMatch) {
+                  try {
+                    // Extract items from Python-style list
+                    const itemMatches = cmd.match(/['"]([^'"]*)['"]/g);
+                    if (itemMatches) {
+                      const items = itemMatches.map((m: string) =>
+                        m.slice(1, -1),
+                      ); // Remove quotes
+                      // Join with spaces, quoting items that contain spaces
+                      cmd = items
+                        .map((item: string) => {
+                          if (
+                            item.includes(" ") &&
+                            !item.startsWith('"') &&
+                            !item.startsWith("'")
+                          ) {
+                            return `"${item}"`;
+                          }
+                          return item;
+                        })
+                        .join(" ");
+                      console.log(
+                        `[AI Tools] Converted Python list command to string: "${cmd}"`,
+                      );
+                    }
+                  } catch {
+                    console.warn(
+                      `[AI Tools] Failed to parse Python list command: ${cmd}`,
+                    );
+                  }
+                }
+                // Also handle JSON-style array strings: ["ls", "-l"]
+                else if (
+                  cmd.trim().startsWith("[") &&
+                  cmd.trim().endsWith("]")
+                ) {
+                  try {
+                    const parsed = JSON.parse(cmd);
+                    if (Array.isArray(parsed)) {
+                      cmd = parsed
+                        .map((part: any) => {
+                          const str = String(part);
+                          if (
+                            str.includes(" ") &&
+                            !str.startsWith('"') &&
+                            !str.startsWith("'")
+                          ) {
+                            return `"${str}"`;
+                          }
+                          return str;
+                        })
+                        .join(" ");
+                      console.log(
+                        `[AI Tools] Converted JSON array command to string: "${cmd}"`,
+                      );
+                    }
+                  } catch {
+                    // Not valid JSON, use as-is
+                  }
+                }
+              }
+
+              processed.command = typeof cmd === "string" ? cmd : String(cmd);
+            }
+
+            // Fallback: If command is still undefined/empty, try to find a command value
+            if (!processed.command || processed.command === "undefined") {
+              // Check if there's any field that looks like it might contain a command
+              // (some models put the command in weird places)
+              for (const [key, value] of Object.entries(input)) {
+                // Skip known non-command fields
+                if (
+                  [
+                    "cwd",
+                    "timeout",
+                    "directory",
+                    "dir",
+                    "workingDirectory",
+                    "working_directory",
+                    "path",
+                  ].includes(key)
+                ) {
+                  continue;
+                }
+                // If it's a simple string that looks like a command, use it
+                if (
+                  typeof value === "string" &&
+                  value.trim() &&
+                  !value.includes('"type"')
+                ) {
+                  processed.command = value;
+                  console.log(
+                    `[AI Tools] Found command in unexpected field "${key}": "${value}"`,
+                  );
+                  break;
+                }
+              }
+            }
+
+            // Final fallback: use a placeholder command
+            if (!processed.command || processed.command === "undefined") {
+              processed.command =
+                'echo "No command was provided in the tool call"';
+              console.warn(
+                `[AI Tools] No command found in terminal_execute input, using placeholder`,
+              );
+            }
+
+            return processed;
+          },
+          z.object({
+            command: z.string().describe("The command to execute"),
+            cwd: z
+              .string()
+              .optional()
+              .describe(`Working directory (defaults to ${defaultCwd})`),
+            timeout: permissiveNumber()
+              .optional()
+              .describe("Timeout in milliseconds (default 30000)"),
+          }),
+        )
         .describe("Terminal execution parameters"),
       execute: async ({ command, cwd, timeout = 30000 }) => {
         // console.log(`[AI Tools] Executing command: ${command} in ${cwd || defaultCwd}`);
@@ -1301,13 +1805,53 @@ function createElectronTools(
     // Read file
     file_read: createTool({
       description: "Read the contents of a file",
-      inputSchema: z.object({
-        path: z.string().describe("Absolute path to the file"),
-        encoding: z
-          .string()
-          .optional()
-          .describe("File encoding (default utf-8)"),
-      }),
+      inputSchema: z.preprocess(
+        // Handle common local model mistakes like wrong param names
+        (input: any) => {
+          if (!input || typeof input !== "object") {
+            return { path: "" };
+          }
+
+          // FIRST: Extract actual values from schema-like objects
+          const extracted = extractValuesFromSchemaObjects(input);
+          const processed: Record<string, any> = { ...extracted };
+
+          // Handle parameter name aliases for path
+          const pathAliases = [
+            "filePath",
+            "file",
+            "filepath",
+            "fileName",
+            "file_path",
+          ];
+          for (const alias of pathAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.path === undefined
+            ) {
+              processed.path = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Ensure path is a string
+          if (
+            processed.path !== undefined &&
+            typeof processed.path !== "string"
+          ) {
+            processed.path = String(processed.path);
+          }
+
+          return processed;
+        },
+        z.object({
+          path: z.string().describe("Absolute path to the file"),
+          encoding: z
+            .string()
+            .optional()
+            .describe("File encoding (default utf-8)"),
+        }),
+      ),
       execute: async ({ path: filePath, encoding = "utf-8" }) => {
         // console.log(`[AI Tools] Reading file: ${filePath}`);
         try {
@@ -1330,14 +1874,81 @@ function createElectronTools(
     file_write: createTool({
       description:
         "PREFERRED: Write content to a file. Use this to create ANY file (code, HTML, scripts, etc). Creates parent directories automatically. Better than terminal echo for multi-line content.",
-      inputSchema: z.object({
-        path: z.string().describe(`File path (relative to ${defaultCwd} or absolute)`),
-        content: z.string().describe("Full file content to write"),
-        append: z
-          .boolean()
-          .optional()
-          .describe("Append to existing file instead of overwrite"),
-      }),
+      inputSchema: z.preprocess(
+        // Handle common local model mistakes like wrong param names and schema-as-value
+        (input: any) => {
+          if (!input || typeof input !== "object") {
+            return { path: "", content: "" };
+          }
+
+          // FIRST: Extract actual values from schema-like objects
+          const extracted = extractValuesFromSchemaObjects(input);
+          const processed: Record<string, any> = { ...extracted };
+
+          // Handle parameter name aliases for path
+          const pathAliases = [
+            "filePath",
+            "file",
+            "filepath",
+            "fileName",
+            "file_path",
+            "filename",
+          ];
+          for (const alias of pathAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.path === undefined
+            ) {
+              processed.path = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Handle parameter name aliases for content
+          const contentAliases = [
+            "text",
+            "data",
+            "body",
+            "fileContent",
+            "file_content",
+            "contents",
+          ];
+          for (const alias of contentAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.content === undefined
+            ) {
+              processed.content = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Ensure path and content are strings
+          if (
+            processed.path !== undefined &&
+            typeof processed.path !== "string"
+          ) {
+            processed.path = String(processed.path);
+          }
+          if (
+            processed.content !== undefined &&
+            typeof processed.content !== "string"
+          ) {
+            processed.content = String(processed.content);
+          }
+
+          return processed;
+        },
+        z.object({
+          path: z
+            .string()
+            .describe(`File path (relative to ${defaultCwd} or absolute)`),
+          content: z.string().describe("Full file content to write"),
+          append: permissiveBoolean()
+            .optional()
+            .describe("Append to existing file instead of overwrite"),
+        }),
+      ),
       execute: async ({ path: filePath, content, append = false }) => {
         try {
           // Handle relative paths - resolve against defaultCwd
@@ -1345,9 +1956,21 @@ function createElectronTools(
           if (!path.isAbsolute(filePath)) {
             resolvedPath = path.join(defaultCwd, filePath);
           }
-          
-          console.log(`[AI Tools] Writing file: ${resolvedPath} (${content.length} bytes)`);
-          
+
+          console.log(
+            `[AI Tools] Writing file: ${resolvedPath} (${content.length} bytes)`,
+          );
+
+          // Read original content for diff tracking
+          let originalContent: string | null = null;
+          let isNewFile = false;
+          try {
+            originalContent = fs.readFileSync(resolvedPath, "utf-8");
+          } catch {
+            // File doesn't exist, it's a new file
+            isNewFile = true;
+          }
+
           // Create parent directory if needed
           const dir = path.dirname(resolvedPath);
           if (!fs.existsSync(dir)) {
@@ -1358,6 +1981,28 @@ function createElectronTools(
             fs.appendFileSync(resolvedPath, content);
           } else {
             fs.writeFileSync(resolvedPath, content);
+          }
+
+          // Emit file change event for diff tracking
+          const { BrowserWindow } = require("electron");
+          const fileChangeEvent = {
+            filePath: resolvedPath,
+            filename: path.basename(resolvedPath),
+            status: isNewFile ? "created" : "modified",
+            originalContent: originalContent,
+            newContent:
+              append && originalContent ? originalContent + content : content,
+            timestamp: Date.now(),
+          };
+
+          console.log(
+            `[AI Tools] Emitting file:changed event: ${resolvedPath} (${fileChangeEvent.status})`,
+          );
+
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) {
+              win.webContents.send("file:changed", fileChangeEvent);
+            }
           }
 
           return {
@@ -1379,12 +2024,50 @@ function createElectronTools(
     // List directory
     file_list: createTool({
       description: "List files and directories in a path",
-      inputSchema: z.object({
-        path: z.string().describe("Directory path to list"),
-        recursive: permissiveBoolean()
-          .optional()
-          .describe("List recursively (default false)"),
-      }),
+      inputSchema: z.preprocess(
+        // Handle common local model mistakes like wrong param names or missing required params
+        (input: any) => {
+          if (!input || typeof input !== "object") {
+            return { path: defaultCwd, recursive: false };
+          }
+
+          // FIRST: Extract actual values from schema-like objects
+          const extracted = extractValuesFromSchemaObjects(input);
+          const processed: Record<string, any> = { ...extracted };
+
+          // Handle parameter name aliases for path
+          const pathAliases = [
+            "directory",
+            "dir",
+            "folder",
+            "dirPath",
+            "directoryPath",
+            "filePath",
+          ];
+          for (const alias of pathAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.path === undefined
+            ) {
+              processed.path = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Apply defaults for missing required fields
+          if (!processed.path || typeof processed.path !== "string") {
+            processed.path = defaultCwd;
+          }
+
+          return processed;
+        },
+        z.object({
+          path: z.string().describe("Directory path to list"),
+          recursive: permissiveBoolean()
+            .optional()
+            .describe("List recursively (default false)"),
+        }),
+      ),
       execute: async ({ path: dirPath, recursive = false }) => {
         // console.log(`[AI Tools] Listing directory: ${dirPath}`);
         try {
@@ -1502,9 +2185,47 @@ function createElectronTools(
     // Open URL in browser
     browser_open: createTool({
       description: "Open a URL in the default browser",
-      inputSchema: z.object({
-        url: z.string().describe("URL to open"),
-      }),
+      inputSchema: z.preprocess(
+        // Handle common local model mistakes
+        (input: any) => {
+          if (!input || typeof input !== "object") {
+            return { url: "" };
+          }
+
+          // FIRST: Extract actual values from schema-like objects
+          const extracted = extractValuesFromSchemaObjects(input);
+          const processed: Record<string, any> = { ...extracted };
+
+          // Handle parameter name aliases for url
+          const urlAliases = [
+            "link",
+            "href",
+            "uri",
+            "website",
+            "webpage",
+            "address",
+          ];
+          for (const alias of urlAliases) {
+            if (processed[alias] !== undefined && processed.url === undefined) {
+              processed.url = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Ensure url is a string
+          if (
+            processed.url !== undefined &&
+            typeof processed.url !== "string"
+          ) {
+            processed.url = String(processed.url);
+          }
+
+          return processed;
+        },
+        z.object({
+          url: z.string().describe("URL to open"),
+        }),
+      ),
       execute: async ({ url }) => {
         try {
           await shell.openExternal(url);
@@ -1532,9 +2253,49 @@ function createElectronTools(
 
     clipboard_write: createTool({
       description: "Write text to the clipboard",
-      inputSchema: z.object({
-        text: z.string().describe("Text to write to clipboard"),
-      }),
+      inputSchema: z.preprocess(
+        // Handle common local model mistakes
+        (input: any) => {
+          if (!input || typeof input !== "object") {
+            return { text: "" };
+          }
+
+          // FIRST: Extract actual values from schema-like objects
+          const extracted = extractValuesFromSchemaObjects(input);
+          const processed: Record<string, any> = { ...extracted };
+
+          // Handle parameter name aliases for text
+          const textAliases = [
+            "content",
+            "data",
+            "value",
+            "string",
+            "clipboard",
+          ];
+          for (const alias of textAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.text === undefined
+            ) {
+              processed.text = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Ensure text is a string
+          if (
+            processed.text !== undefined &&
+            typeof processed.text !== "string"
+          ) {
+            processed.text = String(processed.text);
+          }
+
+          return processed;
+        },
+        z.object({
+          text: z.string().describe("Text to write to clipboard"),
+        }),
+      ),
       execute: async ({ text }) => {
         try {
           clipboard.writeText(text);
@@ -1568,15 +2329,115 @@ function createElectronTools(
 
     // Search files on local disk (NOT for web searches)
     file_search: createTool({
-      description: "Search for FILES on the local computer disk by filename. Only use this when looking for actual files on disk, NOT for searching information on the internet. Use memory_search for knowledge base content.",
-      inputSchema: z.object({
-        directory: z.string().describe("Directory path to search in (e.g., /Users/name/Documents)"),
-        pattern: z.string().describe("Filename pattern to search for (e.g., *.txt, report.pdf, John Smith)"),
-        maxResults: z
-          .number()
-          .optional()
-          .describe("Maximum results (default 50)"),
-      }),
+      description:
+        "Search for FILES on the local computer disk by filename. Only use this when looking for actual files on disk, NOT for searching information on the internet. Use memory_search for knowledge base content.",
+      inputSchema: z.preprocess(
+        // Preprocess to handle common local model mistakes:
+        // - Combined params like "directory_pattern" -> split into "directory" and "pattern"
+        // - Missing required params -> use defaults
+        // - Wrong param names -> map to correct names
+        (input: any) => {
+          if (!input || typeof input !== "object") {
+            return { directory: defaultCwd, pattern: "*" };
+          }
+
+          // FIRST: Extract actual values from schema-like objects
+          const extracted = extractValuesFromSchemaObjects(input);
+          const processed: Record<string, any> = { ...extracted };
+
+          // Handle combined parameter names (e.g., "directory_pattern": "*.txt")
+          const combinedKeys = [
+            "directory_pattern",
+            "dir_pattern",
+            "path_pattern",
+            "directoryPattern",
+            "dirPattern",
+            "pathPattern",
+          ];
+          for (const key of combinedKeys) {
+            if (
+              processed[key] !== undefined &&
+              typeof processed[key] === "string"
+            ) {
+              const value = processed[key];
+              // If value looks like a path with pattern, try to split
+              if (value.includes("/") || value.includes("\\")) {
+                const lastSep = Math.max(
+                  value.lastIndexOf("/"),
+                  value.lastIndexOf("\\"),
+                );
+                processed.directory =
+                  processed.directory ||
+                  value.substring(0, lastSep) ||
+                  defaultCwd;
+                processed.pattern =
+                  processed.pattern || value.substring(lastSep + 1) || "*";
+              } else {
+                // Just a pattern, use default directory
+                processed.directory = processed.directory || defaultCwd;
+                processed.pattern = processed.pattern || value || "*";
+              }
+              delete processed[key];
+            }
+          }
+
+          // Handle parameter name aliases
+          const dirAliases = ["dir", "folder", "dirPath", "searchDir", "path"];
+          for (const alias of dirAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.directory === undefined
+            ) {
+              processed.directory = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          const patternAliases = [
+            "searchPattern",
+            "filePattern",
+            "glob",
+            "filter",
+            "search",
+            "query",
+          ];
+          for (const alias of patternAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.pattern === undefined
+            ) {
+              processed.pattern = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Apply defaults for missing required fields
+          if (!processed.directory || typeof processed.directory !== "string") {
+            processed.directory = defaultCwd;
+          }
+          if (!processed.pattern || typeof processed.pattern !== "string") {
+            processed.pattern = "*";
+          }
+
+          return processed;
+        },
+        z.object({
+          directory: z
+            .string()
+            .describe(
+              "Directory path to search in (e.g., /Users/name/Documents)",
+            ),
+          pattern: z
+            .string()
+            .describe(
+              "Filename pattern to search for (e.g., *.txt, report.pdf, John Smith)",
+            ),
+          maxResults: z
+            .number()
+            .optional()
+            .describe("Maximum results (default 50)"),
+        }),
+      ),
       execute: async ({ directory, pattern, maxResults = 50 }) => {
         console.log(`[AI Tools] ========== FILE SEARCH CALLED ==========`);
         console.log(`[AI Tools] File search directory: "${directory}"`);
@@ -1588,8 +2449,8 @@ function createElectronTools(
           // Create multiple patterns to handle spaces vs underscores vs hyphens
           // "Charannyan Kannan" should match "Charannyan_Kannan", "Charannyan-Kannan", etc.
           const simplePattern = pattern.trim();
-          const underscorePattern = pattern.replace(/\s+/g, '_');
-          const hyphenPattern = pattern.replace(/\s+/g, '-');
+          const underscorePattern = pattern.replace(/\s+/g, "_");
+          const hyphenPattern = pattern.replace(/\s+/g, "-");
 
           // Use find with -iname for case-insensitive search and combine multiple patterns
           let command: string;
@@ -1612,9 +2473,10 @@ function createElectronTools(
             files,
             count: files.length,
             searchedPatterns: [simplePattern, underscorePattern, hyphenPattern],
-            hint: files.length === 0
-              ? "No files found. If searching for document content, use memory_search instead. If searching the web, use web_search."
-              : undefined,
+            hint:
+              files.length === 0
+                ? "No files found. If searching for document content, use memory_search instead. If searching the web, use web_search."
+                : undefined,
           };
         } catch (error: any) {
           console.error(`[AI Tools] File search error:`, error);
@@ -1632,13 +2494,69 @@ function createElectronTools(
     web_search: createTool({
       description:
         "Search the internet for information, news, people, companies, facts, or any topic. Use this for ANY research or information lookup. Returns search results with titles, URLs, and snippets.",
-      inputSchema: z.object({
-        query: z.string().describe("The search query - what you want to find on the internet"),
-        numResults: z
-          .number()
-          .optional()
-          .describe("Maximum number of results to return (default 5)"),
-      }),
+      inputSchema: z.preprocess(
+        // Handle common local model mistakes like wrong param names
+        (input: any) => {
+          if (!input || typeof input !== "object") {
+            return { query: "" };
+          }
+
+          // FIRST: Extract actual values from schema-like objects
+          const extracted = extractValuesFromSchemaObjects(input);
+          const processed: Record<string, any> = { ...extracted };
+
+          // Handle parameter name aliases for query
+          const queryAliases = [
+            "search",
+            "searchQuery",
+            "q",
+            "term",
+            "keywords",
+            "text",
+          ];
+          for (const alias of queryAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.query === undefined
+            ) {
+              processed.query = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Handle numResults aliases
+          const numAliases = ["limit", "max", "count", "maxResults", "num"];
+          for (const alias of numAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.numResults === undefined
+            ) {
+              processed.numResults = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Ensure query is a string
+          if (
+            processed.query !== undefined &&
+            typeof processed.query !== "string"
+          ) {
+            processed.query = String(processed.query);
+          }
+
+          return processed;
+        },
+        z.object({
+          query: z
+            .string()
+            .describe(
+              "The search query - what you want to find on the internet",
+            ),
+          numResults: permissiveNumber()
+            .optional()
+            .describe("Maximum number of results to return (default 5)"),
+        }),
+      ),
       execute: async ({ query, numResults = 5 }) => {
         console.log(`[AI Tools] ========== WEB SEARCH CALLED ==========`);
         console.log(`[AI Tools] Web search query: "${query}"`);
@@ -1735,13 +2653,68 @@ function createElectronTools(
     web_fetch: createTool({
       description:
         "Fetch the content of a web page and extract its text. Useful for reading articles, documentation, etc.",
-      inputSchema: z.object({
-        url: z.string().describe("The URL to fetch"),
-        maxLength: z
-          .number()
-          .optional()
-          .describe("Maximum content length to return (default 10000)"),
-      }),
+      inputSchema: z.preprocess(
+        // Handle common local model mistakes
+        (input: any) => {
+          if (!input || typeof input !== "object") {
+            return { url: "" };
+          }
+
+          // FIRST: Extract actual values from schema-like objects
+          const extracted = extractValuesFromSchemaObjects(input);
+          const processed: Record<string, any> = { ...extracted };
+
+          // Handle parameter name aliases for url
+          const urlAliases = [
+            "link",
+            "href",
+            "uri",
+            "website",
+            "webpage",
+            "page",
+          ];
+          for (const alias of urlAliases) {
+            if (processed[alias] !== undefined && processed.url === undefined) {
+              processed.url = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Handle maxLength aliases
+          const lengthAliases = [
+            "max",
+            "limit",
+            "maxLen",
+            "max_length",
+            "length",
+          ];
+          for (const alias of lengthAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.maxLength === undefined
+            ) {
+              processed.maxLength = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Ensure url is a string
+          if (
+            processed.url !== undefined &&
+            typeof processed.url !== "string"
+          ) {
+            processed.url = String(processed.url);
+          }
+
+          return processed;
+        },
+        z.object({
+          url: z.string().describe("The URL to fetch"),
+          maxLength: permissiveNumber()
+            .optional()
+            .describe("Maximum content length to return (default 10000)"),
+        }),
+      ),
       execute: async ({ url, maxLength = 10000 }) => {
         // console.log(`[AI Tools] Web fetch: ${url}`);
         try {
@@ -1801,24 +2774,89 @@ function createElectronTools(
     memory_search: createTool({
       description:
         "Search past conversations, knowledge bases, and indexed documents for relevant context. Use this to recall information from previous conversations, find knowledge base content, remember user preferences, or find related discussions. Returns semantically similar content using LOCAL embeddings (works offline).",
-      inputSchema: z.object({
-        query: z
-          .string()
-          .describe("The search query to find relevant context from memory and knowledge bases"),
-        limit: z
-          .number()
-          .optional()
-          .describe("Maximum number of results to return (default 5)"),
-        scoreThreshold: z
-          .number()
-          .optional()
-          .describe("Minimum relevance score 0-1 (default 0.5)"),
-        collections: z
-          .array(z.enum(["messages", "documents", "knowledge"]))
-          .optional()
-          .describe("Which collections to search (default: all)"),
-      }),
-      execute: async ({ query, limit = 5, scoreThreshold = 0.5, collections }) => {
+      inputSchema: z.preprocess(
+        // Handle common local model mistakes like wrong param names
+        (input: any) => {
+          if (!input || typeof input !== "object") {
+            return { query: "" };
+          }
+
+          // FIRST: Extract actual values from schema-like objects
+          const extracted = extractValuesFromSchemaObjects(input);
+          const processed: Record<string, any> = { ...extracted };
+
+          // Handle parameter name aliases for query
+          const queryAliases = [
+            "search",
+            "searchQuery",
+            "q",
+            "term",
+            "keywords",
+            "text",
+            "question",
+          ];
+          for (const alias of queryAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.query === undefined
+            ) {
+              processed.query = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Handle limit aliases
+          const limitAliases = [
+            "maxResults",
+            "max",
+            "count",
+            "numResults",
+            "num",
+          ];
+          for (const alias of limitAliases) {
+            if (
+              processed[alias] !== undefined &&
+              processed.limit === undefined
+            ) {
+              processed.limit = processed[alias];
+              delete processed[alias];
+            }
+          }
+
+          // Ensure query is a string
+          if (
+            processed.query !== undefined &&
+            typeof processed.query !== "string"
+          ) {
+            processed.query = String(processed.query);
+          }
+
+          return processed;
+        },
+        z.object({
+          query: z
+            .string()
+            .describe(
+              "The search query to find relevant context from memory and knowledge bases",
+            ),
+          limit: permissiveNumber()
+            .optional()
+            .describe("Maximum number of results to return (default 5)"),
+          scoreThreshold: permissiveNumber()
+            .optional()
+            .describe("Minimum relevance score 0-1 (default 0.5)"),
+          collections: z
+            .array(z.enum(["messages", "documents", "knowledge"]))
+            .optional()
+            .describe("Which collections to search (default: all)"),
+        }),
+      ),
+      execute: async ({
+        query,
+        limit = 5,
+        scoreThreshold = 0.5,
+        collections,
+      }) => {
         const start = performance.now();
 
         try {
@@ -1921,7 +2959,10 @@ function createElectronTools(
           const service = EnhancedBrowserService.getInstance();
           const result = await service.createSession({ cdpPort });
           if (!result || !result.sessionId) {
-            return { success: false, error: "Browser session creation returned empty result" };
+            return {
+              success: false,
+              error: "Browser session creation returned empty result",
+            };
           }
           return {
             success: true,
@@ -1950,7 +2991,12 @@ function createElectronTools(
     browser_close_session: createTool({
       description: "Close a browser session",
       inputSchema: z.object({
-        sessionId: z.string().optional().describe("Session ID to close (closes active session if not specified)"),
+        sessionId: z
+          .string()
+          .optional()
+          .describe(
+            "Session ID to close (closes active session if not specified)",
+          ),
       }),
       execute: async ({ sessionId }) => {
         try {
@@ -1988,7 +3034,10 @@ function createElectronTools(
         try {
           const service = EnhancedBrowserService.getInstance();
           service.switchSession(sessionId);
-          return { success: true, message: `Switched to session: ${sessionId}` };
+          return {
+            success: true,
+            message: `Switched to session: ${sessionId}`,
+          };
         } catch (error: any) {
           return { success: false, error: error.message };
         }
@@ -2024,15 +3073,27 @@ function createElectronTools(
         "Returns a text tree with refs like @e1, @e2 that can be used with click, fill, etc. " +
         "This is the PRIMARY tool for understanding page content.",
       inputSchema: z.object({
-        interactive: permissiveBoolean().optional().describe("Only include interactive elements"),
-        compact: permissiveBoolean().optional().describe("Remove structural elements without content"),
-        selector: z.string().optional().describe("CSS selector to scope the snapshot"),
+        interactive: permissiveBoolean()
+          .optional()
+          .describe("Only include interactive elements"),
+        compact: permissiveBoolean()
+          .optional()
+          .describe("Remove structural elements without content"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector to scope the snapshot"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
       execute: async ({ interactive, compact, selector, sessionId }) => {
         try {
           const service = EnhancedBrowserService.getInstance();
-          const result = await service.getSnapshot({ interactive, compact, selector, sessionId });
+          const result = await service.getSnapshot({
+            interactive,
+            compact,
+            selector,
+            sessionId,
+          });
           return {
             success: true,
             tree: result.tree,
@@ -2055,7 +3116,10 @@ function createElectronTools(
       execute: async ({ selector, sessionId }) => {
         try {
           const service = EnhancedBrowserService.getInstance();
-          await service.executeAction({ type: "click", selector }, { sessionId });
+          await service.executeAction(
+            { type: "click", selector },
+            { sessionId },
+          );
           return { success: true, message: `Clicked: ${selector}` };
         } catch (error: any) {
           return { success: false, error: error.message };
@@ -2065,7 +3129,8 @@ function createElectronTools(
 
     // Fill an input field
     browser_fill: createTool({
-      description: "Fill an input field with text (clears existing content first)",
+      description:
+        "Fill an input field with text (clears existing content first)",
       inputSchema: z.object({
         selector: z.string().describe("Element ref or CSS selector"),
         value: z.string().describe("Text to fill"),
@@ -2074,7 +3139,10 @@ function createElectronTools(
       execute: async ({ selector, value, sessionId }) => {
         try {
           const service = EnhancedBrowserService.getInstance();
-          await service.executeAction({ type: "fill", selector, value }, { sessionId });
+          await service.executeAction(
+            { type: "fill", selector, value },
+            { sessionId },
+          );
           return { success: true, message: `Filled ${selector} with text` };
         } catch (error: any) {
           return { success: false, error: error.message };
@@ -2084,17 +3152,23 @@ function createElectronTools(
 
     // Type text character by character
     browser_type: createTool({
-      description: "Type text character by character (useful for autocomplete fields)",
+      description:
+        "Type text character by character (useful for autocomplete fields)",
       inputSchema: z.object({
         selector: z.string().describe("Element ref or CSS selector"),
         text: z.string().describe("Text to type"),
-        delay: permissiveNumber().optional().describe("Delay between keystrokes in ms"),
+        delay: permissiveNumber()
+          .optional()
+          .describe("Delay between keystrokes in ms"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
       execute: async ({ selector, text, delay, sessionId }) => {
         try {
           const service = EnhancedBrowserService.getInstance();
-          await service.executeAction({ type: "type", selector, text, delay }, { sessionId });
+          await service.executeAction(
+            { type: "type", selector, text, delay },
+            { sessionId },
+          );
           return { success: true, message: `Typed text in ${selector}` };
         } catch (error: any) {
           return { success: false, error: error.message };
@@ -2107,13 +3181,19 @@ function createElectronTools(
       description: "Press a keyboard key (Enter, Tab, Escape, ArrowDown, etc.)",
       inputSchema: z.object({
         key: z.string().describe("Key to press (e.g. Enter, Tab, Escape)"),
-        selector: z.string().optional().describe("Optional element to focus first"),
+        selector: z
+          .string()
+          .optional()
+          .describe("Optional element to focus first"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
       execute: async ({ key, selector, sessionId }) => {
         try {
           const service = EnhancedBrowserService.getInstance();
-          await service.executeAction({ type: "press", key, selector }, { sessionId });
+          await service.executeAction(
+            { type: "press", key, selector },
+            { sessionId },
+          );
           return { success: true, message: `Pressed key: ${key}` };
         } catch (error: any) {
           return { success: false, error: error.message };
@@ -2125,15 +3205,23 @@ function createElectronTools(
     browser_scroll: createTool({
       description: "Scroll the page or an element",
       inputSchema: z.object({
-        direction: z.enum(["up", "down"]).optional().describe("Scroll direction"),
-        amount: permissiveNumber().optional().describe("Scroll amount in pixels (default 500)"),
+        direction: z
+          .enum(["up", "down"])
+          .optional()
+          .describe("Scroll direction"),
+        amount: permissiveNumber()
+          .optional()
+          .describe("Scroll amount in pixels (default 500)"),
         selector: z.string().optional().describe("Element to scroll into view"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
       execute: async ({ direction, amount, selector, sessionId }) => {
         try {
           const service = EnhancedBrowserService.getInstance();
-          await service.executeAction({ type: "scroll", direction, amount, selector }, { sessionId });
+          await service.executeAction(
+            { type: "scroll", direction, amount, selector },
+            { sessionId },
+          );
           return { success: true, message: "Scrolled page" };
         } catch (error: any) {
           return { success: false, error: error.message };
@@ -2145,7 +3233,9 @@ function createElectronTools(
     browser_screenshot: createTool({
       description: "Take a screenshot of the page",
       inputSchema: z.object({
-        fullPage: permissiveBoolean().optional().describe("Capture full page (default: viewport only)"),
+        fullPage: permissiveBoolean()
+          .optional()
+          .describe("Capture full page (default: viewport only)"),
         path: z.string().optional().describe("Path to save screenshot"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
@@ -2154,9 +3244,13 @@ function createElectronTools(
           const service = EnhancedBrowserService.getInstance();
           const result = await service.executeAction(
             { type: "screenshot", fullPage, path: screenshotPath },
-            { sessionId }
+            { sessionId },
           );
-          if (result.data && typeof result.data === "object" && "base64" in result.data) {
+          if (
+            result.data &&
+            typeof result.data === "object" &&
+            "base64" in result.data
+          ) {
             return { success: true, base64: (result.data as any).base64 };
           }
           return { success: true, path: screenshotPath };
@@ -2171,15 +3265,29 @@ function createElectronTools(
       description: "Wait for an element to appear or a page load state",
       inputSchema: z.object({
         selector: z.string().optional().describe("CSS selector to wait for"),
-        state: z.enum(["visible", "hidden", "attached", "detached"]).optional().describe("Element state to wait for"),
-        loadState: z.enum(["load", "domcontentloaded", "networkidle"]).optional().describe("Page load state to wait for"),
-        timeout: permissiveNumber().optional().describe("Timeout in milliseconds"),
+        state: z
+          .enum(["visible", "hidden", "attached", "detached"])
+          .optional()
+          .describe("Element state to wait for"),
+        loadState: z
+          .enum(["load", "domcontentloaded", "networkidle"])
+          .optional()
+          .describe("Page load state to wait for"),
+        timeout: permissiveNumber()
+          .optional()
+          .describe("Timeout in milliseconds"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
       execute: async ({ selector, state, loadState, timeout, sessionId }) => {
         try {
           const service = EnhancedBrowserService.getInstance();
-          await service.wait({ selector, state, loadState, timeout, sessionId });
+          await service.wait({
+            selector,
+            state,
+            loadState,
+            timeout,
+            sessionId,
+          });
           return { success: true, message: "Wait completed" };
         } catch (error: any) {
           return { success: false, error: error.message };
@@ -2225,7 +3333,10 @@ function createElectronTools(
     browser_get_content: createTool({
       description: "Get the HTML content of the page or a specific element",
       inputSchema: z.object({
-        selector: z.string().optional().describe("CSS selector to get content from"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector to get content from"),
         sessionId: z.string().optional().describe("Session ID"),
       }),
       execute: async ({ selector, sessionId }) => {
@@ -2333,19 +3444,25 @@ function createElectronTools(
           .default(10)
           .describe("Max results to return (default: 10)"),
       }),
-      execute: async ({ query, engine = "google", maxResults: _maxResults = 10 }) => {
+      execute: async ({
+        query,
+        engine = "google",
+        maxResults: _maxResults = 10,
+      }) => {
         const service = EnhancedBrowserService.getInstance();
         let sessionId: string | undefined;
 
         try {
           // Step 1: Create session
-          console.log(`[browser_search] Starting search for: "${query}" on ${engine}`);
+          console.log(
+            `[browser_search] Starting search for: "${query}" on ${engine}`,
+          );
           const sessionResult = await service.createSession({ cdpPort: 9222 });
           if (!sessionResult?.sessionId) {
             return {
               success: false,
               error: "Failed to create browser session",
-              hint: "Close all Chrome windows and try again"
+              hint: "Close all Chrome windows and try again",
             };
           }
           sessionId = sessionResult.sessionId;
@@ -2373,7 +3490,7 @@ function createElectronTools(
           const snapshot = await service.getSnapshot({
             interactive: false,
             compact: true,
-            sessionId
+            sessionId,
           });
 
           // Step 5: Close session
@@ -2391,7 +3508,9 @@ function createElectronTools(
         } catch (error: any) {
           // Try to close session on error
           if (sessionId) {
-            try { await service.closeSession(sessionId); } catch {}
+            try {
+              await service.closeSession(sessionId);
+            } catch {}
           }
           return {
             success: false,
@@ -2431,7 +3550,9 @@ export function registerAIHandlers() {
       `[AI IPC] Stream PREPARE for thread: ${threadId}, model: ${chatModel?.provider}/${chatModel?.model}, mode: ${chatMode || "regular"}`,
     );
     if (allowedAppDefaultToolkit && allowedAppDefaultToolkit.length > 0) {
-      console.log(`[AI IPC] Allowed toolkits: ${allowedAppDefaultToolkit.join(", ")}`);
+      console.log(
+        `[AI IPC] Allowed toolkits: ${allowedAppDefaultToolkit.join(", ")}`,
+      );
     }
     // console.log(
     //   `[AI IPC] Allowed MCP servers: ${allowedMcpServers ? Object.keys(allowedMcpServers).join(", ") : "none"}`,
@@ -2558,14 +3679,16 @@ export function registerAIHandlers() {
       // We want to use LOCAL browser tools (CDP mode) which connect to user's REAL Chrome
       // MCP Puppeteer/Playwright launch SEPARATE browser instances (no cookies/sessions)
       const mcpPuppeteerPlaywrightTools = mcpToolNames.filter(
-        (name) =>
-          name.includes("puppeteer") ||
-          name.includes("playwright"),
+        (name) => name.includes("puppeteer") || name.includes("playwright"),
       );
       const hasMcpPuppeteerPlaywright = mcpPuppeteerPlaywrightTools.length > 0;
 
       // Create desktop tools for this thread
-      const allDesktopTools = createElectronTools(threadId, event, workingDirectory);
+      const allDesktopTools = createElectronTools(
+        threadId,
+        event,
+        workingDirectory,
+      );
 
       // IMPORTANT: Desktop tools should ALWAYS be available alongside MCP tools
       // Terminal/shell execution is fundamental and should never be filtered out
@@ -2629,7 +3752,9 @@ export function registerAIHandlers() {
 
       // Log tool name mapping if any renames occurred
       if (Object.keys(toolNameMapping).length > 0) {
-        console.log(`[AI IPC] Tool name mapping: ${JSON.stringify(toolNameMapping)}`);
+        console.log(
+          `[AI IPC] Tool name mapping: ${JSON.stringify(toolNameMapping)}`,
+        );
       }
 
       console.log(
@@ -2666,7 +3791,9 @@ export function registerAIHandlers() {
       // Filter tools based on user's allowedAppDefaultToolkit selection
       // If no toolkits specified, all tools are available (backwards compatible)
       if (allowedAppDefaultToolkit && allowedAppDefaultToolkit.length > 0) {
-        const allowedToolNames = getToolNamesForToolkits(allowedAppDefaultToolkit);
+        const allowedToolNames = getToolNamesForToolkits(
+          allowedAppDefaultToolkit,
+        );
         const filteredByToolkit: typeof tools = {};
 
         for (const [toolName, tool] of Object.entries(tools)) {
@@ -2689,18 +3816,26 @@ export function registerAIHandlers() {
           // Check if any allowed tool name is a suffix of this tool name
           // This handles cases like "browser_navigate" matching when "navigate" is allowed
           for (const allowedName of allowedToolNames) {
-            if (toolName.endsWith(`_${allowedName}`) || toolName === allowedName) {
+            if (
+              toolName.endsWith(`_${allowedName}`) ||
+              toolName === allowedName
+            ) {
               filteredByToolkit[toolName] = tool;
               break;
             }
           }
         }
 
-        const removedCount = Object.keys(tools).length - Object.keys(filteredByToolkit).length;
+        const removedCount =
+          Object.keys(tools).length - Object.keys(filteredByToolkit).length;
         if (removedCount > 0) {
-          console.log(`[AI IPC] Filtered ${removedCount} tools based on allowed toolkits: ${allowedAppDefaultToolkit.join(", ")}`);
+          console.log(
+            `[AI IPC] Filtered ${removedCount} tools based on allowed toolkits: ${allowedAppDefaultToolkit.join(", ")}`,
+          );
         }
-        console.log(`[AI IPC] Tools after toolkit filter: ${Object.keys(filteredByToolkit).join(", ") || "none"}`);
+        console.log(
+          `[AI IPC] Tools after toolkit filter: ${Object.keys(filteredByToolkit).join(", ") || "none"}`,
+        );
         tools = filteredByToolkit;
       }
 
@@ -2741,13 +3876,16 @@ export function registerAIHandlers() {
       let toolsToUse: typeof tools | undefined;
 
       // RAG MODE - Different behavior based on model size (see workaround docs above)
-      const isSmallLocalModelForRag = isLocal && isSmallLocalModel(chatModel.model);
+      const isSmallLocalModelForRag =
+        isLocal && isSmallLocalModel(chatModel.model);
 
       if (chatMode === "rag") {
         if (isSmallLocalModelForRag) {
           // SMALL LOCAL MODELS: No tools - they get automatic RAG context injection instead
           toolsToUse = undefined;
-          console.log(`[AI IPC] RAG mode (small model ${chatModel.model}): No tools, using automatic context injection`);
+          console.log(
+            `[AI IPC] RAG mode (small model ${chatModel.model}): No tools, using automatic context injection`,
+          );
         } else {
           // LARGER MODELS: Enable memory_search tool for agentic RAG
           const ragTools: typeof tools = {};
@@ -2755,7 +3893,9 @@ export function registerAIHandlers() {
             ragTools["memory_search"] = tools["memory_search"];
           }
           toolsToUse = Object.keys(ragTools).length > 0 ? ragTools : undefined;
-          console.log(`[AI IPC] RAG mode (larger model): Agentic search with memory_search tool`);
+          console.log(
+            `[AI IPC] RAG mode (larger model): Agentic search with memory_search tool`,
+          );
         }
       } else if (Object.keys(tools).length === 0) {
         toolsToUse = undefined;
@@ -2771,13 +3911,19 @@ export function registerAIHandlers() {
           // Terminal (like Claude Code)
           "terminal_execute",
           // Headless web search (both with and without local_ prefix)
-          "web_search", "local_web_search",
-          "web_fetch", "local_web_fetch",
+          "web_search",
+          "local_web_search",
+          "web_fetch",
+          "local_web_fetch",
           // File operations (both with and without local_ prefix)
-          "file_read", "local_file_read",
-          "file_write", "local_file_write",
-          "file_list", "local_file_list",
-          "file_search", "local_file_search",
+          "file_read",
+          "local_file_read",
+          "file_write",
+          "local_file_write",
+          "file_list",
+          "local_file_list",
+          "file_search",
+          "local_file_search",
           // Memory for context (always same name)
           "memory_search",
         ];
@@ -2787,23 +3933,36 @@ export function registerAIHandlers() {
           if (tools[name]) filteredTools[name] = tools[name];
         }
 
-        toolsToUse = Object.keys(filteredTools).length > 0 ? filteredTools : undefined;
-        console.log(`[AI IPC] Local model: ${Object.keys(filteredTools).length} tools`);
-        console.log(`[AI IPC] Local model tools available: ${Object.keys(filteredTools).join(', ')}`);
+        toolsToUse =
+          Object.keys(filteredTools).length > 0 ? filteredTools : undefined;
+        console.log(
+          `[AI IPC] Local model: ${Object.keys(filteredTools).length} tools`,
+        );
+        console.log(
+          `[AI IPC] Local model tools available: ${Object.keys(filteredTools).join(", ")}`,
+        );
         // Verify web_search is included
-        if (filteredTools['web_search']) {
-          console.log(`[AI IPC] ✓ web_search tool IS available for local model`);
-        } else if (filteredTools['local_web_search']) {
-          console.log(`[AI IPC] ✓ local_web_search tool IS available for local model`);
+        if (filteredTools["web_search"]) {
+          console.log(
+            `[AI IPC] ✓ web_search tool IS available for local model`,
+          );
+        } else if (filteredTools["local_web_search"]) {
+          console.log(
+            `[AI IPC] ✓ local_web_search tool IS available for local model`,
+          );
         } else {
-          console.warn(`[AI IPC] ⚠ NO web search tools available for local model!`);
+          console.warn(
+            `[AI IPC] ⚠ NO web search tools available for local model!`,
+          );
         }
 
         // Log tool descriptions for debugging
         console.log(`[AI IPC] === LOCAL MODEL TOOL DESCRIPTIONS ===`);
         for (const [name, tool] of Object.entries(filteredTools)) {
-          const desc = (tool as any)?.description || 'no description';
-          console.log(`[AI IPC] ${name}: "${desc.slice(0, 80)}${desc.length > 80 ? '...' : ''}"`);
+          const desc = (tool as any)?.description || "no description";
+          console.log(
+            `[AI IPC] ${name}: "${desc.slice(0, 80)}${desc.length > 80 ? "..." : ""}"`,
+          );
         }
         console.log(`[AI IPC] =====================================`);
       } else if (!capabilities.isToolCallSupported) {
@@ -2827,8 +3986,12 @@ export function registerAIHandlers() {
 
       // Build system prompt with working directory context (pass isLocal for better guidance)
       const systemPrompt = buildAgentSystemPrompt(workingDirectory, isLocal);
-      console.log(`[AI IPC] Working directory for thread ${threadId}: ${workingDirectory?.path || 'not set (using home)'}`);
-      console.log(`[AI IPC] System prompt built for ${isLocal ? 'local' : 'cloud'} model`);
+      console.log(
+        `[AI IPC] Working directory for thread ${threadId}: ${workingDirectory?.path || "not set (using home)"}`,
+      );
+      console.log(
+        `[AI IPC] System prompt built for ${isLocal ? "local" : "cloud"} model`,
+      );
 
       // Store prepared context - DON'T start streaming yet!
       preparedStreams.set(threadId, {
@@ -2851,7 +4014,9 @@ export function registerAIHandlers() {
       // If renderer crashes between prepare and start, this will clean up
       const orphanTimeout = setTimeout(() => {
         if (preparedStreams.has(threadId)) {
-          console.warn(`[AI IPC] Cleaning up orphaned prepared stream: ${threadId}`);
+          console.warn(
+            `[AI IPC] Cleaning up orphaned prepared stream: ${threadId}`,
+          );
           preparedStreams.delete(threadId);
           streamBuffers.delete(threadId);
           activeStreams.delete(threadId);
@@ -2868,7 +4033,8 @@ export function registerAIHandlers() {
         success: true,
         threadId,
         status: "prepared",
-        toolNameMapping: Object.keys(toolNameMapping).length > 0 ? toolNameMapping : undefined,
+        toolNameMapping:
+          Object.keys(toolNameMapping).length > 0 ? toolNameMapping : undefined,
       };
     } catch (error: any) {
       console.error("[AI IPC] Stream prepare error:", error);
@@ -2995,8 +4161,9 @@ export function registerAIHandlers() {
             const userTextContent =
               typeof (userMessage as any).content === "string"
                 ? (userMessage as any).content
-                : (userMessage as any).parts?.find((p: any) => p.type === "text")
-                    ?.text || "";
+                : (userMessage as any).parts?.find(
+                    (p: any) => p.type === "text",
+                  )?.text || "";
             if (userTextContent && userTextContent.length > 10) {
               indexMessageForMemory({
                 id: userMessage.id,
@@ -3071,13 +4238,16 @@ export function registerAIHandlers() {
         console.log(`[RAG] isLocalModel: ${isLocalModel}`);
 
         // Count user messages to determine if this is the first turn
-        const userMessageCount = messages.filter((m: any) => m.role === "user").length;
+        const userMessageCount = messages.filter(
+          (m: any) => m.role === "user",
+        ).length;
 
         // RAG INJECTION LOGIC:
         // - RAG MODE: Inject on EVERY turn for ALL models (cloud + local)
         // - REGULAR/AGENT MODE: Inject on first 3 messages for better context
         // This ensures cloud models like Groq/X.AI get knowledge context in RAG mode
-        const isSmallModelForRag = isLocalModel && isSmallLocalModel(chatModel!.model);
+        const isSmallModelForRag =
+          isLocalModel && isSmallLocalModel(chatModel!.model);
 
         // Decision matrix logging for debugging
         console.log(`[RAG] Decision matrix:`);
@@ -3088,19 +4258,22 @@ export function registerAIHandlers() {
 
         // RAG mode = every turn for ALL models, regular mode = first 3 messages
         const shouldInjectRag =
-          (chatMode === "rag") ||                                          // RAG mode = always inject (cloud + local)
-          (userMessageCount <= 3);                                         // First 3 messages in any mode
+          chatMode === "rag" || // RAG mode = always inject (cloud + local)
+          userMessageCount <= 3; // First 3 messages in any mode
 
         console.log(`  - shouldInjectRag: ${shouldInjectRag}`);
 
         // Log RAG decision
         if (shouldInjectRag) {
-          const reason = (chatMode === "rag")
-            ? "RAG mode (every turn)"
-            : `regular mode (turn ${userMessageCount}/3)`;
+          const reason =
+            chatMode === "rag"
+              ? "RAG mode (every turn)"
+              : `regular mode (turn ${userMessageCount}/3)`;
           console.log(`[RAG] ✓ Will inject context for: ${reason}`);
         } else {
-          console.log(`[RAG] Skipping injection (turn ${userMessageCount} > 3, mode: ${chatMode || "regular"})`);
+          console.log(
+            `[RAG] Skipping injection (turn ${userMessageCount} > 3, mode: ${chatMode || "regular"})`,
+          );
         }
 
         // Get model-specific RAG limits (optimized for small models)
@@ -3108,36 +4281,55 @@ export function registerAIHandlers() {
         const isSmallModel = isSmallModelForRag; // Already computed above
 
         if (isSmallModel && DEBUG_RAG) {
-          console.log(`[RAG] Small model detected (${chatModel!.model}) - using optimized limits: ${ragLimits.maxTotalChars} chars, ${ragLimits.maxResults} results`);
+          console.log(
+            `[RAG] Small model detected (${chatModel!.model}) - using optimized limits: ${ragLimits.maxTotalChars} chars, ${ragLimits.maxResults} results`,
+          );
         }
 
         if (shouldInjectRag) {
           try {
             if (DEBUG_RAG) {
               console.log(`[RAG] ========== STARTING RAG INJECTION ==========`);
-              console.log(`[RAG] Model: ${chatModel!.model}, Provider: ${chatModel!.provider}`);
-              console.log(`[RAG] isSmallModel: ${isSmallModel}, isLocalModel: ${isLocalModel}`);
-              console.log(`[RAG] Limits: maxResults=${ragLimits.maxResults}, threshold=${ragLimits.scoreThreshold}, maxChars=${ragLimits.maxTotalChars}`);
+              console.log(
+                `[RAG] Model: ${chatModel!.model}, Provider: ${chatModel!.provider}`,
+              );
+              console.log(
+                `[RAG] isSmallModel: ${isSmallModel}, isLocalModel: ${isLocalModel}`,
+              );
+              console.log(
+                `[RAG] Limits: maxResults=${ragLimits.maxResults}, threshold=${ragLimits.scoreThreshold}, maxChars=${ragLimits.maxTotalChars}`,
+              );
             }
 
             // Get userId for memory search
-            const usersForRag = await db.select().from(schema.UserTable).limit(1);
+            const usersForRag = await db
+              .select()
+              .from(schema.UserTable)
+              .limit(1);
             const userIdForRag = usersForRag[0]?.id || "local-user";
-            if (DEBUG_RAG) console.log(`[RAG] UserId for search: ${userIdForRag}`);
+            if (DEBUG_RAG)
+              console.log(`[RAG] UserId for search: ${userIdForRag}`);
 
             // Extract last user message for query
-            const lastUserMessage = messages.filter((m: any) => m.role === "user").pop();
+            const lastUserMessage = messages
+              .filter((m: any) => m.role === "user")
+              .pop();
             if (lastUserMessage) {
-              const query = typeof lastUserMessage.content === "string"
-                ? lastUserMessage.content
-                : Array.isArray(lastUserMessage.content)
-                ? lastUserMessage.content.map((p: any) => p.type === "text" ? p.text : "").join(" ")
-                : "";
+              const query =
+                typeof lastUserMessage.content === "string"
+                  ? lastUserMessage.content
+                  : Array.isArray(lastUserMessage.content)
+                    ? lastUserMessage.content
+                        .map((p: any) => (p.type === "text" ? p.text : ""))
+                        .join(" ")
+                    : "";
 
-              if (DEBUG_RAG) console.log(`[RAG] Query: "${query.slice(0, 100)}..."`);
+              if (DEBUG_RAG)
+                console.log(`[RAG] Query: "${query.slice(0, 100)}..."`);
 
               if (query && query.trim().length >= 3) {
-                if (DEBUG_RAG) console.log(`[RAG] Calling semanticMemorySearch...`);
+                if (DEBUG_RAG)
+                  console.log(`[RAG] Calling semanticMemorySearch...`);
                 const ragResults = await semanticMemorySearch(query, {
                   userId: userIdForRag,
                   limit: ragLimits.maxResults,
@@ -3148,7 +4340,9 @@ export function registerAIHandlers() {
                 // Always log result count, but details only if DEBUG
                 console.log(`[RAG] Found ${ragResults.length} results`);
                 if (ragResults.length === 0 && DEBUG_RAG) {
-                  console.log(`[RAG] ⚠️ NO RESULTS FOUND - documents may not be indexed!`);
+                  console.log(
+                    `[RAG] ⚠️ NO RESULTS FOUND - documents may not be indexed!`,
+                  );
                 }
 
                 if (ragResults.length > 0) {
@@ -3158,15 +4352,20 @@ export function registerAIHandlers() {
 
                   for (const r of ragResults) {
                     // Truncate individual content based on model size
-                    const truncatedContent = r.content.length > ragLimits.maxContentPerItem
-                      ? r.content.slice(0, ragLimits.maxContentPerItem) + "..."
-                      : r.content;
+                    const truncatedContent =
+                      r.content.length > ragLimits.maxContentPerItem
+                        ? r.content.slice(0, ragLimits.maxContentPerItem) +
+                          "..."
+                        : r.content;
 
                     const entry = `[${Math.round(r.score * 100)}%] ${truncatedContent}`;
 
                     // Check total limit (model-specific)
                     if (totalChars + entry.length > ragLimits.maxTotalChars) {
-                      if (DEBUG_RAG) console.log(`[RAG] Stopping at ${truncatedResults.length} items (${isSmallModel ? "small model" : "total"} limit reached)`);
+                      if (DEBUG_RAG)
+                        console.log(
+                          `[RAG] Stopping at ${truncatedResults.length} items (${isSmallModel ? "small model" : "total"} limit reached)`,
+                        );
                       break;
                     }
 
@@ -3177,19 +4376,21 @@ export function registerAIHandlers() {
                   if (truncatedResults.length > 0) {
                     // Use compact format for small models, full format for others
                     const ragContext = isSmallModel
-                      ? truncatedResults.join("\n")  // Single newline for small models
+                      ? truncatedResults.join("\n") // Single newline for small models
                       : truncatedResults.join("\n\n");
 
                     // Create RAG system message (compact for small models)
                     const ragSystemMessage = {
                       role: "system" as const,
                       content: isSmallModel
-                        ? `[Context]\n${ragContext}`  // Minimal header for small models
+                        ? `[Context]\n${ragContext}` // Minimal header for small models
                         : `## Relevant Context from Memory\n\n${ragContext}\n\n---\nUse this context to inform your response if relevant.`,
                     };
 
                     // Inject after first system message (or at beginning)
-                    const systemMsgIndex = messagesToUse.findIndex((m: any) => m.role === "system");
+                    const systemMsgIndex = messagesToUse.findIndex(
+                      (m: any) => m.role === "system",
+                    );
                     if (systemMsgIndex >= 0) {
                       messagesToUse = [
                         ...messagesToUse.slice(0, systemMsgIndex + 1),
@@ -3242,7 +4443,9 @@ For file operations, terminal, or browser automation, ask the user to switch to 
           };
 
           // Inject RAG mode awareness
-          const systemMsgIndex = messagesToUse.findIndex((m: any) => m.role === "system");
+          const systemMsgIndex = messagesToUse.findIndex(
+            (m: any) => m.role === "system",
+          );
           if (systemMsgIndex >= 0) {
             messagesToUse = [
               ...messagesToUse.slice(0, systemMsgIndex + 1),
@@ -3252,7 +4455,9 @@ For file operations, terminal, or browser automation, ask the user to switch to 
           } else {
             messagesToUse = [ragModeSystemMessage, ...messagesToUse];
           }
-          console.log(`[AI IPC] RAG mode instructions injected (${isSmallModel ? "small model - auto context" : "larger model - agentic"})`);
+          console.log(
+            `[AI IPC] RAG mode instructions injected (${isSmallModel ? "small model - auto context" : "larger model - agentic"})`,
+          );
         }
 
         // Check if compression needed (at 98% threshold)
@@ -3475,7 +4680,9 @@ For file operations, terminal, or browser automation, ask the user to switch to 
 
           // Verify createPlan tool is present (critical for agent mode)
           if (!orchestratorConfig.tools.createPlan) {
-            console.error(`[AI IPC Agent] CRITICAL: createPlan tool is MISSING!`);
+            console.error(
+              `[AI IPC Agent] CRITICAL: createPlan tool is MISSING!`,
+            );
           }
 
           result = streamText({
@@ -3567,12 +4774,15 @@ For file operations, terminal, or browser automation, ask the user to switch to 
           // No restrictions on local models - they get the same max steps as cloud models
           const regularMaxSteps = tools ? 200 : 1;
 
-          console.log(`[AI IPC] ${isLocal ? 'Local' : 'Cloud'} model: maxSteps=${regularMaxSteps}, tools=${tools ? Object.keys(tools).length : 0}`);
+          console.log(
+            `[AI IPC] ${isLocal ? "Local" : "Cloud"} model: maxSteps=${regularMaxSteps}, tools=${tools ? Object.keys(tools).length : 0}`,
+          );
 
           // Tool choice settings:
           // - Both local and cloud models use "auto" for automatic tool selection
           // - This enables full agentic capabilities for all models
-          const useToolChoice = tools && Object.keys(tools).length > 0 ? "auto" : undefined;
+          const useToolChoice =
+            tools && Object.keys(tools).length > 0 ? "auto" : undefined;
 
           // ============================================
           // CRITICAL DEBUG: Log EXACTLY what we're passing to streamText
@@ -3580,11 +4790,17 @@ For file operations, terminal, or browser automation, ask the user to switch to 
           // ============================================
           const toolKeys = tools ? Object.keys(tools) : [];
           console.log(`[AI IPC] ===== STREAMTEXT CONFIGURATION =====`);
-          console.log(`[AI IPC] Provider: ${chatModel?.provider}, Model: ${chatModel?.model}`);
+          console.log(
+            `[AI IPC] Provider: ${chatModel?.provider}, Model: ${chatModel?.model}`,
+          );
           console.log(`[AI IPC] Is Local: ${isLocal}`);
           console.log(`[AI IPC] Tool Count: ${toolKeys.length}`);
-          console.log(`[AI IPC] Tool Names: ${toolKeys.slice(0, 20).join(', ')}${toolKeys.length > 20 ? '...' : ''}`);
-          console.log(`[AI IPC] Tool Choice: ${useToolChoice || 'undefined (provider default)'}`);
+          console.log(
+            `[AI IPC] Tool Names: ${toolKeys.slice(0, 20).join(", ")}${toolKeys.length > 20 ? "..." : ""}`,
+          );
+          console.log(
+            `[AI IPC] Tool Choice: ${useToolChoice || "undefined (provider default)"}`,
+          );
           console.log(`[AI IPC] Max Steps: ${regularMaxSteps}`);
 
           // Log first tool's structure to verify schema format
@@ -3595,7 +4811,7 @@ For file operations, terminal, or browser automation, ask the user to switch to 
               hasDescription: !!(firstTool as any)?.description,
               hasInputSchema: !!(firstTool as any)?.inputSchema,
               hasParameters: !!(firstTool as any)?.parameters,
-              hasExecute: typeof (firstTool as any)?.execute === 'function',
+              hasExecute: typeof (firstTool as any)?.execute === "function",
             });
           }
 
@@ -3654,13 +4870,19 @@ For file operations, terminal, or browser automation, ask the user to switch to 
             // NO messageMetadata - it generates a chunk per token!
           });
         } catch (streamError: any) {
-          console.error(`[AI IPC] Error creating UI message stream:`, streamError?.message || streamError);
+          console.error(
+            `[AI IPC] Error creating UI message stream:`,
+            streamError?.message || streamError,
+          );
           // Send error to renderer and clean up
           event.sender.send("ai:stream:error", {
             threadId,
-            error: `Stream creation failed: ${streamError?.message || 'Unknown error'}`,
+            error: `Stream creation failed: ${streamError?.message || "Unknown error"}`,
           });
-          event.sender.send("ai:stream:end", { threadId, finishReason: "error" });
+          event.sender.send("ai:stream:end", {
+            threadId,
+            finishReason: "error",
+          });
           return;
         }
 
@@ -3675,7 +4897,9 @@ For file operations, terminal, or browser automation, ask the user to switch to 
             },
           }),
         });
-        console.log(`[AI IPC] DEBUG: Stream created for thread ${threadId}, about to start reading...`);
+        console.log(
+          `[AI IPC] DEBUG: Stream created for thread ${threadId}, about to start reading...`,
+        );
 
         // console.log(`[AI IPC] UI stream created, getting reader...`);
 
@@ -3711,6 +4935,13 @@ For file operations, terminal, or browser automation, ask the user to switch to 
         const accumulatedToolInputs: Map<string, AccumulatedToolInput> =
           new Map();
 
+        // Track usage data from finish chunks for message persistence
+        let capturedUsage: {
+          promptTokens?: number;
+          completionTokens?: number;
+          totalTokens?: number;
+        } | null = null;
+
         // console.log(`[AI IPC] Starting to read stream for thread: ${threadId}`);
         let _chunkCount = 0;
         const startTime = Date.now();
@@ -3722,8 +4953,8 @@ For file operations, terminal, or browser automation, ask the user to switch to 
         // Text chunks flush IMMEDIATELY for real-time streaming
         // Only batch metadata/tool chunks to reduce IPC overhead
         // ============================================
-        const BATCH_SIZE = 10;           // Max chunks per batch
-        const BATCH_TIMEOUT_MS = 5;      // REDUCED from 30ms - much faster!
+        const BATCH_SIZE = 10; // Max chunks per batch
+        const BATCH_TIMEOUT_MS = 5; // REDUCED from 30ms - much faster!
         let chunkBatch: any[] = [];
         let batchTimeout: NodeJS.Timeout | null = null;
 
@@ -3739,7 +4970,10 @@ For file operations, terminal, or browser automation, ask the user to switch to 
               // Fallback: send individually if batch fails
               for (const chunk of chunkBatch) {
                 try {
-                  event.sender.send("ai:stream:chunk", { threadId, chunk: JSON.stringify(chunk) });
+                  event.sender.send("ai:stream:chunk", {
+                    threadId,
+                    chunk: JSON.stringify(chunk),
+                  });
                 } catch {}
               }
             }
@@ -3777,37 +5011,49 @@ For file operations, terminal, or browser automation, ask the user to switch to 
               };
             } else {
               // Ensure nested structure for inputTokens
-              if (chunk.usage.inputTokens === undefined || chunk.usage.inputTokens === null) {
+              if (
+                chunk.usage.inputTokens === undefined ||
+                chunk.usage.inputTokens === null
+              ) {
                 chunk.usage.inputTokens = { total: 0 };
               } else if (typeof chunk.usage.inputTokens === "number") {
                 chunk.usage.inputTokens = { total: chunk.usage.inputTokens };
-              } else if (typeof chunk.usage.inputTokens === "object" && !chunk.usage.inputTokens.total) {
+              } else if (
+                typeof chunk.usage.inputTokens === "object" &&
+                !chunk.usage.inputTokens.total
+              ) {
                 chunk.usage.inputTokens.total = 0;
               }
               // Ensure nested structure for outputTokens
-              if (chunk.usage.outputTokens === undefined || chunk.usage.outputTokens === null) {
+              if (
+                chunk.usage.outputTokens === undefined ||
+                chunk.usage.outputTokens === null
+              ) {
                 chunk.usage.outputTokens = { total: 0 };
               } else if (typeof chunk.usage.outputTokens === "number") {
                 chunk.usage.outputTokens = { total: chunk.usage.outputTokens };
-              } else if (typeof chunk.usage.outputTokens === "object" && !chunk.usage.outputTokens.total) {
+              } else if (
+                typeof chunk.usage.outputTokens === "object" &&
+                !chunk.usage.outputTokens.total
+              ) {
                 chunk.usage.outputTokens.total = 0;
               }
             }
           }
 
           chunkBatch.push(chunk);
-          
+
           // CRITICAL: Text chunks flush IMMEDIATELY for real-time streaming
           // Only batch metadata/tool setup chunks
-          const immediateFlush = 
-            chunk.type === "text-delta" ||     // TEXT MUST STREAM IMMEDIATELY!
+          const immediateFlush =
+            chunk.type === "text-delta" || // TEXT MUST STREAM IMMEDIATELY!
             chunk.type === "reasoning-delta" || // Reasoning too
-            chunk.type === "tool-call" || 
-            chunk.type === "tool-result" || 
-            chunk.type === "finish" || 
+            chunk.type === "tool-call" ||
+            chunk.type === "tool-result" ||
+            chunk.type === "finish" ||
             chunk.type === "finish-step" ||
             chunk.type === "error";
-          
+
           if (immediateFlush) {
             // Flush immediately - no batching delay for content!
             flushBatch();
@@ -3839,7 +5085,12 @@ For file operations, terminal, or browser automation, ask the user to switch to 
                 threadId,
                 chunk: JSON.stringify({
                   type: "data-debug-heartbeat",
-                  data: { elapsed, chunks: _chunkCount, message: heartbeatMessage, isLocal },
+                  data: {
+                    elapsed,
+                    chunks: _chunkCount,
+                    message: heartbeatMessage,
+                    isLocal,
+                  },
                 }),
               });
             } catch {
@@ -3878,16 +5129,20 @@ For file operations, terminal, or browser automation, ask the user to switch to 
             clearTimeout(batchTimeout);
             batchTimeout = null;
           }
-          console.log(`[AI IPC] Abort cleanup triggered for thread: ${threadId}`);
+          console.log(
+            `[AI IPC] Abort cleanup triggered for thread: ${threadId}`,
+          );
         };
-        abortController.signal.addEventListener("abort", abortCleanupHandler, { once: true });
+        abortController.signal.addEventListener("abort", abortCleanupHandler, {
+          once: true,
+        });
 
         try {
           let lastChunkTime = Date.now();
 
           while (true) {
             const now = Date.now();
-            
+
             // Check for initial timeout (no first chunk received)
             if (_chunkCount === 0 && now - startTime > TIMEOUT_MS) {
               const timeoutMsg = isLocal
@@ -3918,13 +5173,22 @@ For file operations, terminal, or browser automation, ask the user to switch to 
               // This error occurs when local models don't return proper usage data.
               // Instead of crashing, we gracefully end the stream.
               const errorMsg = readError?.message || String(readError);
-              if (errorMsg.includes("inputTokens") || errorMsg.includes("outputTokens") || errorMsg.includes("usage")) {
-                console.warn(`[AI IPC] Usage data error (continuing without it): ${errorMsg}`);
+              if (
+                errorMsg.includes("inputTokens") ||
+                errorMsg.includes("outputTokens") ||
+                errorMsg.includes("usage")
+              ) {
+                console.warn(
+                  `[AI IPC] Usage data error (continuing without it): ${errorMsg}`,
+                );
                 // Send a synthetic finish chunk without usage to complete the stream
                 queueChunk({
                   type: "finish",
                   finishReason: "stop",
-                  usage: { inputTokens: { total: 0 }, outputTokens: { total: 0 } },
+                  usage: {
+                    inputTokens: { total: 0 },
+                    outputTokens: { total: 0 },
+                  },
                 });
                 flushBatch();
                 break; // End the stream gracefully
@@ -4003,6 +5267,29 @@ For file operations, terminal, or browser automation, ask the user to switch to 
                     entry.argsJson += value.argsTextDelta || value.delta || "";
                   }
                 }
+              } else if (
+                value.type === "finish" ||
+                value.type === "finish-step"
+              ) {
+                // CAPTURE USAGE DATA for message persistence
+                if (value.usage) {
+                  const inputTokens =
+                    typeof value.usage.inputTokens === "number"
+                      ? value.usage.inputTokens
+                      : value.usage.inputTokens?.total || 0;
+                  const outputTokens =
+                    typeof value.usage.outputTokens === "number"
+                      ? value.usage.outputTokens
+                      : value.usage.outputTokens?.total || 0;
+                  capturedUsage = {
+                    promptTokens: inputTokens,
+                    completionTokens: outputTokens,
+                    totalTokens: inputTokens + outputTokens,
+                  };
+                  console.log(
+                    `[AI IPC] Captured usage: ${capturedUsage.promptTokens} prompt + ${capturedUsage.completionTokens} completion = ${capturedUsage.totalTokens} total`,
+                  );
+                }
               }
             }
           }
@@ -4019,7 +5306,9 @@ For file operations, terminal, or browser automation, ask the user to switch to 
             tools &&
             Object.keys(tools).length > 0
           ) {
-            console.log(`[AI IPC] Checking text content for tool calls (${currentTextContent.length} chars)...`);
+            console.log(
+              `[AI IPC] Checking text content for tool calls (${currentTextContent.length} chars)...`,
+            );
 
             // Available tool names for matching
             const availableToolNames = Object.keys(tools);
@@ -4034,13 +5323,14 @@ For file operations, terminal, or browser automation, ask the user to switch to 
             // Pattern 2: Function-style notation
             // e.g., terminal_execute({"command": "ls"})
             const functionPattern = new RegExp(
-              `(${availableToolNames.join('|')})\\s*\\(\\s*(\\{[^}]+\\})\\s*\\)`,
-              'gi'
+              `(${availableToolNames.join("|")})\\s*\\(\\s*(\\{[^}]+\\})\\s*\\)`,
+              "gi",
             );
 
             // Pattern 3: XML-style tags
             // e.g., <tool>terminal_execute</tool><arguments>{"command": "ls"}</arguments>
-            const xmlPattern = /<(?:tool|function|tool_call|function_call)>([^<]+)<\/(?:tool|function|tool_call|function_call)>[\s\S]*?<(?:arguments|parameters|params|input)>(\{[^<]+\})<\/(?:arguments|parameters|params|input)>/gi;
+            const xmlPattern =
+              /<(?:tool|function|tool_call|function_call)>([^<]+)<\/(?:tool|function|tool_call|function_call)>[\s\S]*?<(?:arguments|parameters|params|input)>(\{[^<]+\})<\/(?:arguments|parameters|params|input)>/gi;
 
             // Try each pattern
             const matches: Array<{ toolName: string; argsJson: string }> = [];
@@ -4051,7 +5341,11 @@ For file operations, terminal, or browser automation, ask the user to switch to 
               while ((match = pattern.exec(currentTextContent)) !== null) {
                 const toolName = match[1];
                 const argsJson = match[2];
-                if (availableToolNames.some(t => t.toLowerCase() === toolName.toLowerCase())) {
+                if (
+                  availableToolNames.some(
+                    (t) => t.toLowerCase() === toolName.toLowerCase(),
+                  )
+                ) {
                   matches.push({ toolName, argsJson });
                 }
               }
@@ -4059,7 +5353,9 @@ For file operations, terminal, or browser automation, ask the user to switch to 
 
             // Try function pattern
             let funcMatch;
-            while ((funcMatch = functionPattern.exec(currentTextContent)) !== null) {
+            while (
+              (funcMatch = functionPattern.exec(currentTextContent)) !== null
+            ) {
               const toolName = funcMatch[1];
               const argsJson = funcMatch[2];
               matches.push({ toolName, argsJson });
@@ -4070,7 +5366,11 @@ For file operations, terminal, or browser automation, ask the user to switch to 
             while ((xmlMatch = xmlPattern.exec(currentTextContent)) !== null) {
               const toolName = xmlMatch[1].trim();
               const argsJson = xmlMatch[2];
-              if (availableToolNames.some(t => t.toLowerCase() === toolName.toLowerCase())) {
+              if (
+                availableToolNames.some(
+                  (t) => t.toLowerCase() === toolName.toLowerCase(),
+                )
+              ) {
                 matches.push({ toolName, argsJson });
               }
             }
@@ -4080,13 +5380,19 @@ For file operations, terminal, or browser automation, ask the user to switch to 
             for (const toolName of availableToolNames) {
               const directPattern = new RegExp(
                 `${toolName}[:\\s]+\\{([^}]+)\\}`,
-                'gi'
+                "gi",
               );
               let directMatch;
-              while ((directMatch = directPattern.exec(currentTextContent)) !== null) {
+              while (
+                (directMatch = directPattern.exec(currentTextContent)) !== null
+              ) {
                 const argsJson = `{${directMatch[1]}}`;
                 // Check if this tool wasn't already found
-                if (!matches.some(m => m.toolName.toLowerCase() === toolName.toLowerCase())) {
+                if (
+                  !matches.some(
+                    (m) => m.toolName.toLowerCase() === toolName.toLowerCase(),
+                  )
+                ) {
                   matches.push({ toolName, argsJson });
                 }
               }
@@ -4094,12 +5400,16 @@ For file operations, terminal, or browser automation, ask the user to switch to 
 
             // Add found matches to accumulated tool inputs
             if (matches.length > 0) {
-              console.log(`[AI IPC] Found ${matches.length} text-based tool call(s):`, matches.map(m => m.toolName));
+              console.log(
+                `[AI IPC] Found ${matches.length} text-based tool call(s):`,
+                matches.map((m) => m.toolName),
+              );
               for (const { toolName, argsJson } of matches) {
                 // Find exact tool name (case-insensitive match)
-                const exactToolName = availableToolNames.find(
-                  t => t.toLowerCase() === toolName.toLowerCase()
-                ) || toolName;
+                const exactToolName =
+                  availableToolNames.find(
+                    (t) => t.toLowerCase() === toolName.toLowerCase(),
+                  ) || toolName;
 
                 const toolCallId = `text-parse-${Date.now()}-${randomUUID().slice(0, 8)}`;
                 accumulatedToolInputs.set(toolCallId, {
@@ -4225,35 +5535,52 @@ For file operations, terminal, or browser automation, ask the user to switch to 
               // ============================================
 
               // Get the tool's input schema for validation
-              const toolSchema = (tool as any).inputSchema || (tool as any).parameters;
+              const toolSchema =
+                (tool as any).inputSchema || (tool as any).parameters;
               let validatedArgs = args;
 
               if (toolSchema) {
                 try {
                   // Step 1: Coerce common local model argument mistakes
-                  const coercedArgs = coerceToolArguments(args, toolSchema);
+                  // Now also handles combined params (e.g., directory_pattern -> directory + pattern)
+                  const coercedArgs = coerceToolArguments(
+                    args,
+                    toolSchema,
+                    toolName,
+                  );
 
                   // Step 2: Validate against schema using safeParse
                   const validationResult = toolSchema.safeParse(coercedArgs);
 
                   if (validationResult.success) {
                     validatedArgs = validationResult.data;
-                    console.log(`[AI IPC] Schema validation passed for ${toolName}`);
+                    console.log(
+                      `[AI IPC] Schema validation passed for ${toolName}`,
+                    );
                   } else {
                     // Validation failed - log details and try with defaults
                     console.warn(
                       `[AI IPC] Schema validation failed for ${toolName}:`,
-                      validationResult.error.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', ')
+                      validationResult.error.errors
+                        .map((e: any) => `${e.path.join(".")}: ${e.message}`)
+                        .join(", "),
                     );
 
                     // Try to extract valid fields and fill with defaults
-                    validatedArgs = extractValidArgsWithDefaults(coercedArgs, toolSchema, toolName);
-                    console.log(`[AI IPC] Using coerced/default args for ${toolName}:`, JSON.stringify(validatedArgs).slice(0, 200));
+                    validatedArgs = extractValidArgsWithDefaults(
+                      coercedArgs,
+                      toolSchema,
+                      toolName,
+                    );
+                    console.log(
+                      `[AI IPC] Using coerced/default args for ${toolName}:`,
+                      JSON.stringify(validatedArgs).slice(0, 200),
+                    );
                   }
                 } catch (validationError: any) {
                   console.warn(
                     `[AI IPC] Argument validation error for ${toolName}, using original args:`,
-                    validationError.message
+                    validationError.message,
                   );
                   // Fall through with original args
                 }
@@ -4315,7 +5642,9 @@ For file operations, terminal, or browser automation, ask the user to switch to 
                       toolError.message,
                     );
                     // Exponential backoff: 1s, 2s
-                    await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                    await new Promise((r) =>
+                      setTimeout(r, 1000 * (attempt + 1)),
+                    );
                   }
                 }
               }
@@ -4329,22 +5658,35 @@ For file operations, terminal, or browser automation, ask the user to switch to 
                 );
 
                 // Build helpful error message for the model
-                const errorMessage = lastError.message || "Tool execution failed";
+                const errorMessage =
+                  lastError.message || "Tool execution failed";
                 let guidance = "";
 
                 // Detect common argument errors and provide specific guidance
-                if (errorMessage.includes("received as a JSON object") ||
-                    errorMessage.includes("should be a string")) {
-                  guidance = " HINT: You passed an object {} where a string was expected. Use a string value like \"example\".";
-                } else if (errorMessage.includes("undefined") ||
-                           errorMessage.includes("required")) {
-                  guidance = " HINT: A required parameter was missing or undefined. Check the tool parameters and provide all required values.";
-                } else if (errorMessage.includes("ENOENT") ||
-                           errorMessage.includes("no such file")) {
-                  guidance = " HINT: The path does not exist. Try listing the directory first to see available files.";
-                } else if (errorMessage.includes("EACCES") ||
-                           errorMessage.includes("permission denied")) {
-                  guidance = " HINT: Permission denied. Try a different path or check file permissions.";
+                if (
+                  errorMessage.includes("received as a JSON object") ||
+                  errorMessage.includes("should be a string")
+                ) {
+                  guidance =
+                    ' HINT: You passed an object {} where a string was expected. Use a string value like "example".';
+                } else if (
+                  errorMessage.includes("undefined") ||
+                  errorMessage.includes("required")
+                ) {
+                  guidance =
+                    " HINT: A required parameter was missing or undefined. Check the tool parameters and provide all required values.";
+                } else if (
+                  errorMessage.includes("ENOENT") ||
+                  errorMessage.includes("no such file")
+                ) {
+                  guidance =
+                    " HINT: The path does not exist. Try listing the directory first to see available files.";
+                } else if (
+                  errorMessage.includes("EACCES") ||
+                  errorMessage.includes("permission denied")
+                ) {
+                  guidance =
+                    " HINT: Permission denied. Try a different path or check file permissions.";
                 }
 
                 // Send error result with guidance
@@ -4355,7 +5697,8 @@ For file operations, terminal, or browser automation, ask the user to switch to 
                   output: {
                     success: false,
                     error: errorMessage + guidance,
-                    suggestion: "Please check your arguments and try again with correct parameter types.",
+                    suggestion:
+                      "Please check your arguments and try again with correct parameter types.",
                   },
                 };
                 event.sender.send("ai:stream:chunk", {
@@ -4469,15 +5812,25 @@ For file operations, terminal, or browser automation, ask the user to switch to 
                   system: systemPrompt,
                   messages: followUpModelMessages as any, // Type assertion needed due to complex ModelMessage types
                   tools, // Include tools to enable multi-step execution
-                  toolChoice: tools && Object.keys(tools).length > 0 ? "auto" : undefined,
+                  toolChoice:
+                    tools && Object.keys(tools).length > 0 ? "auto" : undefined,
                   abortSignal: abortController.signal,
-                  onStepFinish: ({ toolCalls: stepToolCalls, toolResults: stepToolResults }: any) => {
+                  onStepFinish: ({
+                    toolCalls: stepToolCalls,
+                    toolResults: stepToolResults,
+                  }: any) => {
                     // Log follow-up step progress
                     if (stepToolCalls?.length) {
-                      console.log(`[AI IPC Follow-up] Step tool calls:`, stepToolCalls.map((tc: any) => tc.toolName));
+                      console.log(
+                        `[AI IPC Follow-up] Step tool calls:`,
+                        stepToolCalls.map((tc: any) => tc.toolName),
+                      );
                     }
                     if (stepToolResults?.length) {
-                      console.log(`[AI IPC Follow-up] Step tool results:`, stepToolResults.length);
+                      console.log(
+                        `[AI IPC Follow-up] Step tool results:`,
+                        stepToolResults.length,
+                      );
                     }
                   },
                 });
@@ -4488,7 +5841,10 @@ For file operations, terminal, or browser automation, ask the user to switch to 
                 try {
                   followUpStream = followUpResult.toUIMessageStream();
                 } catch (streamError: any) {
-                  console.error(`[AI IPC Follow-up] Error creating UI message stream:`, streamError?.message || streamError);
+                  console.error(
+                    `[AI IPC Follow-up] Error creating UI message stream:`,
+                    streamError?.message || streamError,
+                  );
                   // Skip follow-up on error - main response was already sent
                   followUpFailed = true;
                 }
@@ -4506,15 +5862,29 @@ For file operations, terminal, or browser automation, ask the user to switch to 
 
                   if (fValue) {
                     // FIX: Ensure finish/finish-step chunks have valid usage data
-                    if (fValue.type === "finish" || fValue.type === "finish-step") {
+                    if (
+                      fValue.type === "finish" ||
+                      fValue.type === "finish-step"
+                    ) {
                       const fv = fValue as any;
                       if (!fv.usage) {
-                        fv.usage = { inputTokens: { total: 0 }, outputTokens: { total: 0 } };
+                        fv.usage = {
+                          inputTokens: { total: 0 },
+                          outputTokens: { total: 0 },
+                        };
                       } else {
-                        if (!fv.usage.inputTokens) fv.usage.inputTokens = { total: 0 };
-                        else if (typeof fv.usage.inputTokens === "number") fv.usage.inputTokens = { total: fv.usage.inputTokens };
-                        if (!fv.usage.outputTokens) fv.usage.outputTokens = { total: 0 };
-                        else if (typeof fv.usage.outputTokens === "number") fv.usage.outputTokens = { total: fv.usage.outputTokens };
+                        if (!fv.usage.inputTokens)
+                          fv.usage.inputTokens = { total: 0 };
+                        else if (typeof fv.usage.inputTokens === "number")
+                          fv.usage.inputTokens = {
+                            total: fv.usage.inputTokens,
+                          };
+                        if (!fv.usage.outputTokens)
+                          fv.usage.outputTokens = { total: 0 };
+                        else if (typeof fv.usage.outputTokens === "number")
+                          fv.usage.outputTokens = {
+                            total: fv.usage.outputTokens,
+                          };
                       }
                     }
                     // Send chunk to renderer
@@ -4541,12 +5911,15 @@ For file operations, terminal, or browser automation, ask the user to switch to 
                       });
                     } else if (fv.type === "tool-result") {
                       const correspondingCall = currentToolCalls.find(
-                        (tc) => tc.toolCallId === fv.toolCallId
+                        (tc) => tc.toolCallId === fv.toolCallId,
                       );
                       currentToolResults.push({
                         type: "tool-result",
                         toolCallId: fv.toolCallId,
-                        toolName: fv.toolName || correspondingCall?.toolName || "unknown",
+                        toolName:
+                          fv.toolName ||
+                          correspondingCall?.toolName ||
+                          "unknown",
                         output: fv.result,
                       });
                     }
@@ -4555,7 +5928,9 @@ For file operations, terminal, or browser automation, ask the user to switch to 
               } catch (followUpError: any) {
                 // Check if this is our intentional skip error
                 if (followUpError?.message === "follow-up-stream-skip") {
-                  console.log(`[AI IPC] Skipped follow-up due to stream creation error (usage data issue)`);
+                  console.log(
+                    `[AI IPC] Skipped follow-up due to stream creation error (usage data issue)`,
+                  );
                 } else {
                   console.error(
                     `[AI IPC] Follow-up stream failed:`,
@@ -4631,12 +6006,17 @@ For file operations, terminal, or browser automation, ask the user to switch to 
           // SAVE ASSISTANT MESSAGE to database
           if (assistantParts.length > 0) {
             try {
+              // Build metadata with chatModel and usage data
+              const messageMetadata: Record<string, any> = { chatModel };
+              if (capturedUsage) {
+                messageMetadata.usage = capturedUsage;
+              }
               await saveMessageToDb(
                 threadId,
                 assistantMessageId,
                 "assistant",
                 assistantParts,
-                { chatModel },
+                messageMetadata,
                 chatModel,
               );
             } catch (saveError: any) {
@@ -4688,7 +6068,10 @@ For file operations, terminal, or browser automation, ask the user to switch to 
           console.log("[AI IPC] Preparing auto-title - userMessage:", {
             hasUserMessage: !!userMessage,
             contentType: typeof userMsgAny?.content,
-            contentLength: typeof userMsgAny?.content === "string" ? userMsgAny.content.length : 0,
+            contentLength:
+              typeof userMsgAny?.content === "string"
+                ? userMsgAny.content.length
+                : 0,
             hasParts: !!userMsgAny?.parts,
             partsLength: userMsgAny?.parts?.length || 0,
           });
@@ -4753,21 +6136,30 @@ For file operations, terminal, or browser automation, ask the user to switch to 
 
         if (isLocalError) {
           // Add specific tips for local model errors
-          if (error.message?.includes("timeout") || error.message?.includes("Timeout")) {
+          if (
+            error.message?.includes("timeout") ||
+            error.message?.includes("Timeout")
+          ) {
             errorMessage = `Local model timed out. The model may be too slow or overloaded.`;
             errorTips = [
               "Try a smaller model (e.g., Llama 3.2 3B instead of 70B)",
               "Ensure your computer has enough RAM for the model",
               "Check if Ollama/LM Studio is running and responsive",
             ];
-          } else if (error.message?.includes("tool") || error.message?.includes("function")) {
+          } else if (
+            error.message?.includes("tool") ||
+            error.message?.includes("function")
+          ) {
             errorMessage = `Local model had trouble with tool calls.`;
             errorTips = [
               "Some local models have limited tool support",
               "Try a model known for good tool support: Llama 3.1/3.2, Qwen, or DeepSeek",
               "Try asking a simple question first to verify the model works",
             ];
-          } else if (error.message?.includes("fetch") || error.message?.includes("network")) {
+          } else if (
+            error.message?.includes("fetch") ||
+            error.message?.includes("network")
+          ) {
             errorMessage = `Could not connect to local model server.`;
             errorTips = [
               "Make sure Ollama or LM Studio is running",
@@ -5173,7 +6565,7 @@ async function getModelInstance(
         // - Enhanced response synthesis for GUARANTEED complete responses
         // - Automatic JSON repair for tool arguments
         // - Built-in reliability features
-        // 
+        //
         // This solves the "tools execute but return incomplete responses" issue!
         // See: https://sdk.vercel.ai/providers/community-providers/ollama
         // ============================================
@@ -5203,7 +6595,7 @@ async function getModelInstance(
         console.log(`[AI IPC] Creating Ollama model: ${model} at ${baseUrl}`);
 
         const modelLower = model.toLowerCase();
-        
+
         // ============================================
         // THINKING MODEL DETECTION
         // Models that emit <think>...</think> blocks need reasoning middleware
@@ -5225,8 +6617,8 @@ async function getModelInstance(
           options: {
             // NO num_ctx - let Ollama use model's full native context (8K, 32K, 128K, etc.)
             // NO num_predict - let model output as much as needed
-            repeat_penalty: 1.1,       // Avoid repetition
-            temperature: 0.7,          // Balanced creativity
+            repeat_penalty: 1.1, // Avoid repetition
+            temperature: 0.7, // Balanced creativity
           },
         });
 
@@ -5235,16 +6627,19 @@ async function getModelInstance(
         // Extracts <think>...</think> blocks as reasoning content
         // ============================================
         if (isThinkingModel) {
-          console.log(`[AI IPC] Thinking model detected: ${model} - applying reasoning middleware`);
-          const { wrapLanguageModel, extractReasoningMiddleware } = await import("ai");
-          
+          console.log(
+            `[AI IPC] Thinking model detected: ${model} - applying reasoning middleware`,
+          );
+          const { wrapLanguageModel, extractReasoningMiddleware } =
+            await import("ai");
+
           const wrappedModel = wrapLanguageModel({
             model: ollamaModel,
             middleware: extractReasoningMiddleware({
               tagName: "think",
             }),
           });
-          
+
           return wrappedModel;
         }
 
@@ -5266,7 +6661,9 @@ async function getModelInstance(
           baseURL: baseUrl,
           apiKey: "lm-studio", // LM Studio doesn't need a real key
         });
-        console.log(`[AI IPC] LM Studio model created via OpenAI-compatible API`);
+        console.log(
+          `[AI IPC] LM Studio model created via OpenAI-compatible API`,
+        );
         return lmstudio(model);
       }
 

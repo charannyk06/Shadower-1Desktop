@@ -2,7 +2,6 @@
 
 import { appStore } from "@/app/store";
 import { X } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Button } from "ui/button";
 import {
   Drawer,
@@ -18,7 +17,6 @@ export function KnowledgePopup({
 }: {
   knowledgeComponent: React.ReactNode;
 }) {
-  const { t } = useTranslation();
   const [openKnowledge, appStoreMutate] = appStore(
     useShallow((state) => [state.openKnowledge, state.mutate]),
   );
@@ -49,9 +47,7 @@ export function KnowledgePopup({
               <X />
             </Button>
           </div>
-          <DrawerTitle className="sr-only">
-            {t("Layout.allKnowledge")}
-          </DrawerTitle>
+          <DrawerTitle className="sr-only">All Knowledge</DrawerTitle>
           <DrawerDescription className="sr-only" />
           <div className="flex-1 flex flex-col min-h-0">
             <div className="flex-1 overflow-y-auto">{knowledgeComponent}</div>

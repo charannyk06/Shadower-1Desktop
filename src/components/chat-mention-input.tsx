@@ -14,7 +14,6 @@ import { MCPIcon } from "ui/mcp-icon";
 
 import { ChatMention } from "app-types/chat";
 
-import { useTranslation } from "react-i18next";
 import { Popover, PopoverContent, PopoverTrigger } from "ui/popover";
 import MentionInput from "./mention-input";
 
@@ -178,13 +177,8 @@ export function ChatMentionInputSuggestion({
   style?: React.CSSProperties;
   disabledType?: ("mcp" | "defaultTool" | "agent")[];
 }) {
-  const { t } = useTranslation();
-
   const [mcpList, agentList] = appStore(
-    useShallow((state) => [
-      state.mcpList,
-      state.agentList,
-    ]),
+    useShallow((state) => [state.mcpList, state.agentList]),
   );
   const [searchValue, setSearchValue] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -528,11 +522,7 @@ export function ChatMentionInputSuggestion({
 
   // Combine all mentions
   const allMentions = useMemo(() => {
-    return [
-      ...agentMentions,
-      ...defaultToolMentions,
-      ...mcpMentions,
-    ];
+    return [...agentMentions, ...defaultToolMentions, ...mcpMentions];
   }, [agentMentions, defaultToolMentions, mcpMentions]);
 
   // Reset selected index when mentions change
@@ -596,7 +586,7 @@ export function ChatMentionInputSuggestion({
             <SearchIcon className="size-4 shrink-0 opacity-50" />
             <input
               className="flex h-8 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder={t("Common.search")}
+              placeholder="Search..."
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
               onKeyDown={(e) => {
@@ -672,7 +662,7 @@ export function ChatMentionInputSuggestion({
                 <div className="text-center">
                   <div className="mb-2">
                     {searchValue
-                      ? t("Common.noResults")
+                      ? "No results"
                       : "Type @ to see available mentions"}
                   </div>
                   {searchValue && (

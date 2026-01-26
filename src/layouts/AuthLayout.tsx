@@ -1,5 +1,4 @@
 import { AnimatedLogo } from "@/components/layouts/animated-logo";
-import { useTranslation } from "react-i18next";
 import { BackgroundPaths } from "ui/background-paths";
 import { FlipWords } from "ui/flip-words";
 
@@ -12,8 +11,6 @@ interface AuthLayoutProps {
 }
 
 export default function AuthLayout({ children }: AuthLayoutProps) {
-  const { t } = useTranslation();
-
   return (
     <main className="relative w-full flex flex-col h-screen">
       <div className="flex-1">
@@ -31,7 +28,9 @@ export default function AuthLayout({ children }: AuthLayoutProps) {
             </h1>
             <div className="flex-1" />
             <FlipWords
-              words={[t("Auth.Intro.description")]}
+              words={[
+                "Welcome to Shadower. Sign in to experience our AI-powered conversational tools.",
+              ]}
               className=" mb-4 text-muted-foreground"
             />
           </div>

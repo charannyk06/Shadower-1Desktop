@@ -6,10 +6,17 @@ import type { ACPAgentConfig } from "../../../src/types/acp";
  * Codex is OpenAI's coding assistant that runs in the terminal.
  * Uses the codex-acp adapter from @zed-industries/codex-acp for ACP protocol.
  *
- * Installation: npm install -g @zed-industries/codex-acp
- * Or: npx @zed-industries/codex-acp
+ * Installation:
+ * - npm install -g @openai/codex (the CLI itself)
+ * - Or: npx @zed-industries/codex-acp (runs via adapter)
  *
  * See: https://github.com/zed-industries/codex-acp
+ *
+ * Detection Strategy:
+ * 1. Try `codex --version` directly
+ * 2. Check PATH with `which codex`
+ * 3. Check common global install paths
+ * 4. Fall back to npm registry check for npx availability
  */
 export const codexConfig: ACPAgentConfig = {
   id: "codex",
@@ -20,11 +27,16 @@ export const codexConfig: ACPAgentConfig = {
   authMethods: ["LOGIN", "API_KEY"],
   capabilities: ["filesystem", "terminal", "mcp"],
   iconProvider: "openai",
-  // Detect if codex is installed (the adapter will use it)
+  // Primary detection: check if codex CLI is installed
   detectCommand: "codex",
   detectArgs: ["--version"],
-  // Auth detection: Codex stores credentials in ~/.codex/auth.json
-  authPaths: [".codex/auth.json"],
+  // Auth detection: Codex stores credentials in multiple possible locations
+  authPaths: [
+    ".codex/auth.json",
+    ".codex/credentials.json",
+    ".openai/auth.json",
+    ".config/codex/auth.json",
+  ],
 };
 
 /**

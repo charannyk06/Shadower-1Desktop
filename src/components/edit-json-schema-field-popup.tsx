@@ -8,7 +8,6 @@ import {
   TrashIcon,
   TypeIcon,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import {
   Dispatch,
   SetStateAction,
@@ -71,7 +70,6 @@ export function EditJsonSchemaFieldPopup({
   children,
   editAbleKey = true,
 }: Props) {
-  const { t } = useTranslation();
   const [open, setOpen] = useState<boolean>(defaultOpen ?? false);
   const [field, setField] = useState<Feild>(defaultField ?? _defaultField);
 
@@ -101,7 +99,7 @@ export function EditJsonSchemaFieldPopup({
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent hideClose className="flex flex-col">
         <DialogHeader>
-          <DialogTitle>{t("Workflow.fieldEditor")}</DialogTitle>
+          <DialogTitle>Field Editor</DialogTitle>
           <DialogDescription />
         </DialogHeader>
         <div className="max-h-[80vh] overflow-y-auto">
@@ -113,9 +111,9 @@ export function EditJsonSchemaFieldPopup({
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="ghost">{t("Common.cancel")}</Button>
+            <Button variant="ghost">Cancel</Button>
           </DialogClose>
-          <Button onClick={handleSave}>{t("Common.save")}</Button>
+          <Button onClick={handleSave}>Save</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -136,7 +134,6 @@ export function EditJsonSchemaFieldContent({
   onChange: Dispatch<SetStateAction<Feild>>;
   editAbleKey?: boolean;
 }) {
-  const { t } = useTranslation();
   const fieldTypes = useMemo(
     () => [
       {
@@ -241,7 +238,7 @@ export function EditJsonSchemaFieldContent({
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="field-key">{t("Workflow.variableName")}</Label>
+        <Label htmlFor="field-key">Variable Name</Label>
         <Input
           id="field-key"
           disabled={!editAbleKey}
@@ -254,14 +251,14 @@ export function EditJsonSchemaFieldContent({
               key: cleanVariableName(e.target.value),
             }))
           }
-          placeholder={t("Workflow.variableNamePlaceholder")}
+          placeholder="Enter variable name"
         />
       </div>
 
       {/* Enum Values (only show if type is enum) */}
       {field.enum && (
         <div className="flex flex-col gap-2">
-          <Label>{t("Common.options")}</Label>
+          <Label>Options</Label>
           <div className="flex flex-col gap-2">
             {(field.enum ?? []).map((value, index) => (
               <div
@@ -292,7 +289,7 @@ export function EditJsonSchemaFieldContent({
               className="border border-dashed rounded-md"
             >
               <PlusIcon className="size-4" />
-              <span>{t("Common.addOption")}</span>
+              <span>Add Option</span>
             </Button>
           </div>
         </div>
@@ -301,10 +298,8 @@ export function EditJsonSchemaFieldContent({
       {/* Field Description */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <Label htmlFor="field-description">{t("Common.description")}</Label>
-          <span className="text-xs text-muted-foreground">
-            {t("Common.optional")}
-          </span>
+          <Label htmlFor="field-description">Description</Label>
+          <span className="text-xs text-muted-foreground">(optional)</span>
         </div>
         <Input
           id="field-description"
@@ -313,17 +308,15 @@ export function EditJsonSchemaFieldContent({
           onChange={(e) =>
             onChange((prev) => ({ ...prev, description: e.target.value }))
           }
-          placeholder={t("Workflow.fieldDescriptionPlaceholder")}
+          placeholder="Enter field description"
         />
       </div>
 
       {/* Default Value */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2 mb-2">
-          <Label htmlFor="field-default">{t("Common.defaultValue")}</Label>
-          <span className="text-xs text-muted-foreground">
-            {t("Common.optional")}
-          </span>
+          <Label htmlFor="field-default">Default Value</Label>
+          <span className="text-xs text-muted-foreground">(optional)</span>
         </div>
         {field.type === "boolean" ? (
           <div className="flex items-center space-x-2">
@@ -347,15 +340,11 @@ export function EditJsonSchemaFieldContent({
             }
           >
             <SelectTrigger className="w-full">
-              <SelectValue
-                placeholder={t("Workflow.selectOptionPlaceholder")}
-              />
+              <SelectValue placeholder="Select an option" />
             </SelectTrigger>
             <SelectContent>
               {!field.enum?.filter((item) => item).length ? (
-                <div className="text-muted-foreground text-xs p-2">
-                  {t("Common.empty")}
-                </div>
+                <div className="text-muted-foreground text-xs p-2">Empty</div>
               ) : (
                 field.enum
                   .filter((item) => item)
@@ -382,9 +371,7 @@ export function EditJsonSchemaFieldContent({
                   : e.target.value || undefined;
               onChange((prev) => ({ ...prev, defaultValue: value }));
             }}
-            placeholder={t("Workflow.defaultValuePlaceholder", {
-              type: field.type,
-            })}
+            placeholder={`Enter default ${field.type} value`}
           />
         )}
       </div>
@@ -405,7 +392,7 @@ export function EditJsonSchemaFieldContent({
           htmlFor="field-required"
           className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
         >
-          {t("Common.required")}
+          Required
         </Label>
       </div>
     </div>

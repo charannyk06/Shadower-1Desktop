@@ -14,6 +14,8 @@ export const sqliteChatRepository: ChatRepository = {
         userId: thread.userId,
         id: thread.id,
         createdAt: new Date(),
+        provider: thread.provider ?? null,
+        model: thread.model ?? null,
       })
       .returning();
     return {
@@ -89,6 +91,8 @@ export const sqliteChatRepository: ChatRepository = {
         title: ChatThreadTable.title,
         createdAt: ChatThreadTable.createdAt,
         userId: ChatThreadTable.userId,
+        provider: ChatThreadTable.provider,
+        model: ChatThreadTable.model,
         lastMessageAt: sql<string>`MAX(${ChatMessageTable.createdAt})`.as(
           "last_message_at",
         ),
@@ -108,6 +112,8 @@ export const sqliteChatRepository: ChatRepository = {
         title: row.title,
         userId: row.userId,
         createdAt: row.createdAt ?? new Date(),
+        provider: row.provider ?? undefined,
+        model: row.model ?? undefined,
         lastMessageAt: row.lastMessageAt
           ? new Date(row.lastMessageAt).getTime()
           : 0,
@@ -119,11 +125,15 @@ export const sqliteChatRepository: ChatRepository = {
     id: string,
     thread: Partial<Omit<ChatThread, "id" | "createdAt">>,
   ): Promise<ChatThread> => {
+    // Build update object with only defined fields
+    const updateData: Record<string, unknown> = {};
+    if (thread.title !== undefined) updateData.title = thread.title;
+    if (thread.provider !== undefined) updateData.provider = thread.provider;
+    if (thread.model !== undefined) updateData.model = thread.model;
+
     const [result] = await db
       .update(ChatThreadTable)
-      .set({
-        title: thread.title,
-      })
+      .set(updateData)
       .where(eq(ChatThreadTable.id, id))
       .returning();
     return {
@@ -148,6 +158,8 @@ export const sqliteChatRepository: ChatRepository = {
         target: [ChatThreadTable.id],
         set: {
           title: thread.title,
+          provider: thread.provider ?? null,
+          model: thread.model ?? null,
         },
       })
       .returning();

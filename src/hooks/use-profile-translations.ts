@@ -1,17 +1,21 @@
-import { useTranslation } from "react-i18next";
-
 /**
- * Hook for profile translations
+ * Hook for profile translations (i18n removed - returns English strings)
  *
- * @returns Translation functions for user profile
+ * @deprecated This hook is kept for compatibility but returns hardcoded English strings
  */
-export function useProfileTranslations() {
-  const { t } = useTranslation();
+export function useProfileTranslations(_view?: "admin" | "user") {
+  // Hardcoded English translations
+  const translations: Record<string, string> = {
+    you: "You",
+    // Add more translations as needed
+  };
 
   return {
-    /** User translations */
-    t,
-    /** Common translations */
-    tCommon: t,
+    /** User translations - returns hardcoded English strings */
+    t: (key: string, _options?: Record<string, unknown>) =>
+      translations[key] || key,
+    /** Common translations - returns hardcoded English strings */
+    tCommon: (key: string, _options?: Record<string, unknown>) =>
+      translations[key] || key,
   };
 }

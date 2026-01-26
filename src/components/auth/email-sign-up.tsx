@@ -15,7 +15,6 @@ import { authClient } from "@/lib/auth/client";
 import { UserZodSchema } from "app-types/user";
 import { cn } from "lib/utils";
 import { Check, ChevronLeft, Loader, X } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -25,7 +24,6 @@ export default function EmailSignUp({
 }: {
   isFirstUser?: boolean;
 }) {
-  const { t } = useTranslation();
   const [step, setStep] = useState(1);
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
@@ -36,9 +34,9 @@ export default function EmailSignUp({
   });
 
   const steps = [
-    t("Auth.SignUp.step1"),
-    t("Auth.SignUp.step2"),
-    t("Auth.SignUp.step3"),
+    "Start your journey with us by entering your email address",
+    "I'll use this name when we chat",
+    "Create a strong password to secure your account",
   ];
 
   // Password validation checklist
@@ -58,7 +56,7 @@ export default function EmailSignUp({
   const successEmailStep = async () => {
     const { success } = UserZodSchema.shape.email.safeParse(formData.email);
     if (!success) {
-      toast.error(t("Auth.SignUp.invalidEmail"));
+      toast.error("Invalid email address");
       return;
     }
     // Skip email exists check here - will be handled during registration via IPC
@@ -68,7 +66,7 @@ export default function EmailSignUp({
   const successNameStep = () => {
     const { success } = UserZodSchema.shape.name.safeParse(formData.name);
     if (!success) {
-      toast.error(t("Auth.SignUp.nameRequired"));
+      toast.error("Name is required");
       return;
     }
     setStep(3);
@@ -115,7 +113,7 @@ export default function EmailSignUp({
     <Card className="w-full md:max-w-md bg-background border-none mx-auto gap-0 shadow-none animate-in fade-in duration-1000">
       <CardHeader>
         <CardTitle className="text-2xl text-center ">
-          {t("Auth.SignUp.title")}
+          Create an account
         </CardTitle>
         <CardDescription className="py-12">
           <div className="flex flex-col gap-2">
@@ -272,7 +270,7 @@ export default function EmailSignUp({
                 if (step === 3) successPasswordStep();
               }}
             >
-              {step === 3 ? t("Auth.SignUp.createAccount") : t("Common.next")}
+              {step === 3 ? "Create account" : "Next"}
               {isLoading && <Loader className="size-4 ml-2 animate-spin" />}
             </Button>
             <Button
@@ -283,7 +281,7 @@ export default function EmailSignUp({
               onClick={backStep}
             >
               <ChevronLeft className="size-4" />
-              {t("Common.back")}
+              Back
             </Button>
           </div>
         </div>

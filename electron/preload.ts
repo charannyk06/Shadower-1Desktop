@@ -484,7 +484,9 @@ export interface ElectronAPI {
       },
     ) => Promise<{ url?: string; title?: string; error?: string }>;
     goBack: (sessionId?: string) => Promise<{ url?: string; error?: string }>;
-    goForward: (sessionId?: string) => Promise<{ url?: string; error?: string }>;
+    goForward: (
+      sessionId?: string,
+    ) => Promise<{ url?: string; error?: string }>;
     reload: (sessionId?: string) => Promise<{ url?: string; error?: string }>;
 
     // AI-optimized snapshot (the key feature!)
@@ -497,7 +499,12 @@ export interface ElectronAPI {
     }) => Promise<{
       tree?: string;
       refs?: Record<string, { selector: string; role: string; name?: string }>;
-      stats?: { lines: number; chars: number; refs: number; interactive: number };
+      stats?: {
+        lines: number;
+        chars: number;
+        refs: number;
+        interactive: number;
+      };
       error?: string;
     }>;
 
@@ -553,7 +560,9 @@ export interface ElectronAPI {
       sessionId?: string;
     }) => Promise<{ html?: string; error?: string }>;
     getUrl: (sessionId?: string) => Promise<{ url?: string; error?: string }>;
-    getTitle: (sessionId?: string) => Promise<{ title?: string; error?: string }>;
+    getTitle: (
+      sessionId?: string,
+    ) => Promise<{ title?: string; error?: string }>;
 
     // Multi-tab support
     newTab: (options?: {
@@ -590,7 +599,9 @@ export interface ElectronAPI {
       remaining?: number;
       error?: string;
     }>;
-    listTabs: (sessionId?: string) => Promise<
+    listTabs: (
+      sessionId?: string,
+    ) => Promise<
       Array<{ index: number; url: string; title: string; active: boolean }>
     >;
     getActiveTabIndex: (sessionId?: string) => Promise<{
@@ -737,6 +748,17 @@ export interface ElectronAPI {
       filename?: string;
       error?: string;
     }>;
+    // File change listener for tracking changes in session
+    onFileChanged: (
+      callback: (data: {
+        filePath: string;
+        filename: string;
+        status: "created" | "modified" | "deleted";
+        originalContent: string | null;
+        newContent: string;
+        timestamp: number;
+      }) => void,
+    ) => () => void;
   };
 
   // AI streaming (IPC-based, no HTTP server needed)
@@ -1024,6 +1046,29 @@ export interface ElectronAPI {
       message?: string;
       error?: string;
     }>;
+    // Ollama auto-detection (zero-config support)
+    ollamaAutoDetect: () => Promise<{
+      success: boolean;
+      detected: boolean;
+      running: boolean;
+      modelCount: number;
+      models: Array<{
+        name: string;
+        size: number;
+        family?: string;
+      }>;
+      baseUrl: string;
+      isRemote: boolean;
+      version?: string;
+      error?: string;
+    }>;
+    ollamaStartAutoDetectPolling: (intervalMs?: number) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    ollamaStopAutoDetectPolling: () => Promise<{
+      success: boolean;
+    }>;
 
     // LM Studio-specific
     lmstudioCheckHealth: () => Promise<{
@@ -1154,14 +1199,17 @@ export interface ElectronAPI {
         version?: string;
       }>
     >;
-    getAgentStatus: (agentId: string) => Promise<{
-      id: string;
-      installed: boolean;
-      authenticated: boolean;
-      running: boolean;
-      error?: string;
-      version?: string;
-    } | undefined>;
+    getAgentStatus: (agentId: string) => Promise<
+      | {
+          id: string;
+          installed: boolean;
+          authenticated: boolean;
+          running: boolean;
+          error?: string;
+          version?: string;
+        }
+      | undefined
+    >;
     getInstalledAgents: () => Promise<
       Array<{
         id: string;
@@ -1217,20 +1265,23 @@ export interface ElectronAPI {
       agentId: string;
       sessionId: string;
       message: string;
-      contextFiles?: string[];
+      contextFiles?: Array<{ path: string; content?: string }>;
     }) => Promise<{
-      content: string;
-      usage?: {
-        inputTokens: number;
-        outputTokens: number;
-      };
+      sessionId: string;
+      stopReason:
+        | "end_turn"
+        | "tool_use"
+        | "max_tokens"
+        | "cancelled"
+        | "error";
+      error?: string;
     }>;
     cancel: (agentId: string, sessionId: string) => Promise<void>;
 
     // Authentication
     authenticate: (
       agentId: string,
-      methodId: string
+      methodId: string,
     ) => Promise<{ success: boolean; message?: string }>;
 
     // Permission handling
@@ -1240,24 +1291,123 @@ export interface ElectronAPI {
       rememberGlobally?: boolean;
     }) => Promise<void>;
 
+    // Agentic loop controls - enables true autonomous agent behavior
+    setAutoResume: (
+      agentId: string,
+      sessionId: string,
+      enabled: boolean,
+    ) => Promise<void>;
+    getAgenticLoopStatus: (
+      agentId: string,
+      sessionId: string,
+    ) => Promise<{
+      active: boolean;
+      iteration: number;
+      pendingTools: number;
+      autoResume: boolean;
+    } | null>;
+
+    // Session context update - allows updating working directory
+    updateSessionContext: (
+      agentId: string,
+      sessionId: string,
+      context: { workingDirectory?: string },
+    ) => Promise<{
+      sessionId: string;
+      workingDirectory?: string;
+      contextUpdated: boolean;
+    }>;
+
+    // Feature 2: Session list/load/resume and capabilities
+    getAgentCapabilities: (agentId: string) => Promise<
+      | {
+          loadSession: boolean;
+          sessionList: boolean;
+          sessionResume: boolean;
+          prompt?: {
+            image?: boolean;
+            audio?: boolean;
+            embeddedContext?: boolean;
+          };
+        }
+      | undefined
+    >;
+    listSessions: (
+      agentId: string,
+      request?: {
+        cwd?: string;
+        cursor?: string;
+      },
+    ) => Promise<{
+      sessions: Array<{
+        sessionId: string;
+        cwd?: string;
+        title?: string;
+        updatedAt?: Date;
+        meta?: Record<string, unknown>;
+      }>;
+      nextCursor?: string;
+      meta?: Record<string, unknown>;
+    }>;
+    loadSession: (request: {
+      agentId: string;
+      sessionId: string;
+      workingDirectory: string;
+      mcpServers?: Array<{
+        name: string;
+        command: string;
+        args?: string[];
+        env?: Record<string, string>;
+      }>;
+    }) => Promise<{
+      sessionId: string;
+      agentId: string;
+      workingDirectory: string;
+      createdAt: Date;
+      availableModes?: string[];
+      currentMode?: string;
+      configOptions?: Array<any>;
+      models?: any;
+    }>;
+    resumeSession: (request: {
+      agentId: string;
+      sessionId: string;
+      workingDirectory: string;
+      mcpServers?: Array<{
+        name: string;
+        command: string;
+        args?: string[];
+        env?: Record<string, string>;
+      }>;
+    }) => Promise<{
+      sessionId: string;
+      agentId: string;
+      workingDirectory: string;
+      createdAt: Date;
+      availableModes?: string[];
+      currentMode?: string;
+      configOptions?: Array<any>;
+      models?: any;
+    }>;
+
     // Event listeners
     onAgentStarted: (
-      callback: (data: { agentId: string }) => void
+      callback: (data: { agentId: string }) => void,
     ) => () => void;
     onAgentExit: (
-      callback: (data: { agentId: string; code: number | null }) => void
+      callback: (data: { agentId: string; code: number | null }) => void,
     ) => () => void;
     onAgentError: (
-      callback: (data: { agentId: string; error: string }) => void
+      callback: (data: { agentId: string; error: string }) => void,
     ) => () => void;
     onAgentAuthenticated: (
-      callback: (data: { agentId: string }) => void
+      callback: (data: { agentId: string }) => void,
     ) => () => void;
     onAuthRequired: (
       callback: (data: {
         agentId: string;
         methods: Array<{ id: string; name: string; description?: string }>;
-      }) => void
+      }) => void,
     ) => () => void;
     onSessionCreated: (
       callback: (data: {
@@ -1270,24 +1420,65 @@ export interface ElectronAPI {
           availableModes?: string[];
           currentMode?: string;
         };
-      }) => void
+      }) => void,
     ) => () => void;
     onSessionUpdate: (
       callback: (data: {
         agentId: string;
         sessionId: string;
         status: "active" | "idle" | "error";
-      }) => void
+      }) => void,
     ) => () => void;
     onMessageChunk: (
       callback: (data: {
         sessionId: string;
         agentId: string;
         messageId: string;
-        type: "text" | "thinking" | "tool_call" | "tool_result" | "error";
-        content: string | { id?: string; name?: string; input?: unknown; output?: unknown; state?: string };
+        type:
+          | "text"
+          | "thinking"
+          | "tool_call"
+          | "tool_result"
+          | "error"
+          | "plan"
+          | "terminal_output"
+          | "terminal_exit"
+          | "commands_update"
+          | "session_info";
+        content:
+          | string
+          | {
+              id?: string;
+              name?: string;
+              input?: unknown;
+              output?: unknown;
+              state?: string;
+              toolName?: string;
+              isSubagent?: boolean;
+              kind?: string;
+            }
+          | {
+              planId: string;
+              title?: string;
+              steps: Array<{
+                id: string;
+                description: string;
+                status: "pending" | "in_progress" | "completed" | "failed";
+              }>;
+              status: "pending" | "in_progress" | "completed" | "failed";
+            }
+          | Array<{
+              id: string;
+              name: string;
+              description?: string;
+              arguments?: Array<{
+                name: string;
+                description?: string;
+                required?: boolean;
+              }>;
+            }>;
         done?: boolean;
-      }) => void
+      }) => void,
     ) => () => void;
     onPermissionRequest: (
       callback: (data: {
@@ -1303,7 +1494,131 @@ export interface ElectronAPI {
           isDefault?: boolean;
         }>;
         metadata?: Record<string, unknown>;
-      }) => void
+      }) => void,
+    ) => () => void;
+
+    // Feature 2: Session load/resume events
+    onSessionLoaded: (
+      callback: (data: {
+        sessionId: string;
+        agentId: string;
+        workingDirectory: string;
+      }) => void,
+    ) => () => void;
+    onSessionResumed: (
+      callback: (data: {
+        sessionId: string;
+        agentId: string;
+        workingDirectory: string;
+      }) => void,
+    ) => () => void;
+    onSessionRecreated: (
+      callback: (data: {
+        agentId: string;
+        oldSessionId: string;
+        newSession: {
+          sessionId: string;
+          agentId: string;
+          workingDirectory: string;
+        };
+      }) => void,
+    ) => () => void;
+    onSessionContextUpdated: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        workingDirectory?: string;
+      }) => void,
+    ) => () => void;
+
+    // Feature 3: Terminal events
+    onTerminalCreated: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        terminalId: string;
+        cwd?: string;
+        label?: string;
+      }) => void,
+    ) => () => void;
+    onTerminalOutput: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        terminalId: string;
+        data: string;
+      }) => void,
+    ) => () => void;
+    onTerminalExit: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        terminalId: string;
+        exitCode?: number;
+        signal?: string;
+      }) => void,
+    ) => () => void;
+
+    // Feature 4: Commands update event
+    onCommandsUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        commands: Array<{
+          id: string;
+          name: string;
+          description?: string;
+          arguments?: Array<{
+            name: string;
+            description?: string;
+            required?: boolean;
+          }>;
+        }>;
+      }) => void,
+    ) => () => void;
+
+    // Feature 6: Session info update event
+    onSessionInfoUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        title?: string;
+        meta?: Record<string, unknown>;
+      }) => void,
+    ) => () => void;
+
+    // Session mode update event
+    onSessionModeUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        currentModeId?: string;
+        availableModes?: Array<{ id: string; name: string }>;
+      }) => void,
+    ) => () => void;
+
+    // Session model update event
+    onSessionModelUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        currentModelId?: string;
+        availableModels?: Array<{ modelId: string; name: string }>;
+      }) => void,
+    ) => () => void;
+
+    // Session config update event
+    onSessionConfigUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        configOptions?: Array<{
+          id: string;
+          name: string;
+          type: string;
+          value?: string | boolean;
+        }>;
+      }) => void,
     ) => () => void;
   };
 }
@@ -1545,8 +1860,11 @@ const electronAPI: ElectronAPI = {
   // Knowledge Base & Document Management (Full RAG System)
   knowledge: {
     // Knowledge Base CRUD
-    createBase: (data: { name: string; description?: string; userId: string }) =>
-      ipcRenderer.invoke("knowledge:createBase", data),
+    createBase: (data: {
+      name: string;
+      description?: string;
+      userId: string;
+    }) => ipcRenderer.invoke("knowledge:createBase", data),
     listBases: (userId: string) =>
       ipcRenderer.invoke("knowledge:listBases", userId),
     getBase: (id: string, userId: string) =>
@@ -1554,7 +1872,7 @@ const electronAPI: ElectronAPI = {
     updateBase: (
       id: string,
       userId: string,
-      data: { name?: string; description?: string }
+      data: { name?: string; description?: string },
     ) => ipcRenderer.invoke("knowledge:updateBase", id, userId, data),
     deleteBase: (id: string, userId: string) =>
       ipcRenderer.invoke("knowledge:deleteBase", id, userId),
@@ -1601,7 +1919,6 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("graph:query", naturalLanguageQuery),
   },
 
-
   // Browser automation (agent-browser powered)
   browser: {
     // Session management
@@ -1633,16 +1950,14 @@ const electronAPI: ElectronAPI = {
     type: (selector, text, options) =>
       ipcRenderer.invoke("browser:type", selector, text, options),
     press: (key, options) => ipcRenderer.invoke("browser:press", key, options),
-    screenshot: (options) =>
-      ipcRenderer.invoke("browser:screenshot", options),
+    screenshot: (options) => ipcRenderer.invoke("browser:screenshot", options),
     scroll: (options) => ipcRenderer.invoke("browser:scroll", options),
 
     // Utilities
     evaluate: (script, options) =>
       ipcRenderer.invoke("browser:evaluate", script, options),
     wait: (options) => ipcRenderer.invoke("browser:wait", options),
-    getContent: (options) =>
-      ipcRenderer.invoke("browser:getContent", options),
+    getContent: (options) => ipcRenderer.invoke("browser:getContent", options),
     getUrl: (sessionId) => ipcRenderer.invoke("browser:getUrl", sessionId),
     getTitle: (sessionId) => ipcRenderer.invoke("browser:getTitle", sessionId),
 
@@ -1719,6 +2034,21 @@ const electronAPI: ElectronAPI = {
     }) => ipcRenderer.invoke("dialog:saveFile", options),
     writeToPath: (options: { filePath: string; content: string }) =>
       ipcRenderer.invoke("files:writeToPath", options),
+    // File change listener for tracking changes in session
+    onFileChanged: (
+      callback: (data: {
+        filePath: string;
+        filename: string;
+        status: "created" | "modified" | "deleted";
+        originalContent: string | null;
+        newContent: string;
+        timestamp: number;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("file:changed", handler);
+      return () => ipcRenderer.removeListener("file:changed", handler);
+    },
   },
 
   // AI streaming (IPC-based, no HTTP server needed)
@@ -1909,9 +2239,16 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("models:ollama:warmup", data),
     ollamaUnload: (data: { modelName: string; baseUrl?: string }) =>
       ipcRenderer.invoke("models:ollama:unload", data),
+    // Ollama auto-detection (zero-config support)
+    ollamaAutoDetect: () => ipcRenderer.invoke("models:ollama:autoDetect"),
+    ollamaStartAutoDetectPolling: (intervalMs?: number) =>
+      ipcRenderer.invoke("models:ollama:startAutoDetectPolling", intervalMs),
+    ollamaStopAutoDetectPolling: () =>
+      ipcRenderer.invoke("models:ollama:stopAutoDetectPolling"),
 
     // LM Studio-specific
-    lmstudioCheckHealth: () => ipcRenderer.invoke("models:lmstudio:checkHealth"),
+    lmstudioCheckHealth: () =>
+      ipcRenderer.invoke("models:lmstudio:checkHealth"),
     lmstudioGetModels: () => ipcRenderer.invoke("models:lmstudio:getModels"),
 
     // Curated models
@@ -1925,12 +2262,14 @@ const electronAPI: ElectronAPI = {
     onDownloadProgress: (callback) => {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("models:download:progress", handler);
-      return () => ipcRenderer.removeListener("models:download:progress", handler);
+      return () =>
+        ipcRenderer.removeListener("models:download:progress", handler);
     },
     onDownloadComplete: (callback) => {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("models:download:complete", handler);
-      return () => ipcRenderer.removeListener("models:download:complete", handler);
+      return () =>
+        ipcRenderer.removeListener("models:download:complete", handler);
     },
     onDownloadError: (callback) => {
       const handler = (_event: any, data: any) => callback(data);
@@ -2015,7 +2354,7 @@ const electronAPI: ElectronAPI = {
       agentId: string;
       sessionId: string;
       message: string;
-      contextFiles?: string[];
+      contextFiles?: Array<{ path: string; content?: string }>;
     }) => ipcRenderer.invoke("acp:prompt", request),
     cancel: (agentId: string, sessionId: string) =>
       ipcRenderer.invoke("acp:cancel", agentId, sessionId),
@@ -2031,6 +2370,58 @@ const electronAPI: ElectronAPI = {
       rememberGlobally?: boolean;
     }) => ipcRenderer.invoke("acp:respond-permission", request),
 
+    // Agentic loop controls - enables true autonomous agent behavior
+    setAutoResume: (agentId: string, sessionId: string, enabled: boolean) =>
+      ipcRenderer.invoke("acp:set-auto-resume", agentId, sessionId, enabled),
+    getAgenticLoopStatus: (agentId: string, sessionId: string) =>
+      ipcRenderer.invoke("acp:get-agentic-loop-status", agentId, sessionId),
+
+    // Session context update - allows updating working directory
+    updateSessionContext: (
+      agentId: string,
+      sessionId: string,
+      context: { workingDirectory?: string },
+    ) =>
+      ipcRenderer.invoke(
+        "acp:update-session-context",
+        agentId,
+        sessionId,
+        context,
+      ),
+
+    // Feature 2: Session list/load/resume and capabilities
+    getAgentCapabilities: (agentId: string) =>
+      ipcRenderer.invoke("acp:get-agent-capabilities", agentId),
+    listSessions: (
+      agentId: string,
+      request?: {
+        cwd?: string;
+        cursor?: string;
+      },
+    ) => ipcRenderer.invoke("acp:list-sessions", agentId, request),
+    loadSession: (request: {
+      agentId: string;
+      sessionId: string;
+      workingDirectory: string;
+      mcpServers?: Array<{
+        name: string;
+        command: string;
+        args?: string[];
+        env?: Record<string, string>;
+      }>;
+    }) => ipcRenderer.invoke("acp:load-session", request),
+    resumeSession: (request: {
+      agentId: string;
+      sessionId: string;
+      workingDirectory: string;
+      mcpServers?: Array<{
+        name: string;
+        command: string;
+        args?: string[];
+        env?: Record<string, string>;
+      }>;
+    }) => ipcRenderer.invoke("acp:resume-session", request),
+
     // Event listeners
     onAgentStarted: (callback: (data: { agentId: string }) => void) => {
       const handler = (_event: any, data: any) => callback(data);
@@ -2038,14 +2429,14 @@ const electronAPI: ElectronAPI = {
       return () => ipcRenderer.removeListener("acp:agent-started", handler);
     },
     onAgentExit: (
-      callback: (data: { agentId: string; code: number | null }) => void
+      callback: (data: { agentId: string; code: number | null }) => void,
     ) => {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("acp:agent-exit", handler);
       return () => ipcRenderer.removeListener("acp:agent-exit", handler);
     },
     onAgentError: (
-      callback: (data: { agentId: string; error: string }) => void
+      callback: (data: { agentId: string; error: string }) => void,
     ) => {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("acp:agent-error", handler);
@@ -2061,7 +2452,7 @@ const electronAPI: ElectronAPI = {
       callback: (data: {
         agentId: string;
         methods: Array<{ id: string; name: string; description?: string }>;
-      }) => void
+      }) => void,
     ) => {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("acp:auth-required", handler);
@@ -2080,7 +2471,7 @@ const electronAPI: ElectronAPI = {
           configOptions?: Array<any>;
           models?: any;
         };
-      }) => void
+      }) => void,
     ) => {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("acp:session-created", handler);
@@ -2091,7 +2482,7 @@ const electronAPI: ElectronAPI = {
         agentId: string;
         sessionId: string;
         status: "active" | "idle" | "error";
-      }) => void
+      }) => void,
     ) => {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("acp:session-update", handler);
@@ -2103,13 +2494,24 @@ const electronAPI: ElectronAPI = {
         agentId: string;
         messageId: string;
         type: "text" | "thinking" | "tool_call" | "tool_result" | "error";
-        content: string | { id?: string; name?: string; input?: unknown; output?: unknown; state?: string };
+        content:
+          | string
+          | {
+              id?: string;
+              name?: string;
+              input?: unknown;
+              output?: unknown;
+              state?: string;
+            };
         role?: "user" | "assistant";
         done?: boolean;
-      }) => void
+      }) => void,
     ) => {
       const handler = (_event: any, data: any) => {
-        console.log("[Preload] ACP message-chunk received:", JSON.stringify(data, null, 2));
+        console.log(
+          "[Preload] ACP message-chunk received:",
+          JSON.stringify(data, null, 2),
+        );
         callback(data);
       };
       ipcRenderer.on("acp:message-chunk", handler);
@@ -2129,12 +2531,239 @@ const electronAPI: ElectronAPI = {
           isDefault?: boolean;
         }>;
         metadata?: Record<string, unknown>;
-      }) => void
+      }) => void,
     ) => {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on("acp:permission-request", handler);
       return () =>
         ipcRenderer.removeListener("acp:permission-request", handler);
+    },
+
+    // Feature 2: Session load/resume events
+    onSessionLoaded: (
+      callback: (data: {
+        sessionId: string;
+        agentId: string;
+        workingDirectory: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:session-loaded", handler);
+      return () => ipcRenderer.removeListener("acp:session-loaded", handler);
+    },
+    onSessionResumed: (
+      callback: (data: {
+        sessionId: string;
+        agentId: string;
+        workingDirectory: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:session-resumed", handler);
+      return () => ipcRenderer.removeListener("acp:session-resumed", handler);
+    },
+    onSessionRecreated: (
+      callback: (data: {
+        agentId: string;
+        oldSessionId: string;
+        newSession: {
+          sessionId: string;
+          agentId: string;
+          workingDirectory: string;
+        };
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:session-recreated", handler);
+      return () => ipcRenderer.removeListener("acp:session-recreated", handler);
+    },
+    onSessionContextUpdated: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        workingDirectory?: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:session-context-updated", handler);
+      return () =>
+        ipcRenderer.removeListener("acp:session-context-updated", handler);
+    },
+
+    // Feature 3: Terminal events
+    onTerminalCreated: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        terminalId: string;
+        cwd?: string;
+        label?: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:terminal-created", handler);
+      return () => ipcRenderer.removeListener("acp:terminal-created", handler);
+    },
+    onTerminalOutput: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        terminalId: string;
+        data: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:terminal-output", handler);
+      return () => ipcRenderer.removeListener("acp:terminal-output", handler);
+    },
+    onTerminalExit: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        terminalId: string;
+        exitCode?: number;
+        signal?: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:terminal-exit", handler);
+      return () => ipcRenderer.removeListener("acp:terminal-exit", handler);
+    },
+
+    // Feature 4: Commands update event
+    onCommandsUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        commands: Array<{
+          id: string;
+          name: string;
+          description?: string;
+          arguments?: Array<{
+            name: string;
+            description?: string;
+            required?: boolean;
+          }>;
+        }>;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:commands-update", handler);
+      return () => ipcRenderer.removeListener("acp:commands-update", handler);
+    },
+
+    // Feature 6: Session info update event
+    onSessionInfoUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        title?: string;
+        meta?: Record<string, unknown>;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:session-info-update", handler);
+      return () =>
+        ipcRenderer.removeListener("acp:session-info-update", handler);
+    },
+
+    // Session mode update event
+    onSessionModeUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        currentModeId?: string;
+        availableModes?: Array<{ id: string; name: string }>;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:session-mode-update", handler);
+      return () =>
+        ipcRenderer.removeListener("acp:session-mode-update", handler);
+    },
+
+    // Session model update event
+    onSessionModelUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        currentModelId?: string;
+        availableModels?: Array<{ modelId: string; name: string }>;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:session-model-update", handler);
+      return () =>
+        ipcRenderer.removeListener("acp:session-model-update", handler);
+    },
+
+    // Session config update event
+    onSessionConfigUpdate: (
+      callback: (data: {
+        agentId: string;
+        sessionId: string;
+        configOptions?: Array<{
+          id: string;
+          name: string;
+          type: string;
+          value?: string | boolean;
+        }>;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:session-config-update", handler);
+      return () =>
+        ipcRenderer.removeListener("acp:session-config-update", handler);
+    },
+
+    // =========================================================================
+    // AUTO-DETECTION (Zero-Config Agent Support)
+    // =========================================================================
+
+    // Force refresh agent detection - useful after installing a new agent
+    autoDetect: () => ipcRenderer.invoke("acp:auto-detect"),
+
+    // Start background polling for agent detection
+    startAutoDetectPolling: (intervalMs?: number) =>
+      ipcRenderer.invoke("acp:start-auto-detect-polling", intervalMs),
+
+    // Stop background polling for agent detection
+    stopAutoDetectPolling: () => ipcRenderer.invoke("acp:stop-auto-detect-polling"),
+
+    // Subscribe to agents detected event (emitted at startup)
+    onAgentsDetected: (
+      callback: (data: {
+        agents: Array<{
+          id: string;
+          installed: boolean;
+          authenticated: boolean;
+          running: boolean;
+          version?: string;
+        }>;
+        timestamp: number;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:agents-detected", handler);
+      return () => ipcRenderer.removeListener("acp:agents-detected", handler);
+    },
+
+    // Subscribe to agents updated event (emitted during polling)
+    onAgentsUpdated: (
+      callback: (data: {
+        agents: Array<{
+          id: string;
+          installed: boolean;
+          authenticated: boolean;
+          running: boolean;
+          version?: string;
+        }>;
+        timestamp: number;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:agents-updated", handler);
+      return () => ipcRenderer.removeListener("acp:agents-updated", handler);
     },
   },
 };

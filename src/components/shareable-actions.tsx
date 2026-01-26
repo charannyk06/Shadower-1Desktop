@@ -1,7 +1,6 @@
 "use client";
 
 import { Loader2, Trash2 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
@@ -25,7 +24,6 @@ export function ShareableActions({
   isDeleteLoading = false,
   disabled = false,
 }: ShareableActionsProps) {
-  const { t } = useTranslation();
   const navigate = useNavigate();
 
   return (
@@ -48,7 +46,7 @@ export function ShareableActions({
               <WriteIcon className="size-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{t("Common.edit")}</TooltipContent>
+          <TooltipContent>Edit</TooltipContent>
         </Tooltip>
       )}
 
@@ -77,7 +75,7 @@ export function ShareableActions({
               )}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{t("Common.delete")}</TooltipContent>
+          <TooltipContent>Delete</TooltipContent>
         </Tooltip>
       )}
     </div>

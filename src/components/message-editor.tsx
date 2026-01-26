@@ -4,7 +4,6 @@ import { threadApi } from "@/lib/electron/thread-api";
 import type { UseChatHelpers } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { Loader } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import {
   type Dispatch,
   type SetStateAction,
@@ -30,7 +29,6 @@ export function MessageEditor({
   setMessages,
   sendMessage,
 }: MessageEditorProps) {
-  const { t } = useTranslation();
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const canEdit = useMemo(
@@ -115,7 +113,7 @@ export function MessageEditor({
             setMode("view");
           }}
         >
-          {t("Common.cancel")}
+          Cancel
         </Button>
         <Button
           data-testid="message-editor-send-button"
@@ -125,7 +123,7 @@ export function MessageEditor({
           disabled={isSubmitting}
           onClick={handleSubmit}
         >
-          {isSubmitting ? t("Common.saving") : t("Common.save")}
+          {isSubmitting ? "Saving..." : "Save"}
           {isSubmitting && <Loader className="size-4 animate-spin" />}
         </Button>
       </div>

@@ -23,7 +23,6 @@ import JsonView from "./ui/json-view";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 
-import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription, AlertTitle } from "ui/alert";
 import { z } from "zod";
 
@@ -55,7 +54,6 @@ export default function MCPEditor({
   name: initialName,
   id,
 }: MCPEditorProps) {
-  const { t } = useTranslation();
   const shouldInsert = useMemo(() => isNull(id), [id]);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -76,14 +74,14 @@ export default function MCPEditor({
 
   // Name validation schema
   const nameSchema = z.string().regex(/^[a-zA-Z0-9\-]+$/, {
-    message: t("MCP.nameMustContainOnlyAlphanumericCharactersAndHyphens"),
+    message: "Name must contain only alphanumeric characters and hyphens",
   });
 
   const validateName = (nameValue: string): boolean => {
     const result = nameSchema.safeParse(nameValue);
     if (!result.success) {
       setNameError(
-        t("MCP.nameMustContainOnlyAlphanumericCharactersAndHyphens"),
+        "Name must contain only alphanumeric characters and hyphens",
       );
       return false;
     }
@@ -118,14 +116,14 @@ export default function MCPEditor({
     if (!validateConfig(config)) return;
     if (!name) {
       return handleErrorWithToast(
-        new Error(t("MCP.nameIsRequired")),
+        new Error("Name is required"),
         "mcp-editor-error",
       );
     }
 
     if (!validateName(name)) {
       return handleErrorWithToast(
-        new Error(t("MCP.nameMustContainOnlyAlphanumericCharactersAndHyphens")),
+        new Error("Name must contain only alphanumeric characters and hyphens"),
         "mcp-editor-error",
       );
     }
@@ -135,7 +133,7 @@ export default function MCPEditor({
         if (shouldInsert) {
           const exist = await mcpApi.existsByServerName(name);
           if (exist) {
-            throw new Error(t("MCP.nameAlreadyExists"));
+            throw new Error("Name already exists");
           }
         }
       })
@@ -147,7 +145,7 @@ export default function MCPEditor({
         }),
       )
       .ifOk(() => {
-        toast.success(t("MCP.configurationSavedSuccessfully"));
+        toast.success("Configuration saved successfully");
         mutate("/api/mcp/list");
         navigate({ to: "/mcp" });
       })
@@ -187,7 +185,7 @@ export default function MCPEditor({
               setName(e.target.value);
               if (e.target.value) validateName(e.target.value);
             }}
-            placeholder={t("MCP.enterMcpServerName")}
+            placeholder="Enter MCP server name"
             className={nameError ? "border-destructive" : ""}
           />
           {nameError && <p className="text-xs text-destructive">{nameError}</p>}
@@ -247,7 +245,7 @@ export default function MCPEditor({
           {isLoading ? (
             <Loader className="size-4 animate-spin" />
           ) : (
-            <span className="font-bold">{t("MCP.saveConfiguration")}</span>
+            <span className="font-bold">Save Configuration</span>
           )}
         </Button>
       </div>

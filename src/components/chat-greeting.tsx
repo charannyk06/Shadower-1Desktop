@@ -3,16 +3,15 @@
 import { userFetcher } from "@/lib/electron/user-api";
 import { BasicUser } from "app-types/user";
 import { motion } from "framer-motion";
-import { useTranslation } from "react-i18next";
 import { useMemo } from "react";
 import useSWR from "swr";
 import { FlipWords } from "ui/flip-words";
 
-function getGreetingByTime() {
+function getGreetingByTime(name: string) {
   const hour = new Date().getHours();
-  if (hour < 12) return "goodMorning";
-  if (hour < 18) return "goodAfternoon";
-  return "goodEvening";
+  if (hour < 12) return `Good morning, ${name}`;
+  if (hour < 18) return `Good afternoon, ${name}`;
+  return `Good evening, ${name}`;
 }
 
 export const ChatGreeting = () => {
@@ -24,7 +23,6 @@ export const ChatGreeting = () => {
       revalidateOnFocus: false,
     },
   );
-  const { t } = useTranslation();
 
   const word = useMemo(() => {
     // Get the user's name, with fallback
@@ -33,24 +31,24 @@ export const ChatGreeting = () => {
     // If no name or still loading, show greetings without name
     if (!userName) {
       const genericWords = [
-        t("Chat.Greeting.letMeKnowWhenYoureReadyToBegin"),
-        t("Chat.Greeting.whatAreYourThoughtsToday"),
-        t("Chat.Greeting.whereWouldYouLikeToStart"),
+        "Let me know when you're ready to begin.",
+        "What are your thoughts today?",
+        "Where would you like to start?",
       ];
       return genericWords[Math.floor(Math.random() * genericWords.length)];
     }
 
     const words = [
-      t("Chat.Greeting." + getGreetingByTime(), { name: userName }),
-      t("Chat.Greeting.niceToSeeYouAgain", { name: userName }),
-      t("Chat.Greeting.whatAreYouWorkingOnToday", { name: userName }),
-      t("Chat.Greeting.letMeKnowWhenYoureReadyToBegin"),
-      t("Chat.Greeting.whatAreYourThoughtsToday"),
-      t("Chat.Greeting.whereWouldYouLikeToStart"),
-      t("Chat.Greeting.whatAreYouThinking", { name: userName }),
+      getGreetingByTime(userName),
+      `Nice to see you again, ${userName}`,
+      `What are you working on today? ${userName}`,
+      "Let me know when you're ready to begin.",
+      "What are your thoughts today?",
+      "Where would you like to start?",
+      `What are you thinking? ${userName}`,
     ];
     return words[Math.floor(Math.random() * words.length)];
-  }, [user?.name, t, isLoading]);
+  }, [user?.name, isLoading]);
 
   return (
     <motion.div

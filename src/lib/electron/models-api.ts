@@ -467,6 +467,42 @@ export const modelsApi = {
   },
 
   // ========================================================================
+  // Ollama Auto-Detection (Zero-Config Support)
+  // Automatically detect and register Ollama models without manual setup
+  // Supports both local (localhost:11434) and remote (OLLAMA_BASE_URL) instances
+  // ========================================================================
+
+  /**
+   * Auto-detect Ollama models and register them automatically.
+   * This enables "zero-config" Ollama support - if Ollama is running,
+   * models will automatically appear in the model selector without any
+   * manual configuration required.
+   *
+   * Supports remote Ollama instances via OLLAMA_BASE_URL environment variable.
+   */
+  async ollamaAutoDetect() {
+    return window.electronAPI.models.ollamaAutoDetect();
+  },
+
+  /**
+   * Start background polling for Ollama auto-detection.
+   * This will periodically check for Ollama status changes and
+   * automatically update the model list when Ollama starts/stops.
+   *
+   * @param intervalMs Polling interval in milliseconds (default: 30s)
+   */
+  async ollamaStartAutoDetectPolling(intervalMs?: number) {
+    return window.electronAPI.models.ollamaStartAutoDetectPolling(intervalMs);
+  },
+
+  /**
+   * Stop background polling for Ollama auto-detection.
+   */
+  async ollamaStopAutoDetectPolling() {
+    return window.electronAPI.models.ollamaStopAutoDetectPolling();
+  },
+
+  // ========================================================================
   // Event listeners (for download progress, etc.)
   // ========================================================================
 

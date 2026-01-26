@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Folder, FolderSync, GitBranch, HardDrive } from "lucide-react";
+import {
+  ChevronDown,
+  Folder,
+  FolderSync,
+  GitBranch,
+  HardDrive,
+} from "lucide-react";
 import { FinderIcon } from "ui/finder-icon";
 import { Button } from "ui/button";
 import {
@@ -30,7 +36,7 @@ export function WorkingDirectoryDisplay() {
       state.workingDirectoryMode,
       state.threadWorkingDirectories,
       state.currentThreadId,
-    ])
+    ]),
   );
   const [isOpen, setIsOpen] = useState(false);
   const [homeDir, setHomeDir] = useState<string>("");
@@ -79,14 +85,14 @@ export function WorkingDirectoryDisplay() {
           return {
             threadWorkingDirectories: {
               ...state.threadWorkingDirectories,
-              [activeThreadId]: { path: result.path, name: result.name },
+              [activeThreadId]: { path: result.path!, name: result.name! },
             },
           };
         }
         return {
           workingDirectory: {
-            path: result.path,
-            name: result.name,
+            path: result.path!,
+            name: result.name!,
           },
         };
       });
@@ -151,7 +157,7 @@ export function WorkingDirectoryDisplay() {
                 className={cn(
                   "h-auto py-1.5 px-3 gap-2 max-w-[300px]",
                   "hover:bg-secondary/60 transition-colors",
-                  "data-[state=open]:bg-secondary/80"
+                  "data-[state=open]:bg-secondary/80",
                 )}
               >
                 {isWorktreeMode ? (
@@ -173,7 +179,7 @@ export function WorkingDirectoryDisplay() {
                 <ChevronDown
                   className={cn(
                     "size-3 shrink-0 text-muted-foreground transition-transform",
-                    isOpen && "rotate-180"
+                    isOpen && "rotate-180",
                   )}
                 />
               </Button>

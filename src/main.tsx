@@ -8,9 +8,6 @@ import {
 } from "@/components/layouts/theme-provider";
 import { Toaster } from "ui/sonner";
 
-// Import i18n configuration
-import "./lib/i18n";
-
 // Import global styles
 import "./app/globals.css";
 import "katex/dist/katex.min.css";

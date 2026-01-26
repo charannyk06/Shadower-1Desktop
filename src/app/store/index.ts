@@ -97,8 +97,8 @@ export interface AppState {
     [threadId: string]: ContextUsageState | undefined;
   };
   toolPresets: {
-  allowedMcpServers?: Record<string, AllowedMCPServer>;
-  allowedAppDefaultToolkit?: AppDefaultToolkit[];
+    allowedMcpServers?: Record<string, AllowedMCPServer>;
+    allowedAppDefaultToolkit?: AppDefaultToolkit[];
     name: string;
   }[];
   chatModel?: ChatModel;
@@ -141,11 +141,24 @@ export interface AppState {
     threadArtifacts?: { [threadId: string]: any[] }; // Thread-scoped registry of artifacts
     filesVersion?: number; // Incremented when local files change, triggers re-fetch
     defaultTab?: "all-files" | "changes"; // Default tab to open when theater opens
-    // Session changes tracking (for Changes tab)
-    sessionChanges?: {
-      created: string[];
-      modified: string[];
-      deleted: string[];
+    // Session changes tracking (for Changes tab) - PER THREAD
+    threadSessionChanges?: {
+      [threadId: string]: {
+        created: string[];
+        modified: string[];
+        deleted: string[];
+      };
+    };
+    // File snapshots for diff tracking (original content when session started) - PER THREAD
+    threadFileSnapshots?: {
+      [threadId: string]: {
+        [filePath: string]: {
+          originalContent: string;
+          currentContent?: string;
+          status: "created" | "modified" | "deleted";
+          timestamp: number;
+        };
+      };
     };
     // Desktop session state (local terminal)
     desktopSession?: {
@@ -248,15 +261,18 @@ export const appStore = create<AppState & AppDispatch>()(
           allowedAppDefaultToolkit = [...validStored, ...newToolkits];
         }
 
-        // Clear invalid chatModel - let useChatModels hook set a valid one
-        // This prevents showing gemini-3-flash-preview when no API key is configured
-        const chatModel = undefined; // Always start with undefined, let useChatModels set a valid one
-
+        // Preserve chatModel from persisted state - don't force undefined
+        // The model will be validated/updated when a thread is loaded
+        // This ensures the selected model persists across page refreshes
         return {
           ...currentState,
           ...persisted,
           allowedAppDefaultToolkit,
-          chatModel, // Override persisted chatModel with undefined
+          // Preserve the persisted chatModel, fall back to current state
+          chatModel: persisted.chatModel || currentState.chatModel,
+          // Preserve threadChatModels from persisted state to maintain per-thread model selection
+          threadChatModels:
+            persisted.threadChatModels || currentState.threadChatModels || {},
           // Preserve threadPlans from persisted state to maintain plan progress across refreshes
           threadPlans: persisted.threadPlans || currentState.threadPlans || {},
           // Preserve threadContextUsage from persisted state to maintain context indicator across refreshes
@@ -269,7 +285,9 @@ export const appStore = create<AppState & AppDispatch>()(
             persisted.workingDirectory || currentState.workingDirectory || null,
           // Preserve workingDirectoryMode from persisted state
           workingDirectoryMode:
-            persisted.workingDirectoryMode || currentState.workingDirectoryMode || "local",
+            persisted.workingDirectoryMode ||
+            currentState.workingDirectoryMode ||
+            "local",
           // Preserve per-thread working directories
           threadWorkingDirectories:
             persisted.threadWorkingDirectories ||
@@ -283,7 +301,8 @@ export const appStore = create<AppState & AppDispatch>()(
         chatMode: state.chatMode || initialState.chatMode,
         allowedMcpServers:
           state.allowedMcpServers || initialState.allowedMcpServers,
-        workingDirectory: state.workingDirectory || initialState.workingDirectory,
+        workingDirectory:
+          state.workingDirectory || initialState.workingDirectory,
         workingDirectoryMode:
           state.workingDirectoryMode || initialState.workingDirectoryMode,
         threadWorkingDirectories: state.threadWorkingDirectories || {},
@@ -326,6 +345,8 @@ export const appStore = create<AppState & AppDispatch>()(
         threadPlans: state.threadPlans || {},
         // Persist threadContextUsage to maintain context indicator across page refreshes
         threadContextUsage: state.threadContextUsage || {},
+        // Persist threadChatModels to maintain per-thread model selection across page refreshes
+        threadChatModels: state.threadChatModels || {},
       }),
     },
   ),

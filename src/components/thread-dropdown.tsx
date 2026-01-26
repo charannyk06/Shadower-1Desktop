@@ -4,7 +4,6 @@ import { cleanupThreadState } from "@/app/store";
 import { appStore } from "@/app/store";
 import { useToRef } from "@/hooks/use-latest";
 import { Loader, PencilLine, Trash } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 import { type PropsWithChildren, useState } from "react";
 import { toast } from "sonner";
@@ -48,7 +47,6 @@ export function ThreadDropdown({
   align,
 }: Props) {
   const navigate = useNavigate();
-  const { t } = useTranslation();
   const push = useToRef((path: string) => navigate({ to: path }));
 
   const currentThreadId = appStore((state) => state.currentThreadId);
@@ -61,16 +59,16 @@ export function ThreadDropdown({
     safe()
       .ifOk(() => {
         if (!title) {
-          throw new Error(t("Chat.Thread.titleRequired"));
+          throw new Error("Title is required");
         }
       })
       .ifOk(() => threadApi.update(threadId, { title }))
       .ifOk(() => mutate("/api/thread"))
       .watch(({ isOk, error }) => {
         if (isOk) {
-          toast.success(t("Chat.Thread.threadUpdated"));
+          toast.success("Thread updated");
         } else {
-          toast.error(error.message || t("Chat.Thread.failedToUpdateThread"));
+          toast.error(error.message || "Failed to update thread");
         }
       });
   };
@@ -83,9 +81,9 @@ export function ThreadDropdown({
       .watch(() => setOpen(false))
       .watch(({ isOk, error }) => {
         if (isOk) {
-          toast.success(t("Chat.Thread.threadDeleted"));
+          toast.success("Thread deleted");
         } else {
-          toast.error(error.message || t("Chat.Thread.failedToDeleteThread"));
+          toast.error(error.message || "Failed to delete thread");
         }
       })
       .ifOk(() => onDeleted?.())
@@ -106,7 +104,7 @@ export function ThreadDropdown({
       <PopoverContent className="p-0 w-[220px]" side={side} align={align}>
         <Command>
           <div className="flex items-center gap-2 px-2 py-1 text-xs pt-2 text-muted-foreground ml-1">
-            {t("Chat.Thread.chat")}
+            Chat
           </div>
 
           <CommandList>
@@ -118,7 +116,7 @@ export function ThreadDropdown({
                 >
                   <div className="flex items-center gap-2 w-full px-2 py-1 rounded">
                     <PencilLine className="text-foreground" />
-                    <span className="mr-4">{t("Chat.Thread.renameChat")}</span>
+                    <span className="mr-4">Rename</span>
                   </div>
                 </UpdateThreadNameDialog>
               </CommandItem>
@@ -131,9 +129,7 @@ export function ThreadDropdown({
                   onClick={handleDelete}
                 >
                   <Trash className="text-destructive" />
-                  <span className="text-destructive">
-                    {t("Chat.Thread.deleteChat")}
-                  </span>
+                  <span className="text-destructive">Delete Chat</span>
                   {isDeleting && (
                     <Loader className="ml-auto h-4 w-4 animate-spin" />
                   )}
@@ -156,13 +152,12 @@ function UpdateThreadNameDialog({
   onUpdated: (title: string) => void;
 }>) {
   const [title, setTitle] = useState(initialTitle);
-  const { t } = useTranslation();
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent hideClose>
         <DialogHeader>
-          <DialogTitle>{t("Chat.Thread.renameChat")}</DialogTitle>
+          <DialogTitle>Rename Chat</DialogTitle>
         </DialogHeader>
         <DialogDescription>
           <Input
@@ -180,11 +175,11 @@ function UpdateThreadNameDialog({
         </DialogDescription>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="secondary">{t("Common.cancel")}</Button>
+            <Button variant="secondary">Cancel</Button>
           </DialogClose>
           <DialogClose asChild>
             <Button variant="outline" onClick={() => onUpdated(title)}>
-              {t("Common.update")}
+              Update
             </Button>
           </DialogClose>
         </DialogFooter>

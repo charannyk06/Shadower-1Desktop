@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  ChevronDown,
-  FolderOpen,
-  MicIcon,
-  PanelLeft,
-} from "lucide-react";
+import { ChevronDown, FolderOpen, MicIcon, PanelLeft } from "lucide-react";
 import { Button } from "ui/button";
 import { Separator } from "ui/separator";
 import { useSidebar } from "ui/sidebar";
@@ -13,7 +8,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
 import { appStore } from "@/app/store";
 import { Shortcuts, getShortcutKeyList } from "lib/keyboard-shortcuts";
-import { useTranslation } from "react-i18next";
 import { useLocation } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
@@ -22,9 +16,13 @@ import { ThreadDropdown } from "../thread-dropdown";
 import { WorkingDirectoryDisplay } from "../working-directory-display";
 
 export function AppHeader() {
-  const { t } = useTranslation();
   const [appStoreMutate, theaterMode, currentThreadId, threadList] = appStore(
-    useShallow((state) => [state.mutate, state.theaterMode, state.currentThreadId, state.threadList]),
+    useShallow((state) => [
+      state.mutate,
+      state.theaterMode,
+      state.currentThreadId,
+      state.threadList,
+    ]),
   );
   const { toggleSidebar, open, setOpen } = useSidebar();
   const location = useLocation();
@@ -81,7 +79,7 @@ export function AppHeader() {
         </TooltipTrigger>
         <TooltipContent align="start" side="bottom">
           <div className="flex items-center gap-2">
-            {t("KeyboardShortcuts.toggleSidebar")}
+            Toggle Sidebar
             <div className="text-xs text-muted-foreground flex items-center gap-1">
               {getShortcutKeyList(Shortcuts.toggleSidebar).map((key) => (
                 <span
@@ -155,7 +153,7 @@ export function AppHeader() {
             </TooltipTrigger>
             <TooltipContent align="end" side="bottom">
               <div className="text-xs flex items-center gap-2">
-                {t("KeyboardShortcuts.toggleVoiceChat")}
+                Toggle Voice Chat
                 <div className="text-xs text-muted-foreground flex items-center gap-1">
                   {getShortcutKeyList(Shortcuts.toggleVoiceChat).map((key) => (
                     <span
@@ -180,7 +178,9 @@ function ThreadDropdownComponent() {
   // Subscribe to each field individually for more reliable updates
   const threadList = appStore((state) => state.threadList);
   const currentThreadId = appStore((state) => state.currentThreadId);
-  const generatingTitleThreadIds = appStore((state) => state.generatingTitleThreadIds);
+  const generatingTitleThreadIds = appStore(
+    (state) => state.generatingTitleThreadIds,
+  );
 
   // Extract threadId from URL as fallback (URL is /chat/:threadId)
   const urlThreadId = useMemo(() => {
@@ -199,7 +199,9 @@ function ThreadDropdownComponent() {
 
   // Determine title to display
   const displayTitle = currentThread?.title || "New Chat";
-  const isGeneratingTitle = currentThread ? generatingTitleThreadIds.includes(currentThread.id) : false;
+  const isGeneratingTitle = currentThread
+    ? generatingTitleThreadIds.includes(currentThread.id)
+    : false;
 
   useEffect(() => {
     if (currentThread) {
@@ -217,10 +219,7 @@ function ThreadDropdownComponent() {
         <Separator orientation="vertical" />
       </div>
 
-      <ThreadDropdown
-        threadId={currentThread.id}
-        beforeTitle={displayTitle}
-      >
+      <ThreadDropdown threadId={currentThread.id} beforeTitle={displayTitle}>
         <div>
           <Tooltip>
             <TooltipTrigger asChild>

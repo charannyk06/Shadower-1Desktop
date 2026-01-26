@@ -17,7 +17,6 @@ import { useState } from "react";
 import { SocialAuthenticationProvider } from "app-types/authentication";
 import { authClient } from "auth/client";
 import { Loader } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { safe } from "ts-safe";
 import { GithubIcon } from "ui/github-icon";
@@ -34,8 +33,6 @@ export default function SignIn({
   signUpEnabled: boolean;
   socialAuthenticationProviders: SocialAuthenticationProvider[];
 }) {
-  const { t } = useTranslation();
-
   const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useObjectState({
@@ -80,11 +77,11 @@ export default function SignIn({
         <CardHeader className="my-4">
           <CardTitle className="text-2xl text-center my-1">
             <TextShimmer className="text-2xl font-semibold">
-              {t("Auth.SignIn.title")}
+              Welcome Back
             </TextShimmer>
           </CardTitle>
           <CardDescription className="text-center text-muted-foreground">
-            {t("Auth.SignIn.description")}
+            Sign in to continue to your account
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col">
@@ -131,7 +128,7 @@ export default function SignIn({
                 {loading ? (
                   <Loader className="size-4 animate-spin ml-1" />
                 ) : (
-                  t("Auth.SignIn.signIn")
+                  "Sign in"
                 )}
               </Button>
             </div>
@@ -142,7 +139,7 @@ export default function SignIn({
                 <div className="flex items-center my-4">
                   <div className="flex-1 h-px bg-accent"></div>
                   <span className="px-4 text-sm text-muted-foreground">
-                    {t("Auth.SignIn.orContinueWith")}
+                    OR CONTINUE WITH
                   </span>
                   <div className="flex-1 h-px bg-accent"></div>
                 </div>
@@ -183,9 +180,9 @@ export default function SignIn({
           )}
           {signUpEnabled && (
             <div className="my-8 text-center text-sm text-muted-foreground">
-              {t("Auth.SignIn.noAccount")}
+              Don&apos;t have an account?{" "}
               <Link to="/sign-up" className="underline-offset-4 text-primary">
-                {t("Auth.SignIn.signUp")}
+                Sign up
               </Link>
             </div>
           )}

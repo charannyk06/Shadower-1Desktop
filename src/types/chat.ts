@@ -10,6 +10,7 @@ export type ChatMetadata = {
   toolChoice?: "auto" | "none" | "manual";
   toolCount?: number;
   agentId?: string;
+  isCodingAgent?: boolean;
 };
 
 export type ChatModel = {

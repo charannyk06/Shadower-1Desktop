@@ -8,7 +8,6 @@ import type { UseChatHelpers } from "@ai-sdk/react";
 import { ChatMetadata } from "app-types/chat";
 import { cn, truncateString } from "lib/utils";
 import { ChevronDown, ChevronUp, TriangleAlertIcon } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Button } from "ui/button";
 import {
   AssistMessagePart,
@@ -21,10 +20,118 @@ import {
 import { ContextCompressionToolBlock } from "./tool-invocation/context-compression";
 import { SubAgentTile } from "./sub-agent-tile";
 import type { SubAgentEvent } from "./tool-invocation/sub-agent-view";
+import { CheckIcon, ListTodoIcon, Loader2 } from "lucide-react";
+
+// Simple ACP Plan Part component for rendering plan steps from coding agents
+const ACPPlanPart = memo(function ACPPlanPart({
+  plan,
+}: {
+  plan: {
+    planId: string;
+    title?: string;
+    steps: Array<{ id: string; description: string; status: string }>;
+    status: string;
+  };
+}) {
+  const completedCount = plan.steps.filter(
+    (s) => s.status === "completed",
+  ).length;
+  const totalCount = plan.steps.length;
+  const isAllDone = completedCount === totalCount && totalCount > 0;
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border bg-card overflow-hidden transition-colors",
+        isAllDone && "border-emerald-500/30 bg-emerald-500/5",
+      )}
+    >
+      <div className="flex items-center gap-3 p-4">
+        <div
+          className={cn(
+            "p-2 rounded-md",
+            isAllDone ? "bg-emerald-500/10" : "bg-primary/10",
+          )}
+        >
+          {isAllDone ? (
+            <CheckIcon className="h-4 w-4 text-emerald-500" />
+          ) : (
+            <ListTodoIcon className="h-4 w-4 text-primary" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-sm">
+              {plan.title || "Agent Plan"}
+            </span>
+            <span
+              className={cn(
+                "text-xs px-1.5 py-0.5 rounded font-medium",
+                isAllDone
+                  ? "bg-emerald-500/10 text-emerald-500"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {completedCount}/{totalCount}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="px-4 pb-4 space-y-1">
+        {plan.steps.map((step, index) => {
+          const isCompleted = step.status === "completed";
+          const isInProgress =
+            step.status === "in-progress" || step.status === "running";
+          return (
+            <div
+              key={step.id || index}
+              className={cn(
+                "flex items-start gap-3 px-3 py-2 rounded-md transition-colors",
+                isInProgress && "bg-blue-500/5",
+                isCompleted && "opacity-60",
+              )}
+            >
+              <div
+                className={cn(
+                  "mt-0.5 flex items-center justify-center w-5 h-5 rounded border-2 transition-colors",
+                  isCompleted && "bg-emerald-500 border-emerald-500",
+                  isInProgress && "border-blue-500",
+                  step.status === "failed" && "border-red-500",
+                  step.status === "pending" && "border-muted-foreground/30",
+                )}
+              >
+                {isCompleted && <CheckIcon className="h-3 w-3 text-white" />}
+                {isInProgress && (
+                  <Loader2 className="h-3 w-3 text-blue-500 animate-spin" />
+                )}
+              </div>
+              <span
+                className={cn(
+                  "flex-1 text-sm leading-tight",
+                  isCompleted && "line-through text-muted-foreground",
+                )}
+              >
+                {step.description}
+              </span>
+              <span className="text-xs text-muted-foreground/60 font-mono tabular-nums">
+                {index + 1}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
 
 type RenderUnit =
   | { type: "part"; part: any; index: number }
-  | { type: "subAgentTile"; events: SubAgentEvent[]; index: number; stableKey: string };
+  | {
+      type: "subAgentTile";
+      events: SubAgentEvent[];
+      index: number;
+      stableKey: string;
+    };
 
 /**
  * Groups ALL sub-agent events into a single SubAgentTile, placed AFTER the
@@ -80,9 +187,10 @@ function mergeAndGroupParts(parts: any[]): RenderUnit[] {
     if (isToolUIPart(part)) {
       const toolPart = part as ToolUIPart;
       // Extract tool name from the type (e.g., "tool-spawnSystemAgent" -> "spawnSystemAgent")
-      const toolName = typeof toolPart.type === "string" && toolPart.type.startsWith("tool-")
-        ? toolPart.type.slice(5)
-        : "";
+      const toolName =
+        typeof toolPart.type === "string" && toolPart.type.startsWith("tool-")
+          ? toolPart.type.slice(5)
+          : "";
       const isSpawnTool =
         toolName === "spawnSystemAgent" || toolName === "spawnAgent";
 
@@ -110,7 +218,8 @@ function mergeAndGroupParts(parts: any[]): RenderUnit[] {
         } else if (allSubAgentEvents.length > 0 && !allAgentsTileInserted) {
           // Fallback: insert all sub-agent events as one tile after spawn tool
           // Use first agentId for stable key
-          const firstAgentId = allSubAgentEvents[0]?.data?.agentId || "fallback";
+          const firstAgentId =
+            allSubAgentEvents[0]?.data?.agentId || "fallback";
           result.push({
             type: "subAgentTile",
             events: allSubAgentEvents,
@@ -125,7 +234,11 @@ function mergeAndGroupParts(parts: any[]): RenderUnit[] {
 
   // If there are sub-agent events but no spawn tool call was found,
   // append the tile at the end (fallback for edge cases)
-  if (allSubAgentEvents.length > 0 && !allAgentsTileInserted && insertedAgentTiles.size === 0) {
+  if (
+    allSubAgentEvents.length > 0 &&
+    !allAgentsTileInserted &&
+    insertedAgentTiles.size === 0
+  ) {
     const firstAgentId = allSubAgentEvents[0]?.data?.agentId || "fallback";
     result.push({
       type: "subAgentTile",
@@ -248,20 +361,30 @@ const PurePreviewMessage = ({
               if (!isUserMessage) {
                 // Use the actual part from message.parts if available to get the latest text
                 // Cast to the same type as part since we're in a text part block
-                const actualPart = (message.parts?.[unit.index] || part) as typeof part;
+                const actualPart = (message.parts?.[unit.index] ||
+                  part) as typeof part;
 
                 // STREAMING FIX: Use stable key during streaming to prevent unmount/remount flickering
                 // Content-based keys cause component to remount on every update, restarting animations
                 // Only use content-based key after streaming completes to handle stale content edge cases
-                const isCurrentlyStreaming = isLoading && isLastMessage && isLastPart;
+                const isCurrentlyStreaming =
+                  isLoading && isLastMessage && isLastPart;
                 let contentKey: string;
                 if (isCurrentlyStreaming) {
                   // Stable key during streaming - prevents flickering
                   contentKey = key;
                 } else {
                   // Content-based key when not streaming - ensures fresh render if content was stale
-                  const partTextHash = actualPart.text ? actualPart.text.substring(0, 100).replace(/\s/g, '') : '';
-                  const partsHash = message.parts ? message.parts.length + '-' + (message.parts.map((p: any) => p.text?.length || 0).join('-')) : '';
+                  const partTextHash = actualPart.text
+                    ? actualPart.text.substring(0, 100).replace(/\s/g, "")
+                    : "";
+                  const partsHash = message.parts
+                    ? message.parts.length +
+                      "-" +
+                      message.parts
+                        .map((p: any) => p.text?.length || 0)
+                        .join("-")
+                    : "";
                   contentKey = `${key}-${partTextHash}-${partsHash}`;
                 }
 
@@ -298,6 +421,17 @@ const PurePreviewMessage = ({
                 toolPart.state == "input-available" &&
                 isLoading &&
                 !readonly;
+
+              // Use stable key during streaming to prevent flickering
+              // Key based on toolCallId which is stable across updates
+              const toolCallId =
+                (toolPart as any).toolCallId || `tool-${unit.index}`;
+              const isCurrentlyStreaming =
+                isLoading && isLastMessage && isLastPart;
+              const stableKey = isCurrentlyStreaming
+                ? `tool-${message.id}-${toolCallId}`
+                : `${key}-${toolCallId}-${toolPart.state}`;
+
               return (
                 <ToolMessagePart
                   isLast={isLast}
@@ -309,7 +443,7 @@ const PurePreviewMessage = ({
                     (isLastMessage ? isLastPart && !isLoading : isLastPart)
                   }
                   addToolResult={addToolResult}
-                  key={key}
+                  key={stableKey}
                   part={toolPart}
                   setMessages={setMessages}
                   threadId={threadId}
@@ -356,13 +490,34 @@ const PurePreviewMessage = ({
               );
             }
 
+            // Handle ACP plan parts
+            if ((part as any).type === "plan") {
+              const planPart = part as {
+                type: "plan";
+                planId: string;
+                title?: string;
+                steps: Array<{
+                  id: string;
+                  description: string;
+                  status: string;
+                }>;
+                status: string;
+              };
+              return <ACPPlanPart key={key} plan={planPart} />;
+            }
+
+            // Handle terminal_output parts
+            if ((part as any).type === "terminal_output") {
+              return null; // Terminal output handled separately
+            }
+
             // Skip other data events (plan updates, etc.) - sub-agent events are already handled above
             const partType = (part as any).type;
             if (typeof partType === "string" && partType.startsWith("data-")) {
               return null;
             }
 
-            return <div key={key}> unknown part {part.type}</div>;
+            return null; // Skip unknown parts silently
           })}
         </div>
       </div>
@@ -405,7 +560,6 @@ export const ErrorMessage = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const maxLength = 200;
-  const { t } = useTranslation();
 
   // Default error message
   return (
@@ -417,7 +571,7 @@ export const ErrorMessage = ({
               <TriangleAlertIcon className="h-3.5 w-3.5 text-destructive" />
             </div>
             <div className="flex-1">
-              <p className="font-medium text-sm mb-2">{t("Chat.Error")}</p>
+              <p className="font-medium text-sm mb-2">Chat Error</p>
               <div className="text-sm text-muted-foreground">
                 <div className="whitespace-pre-wrap">
                   {isExpanded
@@ -434,18 +588,18 @@ export const ErrorMessage = ({
                     {isExpanded ? (
                       <>
                         <ChevronUp className="h-3 w-3 mr-1" />
-                        {t("Common.showLess")}
+                        Show less
                       </>
                     ) : (
                       <>
                         <ChevronDown className="h-3 w-3 mr-1" />
-                        {t("Common.showMore")}
+                        Show more
                       </>
                     )}
                   </Button>
                 )}
                 <p className="text-xs text-muted-foreground mt-3 italic">
-                  {t("Chat.thisMessageWasNotSavedPleaseTryTheChatAgain")}
+                  This message was not saved. Please try the chat again.
                 </p>
               </div>
             </div>

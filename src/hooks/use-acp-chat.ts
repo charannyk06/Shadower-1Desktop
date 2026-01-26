@@ -18,13 +18,23 @@ import {
   onACPMessageChunk,
   onACPPermissionRequest,
   onACPAgentError,
+  setACPAutoResume,
+  getACPAgenticLoopStatus,
+  type AgenticLoopStatus,
 } from "@/lib/electron/acp-api";
 import { generateUUID } from "lib/utils";
-import { getActiveWorkingDirectory } from "@/app/store";
+import {
+  getActiveWorkingDirectory,
+  appStore,
+  resolveWorkingDirectory,
+} from "@/app/store";
+import { useShallow } from "zustand/shallow";
 
 interface UseACPChatOptions {
   threadId: string;
   agentId: string;
+  /** Enable auto-resume (agentic loop) - agent continues until task is complete */
+  autoResume?: boolean;
   onFinish?: (message: UIMessage) => void;
   onError?: (error: Error) => void;
   onUserMessage?: (message: UIMessage) => void;
@@ -36,6 +46,8 @@ interface UseACPChatReturn {
   error: Error | null;
   session: ACPSession | null;
   pendingPermission: ACPPermissionRequest | null;
+  /** Agentic loop status - shows if agent is actively working */
+  agenticLoopStatus: AgenticLoopStatus | null;
   sendMessage: (content: string) => Promise<void>;
   stop: () => void;
   setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>;
@@ -43,220 +55,462 @@ interface UseACPChatReturn {
   setSessionModel: (modelId: string) => Promise<void>;
   setSessionConfigOption: (configId: string, value: string) => Promise<void>;
   setSessionMode: (modeId: string) => Promise<void>;
+  /** Toggle auto-resume (agentic loop) mode */
+  setAutoResume: (enabled: boolean) => Promise<void>;
 }
 
 /**
- * Helper to process a single chunk and update messages state
- * Returns the updated message if it's an assistant message that should be tracked
+ * Apply a single chunk to a messages array (pure function, no state updates)
+ * Returns the updated messages array
  */
-function processChunkIntoMessages(
+function applyChunkToMessages(
   chunk: ACPMessageChunk,
+  messages: UIMessage[],
   currentMessageIdRef: React.MutableRefObject<string | null>,
-  setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>,
-  onMessageUpdate: (message: UIMessage) => void
-): void {
+  onMessageUpdate: (message: UIMessage) => void,
+): UIMessage[] {
   if (chunk.type === "text") {
-    setMessages((prev) => {
-      const lastMessage = prev[prev.length - 1];
-      const textContent = typeof chunk.content === "string" ? chunk.content : "";
+    const lastMessage = messages[messages.length - 1];
+    const textContent = typeof chunk.content === "string" ? chunk.content : "";
 
-      // Ignore empty text chunks to avoid creating blank messages
-      if (!textContent) {
-        return prev;
+    // Ignore empty text chunks
+    if (!textContent) {
+      return messages;
+    }
+
+    if (
+      lastMessage?.role === "assistant" &&
+      lastMessage.id === currentMessageIdRef.current
+    ) {
+      // Append to last text part or create new one
+      const lastPart = lastMessage.parts[lastMessage.parts.length - 1];
+      let updatedMessage: UIMessage;
+
+      if (lastPart && lastPart.type === "text" && "text" in lastPart) {
+        updatedMessage = {
+          ...lastMessage,
+          parts: lastMessage.parts.map((p, i) =>
+            i === lastMessage.parts.length - 1 && p.type === "text"
+              ? {
+                  ...p,
+                  text:
+                    (p as { type: "text"; text: string }).text + textContent,
+                }
+              : p,
+          ),
+        };
+      } else {
+        updatedMessage = {
+          ...lastMessage,
+          parts: [
+            ...lastMessage.parts,
+            { type: "text" as const, text: textContent },
+          ],
+        };
       }
+      onMessageUpdate(updatedMessage);
+      return [...messages.slice(0, -1), updatedMessage];
+    }
 
+    // Create new assistant message
+    const newMessageId = generateUUID();
+    currentMessageIdRef.current = newMessageId;
+    const newMessage: UIMessage = {
+      id: newMessageId,
+      role: "assistant",
+      parts: [{ type: "text" as const, text: textContent }],
+    };
+    onMessageUpdate(newMessage);
+    return [...messages, newMessage];
+  }
+
+  if (chunk.type === "tool_call") {
+    const toolContent =
+      typeof chunk.content === "object" ? chunk.content : null;
+    if (toolContent && "id" in toolContent) {
+      const lastMessage = messages[messages.length - 1];
+      const toolName = (toolContent as any).name || "unknown";
+      const toolCallId = (toolContent as any).id || generateUUID();
+
+      // Extract input properly - handle both object and undefined cases
+      let toolInput: Record<string, unknown> = {};
       if (
-        lastMessage?.role === "assistant" &&
-        lastMessage.id === currentMessageIdRef.current
+        toolContent &&
+        typeof toolContent === "object" &&
+        "input" in toolContent
       ) {
-        // Append to existing message
-        const textPart = lastMessage.parts.find((p) => p.type === "text");
-        if (textPart && "text" in textPart) {
-          const updatedMessage: UIMessage = {
-            ...lastMessage,
-            parts: lastMessage.parts.map((p) =>
-              p.type === "text" && "text" in p
-                ? { ...p, text: p.text + textContent }
-                : p
-            ),
-          };
-          // Notify about the updated message for ref tracking
-          onMessageUpdate(updatedMessage);
-          return [...prev.slice(0, -1), updatedMessage];
+        const inputValue = (toolContent as any).input;
+        if (inputValue !== null && inputValue !== undefined) {
+          if (typeof inputValue === "object" && !Array.isArray(inputValue)) {
+            toolInput = inputValue as Record<string, unknown>;
+          } else {
+            // If input is not an object, wrap it
+            toolInput = { value: inputValue };
+          }
         }
       }
 
-      // Create new message
+      const toolPart = {
+        type: `tool-${toolName}` as const,
+        toolCallId,
+        toolName,
+        input: toolInput,
+        state: "input-available" as const,
+      } as any;
+
+      if (lastMessage?.role === "assistant") {
+        const updatedMessage: UIMessage = {
+          ...lastMessage,
+          parts: [...lastMessage.parts, toolPart],
+        };
+        onMessageUpdate(updatedMessage);
+        return [...messages.slice(0, -1), updatedMessage];
+      }
+
       const newMessageId = generateUUID();
       currentMessageIdRef.current = newMessageId;
       const newMessage: UIMessage = {
         id: newMessageId,
         role: "assistant",
-        parts: [{ type: "text", text: textContent }],
+        parts: [toolPart],
       };
-      // Notify about the new message for ref tracking
       onMessageUpdate(newMessage);
-      return [...prev, newMessage];
-    });
-  } else if (chunk.type === "tool_call") {
-    // Handle tool call (file edits, terminal commands, etc.)
-    const toolContent = typeof chunk.content === "object" ? chunk.content : null;
-    if (toolContent && "id" in toolContent) {
-      setMessages((prev) => {
-        const lastMessage = prev[prev.length - 1];
-        const toolName = (toolContent as any).name || "unknown";
-        const toolCallId = (toolContent as any).id || generateUUID();
-
-        // Create ToolUIPart in the format expected by AI SDK and rendering components
-        // The type must be `tool-${toolName}` for isToolUIPart to recognize it
-        const toolPart = {
-          type: `tool-${toolName}` as const,
-          toolCallId,
-          toolName,
-          input: (toolContent as any).input || {},
-          state: "input-available" as const,
-        } as any;
-
-        if (lastMessage?.role === "assistant") {
-          const updatedMessage: UIMessage = {
-            ...lastMessage,
-            parts: [...lastMessage.parts, toolPart],
-          };
-          onMessageUpdate(updatedMessage);
-          return [...prev.slice(0, -1), updatedMessage];
-        }
-
-        // No assistant message yet - create one to attach the tool call
-        const newMessageId = generateUUID();
-        currentMessageIdRef.current = newMessageId;
-        const newMessage: UIMessage = {
-          id: newMessageId,
-          role: "assistant",
-          parts: [toolPart],
-        };
-        onMessageUpdate(newMessage);
-        return [...prev, newMessage];
-      });
+      return [...messages, newMessage];
     }
-  } else if (chunk.type === "tool_result") {
-    // Handle tool result
-    const resultContent = typeof chunk.content === "object" ? chunk.content : null;
+  }
+
+  if (chunk.type === "tool_result") {
+    const resultContent =
+      typeof chunk.content === "object" ? chunk.content : null;
     if (resultContent && "id" in resultContent) {
       const toolCallId = (resultContent as any).id;
       const toolOutput = (resultContent as any).output;
       const toolState = (resultContent as any).state;
 
-      setMessages((prev) => {
-        // Find the most recent assistant message that contains this tool call
-        let targetIndex = -1;
-        for (let i = prev.length - 1; i >= 0; i -= 1) {
-          const message = prev[i];
-          if (message.role !== "assistant") continue;
-          const hasTool = message.parts.some(
-            (p) =>
-              // Check for tool part with matching toolCallId
-              typeof p.type === "string" &&
-              p.type.startsWith("tool-") &&
-              (p as any).toolCallId === toolCallId,
-          );
-          if (hasTool) {
-            targetIndex = i;
-            break;
+      // Find the message that contains this tool call
+      let targetIndex = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const message = messages[i];
+        if (message.role !== "assistant") continue;
+        const hasTool = message.parts.some(
+          (p) =>
+            typeof p.type === "string" &&
+            p.type.startsWith("tool-") &&
+            (p as any).toolCallId === toolCallId,
+        );
+        if (hasTool) {
+          targetIndex = i;
+          break;
+        }
+      }
+
+      if (targetIndex === -1) return messages;
+
+      const targetMessage = messages[targetIndex];
+      const updatedMessage: UIMessage = {
+        ...targetMessage,
+        parts: targetMessage.parts.map((p): typeof p => {
+          if (
+            typeof p.type === "string" &&
+            p.type.startsWith("tool-") &&
+            (p as any).toolCallId === toolCallId
+          ) {
+            const newState =
+              toolState === "failed" || toolState === "error"
+                ? "output-error"
+                : "output-available";
+            return {
+              ...p,
+              state: newState,
+              output: toolOutput,
+            } as any;
           }
-        }
+          return p;
+        }),
+      };
 
-        if (targetIndex === -1) return prev;
+      if (targetMessage.id === currentMessageIdRef.current) {
+        onMessageUpdate(updatedMessage);
+      }
 
-        const targetMessage = prev[targetIndex];
-        const updatedMessage: UIMessage = {
-          ...targetMessage,
-          parts: targetMessage.parts.map((p): typeof p => {
-            // Check if this is a tool part with matching toolCallId
-            if (
-              typeof p.type === "string" &&
-              p.type.startsWith("tool-") &&
-              (p as any).toolCallId === toolCallId
-            ) {
-              // Determine the correct state
-              const newState =
-                toolState === "failed" || toolState === "error"
-                  ? "output-error"
-                  : "output-available";
-
-              return {
-                ...p,
-                state: newState,
-                output: toolOutput,
-              } as any;
-            }
-            return p;
-          }),
-        };
-
-        if (targetMessage.id === currentMessageIdRef.current) {
-          onMessageUpdate(updatedMessage);
-        }
-
-        return [
-          ...prev.slice(0, targetIndex),
-          updatedMessage,
-          ...prev.slice(targetIndex + 1),
-        ];
-      });
-    }
-  } else if (chunk.type === "thinking") {
-    // Handle thinking/reasoning (show as special text)
-    const thinkingText = typeof chunk.content === "string" ? chunk.content : "";
-    if (thinkingText) {
-      setMessages((prev) => {
-        const lastMessage = prev[prev.length - 1];
-        if (
-          lastMessage?.role === "assistant" &&
-          lastMessage.id === currentMessageIdRef.current
-        ) {
-          // Append thinking to existing message
-          const updatedMessage: UIMessage = {
-            ...lastMessage,
-            parts: [
-              ...lastMessage.parts,
-              { type: "reasoning" as const, text: thinkingText },
-            ],
-          };
-          onMessageUpdate(updatedMessage);
-          return [...prev.slice(0, -1), updatedMessage];
-        }
-        // Create new message with thinking
-        const newMessageId = generateUUID();
-        currentMessageIdRef.current = newMessageId;
-        const newMessage: UIMessage = {
-          id: newMessageId,
-          role: "assistant",
-          parts: [{ type: "reasoning" as const, text: thinkingText }],
-        };
-        onMessageUpdate(newMessage);
-        return [...prev, newMessage];
-      });
+      return [
+        ...messages.slice(0, targetIndex),
+        updatedMessage,
+        ...messages.slice(targetIndex + 1),
+      ];
     }
   }
+
+  if (chunk.type === "thinking") {
+    const thinkingText = typeof chunk.content === "string" ? chunk.content : "";
+    if (thinkingText) {
+      const lastMessage = messages[messages.length - 1];
+      if (
+        lastMessage?.role === "assistant" &&
+        lastMessage.id === currentMessageIdRef.current
+      ) {
+        // Find existing reasoning part to accumulate into
+        const existingReasoningIndex = lastMessage.parts.findIndex(
+          (p) => p.type === "reasoning",
+        );
+
+        let updatedParts;
+        if (existingReasoningIndex !== -1) {
+          updatedParts = lastMessage.parts.map((p, i) =>
+            i === existingReasoningIndex && p.type === "reasoning"
+              ? {
+                  ...p,
+                  text:
+                    (p as { type: "reasoning"; text: string }).text +
+                    thinkingText,
+                }
+              : p,
+          );
+        } else {
+          updatedParts = [
+            ...lastMessage.parts,
+            { type: "reasoning" as const, text: thinkingText },
+          ];
+        }
+
+        const updatedMessage: UIMessage = {
+          ...lastMessage,
+          parts: updatedParts,
+        };
+        onMessageUpdate(updatedMessage);
+        return [...messages.slice(0, -1), updatedMessage];
+      }
+
+      // Create new message with thinking
+      const newMessageId = generateUUID();
+      currentMessageIdRef.current = newMessageId;
+      const newMessage: UIMessage = {
+        id: newMessageId,
+        role: "assistant",
+        parts: [{ type: "reasoning" as const, text: thinkingText }],
+      };
+      onMessageUpdate(newMessage);
+      return [...messages, newMessage];
+    }
+  }
+
+  // Feature 1: Handle plan updates
+  if ((chunk.type as string) === "plan") {
+    const planContent =
+      typeof chunk.content === "object" && chunk.content !== null
+        ? (chunk.content as {
+            planId?: string;
+            title?: string;
+            steps?: Array<{
+              id: string;
+              description: string;
+              status: string;
+            }>;
+            status?: string;
+          })
+        : null;
+
+    if (planContent && planContent.steps) {
+      const lastMessage = messages[messages.length - 1];
+      // Create a plan part - this can be rendered as a special UI component
+      const planPart = {
+        type: "plan" as const,
+        planId: planContent.planId || generateUUID(),
+        title: planContent.title,
+        steps: planContent.steps,
+        status: planContent.status || "pending",
+      } as any;
+
+      if (
+        lastMessage?.role === "assistant" &&
+        lastMessage.id === currentMessageIdRef.current
+      ) {
+        // Update existing plan part or add new one
+        const existingPlanIndex = lastMessage.parts.findIndex(
+          (p) =>
+            (p.type as string) === "plan" &&
+            (p as any).planId === planPart.planId,
+        );
+
+        let updatedParts;
+        if (existingPlanIndex !== -1) {
+          updatedParts = lastMessage.parts.map((p, i) =>
+            i === existingPlanIndex ? planPart : p,
+          );
+        } else {
+          updatedParts = [...lastMessage.parts, planPart];
+        }
+
+        const updatedMessage: UIMessage = {
+          ...lastMessage,
+          parts: updatedParts,
+        };
+        onMessageUpdate(updatedMessage);
+        return [...messages.slice(0, -1), updatedMessage];
+      }
+
+      // Create new message with plan
+      const newMessageId = generateUUID();
+      currentMessageIdRef.current = newMessageId;
+      const newMessage: UIMessage = {
+        id: newMessageId,
+        role: "assistant",
+        parts: [planPart],
+      };
+      onMessageUpdate(newMessage);
+      return [...messages, newMessage];
+    }
+  }
+
+  // Feature 3: Handle terminal output
+  if ((chunk.type as string) === "terminal_output") {
+    const terminalContent =
+      typeof chunk.content === "object" && chunk.content !== null
+        ? (chunk.content as { terminalId?: string; data?: string })
+        : null;
+
+    if (terminalContent && terminalContent.data) {
+      const lastMessage = messages[messages.length - 1];
+      const terminalId = terminalContent.terminalId || "terminal";
+
+      if (
+        lastMessage?.role === "assistant" &&
+        lastMessage.id === currentMessageIdRef.current
+      ) {
+        // Find existing terminal part to append to
+        const existingTerminalIndex = lastMessage.parts.findIndex(
+          (p) =>
+            (p.type as string) === "terminal_output" &&
+            (p as any).terminalId === terminalId,
+        );
+
+        let updatedParts;
+        if (existingTerminalIndex !== -1) {
+          updatedParts = lastMessage.parts.map((p, i) =>
+            i === existingTerminalIndex
+              ? {
+                  ...p,
+                  data: ((p as any).data || "") + terminalContent.data,
+                }
+              : p,
+          );
+        } else {
+          updatedParts = [
+            ...lastMessage.parts,
+            {
+              type: "terminal_output" as const,
+              terminalId,
+              data: terminalContent.data,
+            } as any,
+          ];
+        }
+
+        const updatedMessage: UIMessage = {
+          ...lastMessage,
+          parts: updatedParts,
+        };
+        onMessageUpdate(updatedMessage);
+        return [...messages.slice(0, -1), updatedMessage];
+      }
+    }
+  }
+
+  // Feature 3: Handle terminal exit
+  if ((chunk.type as string) === "terminal_exit") {
+    const exitContent =
+      typeof chunk.content === "object" && chunk.content !== null
+        ? (chunk.content as {
+            terminalId?: string;
+            exitCode?: number;
+            signal?: string;
+          })
+        : null;
+
+    if (exitContent) {
+      const lastMessage = messages[messages.length - 1];
+      const terminalId = exitContent.terminalId || "terminal";
+
+      if (
+        lastMessage?.role === "assistant" &&
+        lastMessage.id === currentMessageIdRef.current
+      ) {
+        // Find existing terminal part and update it with exit info
+        const existingTerminalIndex = lastMessage.parts.findIndex(
+          (p) =>
+            (p.type as string) === "terminal_output" &&
+            (p as any).terminalId === terminalId,
+        );
+
+        if (existingTerminalIndex !== -1) {
+          const updatedParts = lastMessage.parts.map((p, i) =>
+            i === existingTerminalIndex
+              ? {
+                  ...p,
+                  exitCode: exitContent.exitCode,
+                  signal: exitContent.signal,
+                  completed: true,
+                }
+              : p,
+          );
+
+          const updatedMessage: UIMessage = {
+            ...lastMessage,
+            parts: updatedParts,
+          };
+          onMessageUpdate(updatedMessage);
+          return [...messages.slice(0, -1), updatedMessage];
+        }
+      }
+    }
+  }
+
+  // Feature 4: Handle commands update (store in message metadata)
+  // Commands updates are typically handled at the session level, not per message
+  // We'll skip adding them to messages but log them for debugging
+  if (chunk.type === "commands_update") {
+    console.log("[useACPChat] Commands update received:", chunk.content);
+    // Commands are handled at the service level via events
+    return messages;
+  }
+
+  // Feature 6: Handle session info update
+  // Session info updates are typically handled at the session level
+  if (chunk.type === "session_info") {
+    console.log("[useACPChat] Session info update received:", chunk.content);
+    // Session info is handled at the service level via events
+    return messages;
+  }
+
+  return messages;
 }
 
 /**
  * React hook for ACP (Agent Client Protocol) chat communication
- * Handles session management, streaming responses, and permission requests
+ * Handles session management, streaming responses, and permission requests.
+ *
+ * AGENTIC BEHAVIOR: When autoResume is enabled (default), the agent will
+ * automatically continue working until the task is complete. This is what
+ * makes it truly "agentic" - following Zed's patterns where agents keep
+ * running in the background until they reach "end_turn".
  */
 export function useACPChat({
   threadId,
   agentId,
+  autoResume = true, // Enable agentic behavior by default
   onFinish,
   onError,
   onUserMessage,
 }: UseACPChatOptions): UseACPChatReturn {
   const [messages, setMessages] = useState<UIMessage[]>([]);
-  const [status, setStatus] = useState<"initializing" | "ready" | "streaming" | "error">("initializing");
+  const [status, setStatus] = useState<
+    "initializing" | "ready" | "streaming" | "error"
+  >("initializing");
   const [error, setError] = useState<Error | null>(null);
   const [session, setSession] = useState<ACPSession | null>(null);
   const [pendingPermission, setPendingPermission] =
     useState<ACPPermissionRequest | null>(null);
+  const [agenticLoopStatus, setAgenticLoopStatus] =
+    useState<AgenticLoopStatus | null>(null);
 
   // Track current message being streamed - this ref is updated on EVERY chunk
   const currentMessageRef = useRef<UIMessage | null>(null);
@@ -268,11 +522,41 @@ export function useACPChat({
   // Track if we're currently processing buffered chunks to avoid recursion
   const processingBufferRef = useRef(false);
 
+  // Batch queue for incoming chunks to prevent race conditions
+  const chunkBatchQueueRef = useRef<ACPMessageChunk[]>([]);
+  const batchProcessingScheduledRef = useRef(false);
+
   // Get working directory from store
   const getWorkingDirectory = useCallback(() => {
     const directory = getActiveWorkingDirectory(threadId);
     return directory?.path || process.cwd?.() || "/";
   }, [threadId]);
+
+  // Subscribe to working directory state from store for change detection
+  const [
+    globalWorkingDirectory,
+    workingDirectoryMode,
+    threadWorkingDirectories,
+  ] = appStore(
+    useShallow((state) => [
+      state.workingDirectory,
+      state.workingDirectoryMode,
+      state.threadWorkingDirectories,
+    ]),
+  );
+
+  // Compute current resolved working directory
+  const currentWorkingDirectory = resolveWorkingDirectory(
+    {
+      workingDirectory: globalWorkingDirectory,
+      workingDirectoryMode,
+      threadWorkingDirectories,
+    },
+    threadId,
+  );
+
+  // Track the working directory that the session was created with
+  const sessionWorkingDirectoryRef = useRef<string | null>(null);
 
   // Track session for cleanup
   const sessionRef = useRef<ACPSession | null>(null);
@@ -282,54 +566,124 @@ export function useACPChat({
     currentMessageRef.current = message;
   }, []);
 
-  // Process a single chunk (used by both direct processing and buffer processing)
-  const processChunk = useCallback((chunk: ACPMessageChunk) => {
-    console.log("[useACPChat] Processing chunk type:", chunk.type, "content:", chunk.content);
-
-    // Ignore echoed user chunks to prevent duplicate messages
-    if (chunk.type === "text" && chunk.role === "user") {
+  // Process batched chunks in a single setMessages call to prevent race conditions
+  const processBatchedChunks = useCallback(() => {
+    if (chunkBatchQueueRef.current.length === 0) {
+      batchProcessingScheduledRef.current = false;
       return;
     }
 
-    // Handle error chunks
-    if (chunk.type === "error") {
-      let errorText: string;
-      if (typeof chunk.content === "string") {
-        errorText = chunk.content;
-      } else if (typeof chunk.content === "object" && chunk.content !== null) {
-        const errObj = chunk.content as unknown as Record<string, unknown>;
-        if (typeof errObj.message === "string") {
-          errorText = errObj.message;
-        } else if (typeof errObj.error === "string") {
-          errorText = errObj.error;
-        } else {
-          errorText = JSON.stringify(chunk.content);
+    // Get all queued chunks and clear the queue
+    const chunksToProcess = chunkBatchQueueRef.current;
+    chunkBatchQueueRef.current = [];
+    batchProcessingScheduledRef.current = false;
+
+    // Track if we have a done chunk
+    let hasDoneChunk = false;
+
+    // Process all chunks in a single setMessages call
+    setMessages((prev) => {
+      let messages = [...prev];
+
+      for (const chunk of chunksToProcess) {
+        // Ignore echoed user chunks
+        if (chunk.type === "text" && chunk.role === "user") {
+          continue;
         }
-      } else {
-        errorText = "An error occurred";
+
+        // Check for done flag BEFORE skipping error chunks
+        // This ensures we capture done even on error chunks
+        if (chunk.done) {
+          console.log(
+            "[useACPChat] Chunk has done flag:",
+            chunk.type,
+            chunk.sessionId,
+          );
+          hasDoneChunk = true;
+        }
+
+        // Handle error chunks outside of state update
+        if (chunk.type === "error") {
+          continue; // Will be handled separately
+        }
+
+        // Apply chunk to messages array
+        messages = applyChunkToMessages(
+          chunk,
+          messages,
+          currentMessageIdRef,
+          handleMessageUpdate,
+        );
       }
-      console.error("[useACPChat] Error chunk received:", errorText);
-      setError(new Error(errorText));
-      setStatus("error");
-      onError?.(new Error(errorText));
-      return;
+
+      return messages;
+    });
+
+    // Handle error chunks and done flags after state update
+    for (const chunk of chunksToProcess) {
+      if (chunk.type === "error") {
+        let errorText: string;
+        if (typeof chunk.content === "string") {
+          errorText = chunk.content;
+        } else if (
+          typeof chunk.content === "object" &&
+          chunk.content !== null
+        ) {
+          const errObj = chunk.content as unknown as Record<string, unknown>;
+          if (typeof errObj.message === "string") {
+            errorText = errObj.message;
+          } else if (typeof errObj.error === "string") {
+            errorText = errObj.error;
+          } else {
+            errorText = JSON.stringify(chunk.content);
+          }
+        } else {
+          errorText = "An error occurred";
+        }
+        console.error("[useACPChat] Error chunk received:", errorText);
+        setError(new Error(errorText));
+        setStatus("error");
+        onError?.(new Error(errorText));
+        return;
+      }
     }
 
-    // Process the chunk into messages
-    processChunkIntoMessages(chunk, currentMessageIdRef, setMessages, handleMessageUpdate);
-
-    // Check for done flag (can be set on any chunk type)
-    if (chunk.done) {
-      console.log("[useACPChat] Stream done, currentMessageRef:", currentMessageRef.current?.id);
+    // Handle done flag
+    if (hasDoneChunk) {
+      console.log(
+        "[useACPChat] Stream done, currentMessageRef:",
+        currentMessageRef.current?.id,
+      );
       setStatus("ready");
       if (currentMessageRef.current) {
-        console.log("[useACPChat] Calling onFinish with complete message, parts count:", currentMessageRef.current.parts.length);
+        console.log(
+          "[useACPChat] Calling onFinish with complete message, parts count:",
+          currentMessageRef.current.parts.length,
+        );
         onFinish?.(currentMessageRef.current);
       }
       currentMessageRef.current = null;
       currentMessageIdRef.current = null;
     }
   }, [handleMessageUpdate, onFinish, onError]);
+
+  // Process a single chunk - adds to batch queue for processing
+  const processChunk = useCallback(
+    (chunk: ACPMessageChunk) => {
+      console.log("[useACPChat] Queueing chunk type:", chunk.type);
+
+      // Add chunk to batch queue
+      chunkBatchQueueRef.current.push(chunk);
+
+      // Schedule batch processing if not already scheduled
+      if (!batchProcessingScheduledRef.current) {
+        batchProcessingScheduledRef.current = true;
+        // Use queueMicrotask to batch chunks that arrive in the same event loop tick
+        queueMicrotask(processBatchedChunks);
+      }
+    },
+    [processBatchedChunks],
+  );
 
   // Reset ACP state when thread changes (avoid leaking messages between chats)
   useEffect(() => {
@@ -341,30 +695,42 @@ export function useACPChat({
     currentMessageRef.current = null;
     currentMessageIdRef.current = null;
     chunkBufferRef.current = [];
+    chunkBatchQueueRef.current = [];
+    batchProcessingScheduledRef.current = false;
   }, [threadId, agentId]);
 
   // Process buffered chunks when session becomes available
-  const processBufferedChunks = useCallback((sessionId: string) => {
-    if (processingBufferRef.current) return;
-    if (chunkBufferRef.current.length === 0) return;
+  const processBufferedChunks = useCallback(
+    (sessionId: string) => {
+      if (processingBufferRef.current) return;
+      if (chunkBufferRef.current.length === 0) return;
 
-    processingBufferRef.current = true;
-    console.log(`[useACPChat] Processing ${chunkBufferRef.current.length} buffered chunks for session ${sessionId}`);
+      processingBufferRef.current = true;
+      console.log(
+        `[useACPChat] Processing ${chunkBufferRef.current.length} buffered chunks for session ${sessionId}`,
+      );
 
-    const bufferedChunks = chunkBufferRef.current;
-    chunkBufferRef.current = [];
+      const bufferedChunks = chunkBufferRef.current;
+      chunkBufferRef.current = [];
 
-    // Filter and process chunks that match our session
-    for (const chunk of bufferedChunks) {
-      if (chunk.sessionId === sessionId) {
-        processChunk(chunk);
-      } else {
-        console.log("[useACPChat] Discarding buffered chunk - session mismatch:", chunk.sessionId, "vs", sessionId);
+      // Filter and process chunks that match our session
+      for (const chunk of bufferedChunks) {
+        if (chunk.sessionId === sessionId) {
+          processChunk(chunk);
+        } else {
+          console.log(
+            "[useACPChat] Discarding buffered chunk - session mismatch:",
+            chunk.sessionId,
+            "vs",
+            sessionId,
+          );
+        }
       }
-    }
 
-    processingBufferRef.current = false;
-  }, [processChunk]);
+      processingBufferRef.current = false;
+    },
+    [processChunk],
+  );
 
   // Initialize session when agentId changes
   useEffect(() => {
@@ -392,9 +758,22 @@ export function useACPChat({
         if (mounted) {
           setSession(newSession);
           sessionRef.current = newSession;
+          // Track the working directory the session was created with
+          sessionWorkingDirectoryRef.current = workDir;
           setError(null);
           setStatus("ready");
-          console.log("[useACPChat] Session state updated, status set to ready");
+          console.log(
+            "[useACPChat] Session state updated, status set to ready, workDir:",
+            workDir,
+          );
+
+          // Configure auto-resume (agentic behavior) based on option
+          // This is what makes the agent truly agentic - it keeps working until done
+          if (autoResume) {
+            setACPAutoResume(agentId, newSession.sessionId, true).catch((err) =>
+              console.warn("[useACPChat] Failed to enable auto-resume:", err),
+            );
+          }
 
           // Process any chunks that were buffered while waiting for session
           // Use setTimeout to ensure state has settled
@@ -426,7 +805,10 @@ export function useACPChat({
       mounted = false;
       // Cancel ongoing prompt if any
       if (sessionRef.current && agentId) {
-        console.log("[useACPChat] Cleanup: Cancelling session", sessionRef.current.sessionId);
+        console.log(
+          "[useACPChat] Cleanup: Cancelling session",
+          sessionRef.current.sessionId,
+        );
         cancelACPPrompt(agentId, sessionRef.current.sessionId).catch((err) => {
           // Ignore cancellation errors on unmount
           console.log("[useACPChat] Cleanup cancellation:", err);
@@ -434,7 +816,120 @@ export function useACPChat({
       }
       sessionRef.current = null;
     };
-  }, [agentId, threadId, getWorkingDirectory, onError, processBufferedChunks]);
+  }, [
+    agentId,
+    threadId,
+    autoResume,
+    getWorkingDirectory,
+    onError,
+    processBufferedChunks,
+  ]);
+
+  // Watch for working directory changes in "local" mode
+  // When the working directory changes mid-conversation, recreate the session
+  // so the model is aware of the new context
+  // In "worktree" mode, each thread has its own directory, so we don't recreate
+  useEffect(() => {
+    // Only apply in "local" mode - worktree mode has per-thread directories that shouldn't change
+    if (workingDirectoryMode !== "local") {
+      return;
+    }
+
+    // Skip if no session yet or session is still initializing
+    if (!session || status === "initializing") {
+      return;
+    }
+
+    // Skip if no agent
+    if (!agentId) {
+      return;
+    }
+
+    const newWorkDir = currentWorkingDirectory?.path;
+    const oldWorkDir = sessionWorkingDirectoryRef.current;
+
+    // Check if working directory has actually changed
+    if (!newWorkDir || newWorkDir === oldWorkDir) {
+      return;
+    }
+
+    console.log(
+      "[useACPChat] Working directory changed in local mode:",
+      oldWorkDir,
+      "->",
+      newWorkDir,
+    );
+
+    // Recreate the session with the new working directory
+    // This ensures the model is aware of the new context
+    let mounted = true;
+
+    const recreateSession = async () => {
+      try {
+        console.log(
+          "[useACPChat] Recreating session with new working directory:",
+          newWorkDir,
+        );
+
+        // Cancel any ongoing prompt before recreating
+        if (sessionRef.current) {
+          await cancelACPPrompt(agentId, sessionRef.current.sessionId).catch(
+            () => {
+              // Ignore errors when cancelling
+            },
+          );
+        }
+
+        // Create new session with updated working directory
+        const newSession = await createACPSession(agentId, newWorkDir);
+
+        if (mounted) {
+          setSession(newSession);
+          sessionRef.current = newSession;
+          sessionWorkingDirectoryRef.current = newWorkDir;
+          console.log(
+            "[useACPChat] Session recreated with new working directory:",
+            newSession.sessionId,
+          );
+
+          // Re-enable auto-resume if it was enabled
+          if (autoResume) {
+            setACPAutoResume(agentId, newSession.sessionId, true).catch((err) =>
+              console.warn(
+                "[useACPChat] Failed to enable auto-resume after session recreate:",
+                err,
+              ),
+            );
+          }
+        }
+      } catch (err) {
+        console.error(
+          "[useACPChat] Failed to recreate session after working directory change:",
+          err,
+        );
+        if (mounted) {
+          setError(
+            err instanceof Error
+              ? err
+              : new Error("Failed to update working directory context"),
+          );
+        }
+      }
+    };
+
+    recreateSession();
+
+    return () => {
+      mounted = false;
+    };
+  }, [
+    workingDirectoryMode,
+    currentWorkingDirectory?.path,
+    session,
+    status,
+    agentId,
+    autoResume,
+  ]);
 
   // Subscribe to message chunks - this effect does NOT depend on session
   // to ensure we never miss chunks during initialization
@@ -442,7 +937,10 @@ export function useACPChat({
     console.log("[useACPChat] Setting up message chunk listener");
 
     const unsubscribe = onACPMessageChunk((chunk: ACPMessageChunk) => {
-      console.log("[useACPChat] Received chunk:", JSON.stringify(chunk, null, 2));
+      console.log(
+        "[useACPChat] Received chunk:",
+        JSON.stringify(chunk, null, 2),
+      );
 
       // Get current session from ref (more reliable than state during initialization)
       const currentSession = sessionRef.current;
@@ -456,7 +954,12 @@ export function useACPChat({
 
       // Only process chunks for our session
       if (chunk.sessionId !== currentSession.sessionId) {
-        console.log("[useACPChat] Skipping chunk - session mismatch:", chunk.sessionId, "vs", currentSession.sessionId);
+        console.log(
+          "[useACPChat] Skipping chunk - session mismatch:",
+          chunk.sessionId,
+          "vs",
+          currentSession.sessionId,
+        );
         return;
       }
 
@@ -473,7 +976,7 @@ export function useACPChat({
         // Only process requests for our agent
         if (request.agentId !== agentId) return;
         setPendingPermission(request);
-      }
+      },
     );
 
     return unsubscribe;
@@ -488,7 +991,7 @@ export function useACPChat({
         setError(error);
         setStatus("error");
         onError?.(error);
-      }
+      },
     );
 
     return unsubscribe;
@@ -498,9 +1001,10 @@ export function useACPChat({
   const sendMessage = useCallback(
     async (content: string) => {
       if (!session) {
-        const errorMsg = status === "initializing"
-          ? "Session is still initializing. Please wait a moment."
-          : "No active session";
+        const errorMsg =
+          status === "initializing"
+            ? "Session is still initializing. Please wait a moment."
+            : "No active session";
         setError(new Error(errorMsg));
         return;
       }
@@ -522,13 +1026,55 @@ export function useACPChat({
       try {
         await sendACPPrompt(agentId, session.sessionId, content);
       } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        // If session not found, try to recreate it and retry
+        if (
+          errorMessage.includes("Session") &&
+          errorMessage.includes("not found")
+        ) {
+          console.log(
+            "[useACPChat] Session not found, recreating session and retrying...",
+          );
+          try {
+            const workDir = getWorkingDirectory();
+            const newSession = await createACPSession(agentId, workDir);
+            console.log(
+              "[useACPChat] Recreated session:",
+              newSession.sessionId,
+            );
+            setSession(newSession);
+            sessionRef.current = newSession;
+            // Track the working directory the session was created with
+            sessionWorkingDirectoryRef.current = workDir;
+            // Retry the prompt with the new session
+            await sendACPPrompt(agentId, newSession.sessionId, content);
+            return;
+          } catch (recreateErr) {
+            console.error(
+              "[useACPChat] Failed to recreate session:",
+              recreateErr,
+            );
+            setError(
+              recreateErr instanceof Error
+                ? recreateErr
+                : new Error(String(recreateErr)),
+            );
+            setStatus("error");
+            onError?.(
+              recreateErr instanceof Error
+                ? recreateErr
+                : new Error(String(recreateErr)),
+            );
+            return;
+          }
+        }
         console.error("[useACPChat] Failed to send prompt:", err);
         setError(err instanceof Error ? err : new Error(String(err)));
         setStatus("error");
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [session, agentId, status, onError, onUserMessage]
+    [session, agentId, status, onError, onUserMessage, getWorkingDirectory],
   );
 
   // Stop the current stream
@@ -547,7 +1093,7 @@ export function useACPChat({
         setPendingPermission(null);
       }
     },
-    [pendingPermission]
+    [pendingPermission],
   );
 
   const setSessionModel = useCallback(
@@ -608,12 +1154,59 @@ export function useACPChat({
     [agentId, session],
   );
 
+  // Function to toggle auto-resume (agentic loop) mode
+  const setAutoResumeCallback = useCallback(
+    async (enabled: boolean) => {
+      if (!session) return;
+      await setACPAutoResume(agentId, session.sessionId, enabled);
+      // Update local status
+      setAgenticLoopStatus((prev) =>
+        prev ? { ...prev, autoResume: enabled } : null,
+      );
+      console.log(
+        `[useACPChat] Auto-resume ${enabled ? "enabled" : "disabled"}`,
+      );
+    },
+    [agentId, session],
+  );
+
+  // Poll agentic loop status while streaming (to show progress)
+  useEffect(() => {
+    if (status !== "streaming" || !session) {
+      return;
+    }
+
+    let mounted = true;
+
+    const pollStatus = async () => {
+      if (!mounted || !session) return;
+
+      const loopStatus = await getACPAgenticLoopStatus(
+        agentId,
+        session.sessionId,
+      );
+      if (mounted && loopStatus) {
+        setAgenticLoopStatus(loopStatus);
+      }
+    };
+
+    // Poll every 2 seconds while streaming
+    const interval = setInterval(pollStatus, 2000);
+    pollStatus(); // Initial poll
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [status, session, agentId]);
+
   return {
     messages,
     status,
     error,
     session,
     pendingPermission,
+    agenticLoopStatus,
     sendMessage,
     stop,
     setMessages,
@@ -621,6 +1214,7 @@ export function useACPChat({
     setSessionModel,
     setSessionConfigOption,
     setSessionMode,
+    setAutoResume: setAutoResumeCallback,
   };
 }
 

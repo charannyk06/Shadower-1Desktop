@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -33,7 +32,6 @@ export function EditMemoryDialog({
   onOpenChange,
   onSave,
 }: EditMemoryDialogProps) {
-  const { t } = useTranslation();
   const [content, setContent] = useState(memory.content);
   const [saving, setSaving] = useState(false);
 
@@ -51,14 +49,12 @@ export function EditMemoryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{t("Knowledge.editMemory")}</DialogTitle>
-          <DialogDescription>
-            {t("Knowledge.editMemoryDescription")}
-          </DialogDescription>
+          <DialogTitle>Edit Memory</DialogTitle>
+          <DialogDescription>Edit the content of this memory</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="content">{t("Knowledge.content")}</Label>
+            <Label htmlFor="content">Content</Label>
             <Textarea
               id="content"
               value={content}
@@ -70,10 +66,10 @@ export function EditMemoryDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t("Common.cancel")}
+            Cancel
           </Button>
           <Button onClick={handleSave} disabled={saving || !content.trim()}>
-            {saving ? t("Common.saving") : t("Common.save")}
+            {saving ? "Saving..." : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>

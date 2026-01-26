@@ -10,7 +10,6 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { memo, useMemo, useState } from "react";
 import { Button } from "ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "ui/hover-card";
@@ -61,7 +60,6 @@ function truncateText(text: string, maxLength: number): string {
 function PureRememberContextToolInvocation({
   part,
 }: RememberContextToolInvocationProps) {
-  const { t } = useTranslation();
   // Default to collapsed to reduce chat bloat
   const [isExpanded, setIsExpanded] = useState(false);
   // Also track if the whole component should be minimized
@@ -80,12 +78,12 @@ function PureRememberContextToolInvocation({
       <HoverCard openDelay={200} closeDelay={0}>
         <HoverCardTrigger asChild>
           <span className="hover:text-primary transition-colors text-xs text-muted-foreground">
-            {t("Chat.Tool.searchOptions")}
+            Search options
           </span>
         </HoverCardTrigger>
         <HoverCardContent className="max-w-xs md:max-w-md! w-full! overflow-auto flex flex-col">
           <p className="text-xs text-muted-foreground px-2 mb-2">
-            {t("Chat.Tool.searchOptionsDescription")}
+            Search parameters used for this query
           </p>
           <div className="p-2">
             <JsonView data={part.input} />
@@ -93,13 +91,13 @@ function PureRememberContextToolInvocation({
         </HoverCardContent>
       </HoverCard>
     );
-  }, [part.input, t]);
+  }, [part.input]);
 
   if (!part.state?.startsWith("output"))
     return (
       <div className="flex items-center gap-2 text-sm">
         <BrainIcon className="size-5 wiggle text-muted-foreground" />
-        <TextShimmer>{t("Chat.Tool.remembering")}</TextShimmer>
+        <TextShimmer>Remembering context...</TextShimmer>
       </div>
     );
 
@@ -131,7 +129,7 @@ function PureRememberContextToolInvocation({
       <div className="flex items-center gap-2 overflow-hidden w-full min-w-0">
         <BrainIcon className="size-5 text-muted-foreground flex-shrink-0" />
         <span className="text-sm font-semibold flex-shrink-0">
-          {t("Chat.Tool.retrievedContext")}
+          Retrieved context
         </span>
         <div className="flex-shrink-0">{options}</div>
         {result?.results && result.results.length > 0 && (
@@ -164,7 +162,7 @@ function PureRememberContextToolInvocation({
           {result?.isError ? (
             <p className="text-xs text-destructive flex items-center gap-1">
               <AlertTriangleIcon className="size-3.5" />
-              {result.error || t("Common.error")}
+              {result.error || "Error"}
             </p>
           ) : result?.results && result.results.length > 0 ? (
             <>
@@ -506,7 +504,7 @@ function PureRememberContextToolInvocation({
             </>
           ) : (
             <p className="text-xs text-muted-foreground">
-              {t("Chat.Tool.noRelevantContext")}
+              No relevant context found
             </p>
           )}
         </div>

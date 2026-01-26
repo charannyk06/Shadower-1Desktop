@@ -7,7 +7,6 @@ import {
 } from "lib/keyboard-shortcuts";
 
 import { appStore } from "@/app/store";
-import { useTranslation } from "react-i18next";
 import { useEffect } from "react";
 import {
   Dialog,
@@ -17,11 +16,20 @@ import {
 } from "ui/dialog";
 import { useShallow } from "zustand/shallow";
 
-export function KeyboardShortcutsPopup({}) {
+// Keyboard shortcut descriptions
+const shortcutDescriptions: Record<string, string> = {
+  toggleSidebar: "Toggle Sidebar",
+  toggleVoiceChat: "Toggle Voice Chat",
+  newChat: "New Chat",
+  focusInput: "Focus Input",
+  openChatPreferences: "Open Chat Preferences",
+  openShortcutsPopup: "Open Shortcuts",
+};
+
+export function KeyboardShortcutsPopup() {
   const [openShortcutsPopup, appStoreMutate] = appStore(
     useShallow((state) => [state.openShortcutsPopup, state.mutate]),
   );
-  const { t } = useTranslation();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -45,7 +53,7 @@ export function KeyboardShortcutsPopup({}) {
       }
     >
       <DialogContent className="md:max-w-3xl">
-        <DialogTitle>{t("KeyboardShortcuts.title")}</DialogTitle>
+        <DialogTitle>Keyboard Shortcuts</DialogTitle>
         <DialogDescription />
         <div className="grid grid-cols-2 gap-5">
           {Object.entries(Shortcuts).map(([key, shortcut]) => (
@@ -53,15 +61,18 @@ export function KeyboardShortcutsPopup({}) {
               key={key}
               className="flex items-center gap-2 w-full text-sm px-2"
             >
-              <p>{t("KeyboardShortcuts." + (shortcut.description ?? ""))}</p>
+              <p>
+                {shortcutDescriptions[shortcut.description ?? ""] ||
+                  shortcut.description}
+              </p>
               <div className="flex-1" />
-              {getShortcutKeyList(shortcut).map((key) => {
+              {getShortcutKeyList(shortcut).map((k) => {
                 return (
                   <div
-                    key={key}
+                    key={k}
                     className="p-1.5 text-xs border min-w-8 min-h-8 flex items-center justify-center rounded-md bg-muted"
                   >
-                    <span>{key}</span>
+                    <span>{k}</span>
                   </div>
                 );
               })}

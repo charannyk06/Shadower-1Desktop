@@ -6,7 +6,6 @@ import { Tooltip } from "ui/tooltip";
 
 import { Shortcuts, getShortcutKeyList } from "lib/keyboard-shortcuts";
 import { BrainIcon, Box } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MCPIcon } from "ui/mcp-icon";
 import { SidebarGroup } from "ui/sidebar";
@@ -14,7 +13,6 @@ import { WriteIcon } from "ui/write-icon";
 
 export function AppSidebarMenus() {
   const navigate = useNavigate();
-  const { t } = useTranslation();
   const { setOpenMobile } = useSidebar();
 
   return (
@@ -36,7 +34,7 @@ export function AppSidebarMenus() {
               >
                 <SidebarMenuButton className="flex font-semibold group/new-chat bg-input/20 border border-border/40">
                   <WriteIcon className="size-4" />
-                  {t("Layout.newChat")}
+                  New Chat
                   <div className="flex items-center gap-1 text-xs font-medium ml-auto opacity-0 group-hover/new-chat:opacity-100 transition-opacity">
                     {getShortcutKeyList(Shortcuts.openNewChat).map((key) => (
                       <span
@@ -58,7 +56,7 @@ export function AppSidebarMenus() {
               <Link to="/mcp">
                 <SidebarMenuButton className="font-semibold">
                   <MCPIcon className="size-4 fill-accent-foreground" />
-                  {t("Layout.mcpConfiguration")}
+                  MCP Configuration
                 </SidebarMenuButton>
               </Link>
             </SidebarMenuItem>
@@ -70,7 +68,7 @@ export function AppSidebarMenus() {
               <Link to="/models">
                 <SidebarMenuButton className="font-semibold">
                   <Box className="size-4" />
-                  {t("Layout.models")}
+                  Models
                 </SidebarMenuButton>
               </Link>
             </SidebarMenuItem>
@@ -82,7 +80,7 @@ export function AppSidebarMenus() {
               <Link to="/knowledge">
                 <SidebarMenuButton className="font-semibold">
                   <BrainIcon className="size-4" />
-                  {t("Layout.allKnowledge")}
+                  All Knowledge
                 </SidebarMenuButton>
               </Link>
             </SidebarMenuItem>

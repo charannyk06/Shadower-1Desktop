@@ -39,14 +39,15 @@ function formatServerName(name: string): string {
 // Helper to get MCP info from RECOMMENDED_MCPS
 function getMCPInfo(name: string) {
   const normalizedName = name.toLowerCase();
-  return RECOMMENDED_MCPS.find((mcp) => mcp.name.toLowerCase() === normalizedName);
+  return RECOMMENDED_MCPS.find(
+    (mcp) => mcp.name.toLowerCase() === normalizedName,
+  );
 }
 
 import { appStore } from "@/app/store";
 import { BasicUser } from "app-types/user";
 import { redriectMcpOauth } from "lib/ai/mcp/oauth-redirect";
 import { isString } from "lib/utils";
-import { useTranslation } from "react-i18next";
 import { Separator } from "ui/separator";
 import { ToolDetailPopup } from "./tool-detail-popup";
 
@@ -63,7 +64,6 @@ export const MCPCard = memo(function MCPCard({
   user: _user,
 }: MCPServerInfo & { user: BasicUser }) {
   const [isProcessing, setIsProcessing] = useState(false);
-  const { t } = useTranslation();
   const appStoreMutate = appStore((state) => state.mutate);
   const { mutate } = useSWRConfig();
 
@@ -179,7 +179,7 @@ export const MCPCard = memo(function MCPCard({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{t("MCP.mcpServerCustomization")}</p>
+            <p>MCP Server Customization</p>
           </TooltipContent>
         </Tooltip>
 
@@ -204,7 +204,7 @@ export const MCPCard = memo(function MCPCard({
             )}
           </TooltipTrigger>
           <TooltipContent>
-            <p>{t("MCP.toolsTest")}</p>
+            <p>Tools Test</p>
           </TooltipContent>
         </Tooltip>
         <div className="h-4">
@@ -222,7 +222,7 @@ export const MCPCard = memo(function MCPCard({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{t("MCP.refresh")}</p>
+            <p>Refresh</p>
           </TooltipContent>
         </Tooltip>
         {/* Actions for single-user mode */}
@@ -269,7 +269,7 @@ export const MCPCard = memo(function MCPCard({
               <div className="flex items-center gap-2 mb-2 pt-2 pb-1 z-10">
                 <Settings size={14} className="text-muted-foreground" />
                 <h5 className="text-muted-foreground text-sm font-medium">
-                  {t("MCP.configuration")}
+                  Configuration
                 </h5>
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -284,7 +284,7 @@ export const MCPCard = memo(function MCPCard({
             <div className="flex items-center gap-2 mb-4 pt-2 pb-1 z-10">
               <Wrench size={14} className="text-muted-foreground" />
               <h5 className="text-muted-foreground text-sm font-medium">
-                {t("MCP.availableTools")}
+                Available Tools
               </h5>
             </div>
 
@@ -294,7 +294,7 @@ export const MCPCard = memo(function MCPCard({
               ) : (
                 <div className="bg-secondary/30 rounded-md p-3 text-center">
                   <p className="text-sm text-muted-foreground">
-                    {t("MCP.noToolsAvailable")}
+                    No tools available
                   </p>
                 </div>
               )}

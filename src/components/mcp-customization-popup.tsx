@@ -28,7 +28,6 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { safe } from "ts-safe";
 import { Alert, AlertDescription, AlertTitle } from "ui/alert";
 import { Button } from "ui/button";
@@ -74,8 +73,6 @@ export function McpServerCustomizationContent({
   mcpServerInfo: MCPServerInfo & { id: string };
   title?: ReactNode;
 }) {
-  const { t } = useTranslation();
-
   const [prompt, setPrompt] = useState("");
   const [search, setSearch] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -168,7 +165,7 @@ export function McpServerCustomizationContent({
               className="flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground transition-colors mb-8"
             >
               <ArrowLeft className="size-3" />
-              {t("Common.back")}
+              Back
             </button>
             {selectedTool.name}
           </div>
@@ -191,13 +188,13 @@ export function McpServerCustomizationContent({
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="text-xs font-medium flex-1 flex items-center text-muted-foreground">
-                {t("MCP.mcpServerCustomization")}
+                MCP Server Customization
                 <Info className="size-3 ml-1 text-muted-foreground" />
               </span>
             </TooltipTrigger>
             <TooltipContent>
               <p className="whitespace-pre-wrap">
-                {t("MCP.mcpServerCustomizationDescription")}
+                Add custom instructions for this MCP server
               </p>
             </TooltipContent>
           </Tooltip>
@@ -215,17 +212,17 @@ export function McpServerCustomizationContent({
                     <Trash2 className="size-3" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>{t("Common.delete")}</TooltipContent>
+                <TooltipContent>Delete</TooltipContent>
               </Tooltip>
             )}
             {prompt != (mcpServerCustomization?.prompt || "") && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="secondary" size="sm" onClick={handleSave}>
-                    {t("Common.save")}
+                    Save
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>{t("Common.edit")}</TooltipContent>
+                <TooltipContent>Edit</TooltipContent>
               </Tooltip>
             )}
           </>
@@ -242,7 +239,7 @@ export function McpServerCustomizationContent({
         {!prompt && (
           <div className="absolute left-0 top-0 w-full px-4 py-2 pointer-events-none">
             <ExamplePlaceholder
-              placeholder={[t("MCP.mcpServerCustomizationPlaceholder")]}
+              placeholder={["Add instructions for how to use this server..."]}
             />
           </div>
         )}
@@ -252,13 +249,13 @@ export function McpServerCustomizationContent({
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="text-xs font-medium flex-1 flex items-center text-muted-foreground">
-                {t("MCP.additionalInstructions")}
+                Additional Instructions
                 <Info className="size-3 ml-1 text-muted-foreground" />
               </span>
             </TooltipTrigger>
             <TooltipContent>
               <p className="whitespace-pre-wrap">
-                {t("MCP.toolCustomizationInstructions")}
+                Add specific instructions for individual tools
               </p>
             </TooltipContent>
           </Tooltip>
@@ -266,7 +263,7 @@ export function McpServerCustomizationContent({
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder={t("MCP.searchTools")}
+          placeholder="Search tools..."
         />
 
         {isLoadingMcpToolCustomizations ? (
@@ -280,7 +277,7 @@ export function McpServerCustomizationContent({
                 <Wrench className="size-3.5" />
                 <div className="flex w-full gap-2 items-center">
                   <div className="flex-1 min-w-0">
-                    <AlertTitle>{t("MCP.noToolsAvailable")}</AlertTitle>
+                    <AlertTitle>No tools available</AlertTitle>
                   </div>
                 </div>
               </Alert>
