@@ -122,6 +122,7 @@ export const ChatThreadTable = sqliteTable("chat_thread", {
     currentTimestamp,
   ),
   provider: text("provider"), // Provider identifier (e.g., "coding-agents" for ACP chats)
+  model: text("model"), // Model name (e.g., "claude-code", "gpt-4o") for restoring on thread load
 });
 
 // Chat Message Table

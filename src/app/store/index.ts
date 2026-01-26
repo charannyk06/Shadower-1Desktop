@@ -61,11 +61,24 @@ export interface AppState {
   allowedMcpServers?: Record<string, AllowedMCPServer>;
   allowedAppDefaultToolkit?: AppDefaultToolkit[];
   generatingTitleThreadIds: string[];
+  // Per-thread model tracking for restoring model when loading a thread
+  threadChatModels: {
+    [threadId: string]: ChatModel | undefined;
+  };
   // Working directory for local file system operations
   workingDirectory: {
     path: string;
     name: string;
   } | null;
+  // Working directory scope for file operations
+  workingDirectoryMode: "local" | "worktree";
+  // Per-thread working directory overrides (used when mode is "worktree")
+  threadWorkingDirectories: {
+    [threadId: string]: {
+      path: string;
+      name: string;
+    };
+  };
   threadMentions: {
     [threadId: string]: ChatMention[];
   };
@@ -84,8 +97,8 @@ export interface AppState {
     [threadId: string]: ContextUsageState | undefined;
   };
   toolPresets: {
-    allowedMcpServers?: Record<string, AllowedMCPServer>;
-    allowedAppDefaultToolkit?: AppDefaultToolkit[];
+  allowedMcpServers?: Record<string, AllowedMCPServer>;
+  allowedAppDefaultToolkit?: AppDefaultToolkit[];
     name: string;
   }[];
   chatModel?: ChatModel;
@@ -161,6 +174,7 @@ const initialState: AppState = {
   threadImageToolModel: {},
   threadPlans: {},
   threadContextUsage: {},
+  threadChatModels: {},
   mcpList: [],
   agentList: [],
   currentThreadId: null,
@@ -168,6 +182,8 @@ const initialState: AppState = {
   chatMode: "regular",
   allowedMcpServers: undefined,
   workingDirectory: null,
+  workingDirectoryMode: "local",
+  threadWorkingDirectories: {},
   openUserSettings: false,
   openBilling: false,
   openKnowledge: false,
@@ -251,6 +267,14 @@ export const appStore = create<AppState & AppDispatch>()(
           // Preserve workingDirectory from persisted state
           workingDirectory:
             persisted.workingDirectory || currentState.workingDirectory || null,
+          // Preserve workingDirectoryMode from persisted state
+          workingDirectoryMode:
+            persisted.workingDirectoryMode || currentState.workingDirectoryMode || "local",
+          // Preserve per-thread working directories
+          threadWorkingDirectories:
+            persisted.threadWorkingDirectories ||
+            currentState.threadWorkingDirectories ||
+            {},
         };
       },
       partialize: (state) => ({
@@ -260,6 +284,9 @@ export const appStore = create<AppState & AppDispatch>()(
         allowedMcpServers:
           state.allowedMcpServers || initialState.allowedMcpServers,
         workingDirectory: state.workingDirectory || initialState.workingDirectory,
+        workingDirectoryMode:
+          state.workingDirectoryMode || initialState.workingDirectoryMode,
+        threadWorkingDirectories: state.threadWorkingDirectories || {},
         // Ensure all valid toolkits are preserved AND new toolkits are auto-enabled
         allowedAppDefaultToolkit: (() => {
           const stored = state.allowedAppDefaultToolkit ?? [];
@@ -304,28 +331,60 @@ export const appStore = create<AppState & AppDispatch>()(
   ),
 );
 
+export function resolveWorkingDirectory(
+  state: Pick<
+    AppState,
+    "workingDirectory" | "workingDirectoryMode" | "threadWorkingDirectories"
+  >,
+  threadId?: string | null,
+) {
+  const mode = state.workingDirectoryMode || "local";
+  if (mode === "worktree" && threadId) {
+    return (
+      state.threadWorkingDirectories[threadId] || state.workingDirectory || null
+    );
+  }
+  return state.workingDirectory || null;
+}
+
+export function getActiveWorkingDirectory(threadId?: string | null) {
+  return resolveWorkingDirectory(appStore.getState(), threadId);
+}
+
 /**
  * Clean up thread-related state when a thread is deleted
  */
 export function cleanupThreadState(threadId: string): void {
   appStore.setState((state) => {
-    const { threadContextUsage, threadPlans, threadFiles, threadMentions } =
-      state;
+    const {
+      threadContextUsage,
+      threadPlans,
+      threadFiles,
+      threadMentions,
+      threadWorkingDirectories,
+      threadChatModels,
+    } = state;
     const newThreadContextUsage = { ...threadContextUsage };
     const newThreadPlans = { ...threadPlans };
     const newThreadFiles = { ...threadFiles };
     const newThreadMentions = { ...threadMentions };
+    const newThreadWorkingDirectories = { ...threadWorkingDirectories };
+    const newThreadChatModels = { ...threadChatModels };
 
     delete newThreadContextUsage[threadId];
     delete newThreadPlans[threadId];
     delete newThreadFiles[threadId];
     delete newThreadMentions[threadId];
+    delete newThreadWorkingDirectories[threadId];
+    delete newThreadChatModels[threadId];
 
     return {
       threadContextUsage: newThreadContextUsage,
       threadPlans: newThreadPlans,
       threadFiles: newThreadFiles,
       threadMentions: newThreadMentions,
+      threadWorkingDirectories: newThreadWorkingDirectories,
+      threadChatModels: newThreadChatModels,
     };
   });
 }
