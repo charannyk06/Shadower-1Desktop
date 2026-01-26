@@ -56,7 +56,7 @@ export function McpCustomizationPopup() {
         }
       }}
     >
-      <DialogContent className="sm:max-w-[800px] fixed p-10 overflow-hidden">
+      <DialogContent className="md:max-w-3xl max-h-[80vh] overflow-hidden">
         {mcpCustomizationPopup ? (
           <McpServerCustomizationContent
             mcpServerInfo={mcpCustomizationPopup}
@@ -178,7 +178,7 @@ export function McpServerCustomizationContent({
   }
 
   return (
-    <div className="flex flex-col overflow-y-auto h-[70vh]">
+    <div className="flex flex-col overflow-y-auto max-h-[70vh]">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2 mb-2">
           {title || name}{" "}

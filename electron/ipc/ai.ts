@@ -672,7 +672,10 @@ function sanitizeTextContent(text: string): string {
  * Ensure a thread exists in the database, creating it if necessary
  * Returns true if a new thread was created, false if it already existed
  */
-async function ensureThreadExists(threadId: string): Promise<boolean> {
+async function ensureThreadExists(
+  threadId: string,
+  chatModel?: { provider: string; model: string },
+): Promise<boolean> {
   const db = getDatabase();
   const existing = await db
     .select()
@@ -716,9 +719,12 @@ async function ensureThreadExists(threadId: string): Promise<boolean> {
         userId,
         title: "New Chat", // Default title, will be updated after first response
         createdAt: new Date(),
+        // Save the model info so we can restore it when loading the thread
+        provider: chatModel?.provider,
+        model: chatModel?.model,
       });
       console.log(
-        `[AI IPC] ensureThreadExists - created thread ${threadId} for user ${userId}`,
+        `[AI IPC] ensureThreadExists - created thread ${threadId} for user ${userId}, model: ${chatModel?.provider}/${chatModel?.model}`,
       );
       return true; // New thread was created
     } else {
@@ -738,12 +744,13 @@ async function saveMessageToDb(
   role: "user" | "assistant",
   parts: any[],
   metadata?: Record<string, any>,
+  chatModel?: { provider: string; model: string },
 ): Promise<boolean> {
   try {
     const db = getDatabase();
 
     // Ensure thread exists before saving message
-    const newThreadCreated = await ensureThreadExists(threadId);
+    const newThreadCreated = await ensureThreadExists(threadId, chatModel);
 
     await db
       .insert(schema.ChatMessageTable)
@@ -2965,6 +2972,8 @@ export function registerAIHandlers() {
                       : "",
                 },
               ],
+              undefined, // metadata
+              chatModel, // Pass chatModel to save provider/model on thread creation
             );
             console.log(
               `[AI IPC] User message saved successfully, newThreadCreated: ${newThreadCreated}`,
@@ -4628,6 +4637,7 @@ For file operations, terminal, or browser automation, ask the user to switch to 
                 "assistant",
                 assistantParts,
                 { chatModel },
+                chatModel,
               );
             } catch (saveError: any) {
               console.error(

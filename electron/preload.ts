@@ -1192,7 +1192,25 @@ export interface ElectronAPI {
       createdAt: Date;
       availableModes?: string[];
       currentMode?: string;
+      configOptions?: Array<any>;
+      models?: any;
     }>;
+    setSessionModel: (request: {
+      agentId: string;
+      sessionId: string;
+      modelId: string;
+    }) => Promise<void>;
+    setSessionConfigOption: (request: {
+      agentId: string;
+      sessionId: string;
+      configId: string;
+      value: string;
+    }) => Promise<{ configOptions?: Array<any> }>;
+    setSessionMode: (request: {
+      agentId: string;
+      sessionId: string;
+      modeId: string;
+    }) => Promise<void>;
 
     // Prompting
     prompt: (request: {
@@ -1975,6 +1993,22 @@ const electronAPI: ElectronAPI = {
         env?: Record<string, string>;
       }>;
     }) => ipcRenderer.invoke("acp:create-session", request),
+    setSessionModel: (request: {
+      agentId: string;
+      sessionId: string;
+      modelId: string;
+    }) => ipcRenderer.invoke("acp:set-session-model", request),
+    setSessionConfigOption: (request: {
+      agentId: string;
+      sessionId: string;
+      configId: string;
+      value: string;
+    }) => ipcRenderer.invoke("acp:set-session-config", request),
+    setSessionMode: (request: {
+      agentId: string;
+      sessionId: string;
+      modeId: string;
+    }) => ipcRenderer.invoke("acp:set-session-mode", request),
 
     // Prompting
     prompt: (request: {
@@ -2043,6 +2077,8 @@ const electronAPI: ElectronAPI = {
           createdAt: Date;
           availableModes?: string[];
           currentMode?: string;
+          configOptions?: Array<any>;
+          models?: any;
         };
       }) => void
     ) => {
@@ -2068,6 +2104,7 @@ const electronAPI: ElectronAPI = {
         messageId: string;
         type: "text" | "thinking" | "tool_call" | "tool_result" | "error";
         content: string | { id?: string; name?: string; input?: unknown; output?: unknown; state?: string };
+        role?: "user" | "assistant";
         done?: boolean;
       }) => void
     ) => {

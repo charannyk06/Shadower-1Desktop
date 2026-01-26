@@ -23,6 +23,8 @@ export const codexConfig: ACPAgentConfig = {
   // Detect if codex is installed (the adapter will use it)
   detectCommand: "codex",
   detectArgs: ["--version"],
+  // Auth detection: Codex stores credentials in ~/.codex/auth.json
+  authPaths: [".codex/auth.json"],
 };
 
 /**

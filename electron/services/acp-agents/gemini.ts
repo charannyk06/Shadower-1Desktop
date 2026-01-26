@@ -23,6 +23,8 @@ export const geminiConfig: ACPAgentConfig = {
   iconProvider: "google",
   detectCommand: "gemini",
   detectArgs: ["--version"],
+  // Auth detection: Gemini CLI stores OAuth credentials in ~/.gemini/oauth_creds.json
+  authPaths: [".gemini/oauth_creds.json", ".gemini/google_accounts.json"],
 };
 
 /**
