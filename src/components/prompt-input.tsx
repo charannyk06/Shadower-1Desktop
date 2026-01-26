@@ -3,8 +3,15 @@
 import { UploadedFile, appStore } from "@/app/store";
 import { ContextIndicator } from "@/components/ui/context-indicator";
 import { UIMessage, UseChatHelpers } from "@ai-sdk/react";
+import type {
+  ACPSession,
+  SessionConfigOption,
+  SessionConfigSelectGroup,
+  SessionConfigSelectOption,
+} from "app-types/acp";
 import { ChatMention, ChatModel } from "app-types/chat";
 import {
+  Check,
   ChevronDown,
   CornerRightUp,
   FileTextIcon,
@@ -13,6 +20,7 @@ import {
   MicIcon,
   PaperclipIcon,
   PlusIcon,
+  Settings2,
   Square,
   XIcon,
 } from "lucide-react";
@@ -43,7 +51,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuPortal,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -78,6 +88,10 @@ interface PromptInputProps {
   isLoading?: boolean;
   model?: ChatModel;
   setModel?: (model: ChatModel) => void;
+  acpSession?: ACPSession | null;
+  onSetAcpModel?: (modelId: string) => Promise<void>;
+  onSetAcpConfigOption?: (configId: string, value: string) => Promise<void>;
+  onSetAcpMode?: (modeId: string) => Promise<void>;
   voiceDisabled?: boolean;
   threadId?: string;
   disabledMention?: boolean;
@@ -86,11 +100,246 @@ interface PromptInputProps {
 
 const ChatMentionInput = lazy(() => import("./chat-mention-input"));
 
+type ConfigOptionValue = {
+  value: string;
+  name: string;
+  description?: string | null;
+  group?: string;
+};
+
+const isConfigGroup = (
+  value: SessionConfigSelectOption | SessionConfigSelectGroup,
+): value is SessionConfigSelectGroup => {
+  return "group" in value;
+};
+
+const flattenConfigOptions = (
+  options: SessionConfigOption["options"],
+): ConfigOptionValue[] => {
+  if (!Array.isArray(options)) return [];
+  if (options.length === 0) return [];
+
+  if (isConfigGroup(options[0] as SessionConfigSelectOption | SessionConfigSelectGroup)) {
+    return (options as SessionConfigSelectGroup[]).flatMap((group) =>
+      group.options.map((opt) => ({
+        value: opt.value,
+        name: opt.name,
+        description: opt.description ?? undefined,
+        group: group.name,
+      })),
+    );
+  }
+
+  return (options as SessionConfigSelectOption[]).map((opt) => ({
+    value: opt.value,
+    name: opt.name,
+    description: opt.description ?? undefined,
+  }));
+};
+
+function ACPAgentOptionsDropdown({
+  session,
+  onSetModel,
+  onSetConfigOption,
+  onSetMode,
+}: {
+  session?: ACPSession | null;
+  onSetModel?: (modelId: string) => Promise<void>;
+  onSetConfigOption?: (configId: string, value: string) => Promise<void>;
+  onSetMode?: (modeId: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const availableModes = session?.availableModes || [];
+  const currentMode = session?.currentMode;
+  const models = session?.models;
+  const hasModels = !!models?.availableModels?.length;
+
+  const filteredConfigOptions = useMemo(() => {
+    const options = session?.configOptions || [];
+    if (hasModels) {
+      return options.filter((option) => option.category !== "model");
+    }
+    return options;
+  }, [session?.configOptions, hasModels]);
+
+  const hasOptions =
+    availableModes.length > 0 || hasModels || filteredConfigOptions.length > 0;
+
+  const handleSetModel = useCallback(
+    async (modelId: string) => {
+      if (!onSetModel) return;
+      try {
+        await onSetModel(modelId);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to set model",
+        );
+      }
+    },
+    [onSetModel],
+  );
+
+  const handleSetMode = useCallback(
+    async (modeId: string) => {
+      if (!onSetMode) return;
+      try {
+        await onSetMode(modeId);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to set mode",
+        );
+      }
+    },
+    [onSetMode],
+  );
+
+  const handleSetConfigOption = useCallback(
+    async (configId: string, value: string) => {
+      if (!onSetConfigOption) return;
+      try {
+        await onSetConfigOption(configId, value);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to update option",
+        );
+      }
+    },
+    [onSetConfigOption],
+  );
+
+  if (!session || !hasOptions) return null;
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "rounded-full p-2! data-[state=open]:bg-input! hover:bg-input! mr-1",
+            open && "bg-input!",
+          )}
+        >
+          <Settings2 className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="top" className="w-64">
+        {availableModes.length > 0 && (
+          <>
+            <DropdownMenuLabel className="text-muted-foreground">
+              Mode
+            </DropdownMenuLabel>
+            {availableModes.map((mode) => (
+              <DropdownMenuItem
+                key={mode}
+                className="cursor-pointer"
+                onClick={() => handleSetMode(mode)}
+              >
+                {currentMode === mode ? (
+                  <Check className="size-3 mr-2" />
+                ) : (
+                  <span className="w-5" />
+                )}
+                <span className="truncate">{mode}</span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+          </>
+        )}
+
+        {hasModels && (
+          <>
+            <DropdownMenuLabel className="text-muted-foreground">
+              Model
+            </DropdownMenuLabel>
+            {models?.availableModels.map((model) => (
+              <DropdownMenuItem
+                key={model.modelId}
+                className="cursor-pointer"
+                onClick={() => handleSetModel(model.modelId)}
+              >
+                {models.currentModelId === model.modelId ? (
+                  <Check className="size-3 mr-2" />
+                ) : (
+                  <span className="w-5" />
+                )}
+                <span className="truncate">{model.name}</span>
+              </DropdownMenuItem>
+            ))}
+            {filteredConfigOptions.length > 0 && <DropdownMenuSeparator />}
+          </>
+        )}
+
+        {filteredConfigOptions.map((option) => {
+          const flattened = flattenConfigOptions(option.options);
+          const valueMap = new Map(
+            flattened.map((item) => [item.value, item.name]),
+          );
+          const currentLabel =
+            valueMap.get(option.currentValue) || option.currentValue;
+
+          const grouped = flattened.reduce((acc, item) => {
+            const key = item.group || "__ungrouped__";
+            const list = acc.get(key) || [];
+            list.push(item);
+            acc.set(key, list);
+            return acc;
+          }, new Map<string, ConfigOptionValue[]>());
+
+          return (
+            <DropdownMenuSub key={option.id}>
+              <DropdownMenuSubTrigger className="cursor-pointer">
+                <span className="truncate">{option.name}</span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {currentLabel}
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-64">
+                {Array.from(grouped.entries()).map(([group, items], idx) => (
+                  <div key={`${option.id}-${group}`}>
+                    {group !== "__ungrouped__" && (
+                      <DropdownMenuLabel className="text-muted-foreground">
+                        {group}
+                      </DropdownMenuLabel>
+                    )}
+                    {items.map((item) => (
+                      <DropdownMenuItem
+                        key={item.value}
+                        className="cursor-pointer"
+                        onClick={() =>
+                          handleSetConfigOption(option.id, item.value)
+                        }
+                      >
+                        {option.currentValue === item.value ? (
+                          <Check className="size-3 mr-2" />
+                        ) : (
+                          <span className="w-5" />
+                        )}
+                        <span className="truncate">{item.name}</span>
+                      </DropdownMenuItem>
+                    ))}
+                    {idx < grouped.size - 1 && <DropdownMenuSeparator />}
+                  </div>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export default function PromptInput({
   placeholder,
   sendMessage,
   model,
   setModel,
+  acpSession,
+  onSetAcpModel,
+  onSetAcpConfigOption,
+  onSetAcpMode,
   input,
   onFocus,
   setInput,
@@ -160,10 +409,33 @@ export default function PromptInput({
 
   const setChatModel = useCallback(
     (model: ChatModel) => {
+      // Auto-sync settings when a coding agent (ACP agent) is selected
+      const isACPAgent = model.provider === "coding-agents";
+      console.log("[PromptInput] setChatModel called:", { model, isACPAgent });
+
       if (setModel) {
         setModel(model);
       } else {
         appStoreMutate({ chatModel: model });
+      }
+
+      // When an ACP agent is selected, auto-configure appropriate settings
+      if (isACPAgent) {
+        console.log("[PromptInput] Auto-syncing settings for ACP agent");
+        appStoreMutate({
+          // ACP agents handle tools internally, so set to "auto" mode
+          toolChoice: "auto",
+          // Agent mode works best with coding agents for autonomous execution
+          chatMode: "agent",
+        });
+        // Verify the store was updated
+        setTimeout(() => {
+          const state = appStore.getState();
+          console.log("[PromptInput] Store state after auto-sync:", {
+            toolChoice: state.toolChoice,
+            chatMode: state.chatMode,
+          });
+        }, 0);
       }
     },
     [setModel, appStoreMutate],
@@ -572,6 +844,26 @@ export default function PromptInput({
                       {t("generateImage")}
                       <XIcon className="size-3 group-hover/image-generator:opacity-100 opacity-0 transition-opacity duration-200" />
                     </Button>
+                  ) : chatModel?.provider === "coding-agents" ? (
+                    // ACP agents handle tools internally - show agent indicator instead
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                        {modelInfo?.acpProvider === "anthropic" ? (
+                          <ClaudeIcon className="size-3" />
+                        ) : modelInfo?.acpProvider === "openai" ? (
+                          <OpenAIIcon className="size-3" />
+                        ) : modelInfo?.acpProvider === "google" ? (
+                          <GeminiIcon className="size-3" />
+                        ) : null}
+                        <span>Agent Mode</span>
+                      </div>
+                      <ACPAgentOptionsDropdown
+                        session={acpSession}
+                        onSetModel={onSetAcpModel}
+                        onSetConfigOption={onSetAcpConfigOption}
+                        onSetMode={onSetAcpMode}
+                      />
+                    </div>
                   ) : (
                     <>
                       <ChatModeDropdown />
@@ -602,19 +894,19 @@ export default function PromptInput({
                     {chatModel?.model ? (
                       <>
                         {chatModel.provider === "openai" ? (
-                          <OpenAIIcon className="size-3 opacity-0 group-data-[state=open]:opacity-100 group-hover:opacity-100" />
+                          <OpenAIIcon className="size-3 opacity-70 transition-opacity group-data-[state=open]:opacity-100 group-hover:opacity-100" />
                         ) : chatModel.provider === "xai" ? (
-                          <GrokIcon className="size-3 opacity-0 group-data-[state=open]:opacity-100 group-hover:opacity-100" />
+                          <GrokIcon className="size-3 opacity-70 transition-opacity group-data-[state=open]:opacity-100 group-hover:opacity-100" />
                         ) : chatModel.provider === "anthropic" ? (
-                          <ClaudeIcon className="size-3 opacity-0 group-data-[state=open]:opacity-100 group-hover:opacity-100" />
+                          <ClaudeIcon className="size-3 opacity-70 transition-opacity group-data-[state=open]:opacity-100 group-hover:opacity-100" />
                         ) : chatModel.provider === "google" ? (
-                          <GeminiIcon className="size-3 opacity-0 group-data-[state=open]:opacity-100 group-hover:opacity-100" />
+                          <GeminiIcon className="size-3 opacity-70 transition-opacity group-data-[state=open]:opacity-100 group-hover:opacity-100" />
                         ) : chatModel.provider === "groq" ? (
-                          <GroqIcon className="size-3 opacity-0 group-data-[state=open]:opacity-100 group-hover:opacity-100" />
+                          <GroqIcon className="size-3 opacity-70 transition-opacity group-data-[state=open]:opacity-100 group-hover:opacity-100" />
                         ) : chatModel.provider === "openRouter" ? (
-                          <OpenRouterIcon className="size-3 opacity-0 group-data-[state=open]:opacity-100 group-hover:opacity-100" />
+                          <OpenRouterIcon className="size-3 opacity-70 transition-opacity group-data-[state=open]:opacity-100 group-hover:opacity-100" />
                         ) : chatModel.provider === "ollama" ? (
-                          <OllamaIcon className="size-3 opacity-0 group-data-[state=open]:opacity-100 group-hover:opacity-100" />
+                          <OllamaIcon className="size-3 opacity-70 transition-opacity group-data-[state=open]:opacity-100 group-hover:opacity-100" />
                         ) : null}
                         <span
                           className="text-foreground group-data-[state=open]:text-foreground"
