@@ -10,7 +10,6 @@ import {
   CircleDotIcon,
   XIcon,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { memo, useMemo } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 import { useShallow } from "zustand/shallow";
@@ -40,8 +39,6 @@ interface TaskStatusOutput {
 function PureTaskStatusInvocation({
   part,
 }: Readonly<TaskStatusInvocationProps>) {
-  const { t } = useTranslation();
-
   // Get current thread's plan from store for real-time task description lookup
   const { currentThreadId, threadPlans } = useAppStore(
     useShallow((s) => ({
@@ -80,7 +77,7 @@ function PureTaskStatusInvocation({
     return (
       <div className="flex items-center gap-2 text-sm text-red-500">
         <XIcon className="h-4 w-4" />
-        <span>{result?.error || t("Common.error")}</span>
+        <span>{result?.error || "Error"}</span>
       </div>
     );
   }

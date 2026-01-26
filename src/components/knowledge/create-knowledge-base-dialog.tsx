@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import {
   Drawer,
@@ -29,14 +28,13 @@ export function CreateKnowledgeBaseDialog({
   userId: _userId,
   onCreated,
 }: CreateKnowledgeBaseDialogProps) {
-  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      toast.error(t("Knowledge.nameRequired"));
+      toast.error("Name is required");
       return;
     }
 
@@ -57,7 +55,7 @@ export function CreateKnowledgeBaseDialog({
         throw new Error(result.error || "Failed to create knowledge base");
       }
 
-      toast.success(t("Knowledge.knowledgeBaseCreated"));
+      toast.success("Knowledge base created");
 
       onOpenChange(false);
 
@@ -67,7 +65,7 @@ export function CreateKnowledgeBaseDialog({
 
       onCreated?.();
     } catch (error: any) {
-      toast.error(error.message || t("Knowledge.failedToCreateKnowledgeBase"));
+      toast.error(error.message || "Failed to create knowledge base");
       console.error("Failed to create knowledge base:", error);
     } finally {
       setCreating(false);
@@ -84,10 +82,10 @@ export function CreateKnowledgeBaseDialog({
           <div className="flex items-center justify-between mb-4">
             <div>
               <DrawerTitle className="text-2xl font-bold">
-                {t("Knowledge.createKnowledgeBase")}
+                Create Knowledge Base
               </DrawerTitle>
               <DrawerDescription className="mt-1">
-                {t("Knowledge.createKnowledgeBaseDescription")}
+                Create a new knowledge base to organize and index your documents
               </DrawerDescription>
             </div>
             <Button
@@ -101,41 +99,40 @@ export function CreateKnowledgeBaseDialog({
           <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
             <div className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="name">{t("Knowledge.name")}</Label>
+                <Label htmlFor="name">Name</Label>
                 <Input
                   id="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={t("Knowledge.namePlaceholder")}
+                  placeholder="Enter knowledge base name"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="description">
-                  {t("Knowledge.description")}
-                </Label>
+                <Label htmlFor="description">Description</Label>
                 <Textarea
                   id="description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder={t("Knowledge.descriptionPlaceholder")}
+                  placeholder="Enter a description for this knowledge base"
                   rows={3}
                 />
               </div>
 
               <p className="text-sm text-muted-foreground">
-                {t("Knowledge.addDocumentsAfterCreate") || "After creating the knowledge base, you can add documents using the upload button on the detail page."}
+                After creating the knowledge base, you can add documents using
+                the upload button on the detail page.
               </p>
             </div>
             <div className="flex items-center justify-end gap-3 pt-6 border-t mt-6">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t("Common.cancel")}
+                Cancel
               </Button>
               <Button
                 onClick={handleCreate}
                 disabled={creating || !name.trim()}
               >
-                {creating ? t("Common.creating") : t("Common.create")}
+                {creating ? "Creating..." : "Create"}
               </Button>
             </div>
           </div>

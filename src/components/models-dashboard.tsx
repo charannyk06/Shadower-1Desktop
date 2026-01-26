@@ -61,7 +61,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
 import { LocalModelSetupWizard } from "@/components/local-model-setup-wizard";
@@ -73,8 +73,6 @@ import {
   getReasoningModels,
 } from "@/lib/ai/curated-local-models";
 import { ModelFamilyIcon } from "@/components/ui/model-family-icon";
-
-const LightRays = lazy(() => import("@/components/ui/light-rays"));
 
 // Types
 interface ApiKeyInfo {
@@ -225,7 +223,9 @@ export default function ModelsDashboard() {
   const [loadingAcpAgents, setLoadingAcpAgents] = useState(false);
   const [startingAgent, setStartingAgent] = useState<string | null>(null);
   const [stoppingAgent, setStoppingAgent] = useState<string | null>(null);
-  const [authenticatingAgent, setAuthenticatingAgent] = useState<string | null>(null);
+  const [authenticatingAgent, setAuthenticatingAgent] = useState<string | null>(
+    null,
+  );
 
   // Fetch data using SWR
   const {
@@ -354,6 +354,8 @@ export default function ModelsDashboard() {
             `Refreshed models from ${PROVIDER_REGISTRY[providerId]?.name}`,
           );
           mutateLocalModels();
+          // Also invalidate the chat models cache so model selector updates immediately
+          await mutate("/api/chat/models");
         } else {
           toast.error(result.error || "Failed to refresh models");
         }
@@ -392,7 +394,33 @@ export default function ModelsDashboard() {
     }
   }, []);
 
-  // Check health on mount and tab change
+  // Auto-detect Ollama on mount (zero-config support)
+  // This ensures Ollama models are detected without user action
+  useEffect(() => {
+    const runAutoDetection = async () => {
+      try {
+        const result = await modelsApi.ollamaAutoDetect?.();
+        if (result?.detected && result.modelCount > 0) {
+          console.log(
+            `[ModelsDashboard] Auto-detected ${result.modelCount} Ollama models`,
+          );
+          // Refresh local models and chat models to show newly detected models
+          mutateLocalModels();
+          mutate("/api/chat/models");
+        }
+      } catch (error) {
+        console.debug(
+          "[ModelsDashboard] Ollama auto-detection skipped:",
+          error,
+        );
+      }
+    };
+
+    // Run auto-detection on mount
+    runAutoDetection();
+  }, []); // Only run once on mount
+
+  // Check health on tab change
   useEffect(() => {
     if (activeTab === "local-models") {
       checkOllamaHealth();
@@ -413,6 +441,8 @@ export default function ModelsDashboard() {
         await checkOllamaHealth();
         // Refresh models
         mutateLocalModels();
+        // Also invalidate the chat models cache so model selector updates immediately
+        await mutate("/api/chat/models");
       } else {
         toast.error(result?.message || "Failed to start Ollama");
       }
@@ -437,6 +467,8 @@ export default function ModelsDashboard() {
         if (result.success) {
           toast.success(`Deleted ${model.displayName || model.name}`);
           mutateLocalModels();
+          // Also invalidate the chat models cache so model selector updates immediately
+          await mutate("/api/chat/models");
         } else {
           toast.error(result.error || "Failed to delete model");
         }
@@ -490,7 +522,9 @@ export default function ModelsDashboard() {
       try {
         const result = await authenticateACPAgent(agentId);
         if (result.success) {
-          toast.success(`Authenticated ${AGENT_DISPLAY_NAMES[agentId] || agentId}`);
+          toast.success(
+            `Authenticated ${AGENT_DISPLAY_NAMES[agentId] || agentId}`,
+          );
           await fetchAcpAgents(true);
         } else {
           toast.error(result.message || `Failed to authenticate ${agentId}`);
@@ -515,6 +549,8 @@ export default function ModelsDashboard() {
         if (result?.success) {
           toast.success(`Started downloading ${modelName}`);
           mutateLocalModels();
+          // Also invalidate the chat models cache so model selector updates immediately
+          await mutate("/api/chat/models");
         } else {
           toast.error(result?.error || "Failed to start download");
         }
@@ -530,7 +566,7 @@ export default function ModelsDashboard() {
   useEffect(() => {
     if (localModelsData?.models) {
       const downloadingModels = localModelsData.models.filter(
-        (m: LocalModel) => m.status === "downloading"
+        (m: LocalModel) => m.status === "downloading",
       );
       if (downloadingModels.length > 0) {
         setDownloadProgress((prev) => {
@@ -567,6 +603,8 @@ export default function ModelsDashboard() {
         return next;
       });
       mutateLocalModels();
+      // Also invalidate the chat models cache so model selector updates immediately
+      mutate("/api/chat/models");
       toast.success(`Downloaded ${modelName} successfully`);
     });
 
@@ -615,31 +653,8 @@ export default function ModelsDashboard() {
     return Object.values(PROVIDER_REGISTRY).filter((p) => p.type === "local");
   }, []);
 
-  // Particle effects
-  const particles = useMemo(() => {
-    return (
-      <>
-        <div className="absolute opacity-30 pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
-          <Suspense fallback={null}>
-            <LightRays className="bg-transparent" />
-          </Suspense>
-        </div>
-        <div className="absolute pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
-          <div className="w-full h-full bg-gradient-to-t from-background to-50% to-transparent z-20" />
-        </div>
-        <div className="absolute pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
-          <div className="w-full h-full bg-gradient-to-l from-background to-20% to-transparent z-20" />
-        </div>
-        <div className="absolute pointer-events-none top-0 left-0 w-full h-full z-10 fade-in animate-in duration-5000">
-          <div className="w-full h-full bg-gradient-to-r from-background to-20% to-transparent z-20" />
-        </div>
-      </>
-    );
-  }, []);
-
   return (
     <>
-      {particles}
       <ScrollArea className="h-full w-full z-40">
         <div className="pt-8 flex-1 relative flex flex-col gap-6 px-8 max-w-4xl h-full mx-auto pb-8">
           {/* Header */}
@@ -796,8 +811,7 @@ export default function ModelsDashboard() {
               <Card
                 className={cn(
                   "transition-all",
-                  ollamaHealth?.running &&
-                    "border-green-500/30 bg-green-500/5",
+                  ollamaHealth?.running && "border-green-500/30 bg-green-500/5",
                 )}
               >
                 <CardContent className="p-4">
@@ -893,7 +907,8 @@ export default function ModelsDashboard() {
                           Compact Models
                         </CardTitle>
                         <CardDescription>
-                          Lightweight models optimized for speed. Ideal for quick tasks with lower resource usage.
+                          Lightweight models optimized for speed. Ideal for
+                          quick tasks with lower resource usage.
                         </CardDescription>
                       </div>
                     </div>
@@ -904,8 +919,8 @@ export default function ModelsDashboard() {
                         const isInstalled = localModels.some(
                           (m) =>
                             (m.name === curatedModel.name ||
-                             m.name === curatedModel.name.split(":")[0] ||
-                             m.name.startsWith(curatedModel.name + ":")) &&
+                              m.name === curatedModel.name.split(":")[0] ||
+                              m.name.startsWith(curatedModel.name + ":")) &&
                             m.providerId === "ollama",
                         );
                         const isDownloading = downloadProgress.has(
@@ -921,19 +936,25 @@ export default function ModelsDashboard() {
                               "flex items-center justify-between p-3 rounded-lg",
                               isInstalled
                                 ? "bg-green-500/10 border border-green-500/30"
-                                : "bg-muted/50"
+                                : "bg-muted/50",
                             )}
                           >
                             <div className="flex items-center gap-3 flex-1 min-w-0">
                               <div className="p-1.5 rounded-md bg-muted shrink-0">
-                                <ModelFamilyIcon family={curatedModel.family} className="size-4" />
+                                <ModelFamilyIcon
+                                  family={curatedModel.family}
+                                  className="size-4"
+                                />
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <p className="font-medium">
                                     {curatedModel.displayName}
                                   </p>
-                                  <Badge variant="secondary" className="text-xs">
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-xs"
+                                  >
                                     {curatedModel.size}
                                   </Badge>
                                   {curatedModel.toolCalling && (
@@ -950,7 +971,10 @@ export default function ModelsDashboard() {
                                 </p>
                                 {isDownloading && (
                                   <div className="mt-2">
-                                    <Progress value={progress} className="h-1.5" />
+                                    <Progress
+                                      value={progress}
+                                      className="h-1.5"
+                                    />
                                     <p className="text-xs text-muted-foreground mt-1">
                                       Downloading... {progress}%
                                     </p>
@@ -974,7 +998,9 @@ export default function ModelsDashboard() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() =>
-                                    handleDownloadCuratedModel(curatedModel.name)
+                                    handleDownloadCuratedModel(
+                                      curatedModel.name,
+                                    )
                                   }
                                 >
                                   <Download className="size-4 mr-1" />
@@ -1001,129 +1027,22 @@ export default function ModelsDashboard() {
                           Recommended Models
                         </CardTitle>
                         <CardDescription>
-                          Balanced models with good quality and performance. Requires 8GB+ RAM.
+                          Balanced models with good quality and performance.
+                          Requires 8GB+ RAM.
                         </CardDescription>
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      {getTopFastModels().filter(m => !m.isSLM && !m.isReasoning).map((curatedModel) => {
-                        const isInstalled = localModels.some(
-                          (m) =>
-                            (m.name === curatedModel.name ||
-                             m.name === curatedModel.name.split(":")[0] ||
-                             m.name.startsWith(curatedModel.name + ":")) &&
-                            m.providerId === "ollama",
-                        );
-                        const isDownloading = downloadProgress.has(
-                          curatedModel.name,
-                        );
-                        const progress =
-                          downloadProgress.get(curatedModel.name) || 0;
-
-                        return (
-                          <div
-                            key={curatedModel.name}
-                            className={cn(
-                              "flex items-center justify-between p-3 rounded-lg",
-                              isInstalled
-                                ? "bg-green-500/10 border border-green-500/30"
-                                : "bg-muted/50"
-                            )}
-                          >
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <div className="p-1.5 rounded-md bg-muted shrink-0">
-                                <ModelFamilyIcon family={curatedModel.family} className="size-4" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="font-medium">
-                                    {curatedModel.displayName}
-                                  </p>
-                                  <Badge variant="secondary" className="text-xs">
-                                    {curatedModel.size}
-                                  </Badge>
-                                  {curatedModel.toolCalling && (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-xs"
-                                    >
-                                      Tools
-                                    </Badge>
-                                  )}
-                                </div>
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {curatedModel.description}
-                                </p>
-                                {isDownloading && (
-                                  <div className="mt-2">
-                                    <Progress value={progress} className="h-1.5" />
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      Downloading... {progress}%
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0 ml-2">
-                              {isInstalled ? (
-                                <Badge
-                                  variant="outline"
-                                  className="text-green-600 border-green-600/30"
-                                >
-                                  <CheckCircle2 className="size-3 mr-1" />
-                                  Installed
-                                </Badge>
-                              ) : isDownloading ? (
-                                <Badge variant="secondary">{progress}%</Badge>
-                              ) : (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    handleDownloadCuratedModel(curatedModel.name)
-                                  }
-                                >
-                                  <Download className="size-4 mr-1" />
-                                  Download
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* More Models */}
-              {ollamaHealth?.running && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-lg flex items-center gap-2">
-                          <Server className="size-5 text-muted-foreground" />
-                          More Models
-                        </CardTitle>
-                        <CardDescription>
-                          Additional models with tool support
-                        </CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {getFastModels()
-                        .filter((m) => !m.recommended && !m.isSLM && !m.isReasoning)
+                      {getTopFastModels()
+                        .filter((m) => !m.isSLM && !m.isReasoning)
                         .map((curatedModel) => {
                           const isInstalled = localModels.some(
                             (m) =>
                               (m.name === curatedModel.name ||
-                               m.name === curatedModel.name.split(":")[0] ||
-                               m.name.startsWith(curatedModel.name + ":")) &&
+                                m.name === curatedModel.name.split(":")[0] ||
+                                m.name.startsWith(curatedModel.name + ":")) &&
                               m.providerId === "ollama",
                           );
                           const isDownloading = downloadProgress.has(
@@ -1139,19 +1058,25 @@ export default function ModelsDashboard() {
                                 "flex items-center justify-between p-3 rounded-lg",
                                 isInstalled
                                   ? "bg-green-500/10 border border-green-500/30"
-                                  : "bg-muted/50"
+                                  : "bg-muted/50",
                               )}
                             >
                               <div className="flex items-center gap-3 flex-1 min-w-0">
                                 <div className="p-1.5 rounded-md bg-muted shrink-0">
-                                  <ModelFamilyIcon family={curatedModel.family} className="size-4" />
+                                  <ModelFamilyIcon
+                                    family={curatedModel.family}
+                                    className="size-4"
+                                  />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <p className="font-medium">
                                       {curatedModel.displayName}
                                     </p>
-                                    <Badge variant="secondary" className="text-xs">
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-xs"
+                                    >
                                       {curatedModel.size}
                                     </Badge>
                                     {curatedModel.toolCalling && (
@@ -1195,7 +1120,132 @@ export default function ModelsDashboard() {
                                     variant="outline"
                                     size="sm"
                                     onClick={() =>
-                                      handleDownloadCuratedModel(curatedModel.name)
+                                      handleDownloadCuratedModel(
+                                        curatedModel.name,
+                                      )
+                                    }
+                                  >
+                                    <Download className="size-4 mr-1" />
+                                    Download
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* More Models */}
+              {ollamaHealth?.running && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Server className="size-5 text-muted-foreground" />
+                          More Models
+                        </CardTitle>
+                        <CardDescription>
+                          Additional models with tool support
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {getFastModels()
+                        .filter(
+                          (m) => !m.recommended && !m.isSLM && !m.isReasoning,
+                        )
+                        .map((curatedModel) => {
+                          const isInstalled = localModels.some(
+                            (m) =>
+                              (m.name === curatedModel.name ||
+                                m.name === curatedModel.name.split(":")[0] ||
+                                m.name.startsWith(curatedModel.name + ":")) &&
+                              m.providerId === "ollama",
+                          );
+                          const isDownloading = downloadProgress.has(
+                            curatedModel.name,
+                          );
+                          const progress =
+                            downloadProgress.get(curatedModel.name) || 0;
+
+                          return (
+                            <div
+                              key={curatedModel.name}
+                              className={cn(
+                                "flex items-center justify-between p-3 rounded-lg",
+                                isInstalled
+                                  ? "bg-green-500/10 border border-green-500/30"
+                                  : "bg-muted/50",
+                              )}
+                            >
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div className="p-1.5 rounded-md bg-muted shrink-0">
+                                  <ModelFamilyIcon
+                                    family={curatedModel.family}
+                                    className="size-4"
+                                  />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="font-medium">
+                                      {curatedModel.displayName}
+                                    </p>
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-xs"
+                                    >
+                                      {curatedModel.size}
+                                    </Badge>
+                                    {curatedModel.toolCalling && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs"
+                                      >
+                                        Tools
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {curatedModel.description}
+                                  </p>
+                                  {isDownloading && (
+                                    <div className="mt-2">
+                                      <Progress
+                                        value={progress}
+                                        className="h-1.5"
+                                      />
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        Downloading... {progress}%
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0 ml-2">
+                                {isInstalled ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-green-600 border-green-600/30"
+                                  >
+                                    <CheckCircle2 className="size-3 mr-1" />
+                                    Installed
+                                  </Badge>
+                                ) : isDownloading ? (
+                                  <Badge variant="secondary">{progress}%</Badge>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleDownloadCuratedModel(
+                                        curatedModel.name,
+                                      )
                                     }
                                   >
                                     <Download className="size-4 mr-1" />
@@ -1222,7 +1272,8 @@ export default function ModelsDashboard() {
                           Reasoning Models
                         </CardTitle>
                         <CardDescription>
-                          Models with visible thinking process. Best for complex reasoning tasks.
+                          Models with visible thinking process. Best for complex
+                          reasoning tasks.
                         </CardDescription>
                       </div>
                     </div>
@@ -1233,8 +1284,8 @@ export default function ModelsDashboard() {
                         const isInstalled = localModels.some(
                           (m) =>
                             (m.name === curatedModel.name ||
-                             m.name === curatedModel.name.split(":")[0] ||
-                             m.name.startsWith(curatedModel.name + ":")) &&
+                              m.name === curatedModel.name.split(":")[0] ||
+                              m.name.startsWith(curatedModel.name + ":")) &&
                             m.providerId === "ollama",
                         );
                         const isDownloading = downloadProgress.has(
@@ -1250,19 +1301,25 @@ export default function ModelsDashboard() {
                               "flex items-center justify-between p-3 rounded-lg",
                               isInstalled
                                 ? "bg-green-500/10 border border-green-500/30"
-                                : "bg-muted/50"
+                                : "bg-muted/50",
                             )}
                           >
                             <div className="flex items-center gap-3 flex-1 min-w-0">
                               <div className="p-1.5 rounded-md bg-muted shrink-0">
-                                <ModelFamilyIcon family={curatedModel.family} className="size-4" />
+                                <ModelFamilyIcon
+                                  family={curatedModel.family}
+                                  className="size-4"
+                                />
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <p className="font-medium">
                                     {curatedModel.displayName}
                                   </p>
-                                  <Badge variant="secondary" className="text-xs">
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-xs"
+                                  >
                                     {curatedModel.size}
                                   </Badge>
                                   {curatedModel.toolCalling && (
@@ -1285,7 +1342,10 @@ export default function ModelsDashboard() {
                                 </p>
                                 {isDownloading && (
                                   <div className="mt-2">
-                                    <Progress value={progress} className="h-1.5" />
+                                    <Progress
+                                      value={progress}
+                                      className="h-1.5"
+                                    />
                                     <p className="text-xs text-muted-foreground mt-1">
                                       Downloading... {progress}%
                                     </p>
@@ -1309,7 +1369,9 @@ export default function ModelsDashboard() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() =>
-                                    handleDownloadCuratedModel(curatedModel.name)
+                                    handleDownloadCuratedModel(
+                                      curatedModel.name,
+                                    )
                                   }
                                 >
                                   <Download className="size-4 mr-1" />
@@ -1392,9 +1454,15 @@ export default function ModelsDashboard() {
                                   <div className="flex items-center gap-3 flex-1 min-w-0">
                                     <div className="p-1.5 rounded-md bg-background shrink-0">
                                       {model.family ? (
-                                        <ModelFamilyIcon family={model.family} className="size-4" />
+                                        <ModelFamilyIcon
+                                          family={model.family}
+                                          className="size-4"
+                                        />
                                       ) : curatedInfo?.family ? (
-                                        <ModelFamilyIcon family={curatedInfo.family} className="size-4" />
+                                        <ModelFamilyIcon
+                                          family={curatedInfo.family}
+                                          className="size-4"
+                                        />
                                       ) : (
                                         <Server className="size-4 text-muted-foreground" />
                                       )}
@@ -1491,7 +1559,8 @@ export default function ModelsDashboard() {
             {/* Coding Agents Tab */}
             <TabsContent value="coding-agents" className="space-y-4 mt-4">
               <div className="text-sm text-muted-foreground mb-4">
-                Manage AI coding agents for codebase understanding, file edits, and terminal commands.
+                Manage AI coding agents for codebase understanding, file edits,
+                and terminal commands.
               </div>
 
               {loadingAcpAgents && acpAgents.length === 0 ? (
@@ -1509,10 +1578,14 @@ export default function ModelsDashboard() {
                           <Terminal className="size-5" />
                         </div>
                         <div>
-                          <CardTitle className="text-lg">Coding Agents</CardTitle>
+                          <CardTitle className="text-lg">
+                            Coding Agents
+                          </CardTitle>
                           <CardDescription>
                             {acpAgents.filter((a) => a.installed).length} agent
-                            {acpAgents.filter((a) => a.installed).length !== 1 ? "s" : ""}{" "}
+                            {acpAgents.filter((a) => a.installed).length !== 1
+                              ? "s"
+                              : ""}{" "}
                             available
                           </CardDescription>
                         </div>
@@ -1547,11 +1620,14 @@ export default function ModelsDashboard() {
                     ) : (
                       <div className="space-y-2">
                         {acpAgents.map((agent) => {
-                          const displayName = AGENT_DISPLAY_NAMES[agent.id] || agent.id;
-                          const iconProvider = AGENT_ICON_PROVIDERS[agent.id] || "openai";
+                          const displayName =
+                            AGENT_DISPLAY_NAMES[agent.id] || agent.id;
+                          const iconProvider =
+                            AGENT_ICON_PROVIDERS[agent.id] || "openai";
                           const isStarting = startingAgent === agent.id;
                           const isStopping = stoppingAgent === agent.id;
-                          const isAuthenticating = authenticatingAgent === agent.id;
+                          const isAuthenticating =
+                            authenticatingAgent === agent.id;
 
                           return (
                             <div
@@ -1562,7 +1638,7 @@ export default function ModelsDashboard() {
                                   ? "bg-green-500/10 border border-green-500/30"
                                   : agent.installed
                                     ? "bg-muted/50"
-                                    : "bg-muted/30 opacity-60"
+                                    : "bg-muted/30 opacity-60",
                               )}
                             >
                               <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -1576,12 +1652,18 @@ export default function ModelsDashboard() {
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <p className="font-medium">{displayName}</p>
                                     {agent.version && (
-                                      <Badge variant="secondary" className="text-xs">
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-xs"
+                                      >
                                         v{agent.version}
                                       </Badge>
                                     )}
                                     {!agent.installed && (
-                                      <Badge variant="outline" className="text-xs">
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs"
+                                      >
                                         Not Installed
                                       </Badge>
                                     )}
@@ -1595,9 +1677,12 @@ export default function ModelsDashboard() {
                                     )}
                                   </div>
                                   <p className="text-xs text-muted-foreground truncate">
-                                    {agent.id === "claude-code" && "Anthropic's AI coding assistant"}
-                                    {agent.id === "codex" && "OpenAI's code-specialized model"}
-                                    {agent.id === "gemini" && "Google's multimodal AI assistant"}
+                                    {agent.id === "claude-code" &&
+                                      "Anthropic's AI coding assistant"}
+                                    {agent.id === "codex" &&
+                                      "OpenAI's code-specialized model"}
+                                    {agent.id === "gemini" &&
+                                      "Google's multimodal AI assistant"}
                                   </p>
                                 </div>
                               </div>
@@ -1627,7 +1712,9 @@ export default function ModelsDashboard() {
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => handleAuthenticateAgent(agent.id)}
+                                        onClick={() =>
+                                          handleAuthenticateAgent(agent.id)
+                                        }
                                         disabled={isAuthenticating}
                                       >
                                         {isAuthenticating ? (
@@ -1875,9 +1962,11 @@ export default function ModelsDashboard() {
       <LocalModelSetupWizard
         open={wizardOpen}
         onOpenChange={setWizardOpen}
-        onComplete={() => {
+        onComplete={async () => {
           mutateLocalModels();
           checkOllamaHealth();
+          // Also invalidate the chat models cache so model selector updates immediately
+          await mutate("/api/chat/models");
         }}
         skipOllamaInstall={ollamaHealth?.installed || false}
       />

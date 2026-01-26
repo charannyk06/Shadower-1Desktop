@@ -19,7 +19,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "ui/tooltip";
 
 import { getSystemAgentCustomIcon } from "@/hooks/use-system-agent-icon";
 import { useAgents } from "@/hooks/queries/use-agents";
-import { useTranslation } from "react-i18next";
 import { useCallback, useMemo, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { AgentDropdown } from "../agent/agent-dropdown";
@@ -33,7 +32,6 @@ const DISPLAY_LIMIT = 5; // Number of agents to show when collapsed
 
 export function AppSidebarAgents() {
   const mounted = useMounted();
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const { myAgents, isLoading } = useAgents({
@@ -103,13 +101,18 @@ export function AppSidebarAgents() {
           <SidebarMenuItem>
             <SidebarMenuButton asChild className="font-semibold">
               <Link to="/agents" data-testid="agents-link">
-                {t("Layout.agents")}
+                Agents
               </Link>
             </SidebarMenuButton>
             {canCreate && (
               <SidebarMenuAction
                 className="group-hover/agents:opacity-100 opacity-0 transition-opacity"
-                onClick={() => navigate({ to: "/agent/$agentId", params: { agentId: "new" } })}
+                onClick={() =>
+                  navigate({
+                    to: "/agent/$agentId",
+                    params: { agentId: "new" },
+                  })
+                }
                 data-testid="sidebar-create-agent-button"
               >
                 <Tooltip>
@@ -117,7 +120,7 @@ export function AppSidebarAgents() {
                     <PlusIcon className="size-4" />
                   </TooltipTrigger>
                   <TooltipContent side="right" align="center">
-                    {t("Agent.newAgent")}
+                    New Agent
                   </TooltipContent>
                 </Tooltip>
               </SidebarMenuAction>
@@ -141,11 +144,11 @@ export function AppSidebarAgents() {
                 >
                   <div className="gap-1 z-10">
                     <div className="flex items-center mb-4 gap-1">
-                      <p className="font-semibold">{t("Layout.createAgent")}</p>
+                      <p className="font-semibold">Create Agent</p>
                       <ArrowUpRightIcon className="size-3" />
                     </div>
                     <p className="text-muted-foreground">
-                      {t("Layout.createYourOwnAgent")}
+                      Create your own agent
                     </p>
                   </div>
                 </Link>
@@ -254,9 +257,7 @@ export function AppSidebarAgents() {
                     >
                       <div className="flex items-center gap-1">
                         <p className="text-xs">
-                          {expanded
-                            ? t("Common.showLess")
-                            : t("Common.showMore")}
+                          {expanded ? "Show less" : "Show more"}
                         </p>
                         {expanded ? (
                           <ChevronUp className="size-3.5" />

@@ -6,7 +6,6 @@ import { experimental_useObject } from "@ai-sdk/react";
 import { AgentGenerateSchema } from "app-types/agent";
 import { ChatModel } from "app-types/chat";
 import { CommandIcon, CornerRightUpIcon } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { Button } from "ui/button";
 import {
@@ -33,7 +32,6 @@ export function GenerateAgentDialog({
   onAgentChange,
   onToolsGenerated,
 }: GenerateAgentDialogProps) {
-  const { t } = useTranslation();
   const [generateModel, setGenerateModel] = useState<ChatModel | undefined>(
     appStore.getState().chatModel,
   );
@@ -90,7 +88,8 @@ export function GenerateAgentDialog({
         <div className="flex flex-col gap-6 w-full">
           <div className="px-4">
             <p className="bg-secondary rounded-lg max-w-2/3 p-4">
-              {t("Agent.generateAgentDetailedGreeting")}
+              Describe the agent you want to create, including its role,
+              personality, and what it should help with.
             </p>
           </div>
 

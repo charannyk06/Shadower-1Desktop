@@ -3,7 +3,6 @@ import { mcpApi, mcpFetcher } from "@/lib/electron/mcp-api";
 import { MCPToolInfo, McpToolCustomization } from "app-types/mcp";
 import { cn } from "lib/utils";
 import { Info, Loader, Pencil, Trash2 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { PropsWithChildren, ReactNode, useState } from "react";
 import useSWR from "swr";
 import { safe } from "ts-safe";
@@ -74,8 +73,6 @@ export function ToolDetailPopupContent({
   title?: ReactNode;
   serverId: string;
 }) {
-  const { t } = useTranslation();
-
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState<string>("");
   const [processing, setProcessing] = useState(false);
@@ -142,13 +139,13 @@ export function ToolDetailPopupContent({
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="text-xs font-medium flex-1 flex items-center">
-                  {t("MCP.additionalInstructions")}
+                  Additional Instructions
                   <Info className="size-3 ml-1 text-muted-foreground" />
                 </span>
               </TooltipTrigger>
               <TooltipContent>
                 <p className="whitespace-pre-wrap">
-                  {t("MCP.toolCustomizationInstructions")}
+                  Add specific instructions for individual tools
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -166,7 +163,7 @@ export function ToolDetailPopupContent({
                       <Trash2 className="size-3" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{t("Common.delete")}</TooltipContent>
+                  <TooltipContent>Delete</TooltipContent>
                 </Tooltip>
               )}
               {!editing && (
@@ -182,7 +179,7 @@ export function ToolDetailPopupContent({
                       <Pencil className="size-3" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{t("Common.edit")}</TooltipContent>
+                  <TooltipContent>Edit</TooltipContent>
                 </Tooltip>
               )}
             </>
@@ -205,11 +202,11 @@ export function ToolDetailPopupContent({
                 variant="ghost"
                 onClick={() => setEditing(false)}
               >
-                {t("Common.cancel")}
+                Cancel
               </Button>
 
               <Button size="sm" onClick={handleSave}>
-                {t("Common.save")}
+                Save
               </Button>
             </div>
           </div>
@@ -226,7 +223,7 @@ export function ToolDetailPopupContent({
       </div>
 
       <div className="flex items-center gap-2 my-4">
-        <h5 className="text-xs font-medium">{t("MCP.inputSchema")}</h5>
+        <h5 className="text-xs font-medium">Input Schema</h5>
       </div>
       {tool.inputSchema ? (
         <div className="overflow-y-auto max-h-[40vh] bg-card card p-4 rounded">
@@ -234,13 +231,13 @@ export function ToolDetailPopupContent({
             <JsonView data={tool.inputSchema?.properties || tool.inputSchema} />
           ) : (
             <p className="text-xs text-muted-foreground italic">
-              {t("MCP.noSchemaPropertiesAvailable")}
+              No schema properties available
             </p>
           )}
         </div>
       ) : (
         <p className="text-xs text-muted-foreground italic">
-          {t("MCP.noSchemaPropertiesAvailable")}
+          No schema properties available
         </p>
       )}
 

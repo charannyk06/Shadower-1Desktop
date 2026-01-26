@@ -2,10 +2,9 @@
 
 import { appStore } from "@/app/store";
 import { useThemeStyle } from "@/hooks/use-theme-style";
-import { getLocaleAction } from "@/i18n/get-locale";
 import { BasicUser } from "app-types/user";
 import { authClient } from "auth/client";
-import { BASE_THEMES, COOKIE_KEY_LOCALE, SUPPORTED_LOCALES } from "lib/const";
+import { BASE_THEMES } from "lib/const";
 import { getUserAvatar } from "lib/user/utils";
 import { userFetcher } from "@/lib/electron/user-api";
 import { capitalizeFirstLetter, cn } from "lib/utils";
@@ -13,7 +12,6 @@ import {
   ChevronRight,
   ChevronsUpDown,
   Command,
-  Languages,
   LogOutIcon,
   MoonStar,
   Palette,
@@ -21,9 +19,8 @@ import {
   Settings2,
   Sun,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { useTheme } from "next-themes";
-import { Suspense, useCallback } from "react";
+import { Suspense } from "react";
 import useSWR from "swr";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import {
@@ -57,7 +54,6 @@ export function AppSidebarUserInner(
     refreshInterval: 1000 * 60 * 10,
   });
   const appStoreMutate = appStore((state) => state.mutate);
-  const { t } = useTranslation();
 
   const logout = () => {
     authClient.signOut().finally(() => {
@@ -127,17 +123,16 @@ export function AppSidebarUserInner(
               onClick={() => appStoreMutate({ openChatPreferences: true })}
             >
               <Settings2 className="size-4 text-foreground" />
-              <span>{t("Layout.chatPreferences")}</span>
+              <span>Chat Preferences</span>
             </DropdownMenuItem>
             <SelectTheme />
-            <SelectLanguage />
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="cursor-pointer"
               onClick={() => appStoreMutate({ openShortcutsPopup: true })}
             >
               <Command className="size-4 text-foreground" />
-              <span>{t("Layout.keyboardShortcuts")}</span>
+              <span>Keyboard Shortcuts</span>
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
@@ -149,7 +144,7 @@ export function AppSidebarUserInner(
               }}
             >
               <GithubIcon className="size-4 fill-foreground" />
-              <span>{t("Layout.reportAnIssue")}</span>
+              <span>Report an issue</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
 
@@ -159,12 +154,12 @@ export function AppSidebarUserInner(
               data-testid="user-settings-menu-item"
             >
               <Settings className="size-4 text-foreground" />
-              <span>{t("Layout.userSettings")}</span>
+              <span>User Settings</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout} className="cursor-pointer">
               <LogOutIcon className="size-4 text-foreground" />
-              <span>{t("Layout.signOut")}</span>
+              <span>Sign out</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -174,8 +169,6 @@ export function AppSidebarUserInner(
 }
 
 function SelectTheme() {
-  const { t } = useTranslation();
-
   const { theme = "light", setTheme } = useTheme();
 
   const { themeStyle = "default", setThemeStyle } = useThemeStyle();
@@ -196,7 +189,7 @@ function SelectTheme() {
         }
       >
         <Palette className="mr-2 size-4" />
-        <span className="mr-auto">{t("Layout.theme")}</span>
+        <span className="mr-auto">Theme</span>
       </DropdownMenuSubTrigger>
       <DropdownMenuPortal>
         <DropdownMenuSubContent className="w-48">
@@ -245,45 +238,6 @@ function SelectTheme() {
               </DropdownMenuCheckboxItem>
             ))}
           </div>
-        </DropdownMenuSubContent>
-      </DropdownMenuPortal>
-    </DropdownMenuSub>
-  );
-}
-
-function SelectLanguage() {
-  const { t } = useTranslation();
-  const { data: currentLocale } = useSWR(COOKIE_KEY_LOCALE, getLocaleAction, {
-    fallbackData: SUPPORTED_LOCALES[0].code,
-    revalidateOnFocus: false,
-  });
-  const handleOnChange = useCallback((locale: string) => {
-    document.cookie = `${COOKIE_KEY_LOCALE}=${locale}; path=/;`;
-    globalThis.location.reload();
-  }, []);
-
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
-        <Languages className="mr-2 size-4" />
-        <span>{t("Layout.language")}</span>
-      </DropdownMenuSubTrigger>
-      <DropdownMenuPortal>
-        <DropdownMenuSubContent className="w-48 max-h-96 overflow-y-auto">
-          <DropdownMenuLabel className="text-muted-foreground">
-            {t("Layout.language")}
-          </DropdownMenuLabel>
-          {SUPPORTED_LOCALES.map((locale) => (
-            <DropdownMenuCheckboxItem
-              key={locale.code}
-              checked={locale.code === currentLocale}
-              onCheckedChange={() =>
-                locale.code !== currentLocale && handleOnChange(locale.code)
-              }
-            >
-              {locale.name}
-            </DropdownMenuCheckboxItem>
-          ))}
         </DropdownMenuSubContent>
       </DropdownMenuPortal>
     </DropdownMenuSub>

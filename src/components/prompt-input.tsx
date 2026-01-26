@@ -44,7 +44,6 @@ import { cn } from "@/lib/utils";
 import { Editor } from "@tiptap/react";
 import { DefaultToolName } from "lib/ai/tools";
 import equal from "lib/equal";
-import { useTranslation } from "react-i18next";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { ClaudeIcon } from "ui/claude-icon";
 import {
@@ -119,7 +118,11 @@ const flattenConfigOptions = (
   if (!Array.isArray(options)) return [];
   if (options.length === 0) return [];
 
-  if (isConfigGroup(options[0] as SessionConfigSelectOption | SessionConfigSelectGroup)) {
+  if (
+    isConfigGroup(
+      options[0] as SessionConfigSelectOption | SessionConfigSelectGroup,
+    )
+  ) {
     return (options as SessionConfigSelectGroup[]).flatMap((group) =>
       group.options.map((opt) => ({
         value: opt.value,
@@ -253,7 +256,7 @@ function ACPAgentOptionsDropdown({
             <DropdownMenuLabel className="text-muted-foreground">
               Model
             </DropdownMenuLabel>
-            {models?.availableModels.map((model) => (
+            {models?.availableModels?.map((model) => (
               <DropdownMenuItem
                 key={model.modelId}
                 className="cursor-pointer"
@@ -277,7 +280,7 @@ function ACPAgentOptionsDropdown({
             flattened.map((item) => [item.value, item.name]),
           );
           const currentLabel =
-            valueMap.get(option.currentValue) || option.currentValue;
+            valueMap.get(option.currentValue || "") || option.currentValue;
 
           const grouped = flattened.reduce((acc, item) => {
             const key = item.group || "__ungrouped__";
@@ -350,7 +353,6 @@ export default function PromptInput({
   threadId,
   disabledMention,
 }: PromptInputProps) {
-  const { t } = useTranslation("translation", { keyPrefix: "Chat" });
   const [isUploadDropdownOpen, setIsUploadDropdownOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { uploadFiles } = useThreadFileUploader(threadId);
@@ -747,11 +749,11 @@ export default function PromptInput({
                 })}
               </div>
             )}
-            <div className="flex flex-col gap-3.5 px-6 pt-3 pb-5">
-              <div className="relative min-h-[2rem]">
+            <div className="flex flex-col gap-3.5 px-6 pt-4 pb-6">
+              <div className="relative min-h-[3rem]">
                 <Suspense
                   fallback={
-                    <div className="h-[2rem] w-full animate-pulse"></div>
+                    <div className="h-[3rem] w-full animate-pulse"></div>
                   }
                 >
                   <ChatMentionInput
@@ -759,7 +761,7 @@ export default function PromptInput({
                     onChange={setInput}
                     onChangeMention={onChangeMention}
                     onEnter={submit}
-                    placeholder={placeholder ?? t("placeholder")}
+                    placeholder={placeholder ?? "Ask anything or @mention"}
                     ref={editorRef}
                     disabledMention={disabledMention}
                     onFocus={onFocus}
@@ -800,13 +802,13 @@ export default function PromptInput({
                       onClick={() => fileInputRef.current?.click()}
                     >
                       <PaperclipIcon className="mr-2 size-4" />
-                      {t("uploadImage")}
+                      Upload File
                     </DropdownMenuItem>
 
                     <DropdownMenuSub>
                       <DropdownMenuSubTrigger className="cursor-pointer">
                         <ImagesIcon className="mr-4 size-4 text-muted-foreground" />
-                        <span className="mr-4">{t("generateImage")}</span>
+                        <span className="mr-4">Generate Image</span>
                       </DropdownMenuSubTrigger>
                       <DropdownMenuPortal>
                         <DropdownMenuSubContent>
@@ -841,7 +843,7 @@ export default function PromptInput({
                       onClick={() => handleGenerateImage()}
                     >
                       <ImagesIcon className="size-3.5" />
-                      {t("generateImage")}
+                      Generate Image
                       <XIcon className="size-3 group-hover/image-generator:opacity-100 opacity-0 transition-opacity duration-200" />
                     </Button>
                   ) : chatModel?.provider === "coding-agents" ? (
@@ -943,7 +945,7 @@ export default function PromptInput({
                         <MicIcon size={16} />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t("VoiceChat.title")}</TooltipContent>
+                    <TooltipContent>Voice Chat Mode</TooltipContent>
                   </Tooltip>
                 ) : (
                   <div

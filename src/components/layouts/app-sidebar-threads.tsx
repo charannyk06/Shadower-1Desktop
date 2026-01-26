@@ -3,7 +3,9 @@
 import { threadApi, threadFetcher } from "@/lib/electron/thread-api";
 import { appStore } from "@/app/store";
 import { useMounted } from "@/hooks/use-mounted";
-import { ChevronDown, ChevronUp, Code2, MoreHorizontal, Trash } from "lucide-react";
+import { ChevronDown, ChevronUp, MoreHorizontal, Trash } from "lucide-react";
+import { ModelProviderIcon } from "@/components/ui/model-provider-icon";
+import { AGENT_ICON_PROVIDERS } from "@/lib/electron/acp-api";
 import { useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -29,7 +31,6 @@ import { useShallow } from "zustand/shallow";
 import { ThreadDropdown } from "../thread-dropdown";
 
 import { ChatThread } from "app-types/chat";
-import { useTranslation } from "react-i18next";
 import { TextShimmer } from "ui/text-shimmer";
 
 type ThreadGroup = {
@@ -42,7 +43,6 @@ const MAX_THREADS_COUNT = 40;
 export function AppSidebarThreads() {
   const mounted = useMounted();
   const navigate = useNavigate();
-  const { t } = useTranslation();
   const [storeMutate, currentThreadId, generatingTitleThreadIds] = appStore(
     useShallow((state) => [
       state.mutate,
@@ -88,9 +88,7 @@ export function AppSidebarThreads() {
       );
       storeMutate((prev) => {
         // Create a map of current store threads for quick lookup
-        const storeThreadsById = new Map(
-          prev.threadList.map((t) => [t.id, t]),
-        );
+        const storeThreadsById = new Map(prev.threadList.map((t) => [t.id, t]));
 
         // For threads currently generating titles, preserve the store's title
         // This prevents DB data (which may be stale) from overwriting recently generated titles
@@ -98,7 +96,10 @@ export function AppSidebarThreads() {
           const storeThread = storeThreadsById.get(dbThread.id);
 
           // If this thread is actively generating a title, keep store version
-          if (prev.generatingTitleThreadIds.includes(dbThread.id) && storeThread) {
+          if (
+            prev.generatingTitleThreadIds.includes(dbThread.id) &&
+            storeThread
+          ) {
             return storeThread;
           }
 
@@ -147,10 +148,10 @@ export function AppSidebarThreads() {
     lastWeek.setDate(lastWeek.getDate() - 7);
 
     const groups: ThreadGroup[] = [
-      { label: t("Layout.today"), threads: [] },
-      { label: t("Layout.yesterday"), threads: [] },
-      { label: t("Layout.lastWeek"), threads: [] },
-      { label: t("Layout.older"), threads: [] },
+      { label: "Today", threads: [] },
+      { label: "Yesterday", threads: [] },
+      { label: "Last 7 days", threads: [] },
+      { label: "Older", threads: [] },
     ];
 
     displayThreadList.forEach((thread) => {
@@ -177,7 +178,7 @@ export function AppSidebarThreads() {
 
   const handleDeleteAllThreads = async () => {
     await toast.promise(threadApi.deleteAll(), {
-      loading: t("Layout.deletingAllChats"),
+      loading: "Deleting all threads...",
       success: () => {
         // Clear all thread-related state since all threads are deleted
         appStore.setState({
@@ -188,9 +189,9 @@ export function AppSidebarThreads() {
         });
         mutate("/api/thread");
         navigate({ to: "/" });
-        return t("Layout.allChatsDeleted");
+        return "All threads deleted";
       },
-      error: t("Layout.failedToDeleteAllChats"),
+      error: "Failed to delete all threads",
     });
   };
 
@@ -201,9 +202,7 @@ export function AppSidebarThreads() {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarGroupLabel className="">
-                <h4 className="text-xs text-muted-foreground">
-                  {t("Layout.recentChats")}
-                </h4>
+                <h4 className="text-xs text-muted-foreground">Recent Chats</h4>
               </SidebarGroupLabel>
 
               {isLoading ? (
@@ -213,7 +212,7 @@ export function AppSidebarThreads() {
               ) : (
                 <div className="px-2 py-4 text-center">
                   <p className="text-sm text-muted-foreground">
-                    {t("Layout.noConversationsYet")}
+                    No conversations yet
                   </p>
                 </div>
               )}
@@ -254,7 +253,7 @@ export function AppSidebarThreads() {
                             onClick={handleDeleteAllThreads}
                           >
                             <Trash />
-                            {t("Layout.deleteAllChats")}
+                            Delete All Chats
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -273,17 +272,33 @@ export function AppSidebarThreads() {
                             className="group-hover/thread:bg-transparent!"
                             isActive={currentThreadId === thread.id}
                           >
-                            <Link to={`/chat/${thread.id}`}>
-                              {/* Show coding agent icon for ACP chats */}
+                            <Link
+                              to="/chat/$threadId"
+                              params={{ threadId: thread.id }}
+                            >
+                              {/* Show agent-specific icon for ACP chats (Anthropic, Google, OpenAI) */}
                               {thread.provider === "coding-agents" && (
-                                <Code2 className="h-3.5 w-3.5 flex-shrink-0 text-purple-500" />
+                                <ModelProviderIcon
+                                  provider={
+                                    thread.model &&
+                                    AGENT_ICON_PROVIDERS[thread.model]
+                                      ? AGENT_ICON_PROVIDERS[thread.model]
+                                      : thread.model === "codex"
+                                        ? "openai" // Explicit fallback for codex
+                                        : "anthropic" // Default to anthropic icon for other coding-agents
+                                  }
+                                  className="h-3.5 w-3.5 flex-shrink-0"
+                                />
                               )}
                               {generatingTitleThreadIds.includes(thread.id) ? (
                                 <TextShimmer className="truncate min-w-0">
                                   {thread.title || "New Chat"}
                                 </TextShimmer>
                               ) : (
-                                <span className="truncate min-w-0" title={thread.title || "New Chat"}>
+                                <span
+                                  className="truncate min-w-0"
+                                  title={thread.title || "New Chat"}
+                                >
                                   {thread.title || "New Chat"}
                                 </span>
                               )}
@@ -322,9 +337,7 @@ export function AppSidebarThreads() {
                 onClick={() => setIsExpanded(!isExpanded)}
               >
                 <MoreHorizontal className="mr-2" />
-                {isExpanded
-                  ? t("Layout.showLessChats")
-                  : t("Layout.showAllChats")}
+                {isExpanded ? "Show less" : "View All Chats"}
                 {isExpanded ? <ChevronUp /> : <ChevronDown />}
               </Button>
             </div>

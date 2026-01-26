@@ -43,7 +43,6 @@ import { toast } from "sonner";
 import { safe } from "ts-safe";
 
 import { useCopy } from "@/hooks/use-copy";
-import { useTranslation } from "react-i18next";
 import { Separator } from "ui/separator";
 
 import { DefaultToolName, ImageToolName } from "lib/ai/tools";
@@ -123,7 +122,6 @@ export const UserMessagePart = memo(
     isError,
   }: UserMessagePartProps) {
     const { copied, copy } = useCopy();
-    const { t } = useTranslation();
     const [mode, setMode] = useState<"view" | "edit">("view");
     const [isDeleting, setIsDeleting] = useState(false);
     const [expanded, setExpanded] = useState(false);
@@ -208,7 +206,7 @@ export const UserMessagePart = memo(
               className="h-auto p-1 text-xs z-10 text-muted-foreground hover:text-foreground self-start"
             >
               <span className="flex items-center gap-1">
-                {t(expanded ? "Common.showLess" : "Common.showMore")}
+                {expanded ? "Show less" : "Show more"}
                 {expanded ? (
                   <ChevronUp className="size-3" />
                 ) : (
@@ -295,11 +293,24 @@ UserMessagePart.displayName = "UserMessagePart";
 const DOCUMENT_PREVIEW_MIN_LENGTH = 500;
 
 // Detect if text content qualifies for document preview (long text, code blocks, structured markdown)
-function isDocumentContent(text: string): { isDocument: boolean; type: "markdown" | "code" | "text"; language?: string } {
+function isDocumentContent(text: string | undefined): {
+  isDocument: boolean;
+  type: "markdown" | "code" | "text";
+  language?: string;
+} {
+  // Guard against undefined/null text
+  if (!text) {
+    return { isDocument: false, type: "text" };
+  }
+
   // Check for code blocks (```lang ... ```)
   const codeBlockMatch = text.match(/^```(\w*)\n[\s\S]+```$/m);
   if (codeBlockMatch && text.length > 200) {
-    return { isDocument: true, type: "code", language: codeBlockMatch[1] || undefined };
+    return {
+      isDocument: true,
+      type: "code",
+      language: codeBlockMatch[1] || undefined,
+    };
   }
 
   // Check for multiple code blocks indicating generated code
@@ -316,7 +327,9 @@ function isDocumentContent(text: string): { isDocument: boolean; type: "markdown
 
   // Check for markdown-like content (bold text with lists)
   const hasBoldText = (text.match(/\*\*[^*]+\*\*/g) || []).length >= 2;
-  const hasLists = (text.match(/^[-*]\s/gm) || []).length >= 3 || (text.match(/^\d+\.\s/gm) || []).length >= 3;
+  const hasLists =
+    (text.match(/^[-*]\s/gm) || []).length >= 3 ||
+    (text.match(/^\d+\.\s/gm) || []).length >= 3;
   if ((hasBoldText || hasLists) && text.length > DOCUMENT_PREVIEW_MIN_LENGTH) {
     return { isDocument: true, type: "markdown" };
   }
@@ -355,7 +368,7 @@ export const AssistMessagePart = memo(function AssistMessagePart({
 
   // Simple: use edited content if available, otherwise use part.text
   const documentContent = editedDocContent ?? part.text;
-  
+
   // Debug logging
   useEffect(() => {
     console.log("[MessageParts] State changed:", {
@@ -365,8 +378,11 @@ export const AssistMessagePart = memo(function AssistMessagePart({
       usingEdited: editedDocContent !== null,
     });
   }, [editedDocContent, documentContent, part.text]);
-  
-  const documentInfo = useMemo(() => isDocumentContent(documentContent), [documentContent]);
+
+  const documentInfo = useMemo(
+    () => isDocumentContent(documentContent),
+    [documentContent],
+  );
 
   const agent = useMemo(() => {
     return agentList.find((a) => a.id === metadata?.agentId);
@@ -425,12 +441,15 @@ export const AssistMessagePart = memo(function AssistMessagePart({
   };
 
   // Handle request for changes from document preview
-  const handleRequestChanges = useCallback((selectedText: string, instruction: string) => {
-    if (sendMessage) {
-      const changeRequest = `Please modify this text: "${selectedText}"\n\nInstruction: ${instruction}`;
-      sendMessage({ role: "user", content: changeRequest } as any);
-    }
-  }, [sendMessage]);
+  const handleRequestChanges = useCallback(
+    (selectedText: string, instruction: string) => {
+      if (sendMessage) {
+        const changeRequest = `Please modify this text: "${selectedText}"\n\nInstruction: ${instruction}`;
+        sendMessage({ role: "user", content: changeRequest } as any);
+      }
+    },
+    [sendMessage],
+  );
 
   // Determine if we're currently streaming (for disabling animations)
   const isStreaming = isLast && isLoading;
@@ -448,39 +467,46 @@ export const AssistMessagePart = memo(function AssistMessagePart({
           "opacity-50 border border-destructive bg-card rounded-lg": isError,
         })}
       >
-        {documentInfo.isDocument && showDocPreview && metadata?.chatModel?.provider !== "coding-agents" ? (
+        {documentInfo.isDocument &&
+        showDocPreview &&
+        !metadata?.isCodingAgent ? (
           <InlineDocumentPreview
             content={documentContent}
             type={documentInfo.type}
             language={documentInfo.language}
             onRequestChanges={handleRequestChanges}
-            sendMessage={sendMessage ? (msg) => sendMessage({ role: "user", content: msg } as any) : undefined}
+            sendMessage={
+              sendMessage
+                ? (msg) => sendMessage({ role: "user", content: msg } as any)
+                : undefined
+            }
             onContentChange={async (newContent) => {
               console.log("[MessageParts] Content changed, saving...");
               setEditedDocContent(newContent);
-              
+
               // Persist to database
               try {
                 // Update the part with new content
                 const updatedParts = message.parts.map((p) => {
-                  if (p === part || (p.type === "text" && p.text === part.text)) {
+                  if (
+                    p === part ||
+                    (p.type === "text" && p.text === part.text)
+                  ) {
                     return { ...p, text: newContent };
                   }
                   return p;
                 });
-                
+
                 // Save to database
                 await threadApi.updateMessageParts(message.id, updatedParts);
                 console.log("[MessageParts] Saved to database");
-                
+
                 // Update in-memory state too
                 if (setMessages) {
-                  setMessages((msgs) => 
-                    msgs.map((m) => 
-                      m.id === message.id 
-                        ? { ...m, parts: updatedParts }
-                        : m
-                    )
+                  setMessages((msgs) =>
+                    msgs.map((m) =>
+                      m.id === message.id ? { ...m, parts: updatedParts } : m,
+                    ),
                   );
                 }
               } catch (error) {
@@ -494,8 +520,7 @@ export const AssistMessagePart = memo(function AssistMessagePart({
         ) : (
           <>
             <Markdown streaming={isStreaming}>{documentContent}</Markdown>
-            {/* Hide "Open as document" for coding agents - not applicable for code-focused agents */}
-            {documentInfo.isDocument && metadata?.chatModel?.provider !== "coding-agents" && (
+            {documentInfo.isDocument && !metadata?.isCodingAgent && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -671,8 +696,12 @@ export const AssistMessagePart = memo(function AssistMessagePart({
                               <span className="text-xs font-mono font-medium">
                                 {/* Handle both flat (number) and nested ({ total: number }) structures */}
                                 {(() => {
-                                  const val = metadata.usage?.inputTokens as any;
-                                  const num = typeof val === "number" ? val : (val?.total ?? 0);
+                                  const val = metadata.usage
+                                    ?.inputTokens as any;
+                                  const num =
+                                    typeof val === "number"
+                                      ? val
+                                      : (val?.total ?? 0);
                                   return num.toLocaleString();
                                 })()}
                               </span>
@@ -686,15 +715,20 @@ export const AssistMessagePart = memo(function AssistMessagePart({
                               <span className="text-xs font-mono font-medium">
                                 {/* Handle both flat (number) and nested ({ total: number }) structures */}
                                 {(() => {
-                                  const val = metadata.usage?.outputTokens as any;
-                                  const num = typeof val === "number" ? val : (val?.total ?? 0);
+                                  const val = metadata.usage
+                                    ?.outputTokens as any;
+                                  const num =
+                                    typeof val === "number"
+                                      ? val
+                                      : (val?.total ?? 0);
                                   return num.toLocaleString();
                                 })()}
                               </span>
                             </div>
                           )}
                           {(metadata.usage?.totalTokens !== undefined ||
-                            (metadata.usage?.inputTokens !== undefined && metadata.usage?.outputTokens !== undefined)) && (
+                            (metadata.usage?.inputTokens !== undefined &&
+                              metadata.usage?.outputTokens !== undefined)) && (
                             <div className="flex items-center justify-between py-1.5 px-2 rounded-md bg-primary/10 border border-primary/20">
                               <span className="text-xs font-medium text-primary">
                                 Total
@@ -702,13 +736,23 @@ export const AssistMessagePart = memo(function AssistMessagePart({
                               <span className="text-xs font-mono font-bold text-primary">
                                 {/* Calculate total from inputTokens + outputTokens if totalTokens not present */}
                                 {(() => {
-                                  if (metadata.usage?.totalTokens !== undefined) {
+                                  if (
+                                    metadata.usage?.totalTokens !== undefined
+                                  ) {
                                     return metadata.usage.totalTokens.toLocaleString();
                                   }
-                                  const inputVal = metadata.usage?.inputTokens as any;
-                                  const outputVal = metadata.usage?.outputTokens as any;
-                                  const input = typeof inputVal === "number" ? inputVal : (inputVal?.total ?? 0);
-                                  const output = typeof outputVal === "number" ? outputVal : (outputVal?.total ?? 0);
+                                  const inputVal = metadata.usage
+                                    ?.inputTokens as any;
+                                  const outputVal = metadata.usage
+                                    ?.outputTokens as any;
+                                  const input =
+                                    typeof inputVal === "number"
+                                      ? inputVal
+                                      : (inputVal?.total ?? 0);
+                                  const output =
+                                    typeof outputVal === "number"
+                                      ? outputVal
+                                      : (outputVal?.total ?? 0);
                                   return (input + output).toLocaleString();
                                 })()}
                               </span>
@@ -923,8 +967,6 @@ export const ToolMessagePart = memo(
     isManualToolInvocation,
     threadId,
   }: ToolMessagePartProps) => {
-    const { t } = useTranslation();
-
     const { output, toolCallId, state, input, errorText } = part;
 
     const toolName = useMemo(() => getToolName(part), [part.type]);
@@ -935,6 +977,44 @@ export const ToolMessagePart = memo(
 
     const [expanded, setExpanded] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+
+    // Compute result BEFORE the useEffect that depends on it
+    const result = useMemo(() => {
+      if (state == "output-error") {
+        return errorText;
+      }
+      if (isCompleted) {
+        return Array.isArray(output)
+          ? {
+              ...output,
+              content: output.map((node) => {
+                // mcp tools
+                if (node?.type === "text" && typeof node?.text === "string") {
+                  const parsed = safeJSONParse(node.text);
+                  return {
+                    ...node,
+                    text: parsed.success ? parsed.value : node.text,
+                  };
+                }
+                return node;
+              }),
+            }
+          : output;
+      }
+      return null;
+    }, [isCompleted, output, state, errorText]);
+
+    // Auto-collapse tool card when it completes AND has output
+    // Only collapse if we have a result to show (not just when completed)
+    useEffect(() => {
+      if (isCompleted && result !== null && result !== undefined) {
+        // Use a small delay to ensure the result is rendered before collapsing
+        const timer = setTimeout(() => {
+          setExpanded(false);
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+    }, [isCompleted, result]);
 
     // Handle keyboard shortcuts for approve/reject actions
     useEffect(() => {
@@ -995,40 +1075,15 @@ export const ToolMessagePart = memo(
     }, [messageId]);
 
     const onToolCallDirect = useCallback(
-      (result: any) => {
+      (toolResult: any) => {
         addToolResult?.({
           tool: toolName,
           toolCallId,
-          output: result,
+          output: toolResult,
         });
       },
       [addToolResult, toolCallId],
     );
-
-    const result = useMemo(() => {
-      if (state == "output-error") {
-        return errorText;
-      }
-      if (isCompleted) {
-        return Array.isArray(output)
-          ? {
-              ...output,
-              content: output.map((node) => {
-                // mcp tools
-                if (node?.type === "text" && typeof node?.text === "string") {
-                  const parsed = safeJSONParse(node.text);
-                  return {
-                    ...node,
-                    text: parsed.success ? parsed.value : node.text,
-                  };
-                }
-                return node;
-              }),
-            }
-          : output;
-      }
-      return null;
-    }, [isCompleted, output, state, errorText]);
 
     const CustomToolComponent = useMemo(() => {
       if (
@@ -1152,9 +1207,16 @@ export const ToolMessagePart = memo(
       return null;
     }, [toolName, state, onToolCallDirect, result, input]);
 
+    // Only auto-expand if there's no result yet (tool is still running)
+    // Once completed with result, respect the expanded state
     const isExpanded = useMemo(() => {
-      return expanded || result === null;
-    }, [expanded, result]);
+      // If tool is still running (no result), keep expanded to show input
+      if (result === null && !isCompleted) {
+        return true;
+      }
+      // Otherwise, use the controlled expanded state
+      return expanded;
+    }, [expanded, result, isCompleted]);
 
     const isExecuting = useMemo(() => {
       return !isCompleted && isLast;
@@ -1201,7 +1263,7 @@ export const ToolMessagePart = memo(
                 }
               >
                 <Check />
-                {t("Common.approve")}
+                Approve
                 <Separator orientation="vertical" className="h-4" />
                 <span className="text-muted-foreground">
                   {getShortcutKeyList(approveToolInvocationShortcut).join(" ")}
@@ -1222,7 +1284,7 @@ export const ToolMessagePart = memo(
                 }
               >
                 <X />
-                {t("Common.reject")}
+                Reject
                 <Separator orientation="vertical" />
                 <span className="text-muted-foreground">
                   {getShortcutKeyList(rejectToolInvocationShortcut).join(" ")}

@@ -2,8 +2,14 @@
 
 import { useState, useEffect, useCallback, useRef, useTransition } from "react";
 import { useNavigate, useSearch, useLocation } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
-import { FileTextIcon, TrashIcon, Search, X, PlusIcon, FolderIcon } from "lucide-react";
+import {
+  FileTextIcon,
+  TrashIcon,
+  Search,
+  X,
+  PlusIcon,
+  FolderIcon,
+} from "lucide-react";
 import {
   Card,
   CardContent,
@@ -72,7 +78,6 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 
 export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location.pathname;
@@ -143,13 +148,16 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
         filteredBases = knowledgeBases.filter(
           (kb) =>
             kb.name.toLowerCase().includes(query) ||
-            (kb.description && kb.description.toLowerCase().includes(query))
+            (kb.description && kb.description.toLowerCase().includes(query)),
         );
       }
 
       // Apply pagination
       const startIdx = (page - 1) * DEFAULT_LIMIT;
-      const paginatedBases = filteredBases.slice(startIdx, startIdx + DEFAULT_LIMIT);
+      const paginatedBases = filteredBases.slice(
+        startIdx,
+        startIdx + DEFAULT_LIMIT,
+      );
 
       setData({
         knowledgeBases: paginatedBases,
@@ -163,13 +171,13 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
       });
     } catch (err: any) {
       setError(err);
-      toast.error(t("Knowledge.failedToLoadMemories"), {
+      toast.error("Failed to load knowledge bases", {
         description: err.message,
       });
     } finally {
       setLoading(false);
     }
-  }, [page, searchQuery, t]);
+  }, [page, searchQuery]);
 
   useEffect(() => {
     loadKnowledgeBases();
@@ -222,7 +230,9 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
 
     setIsDeleting(true);
     try {
-      const result = await knowledgeApi.deleteKnowledgeBase(deletingKnowledgeBaseId);
+      const result = await knowledgeApi.deleteKnowledgeBase(
+        deletingKnowledgeBaseId,
+      );
 
       if (result.success) {
         toast.success("Knowledge base deleted successfully");
@@ -233,7 +243,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
         toast.error("Failed to delete knowledge base");
       }
     } catch (error: any) {
-      toast.error(error.message || t("Knowledge.failedToDeleteKnowledgeBase"));
+      toast.error(error.message || "Failed to delete knowledge base");
       console.error("Failed to delete knowledge base:", error);
     } finally {
       setIsDeleting(false);
@@ -270,7 +280,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <Input
                 name="search"
-                placeholder={t("Knowledge.searchKnowledgeBases")}
+                placeholder="Search knowledge bases..."
                 defaultValue={searchQuery}
                 onChange={handleSearchChange}
                 className="pl-9 pr-9"
@@ -304,7 +314,8 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
             <DialogHeader>
               <DialogTitle>Create Knowledge Base</DialogTitle>
               <DialogDescription>
-                Create a new knowledge base to organize your documents for RAG retrieval.
+                Create a new knowledge base to organize your documents for RAG
+                retrieval.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
@@ -349,12 +360,12 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
           <FolderIcon className="size-12 mb-4" />
           <p className="text-lg">
             {searchQuery
-              ? t("Knowledge.noKnowledgeBasesFound")
-              : t("Knowledge.noKnowledgeBases")}
+              ? "No knowledge bases found"
+              : "No knowledge bases yet"}
           </p>
           {!searchQuery && (
             <p className="text-sm mt-2">
-              {t("Knowledge.createKnowledgeBaseToGetStarted")}
+              Create a knowledge base to get started
             </p>
           )}
         </div>
@@ -363,9 +374,15 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
       {/* Error State */}
       {error && (
         <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-          <p className="text-lg text-destructive">Failed to load knowledge bases</p>
+          <p className="text-lg text-destructive">
+            Failed to load knowledge bases
+          </p>
           <p className="text-sm mt-2">{error.message}</p>
-          <Button variant="outline" className="mt-4" onClick={loadKnowledgeBases}>
+          <Button
+            variant="outline"
+            className="mt-4"
+            onClick={loadKnowledgeBases}
+          >
             Retry
           </Button>
         </div>
@@ -422,7 +439,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
                 >
                   <TrashIcon className="size-4 mr-1" />
                   {isDeleting && deletingKnowledgeBaseId === kb.id
-                    ? t("Knowledge.deletingKnowledgeBase")
+                    ? "Deleting..."
                     : "Delete"}
                 </Button>
               </CardFooter>
@@ -446,8 +463,8 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Knowledge Base?</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("Knowledge.confirmDeleteKnowledgeBase")}
-              This will also delete all documents and their indexed content.
+              Are you sure you want to delete this knowledge base? This will
+              also delete all documents and their indexed content.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -457,7 +474,7 @@ export function KnowledgeBaseList({ userId: _userId }: KnowledgeBaseListProps) {
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? t("Knowledge.deletingKnowledgeBase") : "Delete"}
+              {isDeleting ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

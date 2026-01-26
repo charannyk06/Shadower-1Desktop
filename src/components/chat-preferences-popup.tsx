@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AutoHeight } from "ui/auto-height";
 
 import { appStore } from "@/app/store";
 import { Shortcuts, isShortcutEvent } from "lib/keyboard-shortcuts";
 import { UserIcon, X } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Button } from "ui/button";
 import {
   Drawer,
@@ -27,20 +26,16 @@ export function ChatPreferencesPopup() {
     useShallow((state) => [state.openChatPreferences, state.mutate]),
   );
 
-  const { t } = useTranslation();
-
-  const tabs = useMemo(() => {
-    return [
-      {
-        label: t("Chat.ChatPreferences.userInstructions"),
-        icon: <UserIcon className="w-4 h-4" />,
-      },
-      {
-        label: t("Chat.ChatPreferences.mcpInstructions"),
-        icon: <MCPIcon className="w-4 h-4 fill-muted-foreground" />,
-      },
-    ];
-  }, [t]);
+  const tabs = [
+    {
+      label: "User Instructions",
+      icon: <UserIcon className="w-4 h-4" />,
+    },
+    {
+      label: "MCP Instructions",
+      icon: <MCPIcon className="w-4 h-4 fill-muted-foreground" />,
+    },
+  ];
 
   const [tab, setTab] = useState(0);
 

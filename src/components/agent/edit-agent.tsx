@@ -18,7 +18,6 @@ import { notify } from "lib/notify";
 import { agentApi } from "@/lib/electron/agent-api";
 import { cn, objectFlow } from "lib/utils";
 import { Loader, WandSparklesIcon } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -71,7 +70,6 @@ export default function EditAgent({
   userId,
   isSystemAgent = false,
 }: EditAgentProps) {
-  const { t } = useTranslation();
   const mutateAgents = useMutateAgents();
   const navigate = useNavigate();
 
@@ -161,7 +159,7 @@ export default function EditAgent({
         .map(async (data) => agentApi.update(initialAgent.id, data))
         .ifOk((updatedAgent) => {
           mutateAgents(updatedAgent);
-          toast.success(t("Agent.updated"));
+          toast.success("Agent updated");
           navigate({ to: "/agents" });
         })
         .ifFail(handleErrorWithToast)
@@ -172,30 +170,30 @@ export default function EditAgent({
         .map(async (data) => agentApi.create(data))
         .ifOk((updatedAgent) => {
           mutateAgents(updatedAgent);
-          toast.success(t("Agent.created"));
+          toast.success("Agent created");
           navigate({ to: "/agents" });
         })
         .ifFail(handleErrorWithToast)
         .watch(() => setIsSaving(false));
     }
-  }, [agent, userId, mutateAgents, navigate, initialAgent, t]);
+  }, [agent, userId, mutateAgents, navigate, initialAgent]);
 
   const deleteAgent = useCallback(async () => {
     if (!initialAgent?.id) return;
     const ok = await notify.confirm({
-      description: t("Agent.deleteConfirm"),
+      description: "Are you sure you want to delete this agent?",
     });
     if (!ok) return;
     safe(() => setIsSaving(true))
       .map(() => agentApi.delete(initialAgent.id))
       .ifOk(() => {
         mutateAgents({ id: initialAgent.id }, true);
-        toast.success(t("Agent.deleted"));
+        toast.success("Agent deleted");
         navigate({ to: "/agents" });
       })
       .ifFail(handleErrorWithToast)
       .watch(() => setIsSaving(false));
-  }, [initialAgent?.id, mutateAgents, navigate, t]);
+  }, [initialAgent?.id, mutateAgents, navigate]);
 
   const handleAgentChange = useCallback((generatedData: any) => {
     if (textareaRef.current) {
@@ -339,10 +337,10 @@ export default function EditAgent({
           <div className="w-full h-8 absolute top-[100%] left-0 bg-gradient-to-b from-background to-transparent z-20 pointer-events-none" />
           {isGenerating ? (
             <TextShimmer className="w-full text-2xl font-bold">
-              {t("Agent.generatingAgent")}
+              Generating agent...
             </TextShimmer>
           ) : (
-            <p className="w-full text-2xl font-bold">{t("Agent.title")}</p>
+            <p className="w-full text-2xl font-bold">Agent</p>
           )}
 
           <div className="flex items-center gap-2">
@@ -360,7 +358,7 @@ export default function EditAgent({
                   data-testid="agent-generate-with-ai-button"
                 >
                   <WandSparklesIcon className="size-3" />
-                  {t("Common.generateWithAI")}
+                  Generate with AI
                 </Button>
               </>
             )}
@@ -382,9 +380,7 @@ export default function EditAgent({
 
         <div className="flex gap-4 mt-4">
           <div className="flex flex-col justify-between gap-2 flex-1">
-            <Label htmlFor="agent-name">
-              {t("Agent.agentNameAndIconLabel")}
-            </Label>
+            <Label htmlFor="agent-name">Agent Name and Icon</Label>
             {false ? (
               <Skeleton className="w-full h-10" />
             ) : (
@@ -396,7 +392,7 @@ export default function EditAgent({
                 className="hover:bg-input bg-secondary/40 transition-colors border-transparent border-none! focus-visible:bg-input! ring-0!"
                 id="agent-name"
                 data-testid="agent-name-input"
-                placeholder={t("Agent.agentNamePlaceholder")}
+                placeholder="Enter agent name"
                 readOnly={!hasEditAccess}
               />
             )}
@@ -419,9 +415,7 @@ export default function EditAgent({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="agent-description">
-            {t("Agent.agentDescriptionLabel")}
-          </Label>
+          <Label htmlFor="agent-description">Description</Label>
           {false ? (
             <Skeleton className="w-full h-10" />
           ) : (
@@ -429,7 +423,7 @@ export default function EditAgent({
               id="agent-description"
               data-testid="agent-description-input"
               disabled={isLoading || !hasEditAccess}
-              placeholder={t("Agent.agentDescriptionPlaceholder")}
+              placeholder="Describe what this agent does"
               className="hover:bg-input placeholder:text-xs bg-secondary/40 transition-colors border-transparent border-none! focus-visible:bg-input! ring-0!"
               value={agent.description || ""}
               onChange={(e) => setAgent({ description: e.target.value })}
@@ -440,13 +434,13 @@ export default function EditAgent({
 
         <div className="mt-10 flex items-center gap-2">
           <p className="text-sm text-muted-foreground">
-            {t("Agent.agentSettingsDescription")}
+            Configure your agent's personality and capabilities
           </p>
         </div>
 
         <div className="flex flex-col gap-6">
           <div className="flex gap-2 items-center">
-            <span>{t("Agent.thisAgentIs")}</span>
+            <span>This agent is a</span>
             {false ? (
               <Skeleton className="w-44 h-10" />
             ) : (
@@ -454,7 +448,7 @@ export default function EditAgent({
                 id="agent-role"
                 data-testid="agent-role-input"
                 disabled={isLoading || !hasEditAccess}
-                placeholder={t("Agent.agentRolePlaceholder")}
+                placeholder="e.g. software engineer"
                 className="hover:bg-input placeholder:text-xs bg-secondary/40 w-44 transition-colors border-transparent border-none! focus-visible:bg-input! ring-0!"
                 value={agent.instructions?.role || ""}
                 onChange={(e) =>
@@ -468,12 +462,12 @@ export default function EditAgent({
                 readOnly={!hasEditAccess}
               />
             )}
-            <span>{t("Agent.expertIn")}</span>
+            <span>who is an expert in</span>
           </div>
 
           <div className="flex gap-2 flex-col">
             <Label htmlFor="agent-prompt" className="text-base">
-              {t("Agent.agentInstructionsLabel")}
+              Instructions
             </Label>
             {false ? (
               <Skeleton className="w-full h-48" />
@@ -483,7 +477,7 @@ export default function EditAgent({
                 data-testid="agent-prompt-textarea"
                 ref={textareaRef}
                 disabled={isLoading || !hasEditAccess}
-                placeholder={t("Agent.agentInstructionsPlaceholder")}
+                placeholder="Enter detailed instructions for how this agent should behave..."
                 className="p-6 hover:bg-input min-h-48 max-h-96 overflow-y-auto resize-none placeholder:text-xs bg-secondary/40 transition-colors border-transparent border-none! focus-visible:bg-input! ring-0!"
                 value={agent.instructions?.systemPrompt || ""}
                 onChange={(e) =>
@@ -501,7 +495,7 @@ export default function EditAgent({
 
           <div className="flex gap-2 flex-col">
             <Label htmlFor="agent-tool-bindings" className="text-base">
-              {t("Agent.agentToolsLabel")}
+              Tools
             </Label>
             {false ? (
               <Skeleton className="w-full h-12" />
@@ -573,7 +567,7 @@ export default function EditAgent({
                 onClick={deleteAgent}
                 disabled={isLoading}
               >
-                {t("Common.delete")}
+                Delete
               </Button>
             )}
 
@@ -583,7 +577,7 @@ export default function EditAgent({
               disabled={isLoading || !hasEditAccess}
               data-testid="agent-save-button"
             >
-              {isSaving ? t("Common.saving") : t("Common.save")}
+              {isSaving ? "Saving..." : "Save"}
               {isSaving && <Loader className="size-4 animate-spin" />}
             </Button>
           </div>

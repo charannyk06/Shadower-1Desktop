@@ -38,6 +38,18 @@ const KnowledgeContent = lazy(() =>
   })),
 );
 
+const UserSettingsPopup = lazy(() =>
+  import("@/components/user/user-detail/user-settings-popup").then((mod) => ({
+    default: mod.UserSettingsPopup,
+  })),
+);
+
+const UserDetailContent = lazy(() =>
+  import("@/components/user/user-detail/user-detail-content").then((mod) => ({
+    default: mod.UserDetailContent,
+  })),
+);
+
 export function AppPopupProvider() {
   return (
     <Suspense fallback={null}>
@@ -54,6 +66,15 @@ export function AppPopupProvider() {
       </Suspense>
       <ChatBotVoice />
       <McpCustomizationPopup />
+      <Suspense fallback={null}>
+        <UserSettingsPopup
+          userSettingsComponent={
+            <Suspense fallback={null}>
+              <UserDetailContent view="user" />
+            </Suspense>
+          }
+        />
+      </Suspense>
     </Suspense>
   );
 }

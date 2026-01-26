@@ -6,7 +6,6 @@ import equal from "lib/equal";
 import { notify } from "lib/notify";
 import { cn, toAny } from "lib/utils";
 import { AlertTriangleIcon } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { memo, useMemo, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { GlobalIcon } from "ui/global-icon";
@@ -21,8 +20,6 @@ interface WebSearchToolInvocationProps {
 }
 
 function PureWebSearchToolInvocation({ part }: WebSearchToolInvocationProps) {
-  const { t } = useTranslation();
-
   const result = useMemo(() => {
     if (!part.state?.startsWith("output")) return null;
     return part.output as ExaSearchResponse & {
@@ -37,12 +34,12 @@ function PureWebSearchToolInvocation({ part }: WebSearchToolInvocationProps) {
       <HoverCard openDelay={200} closeDelay={0}>
         <HoverCardTrigger asChild>
           <span className="hover:text-primary transition-colors text-xs text-muted-foreground">
-            {t("Chat.Tool.searchOptions")}
+            Search options
           </span>
         </HoverCardTrigger>
         <HoverCardContent className="max-w-xs md:max-w-md! w-full! overflow-auto flex flex-col">
           <p className="text-xs text-muted-foreground px-2 mb-2">
-            {t("Chat.Tool.searchOptionsDescription")}
+            Search parameters used for this query
           </p>
           <div className="p-2">
             <JsonView data={part.input} />
@@ -71,16 +68,14 @@ function PureWebSearchToolInvocation({ part }: WebSearchToolInvocationProps) {
     return (
       <div className="flex items-center gap-2 text-sm">
         <GlobalIcon className="size-5 wiggle text-muted-foreground" />
-        <TextShimmer>{t("Chat.Tool.webSearching")}</TextShimmer>
+        <TextShimmer>Searching the web...</TextShimmer>
       </div>
     );
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
         <GlobalIcon className="size-5 text-muted-foreground" />
-        <span className="text-sm font-semibold">
-          {t("Chat.Tool.searchedTheWeb")}
-        </span>
+        <span className="text-sm font-semibold">Searched the web</span>
         {options}
       </div>
       <div className="flex gap-2">
@@ -218,9 +213,7 @@ function PureWebSearchToolInvocation({ part }: WebSearchToolInvocationProps) {
           </div>
           {result?.results?.length && (
             <p className="text-xs text-muted-foreground ml-1 flex items-center gap-1">
-              {t("Common.resultsFound", {
-                count: result?.results?.length,
-              })}
+              {result?.results?.length} results found
             </p>
           )}
         </div>

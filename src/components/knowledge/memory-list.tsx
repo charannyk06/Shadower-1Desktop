@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef, useTransition } from "react";
 import { useNavigate, useSearch, useLocation } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
 import { MessageSquareIcon, Search, X } from "lucide-react";
 import { Button } from "ui/button";
 import { Input } from "ui/input";
@@ -44,7 +43,6 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 
 export function MemoryList({ userId: _userId }: MemoryListProps) {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location.pathname;
@@ -154,12 +152,12 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
         },
       );
     } catch (error: any) {
-      toast.error(t("Knowledge.failedToLoadMemories"));
+      toast.error("Failed to load memories");
       console.error("Failed to load memories:", error);
     } finally {
       setLoading(false);
     }
-  }, [page, searchQuery, roleFilter, sourceFilter, t]);
+  }, [page, searchQuery, roleFilter, sourceFilter]);
 
   useEffect(() => {
     loadMemories();
@@ -207,7 +205,7 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
 
   // Delete handlers
   const handleDelete = async (id: string) => {
-    if (!confirm(t("Knowledge.confirmDeleteMemory"))) return;
+    if (!confirm("Are you sure you want to delete this memory?")) return;
 
     try {
       const result = await knowledgeApi.deleteMemory(id);
@@ -219,11 +217,11 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
         next.delete(id);
         return next;
       });
-      toast.success(t("Knowledge.memoryDeleted"));
+      toast.success("Memory deleted");
       // Reload to refresh pagination
       loadMemories();
     } catch (error: any) {
-      toast.error(t("Knowledge.failedToDeleteMemory"));
+      toast.error("Failed to delete memory");
       console.error("Failed to delete memory:", error);
     }
   };
@@ -275,12 +273,14 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
       if (!result.success) throw new Error("Failed to update memory");
 
       setMemories((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, content: result.content || content } : m)),
+        prev.map((m) =>
+          m.id === id ? { ...m, content: result.content || content } : m,
+        ),
       );
       setEditingMemory(null);
-      toast.success(t("Knowledge.memoryUpdated"));
+      toast.success("Memory updated");
     } catch (error: any) {
-      toast.error(t("Knowledge.failedToUpdateMemory"));
+      toast.error("Failed to update memory");
       console.error("Failed to update memory:", error);
     }
   };
@@ -318,7 +318,7 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <Input
                 name="search"
-                placeholder={t("Knowledge.searchMemories")}
+                placeholder="Search memories..."
                 defaultValue={searchQuery}
                 onChange={handleSearchChange}
                 className="pl-9 pr-9"
@@ -424,7 +424,11 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
                     startTransition(() => {
                       // Clear role filter when switching to knowledge (role doesn't apply)
                       navigate({
-                        to: buildUrl({ source: "knowledge", page: 1, role: null }),
+                        to: buildUrl({
+                          source: "knowledge",
+                          page: 1,
+                          role: null,
+                        }),
                       });
                     });
                   }}
@@ -459,7 +463,11 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
                     startTransition(() => {
                       // Clear role filter when switching to documents (role doesn't apply)
                       navigate({
-                        to: buildUrl({ source: "documents", page: 1, role: null }),
+                        to: buildUrl({
+                          source: "documents",
+                          page: 1,
+                          role: null,
+                        }),
                       });
                     });
                   }}
@@ -614,8 +622,8 @@ export function MemoryList({ userId: _userId }: MemoryListProps) {
           <MessageSquareIcon className="size-12 mx-auto text-muted-foreground mb-4" />
           <p className="text-muted-foreground">
             {searchQuery || roleFilter
-              ? t("Knowledge.noMemoriesFound")
-              : t("Knowledge.noMemories")}
+              ? "No memories found matching your filters"
+              : "No memories yet"}
           </p>
         </div>
       ) : (

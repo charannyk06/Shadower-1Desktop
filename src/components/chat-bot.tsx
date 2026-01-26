@@ -1,15 +1,18 @@
 "use client";
 
-import { appStore, getActiveWorkingDirectory, resolveWorkingDirectory } from "@/app/store";
+import {
+  appStore,
+  getActiveWorkingDirectory,
+  resolveWorkingDirectory,
+} from "@/app/store";
 import type { PlanTask } from "@/app/store";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useChat } from "@ai-sdk/react";
 import clsx from "clsx";
 import { clientLogger } from "lib/client-logger";
-import { cn, createDebounce, generateUUID, truncateString } from "lib/utils";
+import { cn, generateUUID, truncateString } from "lib/utils";
 import React, {
-  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -40,22 +43,26 @@ import { cleanupThreadState } from "@/app/store";
 import { useGenerateThreadTitle } from "@/hooks/queries/use-generate-thread-title";
 import { useFileDragOverlay } from "@/hooks/use-file-drag-overlay";
 import { useToRef } from "@/hooks/use-latest";
-import { useMounted } from "@/hooks/use-mounted";
 import { useThreadFileUploader } from "@/hooks/use-thread-file-uploader";
 import { useACPChat } from "@/hooks/use-acp-chat";
 import { ACPPermissionDialog } from "./acp/permission-dialog";
-import { respondToACPPermission } from "@/lib/electron/acp-api";
-import type { RespondToPermissionRequest, ACPPermissionRequest } from "@/types/acp";
+import {
+  respondToACPPermission,
+  AGENT_ICON_PROVIDERS,
+} from "@/lib/electron/acp-api";
+import type {
+  RespondToPermissionRequest,
+  ACPPermissionRequest,
+} from "@/types/acp";
 import {
   ChatApiSchemaRequestBody,
+  ChatMetadata,
   ChatAttachment,
   ChatModel,
 } from "app-types/chat";
 import { AnimatePresence, motion } from "framer-motion";
-import { getStorageManager } from "lib/browser-stroage";
 import { Shortcuts, isShortcutEvent } from "lib/keyboard-shortcuts";
 import { ArrowDown, FilePlus, Loader } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 import { mutate } from "swr";
 import { safe } from "ts-safe";
@@ -82,12 +89,6 @@ type Props = {
   initialMessages: Array<UIMessage>;
   selectedChatModel?: string;
 };
-
-const LightRays = React.lazy(() => import("ui/light-rays"));
-
-const Particles = React.lazy(() => import("ui/particles"));
-
-const debounce = createDebounce();
 
 // Plan event types from data stream
 interface PlanCreatedEvent {
@@ -217,7 +218,9 @@ interface DocumentReadyEvent {
   };
 }
 
-function isDocumentReadyEvent(event: { type: string }): event is DocumentReadyEvent {
+function isDocumentReadyEvent(event: {
+  type: string;
+}): event is DocumentReadyEvent {
   return event.type === "data-document-ready";
 }
 
@@ -230,10 +233,10 @@ async function handleDocumentReadyEvent(
   threadId?: string | null,
 ): Promise<void> {
   // Parse the data if it's a string (JSON.stringify was used when writing to stream)
-  const eventData = typeof event.data === "string"
-    ? JSON.parse(event.data)
-    : event.data;
-  const { fileName, fileBase64, documentType } = eventData as DocumentReadyEvent["data"];
+  const eventData =
+    typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+  const { fileName, fileBase64, documentType } =
+    eventData as DocumentReadyEvent["data"];
 
   // Check if we're in Electron mode with file API support
   if (typeof window === "undefined" || !window.electronAPI) {
@@ -247,7 +250,8 @@ async function handleDocumentReadyEvent(
   if (!workingDirectory?.path) {
     console.log("[DocumentReady] No working directory set, skipping save");
     toast.warning("No working directory set", {
-      description: "Select a working directory to save documents automatically.",
+      description:
+        "Select a working directory to save documents automatically.",
     });
     return;
   }
@@ -267,7 +271,8 @@ async function handleDocumentReadyEvent(
     if (!writeResult.success) {
       console.error("[DocumentReady] Failed to save file:", writeResult.error);
       toast.error(`Failed to save ${fileName}`, {
-        description: writeResult.error || "Unknown error occurred while saving the file.",
+        description:
+          writeResult.error || "Unknown error occurred while saving the file.",
       });
       return;
     }
@@ -291,7 +296,10 @@ async function handleDocumentReadyEvent(
   } catch (error) {
     console.error("[DocumentReady] Error handling document:", error);
     toast.error("Error saving document", {
-      description: error instanceof Error ? error.message : "An unexpected error occurred.",
+      description:
+        error instanceof Error
+          ? error.message
+          : "An unexpected error occurred.",
     });
   }
 }
@@ -353,10 +361,6 @@ function handleScreenshotEvent(
     ] as UIMessage[];
   });
 }
-
-const firstTimeStorage = getStorageManager("IS_FIRST");
-const isFirstTime = firstTimeStorage.get() ?? true;
-firstTimeStorage.set(false);
 
 // Helper functions to reduce cognitive complexity
 function shouldSkipPlanReconstruction(
@@ -832,7 +836,8 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
   const [
     appStoreMutate,
-    model,
+    globalModel,
+    threadChatModels,
     toolChoice,
     chatMode,
     allowedAppDefaultToolkit,
@@ -848,6 +853,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     useShallow((state) => [
       state.mutate,
       state.chatModel,
+      state.threadChatModels,
       state.toolChoice,
       state.chatMode,
       state.allowedAppDefaultToolkit,
@@ -862,6 +868,48 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     ]),
   );
 
+  // Use thread-specific model if available, otherwise fall back to global model
+  // This ensures the correct model is used when switching between threads
+  const model = useMemo(() => {
+    const threadModel = threadChatModels?.[threadId];
+    return threadModel || globalModel;
+  }, [threadChatModels, threadId, globalModel]);
+
+  // Callback to set both global and thread-specific model
+  // This ensures model selection persists when switching between threads
+  const setModel = useCallback(
+    (newModel: ChatModel) => {
+      console.log(
+        "[ChatBot] setModel called:",
+        newModel,
+        "for thread:",
+        threadId,
+      );
+      appStoreMutate((state) => ({
+        // Update global model for UI display
+        chatModel: newModel,
+        // Update thread-specific model so it persists when switching threads
+        threadChatModels: {
+          ...state.threadChatModels,
+          [threadId]: newModel,
+        },
+      }));
+      // Also update the database thread record for persistence across sessions
+      threadApi
+        .update(threadId, {
+          provider: newModel.provider,
+          model: newModel.model,
+        })
+        .catch((err) => {
+          console.error(
+            "[ChatBot] Failed to update thread model in database:",
+            err,
+          );
+        });
+    },
+    [threadId, appStoreMutate],
+  );
+
   const workingDirectory = useMemo(
     () =>
       resolveWorkingDirectory(
@@ -872,7 +920,12 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         },
         threadId,
       ),
-    [globalWorkingDirectory, workingDirectoryMode, threadWorkingDirectories, threadId],
+    [
+      globalWorkingDirectory,
+      workingDirectoryMode,
+      threadWorkingDirectories,
+      threadId,
+    ],
   );
 
   const generateTitle = useGenerateThreadTitle({
@@ -880,28 +933,34 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     chatModel: model,
   });
 
-  const [showParticles, setShowParticles] = useState(isFirstTime);
-
   // Check if current model is an ACP agent (provider === "coding-agents")
   const isACPAgent = model?.provider === "coding-agents";
   const acpAgentId = isACPAgent ? model?.model : null;
 
   // ACP Permission dialog state
   const [acpPermissionOpen, setACPPermissionOpen] = useState(false);
-  const [acpPermissionRequest, setACPPermissionRequest] = useState<ACPPermissionRequest | null>(null);
+  const [acpPermissionRequest, setACPPermissionRequest] =
+    useState<ACPPermissionRequest | null>(null);
 
   // Handle ACP permission response
-  const handleACPPermissionRespond = useCallback((response: RespondToPermissionRequest) => {
-    respondToACPPermission(response.requestId, response.optionId, response.rememberGlobally)
-      .then(() => {
-        setACPPermissionOpen(false);
-        setACPPermissionRequest(null);
-      })
-      .catch((err) => {
-        console.error("[ChatBot] Failed to respond to ACP permission:", err);
-        toast.error("Failed to respond to permission request");
-      });
-  }, []);
+  const handleACPPermissionRespond = useCallback(
+    (response: RespondToPermissionRequest) => {
+      respondToACPPermission(
+        response.requestId,
+        response.optionId,
+        response.rememberGlobally,
+      )
+        .then(() => {
+          setACPPermissionOpen(false);
+          setACPPermissionRequest(null);
+        })
+        .catch((err) => {
+          console.error("[ChatBot] Failed to respond to ACP permission:", err);
+          toast.error("Failed to respond to permission request");
+        });
+    },
+    [],
+  );
 
   // Track if we've already generated title for this thread
   const acpTitleGeneratedRef = useRef<string | null>(null);
@@ -922,6 +981,15 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
     // Skip if already created for this thread
     if (acpThreadCreatedRef.current === threadId) {
+      // Even if already created, update the model if we have it now but didn't before
+      if (acpAgentId) {
+        try {
+          await threadApi.update(threadId, { model: acpAgentId });
+          console.log("[ChatBot] Updated ACP thread model:", acpAgentId);
+        } catch {
+          // Ignore update errors
+        }
+      }
       return Promise.resolve();
     }
 
@@ -934,13 +1002,17 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           provider: "coding-agents",
           model: acpAgentId || undefined, // Store the specific agent (claude-code, codex, etc.)
         });
-        console.log("[ChatBot] Created ACP thread with provider: coding-agents, model:", acpAgentId);
+        console.log(
+          "[ChatBot] Created ACP thread with provider: coding-agents, model:",
+          acpAgentId,
+        );
         // Only mark as created on successful creation
         acpThreadCreatedRef.current = threadId;
       } catch (err: any) {
         // Thread might already exist, that's ok - mark as created
         // Only mark if it's a duplicate/exists error, not a real failure
-        const isDuplicateError = err?.message?.includes("UNIQUE constraint") ||
+        const isDuplicateError =
+          err?.message?.includes("UNIQUE constraint") ||
           err?.message?.includes("already exists") ||
           err?.code === "SQLITE_CONSTRAINT";
         if (isDuplicateError) {
@@ -965,34 +1037,77 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   const acpChat = useACPChat({
     threadId,
     agentId: acpAgentId || "",
-    onFinish: useCallback(async (message: UIMessage) => {
-      console.log("[ChatBot] ACP assistant message finished:", message.id, "parts:", message.parts.length);
-      // Ensure thread exists before persisting the message
-      await ensureACPThreadExists();
-      // Persist the finished assistant message to database
-      try {
-        await threadApi.upsertMessage(message, threadId);
-        console.log("[ChatBot] Successfully persisted ACP assistant message:", message.id);
-      } catch (err) {
-        console.error("[ChatBot] Failed to persist ACP assistant message:", err);
-      }
-      // Refresh thread list to show the chat in sidebar
-      mutate("/api/thread");
-    }, [threadId, ensureACPThreadExists]),
-    onUserMessage: useCallback(async (message: UIMessage) => {
-      console.log("[ChatBot] ACP user message created:", message.id);
-      // Ensure thread exists before persisting the user message
-      await ensureACPThreadExists();
-      // Persist the user message to database
-      try {
-        await threadApi.upsertMessage(message, threadId);
-        console.log("[ChatBot] Successfully persisted ACP user message:", message.id);
-      } catch (err) {
-        console.error("[ChatBot] Failed to persist ACP user message:", err);
-      }
-      // Refresh thread list to show the chat in sidebar
-      mutate("/api/thread");
-    }, [threadId, ensureACPThreadExists]),
+    onFinish: useCallback(
+      async (message: UIMessage) => {
+        console.log(
+          "[ChatBot] ACP assistant message finished:",
+          message.id,
+          "parts:",
+          message.parts.length,
+        );
+        // Ensure thread exists before persisting the message
+        await ensureACPThreadExists();
+        // Persist the finished assistant message to database with metadata
+        try {
+          // Add chatModel metadata for logo display
+          // Map agent ID to provider for icon display (anthropic/google/openai)
+          const provider = acpAgentId
+            ? AGENT_ICON_PROVIDERS[acpAgentId] ||
+              (acpAgentId === "codex" ? "openai" : "anthropic")
+            : "anthropic";
+          console.log(
+            "[ChatBot] Setting provider for ACP agent:",
+            acpAgentId,
+            "->",
+            provider,
+          );
+          const messageWithMetadata: UIMessage = {
+            ...message,
+            metadata: {
+              ...(message.metadata || {}),
+              chatModel: {
+                provider,
+                model: acpAgentId || "",
+              },
+              isCodingAgent: true,
+            } as ChatMetadata,
+          };
+          await threadApi.upsertMessage(messageWithMetadata, threadId);
+          console.log(
+            "[ChatBot] Successfully persisted ACP assistant message:",
+            message.id,
+          );
+        } catch (err) {
+          console.error(
+            "[ChatBot] Failed to persist ACP assistant message:",
+            err,
+          );
+        }
+        // Refresh thread list to show the chat in sidebar
+        mutate("/api/thread");
+      },
+      [threadId, ensureACPThreadExists, acpAgentId],
+    ),
+    onUserMessage: useCallback(
+      async (message: UIMessage) => {
+        console.log("[ChatBot] ACP user message created:", message.id);
+        // Ensure thread exists before persisting the user message
+        await ensureACPThreadExists();
+        // Persist the user message to database (user messages don't need chatModel metadata)
+        try {
+          await threadApi.upsertMessage(message, threadId);
+          console.log(
+            "[ChatBot] Successfully persisted ACP user message:",
+            message.id,
+          );
+        } catch (err) {
+          console.error("[ChatBot] Failed to persist ACP user message:", err);
+        }
+        // Refresh thread list to show the chat in sidebar
+        mutate("/api/thread");
+      },
+      [threadId, ensureACPThreadExists],
+    ),
     onError: useCallback((error: Error) => {
       console.error("[ChatBot] ACP error:", error);
       toast.error("Agent error: " + error.message);
@@ -1001,11 +1116,23 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
   // Initialize ACP messages with saved messages from database
   useEffect(() => {
-    if (isACPAgent && initialMessages.length > 0 && acpChat.messages.length === 0) {
-      console.log("[ChatBot] Initializing ACP chat with saved messages:", initialMessages.length);
+    if (
+      isACPAgent &&
+      initialMessages.length > 0 &&
+      acpChat.messages.length === 0
+    ) {
+      console.log(
+        "[ChatBot] Initializing ACP chat with saved messages:",
+        initialMessages.length,
+      );
       acpChat.setMessages(initialMessages);
     }
-  }, [isACPAgent, initialMessages, acpChat.messages.length, acpChat.setMessages]);
+  }, [
+    isACPAgent,
+    initialMessages,
+    acpChat.messages.length,
+    acpChat.setMessages,
+  ]);
 
   // Track message count for initialization detection
   // (persistence is now handled explicitly via onFinish and onUserMessage callbacks)
@@ -1029,19 +1156,22 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       // Check if thread needs a title from the store state
       const { threadList, mutate: storeMutate } = appStore.getState();
       const currentThread = threadList.find((t) => t.id === threadId);
-      const needsTitle = !currentThread?.title || currentThread.title === "New Chat";
+      const needsTitle =
+        !currentThread?.title || currentThread.title === "New Chat";
 
       if (needsTitle) {
         console.log("[ChatBot] Setting fallback title for ACP chat");
         // For ACP agents, use the first user message as title (they don't support AI title generation)
         const firstUserMessage = messages.find((m) => m.role === "user");
-        const textPart = firstUserMessage?.parts.find((p) => p.type === "text") as TextUIPart | undefined;
+        const textPart = firstUserMessage?.parts.find(
+          (p) => p.type === "text",
+        ) as TextUIPart | undefined;
         const userText = textPart?.text || "";
         const fallbackTitle = truncateString(userText, 50) || "ACP Chat";
 
         // Update store directly
         const newList = threadList.map((t) =>
-          t.id === threadId ? { ...t, title: fallbackTitle } : t
+          t.id === threadId ? { ...t, title: fallbackTitle } : t,
         );
         storeMutate({ threadList: newList });
 
@@ -1083,7 +1213,9 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
       // Don't generate title on abort, disconnect, or error
       if (options.isAbort || options.isDisconnect || options.isError) {
-        console.log("[ChatBot] onFinish - skipping title generation due to abort/disconnect/error");
+        console.log(
+          "[ChatBot] onFinish - skipping title generation due to abort/disconnect/error",
+        );
         return;
       }
 
@@ -1182,7 +1314,9 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           return false;
         });
         if (hasStopSignal) {
-          clientLogger.info("[ChatBot] Stop signal detected - stopping auto-continue");
+          clientLogger.info(
+            "[ChatBot] Stop signal detected - stopping auto-continue",
+          );
           return false;
         }
       }
@@ -1200,12 +1334,14 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         // TanStack Router detects URL changes and re-routes, causing the component
         // to remount and lose the streaming state. URL is updated in onFinish instead.
         const lastMessage = messages.at(-1)!;
-        
+
         // Ensure message has parts array (convert content to parts if needed)
         if (!lastMessage.parts && (lastMessage as any).content) {
-          (lastMessage as any).parts = [{ type: "text", text: (lastMessage as any).content }];
+          (lastMessage as any).parts = [
+            { type: "text", text: (lastMessage as any).content },
+          ];
         }
-        
+
         // Filter out UI-only parts (e.g., source-url) so the model doesn't receive unknown parts
         const attachments: ChatAttachment[] = (lastMessage.parts || []).reduce(
           (acc: ChatAttachment[], part: any) => {
@@ -1230,11 +1366,16 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         );
 
         // Filter out source-url parts, but ensure at least one part remains
-        const filteredParts = (lastMessage.parts || []).filter((p: any) => p?.type !== "source-url");
+        const filteredParts = (lastMessage.parts || []).filter(
+          (p: any) => p?.type !== "source-url",
+        );
 
         const sanitizedLastMessage = {
           ...lastMessage,
-          parts: filteredParts.length > 0 ? filteredParts : [{ type: "text" as const, text: "" }],
+          parts:
+            filteredParts.length > 0
+              ? filteredParts
+              : [{ type: "text" as const, text: "" }],
         } as typeof lastMessage;
 
         const requestBody: ChatApiSchemaRequestBody = {
@@ -1244,7 +1385,8 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             (body as { model: ChatModel })?.model ?? latestRef.current.model,
           toolChoice: latestRef.current.toolChoice,
           chatMode: latestRef.current.chatMode,
-          allowedAppDefaultToolkit: latestRef.current.allowedAppDefaultToolkit || [],
+          allowedAppDefaultToolkit:
+            latestRef.current.allowedAppDefaultToolkit || [],
           allowedMcpServers: latestRef.current.mentions?.length
             ? {}
             : latestRef.current.allowedMcpServers || {},
@@ -1754,8 +1896,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     [_addToolResult, threadId], // Removed sendMessage
   );
 
-  const mounted = useMounted();
-
   const latestRef = useToRef({
     toolChoice,
     chatMode,
@@ -1774,7 +1914,9 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   const unifiedMessages = isACPAgent ? acpChat.messages : messages;
   // Map ACP "initializing" status to "ready" for UI components (they don't understand "initializing")
   const unifiedStatus = isACPAgent
-    ? (acpChat.status === "initializing" ? "ready" : acpChat.status)
+    ? acpChat.status === "initializing"
+      ? "ready"
+      : acpChat.status
     : status;
   const unifiedError = isACPAgent ? acpChat.error : error;
 
@@ -1788,7 +1930,9 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           content = messageOrOptions;
         } else if (messageOrOptions?.parts) {
           // UIMessage format
-          const textPart = messageOrOptions.parts.find((p: any) => p.type === "text");
+          const textPart = messageOrOptions.parts.find(
+            (p: any) => p.type === "text",
+          );
           content = textPart?.text || "";
         } else if (messageOrOptions?.content) {
           content = messageOrOptions.content;
@@ -1801,7 +1945,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         sendMessage(messageOrOptions);
       }
     },
-    [isACPAgent, acpChat, sendMessage]
+    [isACPAgent, acpChat, sendMessage],
   );
 
   // Unified stop
@@ -1817,7 +1961,10 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
   const isACPInitializing = isACPAgent && acpChat.status === "initializing";
 
   const isLoading = useMemo(
-    () => unifiedStatus === "streaming" || unifiedStatus === "submitted" || isACPInitializing,
+    () =>
+      unifiedStatus === "streaming" ||
+      unifiedStatus === "submitted" ||
+      isACPInitializing,
     [unifiedStatus, isACPInitializing],
   );
 
@@ -1859,47 +2006,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     return false;
   }, [isLoading, unifiedMessages.at(-1), unifiedError]);
 
-  const particle = useMemo(() => {
-    return (
-      <AnimatePresence>
-        {showParticles && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 5 }}
-          >
-            <div className="absolute top-0 left-0 w-full h-full z-10">
-              <Suspense fallback={null}>
-                <LightRays />
-              </Suspense>
-            </div>
-            <div className="absolute top-0 left-0 w-full h-full z-10">
-              <Suspense fallback={null}>
-                <Particles particleCount={400} particleBaseSize={10} />
-              </Suspense>
-            </div>
-
-            <div className="absolute top-0 left-0 w-full h-full z-10">
-              <div className="w-full h-full bg-gradient-to-t from-background to-50% to-transparent z-20" />
-            </div>
-            <div className="absolute top-0 left-0 w-full h-full z-10">
-              <div className="w-full h-full bg-gradient-to-l from-background to-20% to-transparent z-20" />
-            </div>
-            <div className="absolute top-0 left-0 w-full h-full z-10">
-              <div className="w-full h-full bg-gradient-to-r from-background to-20% to-transparent z-20" />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    );
-  }, [showParticles]);
-
-  const handleFocus = useCallback(() => {
-    setShowParticles(false);
-    debounce(() => setShowParticles(true), 60000);
-  }, []);
-
   // Track scroll position for scroll-to-bottom button
   const [isAtBottom, setIsAtBottom] = useState(true);
 
@@ -1913,7 +2019,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     status,
     messages,
     onScrollPositionChange: setIsAtBottom,
-    onScroll: handleFocus,
   });
 
   // Combine auto-scroll handler with focus handler
@@ -1982,12 +2087,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  useEffect(() => {
-    if (mounted) {
-      handleFocus();
-    }
-  }, [input]);
-
   const [theaterMode] = appStore(useShallow((state) => [state.theaterMode]));
   const { setOpen } = useSidebar();
   const isMobile = useIsMobile();
@@ -2009,7 +2108,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      {particle}
       <ResizablePanelGroup direction="horizontal" className="h-full w-full">
         <ResizablePanel
           defaultSize={theaterMode.isOpen ? 65 : 100}
@@ -2102,10 +2200,13 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
               setInput={setInput}
               isLoading={isLoading || isPendingToolCall}
               onStop={unifiedStop}
-              onFocus={isFirstTime ? undefined : handleFocus}
+              model={model}
+              setModel={setModel}
               acpSession={isACPAgent ? acpChat.session : null}
               onSetAcpModel={isACPAgent ? acpChat.setSessionModel : undefined}
-              onSetAcpConfigOption={isACPAgent ? acpChat.setSessionConfigOption : undefined}
+              onSetAcpConfigOption={
+                isACPAgent ? acpChat.setSessionConfigOption : undefined
+              }
               onSetAcpMode={isACPAgent ? acpChat.setSessionMode : undefined}
             />
           </div>
@@ -2154,7 +2255,6 @@ function DeleteThreadPopup({
   readonly onClose: () => void;
   readonly open: boolean;
 }) {
-  const { t } = useTranslation();
   const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
   const handleDelete = useCallback(() => {
@@ -2164,27 +2264,27 @@ function DeleteThreadPopup({
       .ifOk(() => {
         // Clean up thread-related state (context usage, plans, files, mentions)
         cleanupThreadState(threadId);
-        toast.success(t("Chat.Thread.threadDeleted"));
+        toast.success("Thread deleted");
         navigate({ to: "/" });
       })
-      .ifFail(() => toast.error(t("Chat.Thread.failedToDeleteThread")))
+      .ifFail(() => toast.error("Failed to delete thread"))
       .watch(() => onClose());
   }, [threadId, navigate]);
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t("Chat.Thread.deleteChat")}</DialogTitle>
+          <DialogTitle>Delete Chat</DialogTitle>
           <DialogDescription>
-            {t("Chat.Thread.areYouSureYouWantToDeleteThisChatThread")}
+            Are you sure you want to delete this Chat thread?
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            {t("Common.cancel")}
+            Cancel
           </Button>
           <Button variant="destructive" onClick={handleDelete} autoFocus>
-            {t("Common.delete")}
+            Delete
             {isDeleting && <Loader className="size-3.5 ml-2 animate-spin" />}
           </Button>
         </DialogFooter>

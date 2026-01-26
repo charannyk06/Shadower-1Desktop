@@ -5,19 +5,26 @@ import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import {
+  ArrowLeft,
   Box,
   ChevronRight,
+  FilePlus,
   FolderIcon,
   Loader2,
   Maximize2,
   Minimize2,
+  Minus,
+  Pencil,
+  Plus,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { FileTypeIcon } from "./file-type-icon";
+import { DiffViewer, SideBySideDiff } from "./diff-viewer";
 
 // Interface for workspace files from API
 interface WorkspaceFileMetadata {
@@ -34,29 +41,83 @@ interface WorkspaceFileMetadata {
 // Using a Set for O(1) lookup performance
 const EDITABLE_FILE_EXTENSIONS = new Set([
   // JavaScript/TypeScript
-  "js", "jsx", "ts", "tsx", "mjs", "cjs",
+  "js",
+  "jsx",
+  "ts",
+  "tsx",
+  "mjs",
+  "cjs",
   // Python
   "py",
   // Web
-  "css", "scss", "sass", "less", "html", "htm",
+  "css",
+  "scss",
+  "sass",
+  "less",
+  "html",
+  "htm",
   // Data formats
-  "json", "yaml", "yml", "xml", "csv",
+  "json",
+  "yaml",
+  "yml",
+  "xml",
+  "csv",
   // Shell scripts
-  "sh", "bash", "zsh",
+  "sh",
+  "bash",
+  "zsh",
   // Systems languages
-  "go", "rs", "rb", "php", "java", "c", "cpp", "h", "hpp", "cs",
+  "go",
+  "rs",
+  "rb",
+  "php",
+  "java",
+  "c",
+  "cpp",
+  "h",
+  "hpp",
+  "cs",
   // Mobile
-  "swift", "kt",
+  "swift",
+  "kt",
   // Other languages
-  "scala", "r", "lua", "pl", "pm", "ex", "exs", "erl", "hrl", "clj", "cljs", "hs", "elm",
+  "scala",
+  "r",
+  "lua",
+  "pl",
+  "pm",
+  "ex",
+  "exs",
+  "erl",
+  "hrl",
+  "clj",
+  "cljs",
+  "hs",
+  "elm",
   // Modern frameworks
-  "vue", "svelte", "astro",
+  "vue",
+  "svelte",
+  "astro",
   // GraphQL
-  "graphql", "gql",
+  "graphql",
+  "gql",
   // Config
-  "toml", "ini", "cfg", "conf", "env", "gitignore", "dockerfile", "makefile", "cmake",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "env",
+  "gitignore",
+  "dockerfile",
+  "makefile",
+  "cmake",
   // Text/Documentation
-  "txt", "text", "md", "markdown", "rst", "log",
+  "txt",
+  "text",
+  "md",
+  "markdown",
+  "rst",
+  "log",
   // SQL
   "sql",
 ]);
@@ -191,14 +252,21 @@ export function TheaterPanel() {
         },
         currentThreadId,
       ),
-    [globalWorkingDirectory, workingDirectoryMode, threadWorkingDirectories, currentThreadId],
+    [
+      globalWorkingDirectory,
+      workingDirectoryMode,
+      threadWorkingDirectories,
+      currentThreadId,
+    ],
   );
 
   const [activeTab, setActiveTab] = useState<"all-files" | "changes">(
     theaterMode.defaultTab || "all-files",
   );
   const [isMaximized, setIsMaximized] = useState(false);
-  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileMetadata[]>([]);
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileMetadata[]>(
+    [],
+  );
   const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
   const isMobile = useIsMobile();
 
@@ -237,7 +305,9 @@ export function TheaterPanel() {
       typeof window !== "undefined" ? (window as any).electronAPI : null;
 
     if (!api?.files) {
-      console.log("[TheaterPanel] Electron API not available, skipping files fetch");
+      console.log(
+        "[TheaterPanel] Electron API not available, skipping files fetch",
+      );
       setWorkspaceFiles([]);
       setWorkspaceFilesLoading(false);
       return;
@@ -251,25 +321,30 @@ export function TheaterPanel() {
       api.files.listFiles("workspace").catch((err: Error) => {
         console.error("Failed to load workspace files:", err);
         return [];
-      })
+      }),
     );
 
     // 2. Fetch working directory files (the user's selected folder snapshot)
     if (workingDirectory?.path) {
       fetchPromises.push(
         api.files
-          .listWorkingDirectory({ directoryPath: workingDirectory.path, maxDepth: 2 })
-          .then((result: { success: boolean; files: any[]; error?: string }) => {
-            if (result.success) {
-              return result.files;
-            }
-            console.error("Failed to load working directory:", result.error);
-            return [];
+          .listWorkingDirectory({
+            directoryPath: workingDirectory.path,
+            maxDepth: 2,
           })
+          .then(
+            (result: { success: boolean; files: any[]; error?: string }) => {
+              if (result.success) {
+                return result.files;
+              }
+              console.error("Failed to load working directory:", result.error);
+              return [];
+            },
+          )
           .catch((err: Error) => {
             console.error("Failed to load working directory files:", err);
             return [];
-          })
+          }),
       );
     }
 
@@ -296,7 +371,10 @@ export function TheaterPanel() {
           }));
 
         // Combine both sources
-        const allFiles = [...filteredStorageFiles, ...transformedWorkingDirFiles];
+        const allFiles = [
+          ...filteredStorageFiles,
+          ...transformedWorkingDirFiles,
+        ];
 
         console.log(
           "[TheaterPanel] Received files - storage:",
@@ -314,7 +392,100 @@ export function TheaterPanel() {
     return () => {
       cancelled = true;
     };
-  }, [theaterMode.isOpen, currentThreadId, workingDirectory?.path, filesVersion]);
+  }, [
+    theaterMode.isOpen,
+    currentThreadId,
+    workingDirectory?.path,
+    filesVersion,
+  ]);
+
+  // Listen for file change events from Electron to track diffs - PER THREAD
+  useEffect(() => {
+    const api =
+      typeof window !== "undefined" ? (window as any).electronAPI : null;
+    if (!api?.dialog?.onFileChanged) return;
+
+    const cleanup = api.dialog.onFileChanged(
+      (data: {
+        filePath: string;
+        filename: string;
+        status: "created" | "modified" | "deleted";
+        originalContent: string | null;
+        newContent: string;
+        timestamp: number;
+      }) => {
+        // Only track changes if we have a current thread
+        if (!currentThreadId) {
+          console.log("[TheaterPanel] File changed but no thread active, skipping");
+          return;
+        }
+
+        console.log("[TheaterPanel] File changed:", data.filePath, data.status, "for thread:", currentThreadId);
+
+        // Update the store with the file snapshot for diff tracking - PER THREAD
+        appStoreMutate((state) => {
+          const threadId = currentThreadId;
+          const existingThreadSnapshots = state.theaterMode.threadFileSnapshots || {};
+          const existingSnapshots = existingThreadSnapshots[threadId] || {};
+          const existingThreadChanges = state.theaterMode.threadSessionChanges || {};
+          const existingChanges = existingThreadChanges[threadId] || {
+            created: [],
+            modified: [],
+            deleted: [],
+          };
+
+          // Update file snapshots for this thread
+          const newSnapshots = {
+            ...existingSnapshots,
+            [data.filePath]: {
+              originalContent:
+                existingSnapshots[data.filePath]?.originalContent ??
+                data.originalContent ??
+                "",
+              currentContent: data.newContent,
+              status: data.status as "created" | "modified" | "deleted",
+              timestamp: data.timestamp,
+            },
+          };
+
+          // Update session changes for this thread
+          const newChanges = { ...existingChanges };
+          const path = data.filePath;
+
+          if (data.status === "created" && !newChanges.created.includes(path)) {
+            newChanges.created = [...newChanges.created, path];
+          } else if (
+            data.status === "modified" &&
+            !newChanges.modified.includes(path)
+          ) {
+            newChanges.modified = [...newChanges.modified, path];
+          } else if (
+            data.status === "deleted" &&
+            !newChanges.deleted.includes(path)
+          ) {
+            newChanges.deleted = [...newChanges.deleted, path];
+          }
+
+          return {
+            theaterMode: {
+              ...state.theaterMode,
+              threadFileSnapshots: {
+                ...existingThreadSnapshots,
+                [threadId]: newSnapshots,
+              },
+              threadSessionChanges: {
+                ...existingThreadChanges,
+                [threadId]: newChanges,
+              },
+              filesVersion: (state.theaterMode.filesVersion || 0) + 1,
+            },
+          };
+        });
+      },
+    );
+
+    return cleanup;
+  }, [appStoreMutate, currentThreadId]);
 
   // Combine Artifacts + Uploaded Files
   const allItems = useMemo(() => {
@@ -375,6 +546,40 @@ export function TheaterPanel() {
     threadFiles,
     currentThreadId,
     workspaceFiles,
+  ]);
+
+  // Count actual file changes for the Changes tab badge
+  const changesCount = useMemo(() => {
+    const fileSnapshots = currentThreadId
+      ? theaterMode.threadFileSnapshots?.[currentThreadId]
+      : undefined;
+    const sessionChanges = currentThreadId
+      ? theaterMode.threadSessionChanges?.[currentThreadId]
+      : undefined;
+
+    // Count files from snapshots
+    const snapshotCount = fileSnapshots ? Object.keys(fileSnapshots).length : 0;
+
+    // Count files from session changes that aren't already in snapshots
+    let additionalCount = 0;
+    if (sessionChanges && fileSnapshots) {
+      const existingPaths = new Set(Object.keys(fileSnapshots));
+      additionalCount =
+        sessionChanges.created.filter((p) => !existingPaths.has(p)).length +
+        sessionChanges.modified.filter((p) => !existingPaths.has(p)).length +
+        sessionChanges.deleted.filter((p) => !existingPaths.has(p)).length;
+    } else if (sessionChanges) {
+      additionalCount =
+        sessionChanges.created.length +
+        sessionChanges.modified.length +
+        sessionChanges.deleted.length;
+    }
+
+    return snapshotCount + additionalCount;
+  }, [
+    currentThreadId,
+    theaterMode.threadFileSnapshots,
+    theaterMode.threadSessionChanges,
   ]);
 
   // Auto-switch logic - respect defaultTab when theater opens
@@ -450,12 +655,17 @@ export function TheaterPanel() {
 
     // Check if this is a file from the working directory that needs to be read from disk
     // Working directory files have their URL stored in content, not actual file content
-    const api = typeof window !== "undefined" ? (window as any).electronAPI : null;
+    const api =
+      typeof window !== "undefined" ? (window as any).electronAPI : null;
 
     // Get the file path - could be from item.path (working dir files) or extracted from file:// URL
     let filePath: string | null = null;
 
-    if (item.path && typeof item.path === "string" && item.path.startsWith("/")) {
+    if (
+      item.path &&
+      typeof item.path === "string" &&
+      item.path.startsWith("/")
+    ) {
       // Direct filesystem path (from working directory listing)
       filePath = item.path;
     } else if (typeof content === "string" && content.startsWith("file://")) {
@@ -481,7 +691,11 @@ export function TheaterPanel() {
         const result = await api.files.readTextFile({ filePath });
 
         if (result.success && result.content !== null) {
-          console.log("[TheaterPanel] File read successfully:", result.content.length, "chars");
+          console.log(
+            "[TheaterPanel] File read successfully:",
+            result.content.length,
+            "chars",
+          );
           content = result.content;
         } else {
           console.error("[TheaterPanel] Failed to read file:", result.error);
@@ -495,12 +709,17 @@ export function TheaterPanel() {
 
     setSelectedFile({
       path: filePath || item.storageKey || item.url || filename,
-      content: typeof content === "string" ? content : JSON.stringify(content, null, 2),
+      content:
+        typeof content === "string"
+          ? content
+          : JSON.stringify(content, null, 2),
       title: filename,
       isEditable,
       storageKey: item.storageKey,
     });
-    setEditedContent(typeof content === "string" ? content : JSON.stringify(content, null, 2));
+    setEditedContent(
+      typeof content === "string" ? content : JSON.stringify(content, null, 2),
+    );
   }, []);
 
   // Close the inline file viewer
@@ -515,11 +734,18 @@ export function TheaterPanel() {
 
     setIsSaving(true);
     try {
-      const api = typeof window !== "undefined" ? (window as any).electronAPI : null;
+      const api =
+        typeof window !== "undefined" ? (window as any).electronAPI : null;
       if (api?.dialog?.writeToPath && selectedFile.path) {
-        await api.dialog.writeToPath(selectedFile.path, editedContent);
+        // API expects { filePath, content } object - this also triggers file:changed event
+        await api.dialog.writeToPath({
+          filePath: selectedFile.path,
+          content: editedContent,
+        });
         toast.success("File saved");
-        setSelectedFile((prev) => prev ? { ...prev, content: editedContent } : null);
+        setSelectedFile((prev) =>
+          prev ? { ...prev, content: editedContent } : null,
+        );
       } else {
         toast.error("Cannot save file - no path available");
       }
@@ -550,7 +776,7 @@ export function TheaterPanel() {
               "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
               activeTab === "all-files"
                 ? "bg-white/10 text-white"
-                : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                : "text-white/50 hover:text-white/80 hover:bg-white/5",
             )}
           >
             All files
@@ -561,12 +787,12 @@ export function TheaterPanel() {
               "px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center gap-2",
               activeTab === "changes"
                 ? "bg-white/10 text-white"
-                : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                : "text-white/50 hover:text-white/80 hover:bg-white/5",
             )}
           >
             Changes
-            {allItems.length > 0 && (
-              <span className="text-xs text-white/60">{allItems.length}</span>
+            {changesCount > 0 && (
+              <span className="text-xs text-white/60">{changesCount}</span>
             )}
           </button>
         </div>
@@ -622,7 +848,9 @@ export function TheaterPanel() {
                 <div className="flex items-center justify-between h-10 px-3 border-b border-white/10 flex-shrink-0">
                   <div className="flex items-center gap-2 min-w-0">
                     <FileTypeIcon filename={selectedFile.title} size={14} />
-                    <span className="text-sm text-white/80 truncate">{selectedFile.title}</span>
+                    <span className="text-sm text-white/80 truncate">
+                      {selectedFile.title}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {selectedFile.isEditable && (
@@ -673,7 +901,9 @@ export function TheaterPanel() {
                     return (
                       <div className="h-full flex flex-col items-center justify-center text-white/30 gap-3">
                         <Loader2 className="w-6 h-6 animate-spin" />
-                        <span className="text-xs text-white/50">Loading...</span>
+                        <span className="text-xs text-white/50">
+                          Loading...
+                        </span>
                       </div>
                     );
                   }
@@ -681,7 +911,9 @@ export function TheaterPanel() {
                     return (
                       <div className="h-full flex flex-col items-center justify-center text-white/30 gap-3">
                         <FolderIcon className="w-10 h-10 stroke-1" />
-                        <span className="text-sm text-white/50">No files yet</span>
+                        <span className="text-sm text-white/50">
+                          No files yet
+                        </span>
                       </div>
                     );
                   }
@@ -700,45 +932,11 @@ export function TheaterPanel() {
             )}
           </div>
         ) : (
-          <div className="h-full w-full flex flex-col">
-            {/* Changes tab - shows git status + session changes */}
-            <div className="flex-1 overflow-y-auto">
-              {allItems.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-white/30 gap-3">
-                  <Box className="w-10 h-10 stroke-1" />
-                  <span className="text-sm text-white/50">No changes</span>
-                </div>
-              ) : (
-                <div className="divide-y divide-white/5">
-                  {allItems.map((item, idx) => (
-                    <div
-                      key={item.id || idx}
-                      className="flex items-center justify-between px-4 py-2.5 hover:bg-white/5 cursor-pointer transition-colors"
-                      onClick={() => {
-                        // Open file in inline viewer and switch to All files tab
-                        openFileViewer(item);
-                        setActiveTab("all-files");
-                      }}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <FileTypeIcon
-                          filename={item.filename || item.name}
-                          size={16}
-                        />
-                        <span className="text-sm text-white/80 truncate">
-                          {item.filename || item.name || item.title}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {/* Status indicator - yellow for modified */}
-                        <div className="w-2 h-2 rounded-sm bg-yellow-500/80" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <ChangesView
+            fileSnapshots={currentThreadId ? theaterMode.threadFileSnapshots?.[currentThreadId] : undefined}
+            sessionChanges={currentThreadId ? theaterMode.threadSessionChanges?.[currentThreadId] : undefined}
+            workingDirectory={workingDirectory}
+          />
         )}
       </div>
     </div>
@@ -1006,6 +1204,374 @@ function FileExplorer({
                 expandedFolders={expandedFolders}
                 toggleFolder={toggleFolder}
               />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// File snapshot interface for tracking changes
+interface FileSnapshot {
+  originalContent: string;
+  currentContent?: string;
+  status: "created" | "modified" | "deleted";
+  timestamp: number;
+}
+
+// Changes view component - VS Code style diff viewer
+function ChangesView({
+  fileSnapshots,
+  sessionChanges,
+  workingDirectory,
+}: {
+  readonly fileSnapshots?: { [filePath: string]: FileSnapshot };
+  readonly sessionChanges?: {
+    created: string[];
+    modified: string[];
+    deleted: string[];
+  };
+  readonly workingDirectory: { path: string; name: string } | null;
+}) {
+  const [selectedFile, setSelectedFile] = useState<{
+    path: string;
+    originalContent: string;
+    currentContent: string;
+    status: "created" | "modified" | "deleted";
+  } | null>(null);
+  const [isLoadingDiff, setIsLoadingDiff] = useState(false);
+  const [diffViewMode, setDiffViewMode] = useState<"unified" | "split">(
+    "unified",
+  );
+
+  // Combine all changed files from snapshots and sessionChanges
+  const changedFiles = useMemo(() => {
+    const files: Array<{
+      path: string;
+      filename: string;
+      status: "created" | "modified" | "deleted";
+      hasSnapshot: boolean;
+    }> = [];
+
+    // Add files from snapshots
+    if (fileSnapshots) {
+      for (const [path, snapshot] of Object.entries(fileSnapshots)) {
+        files.push({
+          path,
+          filename: path.split("/").pop() || path,
+          status: snapshot.status,
+          hasSnapshot: true,
+        });
+      }
+    }
+
+    // Add files from sessionChanges that aren't already in snapshots
+    if (sessionChanges) {
+      const existingPaths = new Set(files.map((f) => f.path));
+
+      for (const path of sessionChanges.created) {
+        if (!existingPaths.has(path)) {
+          files.push({
+            path,
+            filename: path.split("/").pop() || path,
+            status: "created",
+            hasSnapshot: false,
+          });
+        }
+      }
+
+      for (const path of sessionChanges.modified) {
+        if (!existingPaths.has(path)) {
+          files.push({
+            path,
+            filename: path.split("/").pop() || path,
+            status: "modified",
+            hasSnapshot: false,
+          });
+        }
+      }
+
+      for (const path of sessionChanges.deleted) {
+        if (!existingPaths.has(path)) {
+          files.push({
+            path,
+            filename: path.split("/").pop() || path,
+            status: "deleted",
+            hasSnapshot: false,
+          });
+        }
+      }
+    }
+
+    // Sort: modified first, then created, then deleted
+    return files.sort((a, b) => {
+      const order = { modified: 0, created: 1, deleted: 2 };
+      return order[a.status] - order[b.status];
+    });
+  }, [fileSnapshots, sessionChanges]);
+
+  // Stats for the header
+  const stats = useMemo(() => {
+    let created = 0;
+    let modified = 0;
+    let deleted = 0;
+    for (const file of changedFiles) {
+      if (file.status === "created") created++;
+      else if (file.status === "modified") modified++;
+      else if (file.status === "deleted") deleted++;
+    }
+    return { created, modified, deleted, total: changedFiles.length };
+  }, [changedFiles]);
+
+  // Load diff content when a file is selected
+  const handleFileSelect = useCallback(
+    async (file: (typeof changedFiles)[0]) => {
+      setIsLoadingDiff(true);
+
+      try {
+        const api =
+          typeof window !== "undefined" ? (window as any).electronAPI : null;
+
+        // Get snapshot data if available
+        const snapshot = fileSnapshots?.[file.path];
+        let originalContent = snapshot?.originalContent || "";
+        let currentContent = snapshot?.currentContent || "";
+
+        // If no current content in snapshot, read from disk
+        if (
+          !currentContent &&
+          file.status !== "deleted" &&
+          api?.files?.readTextFile
+        ) {
+          const filePath = file.path.startsWith("/")
+            ? file.path
+            : workingDirectory
+              ? `${workingDirectory.path}/${file.path}`
+              : file.path;
+
+          const result = await api.files.readTextFile({ filePath });
+          if (result.success && result.content !== null) {
+            currentContent = result.content;
+          }
+        }
+
+        // For created files, original is empty
+        if (file.status === "created") {
+          originalContent = "";
+        }
+
+        // For deleted files, current is empty
+        if (file.status === "deleted") {
+          currentContent = "";
+        }
+
+        setSelectedFile({
+          path: file.path,
+          originalContent,
+          currentContent,
+          status: file.status,
+        });
+      } catch (error) {
+        console.error("[ChangesView] Error loading diff:", error);
+        toast.error("Failed to load file diff");
+      } finally {
+        setIsLoadingDiff(false);
+      }
+    },
+    [fileSnapshots, workingDirectory],
+  );
+
+  // If a file is selected, show the diff view
+  if (selectedFile) {
+    return (
+      <div className="h-full flex flex-col">
+        {/* Diff header */}
+        <div className="flex items-center justify-between h-10 px-3 border-b border-white/10 flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={() => setSelectedFile(null)}
+              className="p-1 text-white/50 hover:text-white hover:bg-white/10 rounded transition-colors"
+              aria-label="Back to file list"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <FileTypeIcon
+              filename={selectedFile.path.split("/").pop() || ""}
+              size={14}
+            />
+            <span className="text-sm text-white/80 truncate font-mono">
+              {selectedFile.path}
+            </span>
+            <span
+              className={cn(
+                "text-xs px-1.5 py-0.5 rounded",
+                selectedFile.status === "created" &&
+                  "bg-green-500/20 text-green-400",
+                selectedFile.status === "modified" &&
+                  "bg-yellow-500/20 text-yellow-400",
+                selectedFile.status === "deleted" &&
+                  "bg-red-500/20 text-red-400",
+              )}
+            >
+              {selectedFile.status}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {/* View mode toggle */}
+            <div className="flex items-center bg-white/5 rounded-md p-0.5">
+              <button
+                type="button"
+                onClick={() => setDiffViewMode("unified")}
+                className={cn(
+                  "px-2 py-1 text-xs rounded transition-colors",
+                  diffViewMode === "unified"
+                    ? "bg-white/10 text-white"
+                    : "text-white/50 hover:text-white/80",
+                )}
+              >
+                Unified
+              </button>
+              <button
+                type="button"
+                onClick={() => setDiffViewMode("split")}
+                className={cn(
+                  "px-2 py-1 text-xs rounded transition-colors",
+                  diffViewMode === "split"
+                    ? "bg-white/10 text-white"
+                    : "text-white/50 hover:text-white/80",
+                )}
+              >
+                Split
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Diff content */}
+        <div className="flex-1 overflow-auto p-3">
+          {isLoadingDiff ? (
+            <div className="h-full flex items-center justify-center">
+              <Loader2 className="w-6 h-6 animate-spin text-white/30" />
+            </div>
+          ) : diffViewMode === "unified" ? (
+            <DiffViewer
+              original={selectedFile.originalContent}
+              modified={selectedFile.currentContent}
+              filename={selectedFile.path.split("/").pop()}
+              showLineNumbers
+            />
+          ) : (
+            <SideBySideDiff
+              original={selectedFile.originalContent}
+              modified={selectedFile.currentContent}
+              filename={selectedFile.path.split("/").pop()}
+              originalTitle="Before"
+              modifiedTitle="After"
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // File list view
+  return (
+    <div className="h-full flex flex-col">
+      {/* Stats header */}
+      {stats.total > 0 && (
+        <div className="px-3 py-2 border-b border-white/10 flex items-center gap-4 text-xs flex-shrink-0">
+          <span className="text-white/50">{stats.total} changed files</span>
+          {stats.created > 0 && (
+            <span className="flex items-center gap-1 text-green-400">
+              <Plus className="w-3 h-3" />
+              {stats.created} added
+            </span>
+          )}
+          {stats.modified > 0 && (
+            <span className="flex items-center gap-1 text-yellow-400">
+              <Pencil className="w-3 h-3" />
+              {stats.modified} modified
+            </span>
+          )}
+          {stats.deleted > 0 && (
+            <span className="flex items-center gap-1 text-red-400">
+              <Minus className="w-3 h-3" />
+              {stats.deleted} deleted
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* File list */}
+      <div className="flex-1 overflow-y-auto">
+        {changedFiles.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-white/30 gap-3">
+            <Box className="w-10 h-10 stroke-1" />
+            <span className="text-sm text-white/50">
+              No changes in this session
+            </span>
+            <span className="text-xs text-white/30 max-w-[200px] text-center">
+              File changes made during your session will appear here
+            </span>
+          </div>
+        ) : (
+          <div className="divide-y divide-white/5">
+            {changedFiles.map((file) => (
+              <button
+                key={file.path}
+                type="button"
+                className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-white/5 cursor-pointer transition-colors text-left"
+                onClick={() => handleFileSelect(file)}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  {/* Status icon */}
+                  <div
+                    className={cn(
+                      "w-5 h-5 rounded flex items-center justify-center flex-shrink-0",
+                      file.status === "created" && "bg-green-500/20",
+                      file.status === "modified" && "bg-yellow-500/20",
+                      file.status === "deleted" && "bg-red-500/20",
+                    )}
+                  >
+                    {file.status === "created" && (
+                      <FilePlus className="w-3 h-3 text-green-400" />
+                    )}
+                    {file.status === "modified" && (
+                      <Pencil className="w-3 h-3 text-yellow-400" />
+                    )}
+                    {file.status === "deleted" && (
+                      <Trash2 className="w-3 h-3 text-red-400" />
+                    )}
+                  </div>
+
+                  <FileTypeIcon filename={file.filename} size={16} />
+
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-sm text-white/80 truncate">
+                      {file.filename}
+                    </span>
+                    {file.path !== file.filename && (
+                      <span className="text-xs text-white/40 truncate font-mono">
+                        {file.path}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Status indicator dot */}
+                  <div
+                    className={cn(
+                      "w-2 h-2 rounded-full",
+                      file.status === "created" && "bg-green-400",
+                      file.status === "modified" && "bg-yellow-400",
+                      file.status === "deleted" && "bg-red-400",
+                    )}
+                  />
+                </div>
+              </button>
             ))}
           </div>
         )}

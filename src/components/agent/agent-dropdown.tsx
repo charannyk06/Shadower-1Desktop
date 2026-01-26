@@ -4,7 +4,6 @@ import { AgentSummary } from "app-types/agent";
 import { authClient } from "auth/client";
 import { generateUUID } from "lib/utils";
 import { MicIcon, PencilLine } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Link } from "@tanstack/react-router";
 import { type PropsWithChildren, useState } from "react";
 import { Command, CommandGroup, CommandItem, CommandList } from "ui/command";
@@ -17,7 +16,6 @@ type Props = PropsWithChildren<{
 }>;
 
 export function AgentDropdown({ agent, children, side, align }: Props) {
-  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { data: session } = authClient.useSession();
   const isOwner = session?.user?.id === agent.userId;
@@ -44,7 +42,7 @@ export function AgentDropdown({ agent, children, side, align }: Props) {
                   }}
                 >
                   <MicIcon className="text-foreground" />
-                  <span>{t("Chat.VoiceChat.title")}</span>
+                  <span>Voice Chat Mode</span>
                 </div>
               </CommandItem>
               {isOwner && (
@@ -55,7 +53,7 @@ export function AgentDropdown({ agent, children, side, align }: Props) {
                     className="flex items-center gap-2 w-full px-2 py-1 rounded"
                   >
                     <PencilLine className="text-foreground" />
-                    {t("Common.edit")}
+                    Edit
                   </Link>
                 </CommandItem>
               )}

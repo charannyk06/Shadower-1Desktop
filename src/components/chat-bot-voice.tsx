@@ -52,7 +52,6 @@ import { appStore } from "@/app/store";
 import { useAgent } from "@/hooks/queries/use-agent";
 import { ChatMention } from "app-types/chat";
 import { Shortcuts, isShortcutEvent } from "lib/keyboard-shortcuts";
-import { useTranslation } from "react-i18next";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "ui/dialog";
 import JsonView from "ui/json-view";
@@ -70,7 +69,6 @@ const prependTools: EnabledTools[] = [
 ];
 
 export function ChatBotVoice() {
-  const { t } = useTranslation();
   const [
     agentId,
     appStoreMutate,
@@ -192,26 +190,26 @@ export function ChatBotVoice() {
     if (isLoading) {
       return (
         <p className="fade-in animate-in duration-3000" key="start">
-          {t("Chat.VoiceChat.preparing")}
+          Preparing...
         </p>
       );
     }
     if (!isActive)
       return (
         <p className="fade-in animate-in duration-3000" key="start">
-          {t("Chat.VoiceChat.startVoiceChat")}
+          Start Voice Chat
         </p>
       );
     if (!isListening)
       return (
         <p className="fade-in animate-in duration-3000" key="stop">
-          {t("Chat.VoiceChat.yourMicIsOff")}
+          Your mic is off
         </p>
       );
     if (!isAssistantSpeaking && messages.length === 0) {
       return (
         <p className="fade-in animate-in duration-3000" key="ready">
-          {t("Chat.VoiceChat.readyWhenYouAreJustStartTalking")}
+          Ready when you are. Just start talking.
         </p>
       );
     }
@@ -221,7 +219,7 @@ export function ChatBotVoice() {
     if (!isAssistantSpeaking && !isUserSpeaking) {
       return (
         <p className="delayed-fade-in" key="ready">
-          {t("Chat.VoiceChat.readyWhenYouAreJustStartTalking")}
+          Ready when you are. Just start talking.
         </p>
       );
     }
@@ -365,8 +363,8 @@ export function ChatBotVoice() {
                 </TooltipTrigger>
                 <TooltipContent>
                   {useCompactView
-                    ? t("Chat.VoiceChat.compactDisplayMode")
-                    : t("Chat.VoiceChat.conversationDisplayMode")}
+                    ? "Compact Display Mode"
+                    : "Conversation Display Mode"}
                 </TooltipContent>
               </Tooltip>
 
@@ -389,7 +387,7 @@ export function ChatBotVoice() {
                         <DropdownMenuSubTrigger
                           className={cn(
                             "flex items-center gap-2 cursor-pointer",
-                            voiceProvider === "openai" && "font-medium"
+                            voiceProvider === "openai" && "font-medium",
                           )}
                           icon=""
                         >
@@ -437,7 +435,7 @@ export function ChatBotVoice() {
                       <DropdownMenuItem
                         className={cn(
                           "flex items-center gap-2 cursor-pointer",
-                          voiceProvider === "local" && "font-medium"
+                          voiceProvider === "local" && "font-medium",
                         )}
                         onClick={() =>
                           appStoreMutate({
@@ -488,7 +486,7 @@ export function ChatBotVoice() {
 
                     <AlertDescription className="my-4 ">
                       <p className="text-muted-foreground ">
-                        {t("Chat.VoiceChat.pleaseCloseTheVoiceChatAndTryAgain")}
+                        Please close the voice chat and try again.
                       </p>
                     </AlertDescription>
                   </Alert>
@@ -558,10 +556,10 @@ export function ChatBotVoice() {
                 </TooltipTrigger>
                 <TooltipContent>
                   {!isActive
-                    ? t("Chat.VoiceChat.startConversation")
+                    ? "Start Conversation"
                     : isListening
-                      ? t("Chat.VoiceChat.closeMic")
-                      : t("Chat.VoiceChat.openMic")}
+                      ? "Close Mic"
+                      : "Open Mic"}
                 </TooltipContent>
               </Tooltip>
               <Tooltip>
@@ -577,7 +575,7 @@ export function ChatBotVoice() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{t("Chat.VoiceChat.endConversation")}</p>
+                  <p>End Conversation</p>
                 </TooltipContent>
               </Tooltip>
             </div>

@@ -12,7 +12,6 @@ import {
   ListTodoIcon,
   XIcon,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { memo, useEffect, useMemo, useState } from "react";
 import { TextShimmer } from "ui/text-shimmer";
 import { useShallow } from "zustand/shallow";
@@ -43,7 +42,6 @@ interface PlanInput {
 }
 
 function PurePlanViewInvocation({ part }: Readonly<PlanViewInvocationProps>) {
-  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(true);
 
   // Get real-time plan state from store
@@ -162,9 +160,7 @@ function PurePlanViewInvocation({ part }: Readonly<PlanViewInvocationProps>) {
         {/* Title & Progress */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">
-              {t("Chat.Tool.agentPlan")}
-            </span>
+            <span className="font-medium text-sm">Agent Plan</span>
             <span
               className={cn(
                 "text-xs px-1.5 py-0.5 rounded font-medium",

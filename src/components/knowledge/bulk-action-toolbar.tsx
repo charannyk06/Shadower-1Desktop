@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { TrashIcon, XIcon, UserIcon, BotIcon } from "lucide-react";
 import { Button } from "ui/button";
 import {
@@ -34,7 +33,6 @@ export function BulkActionToolbar({
   onClearSelection,
   className,
 }: BulkActionToolbarProps) {
-  const { t } = useTranslation();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteRoleDialogOpen, setDeleteRoleDialogOpen] = useState<
     "user" | "assistant" | null
@@ -53,11 +51,10 @@ export function BulkActionToolbar({
       await onDelete(Array.from(selectedIds));
       setDeleteDialogOpen(false);
       onClearSelection();
-      toast.success(t("Knowledge.bulkDeleteSuccess", { count: selectedCount }));
+      toast.success(`Successfully deleted ${selectedCount} memories`);
     } catch (error: any) {
       toast.error(
-        error.message ||
-          t("Knowledge.bulkDeleteFailed", { count: selectedCount }),
+        error.message || `Failed to delete ${selectedCount} memories`,
       );
     } finally {
       setIsDeleting(false);
@@ -75,9 +72,9 @@ export function BulkActionToolbar({
       await onDeleteByRole(role, roleIds);
       setDeleteRoleDialogOpen(null);
       onClearSelection();
-      toast.success(t("Knowledge.bulkDeleteSuccess", { count }));
+      toast.success(`Successfully deleted ${count} memories`);
     } catch (error: any) {
-      toast.error(error.message || t("Knowledge.bulkDeleteFailed", { count }));
+      toast.error(error.message || `Failed to delete ${count} memories`);
     } finally {
       setIsDeleting(false);
     }

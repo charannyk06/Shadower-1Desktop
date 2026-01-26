@@ -5,7 +5,6 @@ import { AgentSummary } from "app-types/agent";
 import { MCPServerInfo } from "app-types/mcp";
 import { format } from "date-fns";
 import { cn } from "lib/utils";
-import { useTranslation } from "react-i18next";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "ui/avatar";
@@ -47,8 +46,6 @@ export function ShareableCard({
   actionsDisabled,
   hideActions = false,
 }: ShareableCardProps) {
-  const { t: _t } = useTranslation();
-
   // Get effective icon - use custom icon for system agents if available
   const effectiveIcon = useMemo(() => {
     if (type === "agent") {
