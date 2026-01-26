@@ -1,6 +1,9 @@
 import { spawn, ChildProcess } from "child_process";
 import { promisify } from "util";
 import { exec } from "child_process";
+import { existsSync, promises as fsPromises } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import { EventEmitter } from "events";
 import {
   ClientSideConnection,
@@ -96,6 +99,29 @@ export class ACPAgentManager extends EventEmitter {
   }
 
   /**
+   * Check if authentication credentials exist for an agent
+   */
+  private checkAuthenticationExists(config: ACPAgentConfig): boolean {
+    if (!config.authPaths || config.authPaths.length === 0) {
+      // No auth paths defined, assume not authenticated
+      return false;
+    }
+
+    const home = homedir();
+    // Check if ANY of the auth paths exist
+    for (const authPath of config.authPaths) {
+      const fullPath = join(home, authPath);
+      if (existsSync(fullPath)) {
+        console.log(`[ACP] Auth detected for ${config.id}: ${fullPath}`);
+        return true;
+      }
+    }
+
+    console.log(`[ACP] No auth found for ${config.id}, checked: ${config.authPaths.join(", ")}`);
+    return false;
+  }
+
+  /**
    * Check if a specific agent is installed
    */
   private async checkAgentInstalled(
@@ -119,12 +145,14 @@ export class ACPAgentManager extends EventEmitter {
       const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
       const version = versionMatch ? versionMatch[1] : undefined;
 
+      // Check if authentication credentials exist
+      const authenticated = this.checkAuthenticationExists(config);
+
       return {
         ...baseStatus,
         installed: true,
         version,
-        // TODO: Check authentication status by trying to create a session
-        authenticated: false,
+        authenticated,
       };
     } catch (_error) {
       // Agent not installed via direct command, try npx
@@ -135,9 +163,14 @@ export class ACPAgentManager extends EventEmitter {
           await execAsync(`npm view ${npxConfig.args[0]} version`, {
             timeout: 10000,
           });
+
+          // Check if authentication credentials exist
+          const authenticated = this.checkAuthenticationExists(config);
+
           return {
             ...baseStatus,
             installed: true,
+            authenticated,
             // NPX will download on first use
           };
         } catch {
@@ -309,6 +342,13 @@ export class ACPAgentManager extends EventEmitter {
           version: "1.0.0",
         },
         clientCapabilities: {
+          // Filesystem capabilities - agent handles these internally
+          // but we need to declare them for the ACP protocol
+          fs: {
+            readTextFile: false,
+            writeTextFile: false,
+          },
+          // Terminal capability - agent handles this internally
           terminal: true,
         },
       });
@@ -344,12 +384,14 @@ export class ACPAgentManager extends EventEmitter {
         // Convert to message chunks for the UI
         if (params.update) {
           console.log(`[ACP] Processing update:`, JSON.stringify(params.update, null, 2));
+          const updateType = (params.update as { sessionUpdate?: string }).sessionUpdate;
           const chunk: ACPMessageChunk = {
             sessionId: params.sessionId,
             agentId,
             messageId: (params.update as any).messageId || crypto.randomUUID(),
             type: this._getChunkType(params.update),
             content: this._getChunkContent(params.update),
+            role: updateType === "user_message_chunk" ? "user" : "assistant",
           };
           console.log(`[ACP] Emitting message-chunk:`, JSON.stringify(chunk, null, 2));
           this.emit("message-chunk", chunk);
@@ -403,15 +445,36 @@ export class ACPAgentManager extends EventEmitter {
         });
       },
 
-      // File system operations (optional - agent handles its own)
-      readTextFile: async (_params) => {
-        // Let the agent handle file reading
-        throw new Error("File operations handled by agent");
+      // File system operations - implement these for agents that need them
+      readTextFile: async (params) => {
+        console.log(`[ACP] readTextFile request:`, params.path);
+        try {
+          const content = await fsPromises.readFile(params.path, "utf-8");
+
+          // Handle line and limit parameters if provided
+          if (params.line || params.limit) {
+            const lines = content.split("\n");
+            const startLine = params.line ? params.line - 1 : 0; // Convert to 0-based
+            const endLine = params.limit ? startLine + params.limit : lines.length;
+            return { content: lines.slice(startLine, endLine).join("\n") };
+          }
+
+          return { content };
+        } catch (error) {
+          console.error(`[ACP] Failed to read file ${params.path}:`, error);
+          throw error;
+        }
       },
 
-      writeTextFile: async (_params) => {
-        // Let the agent handle file writing
-        throw new Error("File operations handled by agent");
+      writeTextFile: async (params) => {
+        console.log(`[ACP] writeTextFile request:`, params.path);
+        try {
+          await fsPromises.writeFile(params.path, params.content, "utf-8");
+          return { success: true };
+        } catch (error) {
+          console.error(`[ACP] Failed to write file ${params.path}:`, error);
+          throw error;
+        }
       },
 
       // Terminal operations (optional - agent handles its own)
@@ -472,15 +535,20 @@ export class ACPAgentManager extends EventEmitter {
 
       case "tool_call": {
         // ToolCall type: id, name, input, kind, title
+        // Claude Code SDK may send tool name in either 'name' or 'title' field
         const toolCall = update as {
           id?: string;
           name?: string;
           input?: unknown;
           title?: string;
+          kind?: string;
         };
+        // Use name, fall back to title, then extract from kind if available
+        const toolName = toolCall.name || toolCall.title || toolCall.kind || "";
+        console.log("[ACP] Tool call received:", { id: toolCall.id, name: toolCall.name, title: toolCall.title, kind: toolCall.kind, resolvedName: toolName });
         return {
           id: toolCall.id || "",
-          name: toolCall.name || "",
+          name: toolName,
           input: toolCall.input as Record<string, unknown> | undefined,
           state: "running",
         };
@@ -606,6 +674,8 @@ export class ACPAgentManager extends EventEmitter {
         createdAt: new Date(),
         availableModes: response.modes?.availableModes?.map((m) => m.id),
         currentMode: response.modes?.currentModeId,
+        configOptions: response.configOptions ?? null,
+        models: response.models ?? null,
       };
 
       activeAgent.sessions.set(response.sessionId, session);
@@ -623,6 +693,83 @@ export class ACPAgentManager extends EventEmitter {
       }
       throw error;
     }
+  }
+
+  /**
+   * Set the active session mode
+   */
+  async setSessionMode(
+    agentId: string,
+    sessionId: string,
+    modeId: string,
+  ): Promise<void> {
+    const activeAgent = this.agents.get(agentId);
+    if (!activeAgent) {
+      throw new Error(`Agent ${agentId} is not running`);
+    }
+
+    await activeAgent.connection.setSessionMode({ sessionId, modeId });
+
+    const session = activeAgent.sessions.get(sessionId);
+    if (session) {
+      session.currentMode = modeId;
+    }
+  }
+
+  /**
+   * Set the active session model (ACP experimental)
+   */
+  async setSessionModel(
+    agentId: string,
+    sessionId: string,
+    modelId: string,
+  ): Promise<void> {
+    const activeAgent = this.agents.get(agentId);
+    if (!activeAgent) {
+      throw new Error(`Agent ${agentId} is not running`);
+    }
+
+    await activeAgent.connection.unstable_setSessionModel({
+      sessionId,
+      modelId,
+    });
+
+    const session = activeAgent.sessions.get(sessionId);
+    if (session?.models) {
+      session.models = {
+        ...session.models,
+        currentModelId: modelId,
+      };
+    }
+  }
+
+  /**
+   * Set a session config option (ACP experimental)
+   */
+  async setSessionConfigOption(
+    agentId: string,
+    sessionId: string,
+    configId: string,
+    value: string,
+  ): Promise<{ configOptions: ACPSession["configOptions"] }> {
+    const activeAgent = this.agents.get(agentId);
+    if (!activeAgent) {
+      throw new Error(`Agent ${agentId} is not running`);
+    }
+
+    const response =
+      await activeAgent.connection.unstable_setSessionConfigOption({
+        sessionId,
+        configId,
+        value,
+      });
+
+    const session = activeAgent.sessions.get(sessionId);
+    if (session) {
+      session.configOptions = response.configOptions ?? null;
+    }
+
+    return { configOptions: response.configOptions ?? null };
   }
 
   /**

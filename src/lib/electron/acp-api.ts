@@ -13,6 +13,8 @@ import type {
   StartACPSessionRequest,
   SendACPPromptRequest,
   RespondToPermissionRequest,
+  SessionConfigOption,
+  SessionModelState,
 } from "@/types/acp";
 
 /**
@@ -45,6 +47,8 @@ interface PreloadACPSession {
   createdAt: Date;
   availableModes?: string[];
   currentMode?: string;
+  configOptions?: SessionConfigOption[] | null;
+  models?: SessionModelState | null;
 }
 
 // Preload returns a different shape for prompt results
@@ -85,6 +89,22 @@ interface ACPElectronAPI {
   startAgent: (agentId: string) => Promise<void>;
   stopAgent: (agentId: string) => Promise<void>;
   createSession: (request: StartACPSessionRequest) => Promise<PreloadACPSession>;
+  setSessionModel: (request: {
+    agentId: string;
+    sessionId: string;
+    modelId: string;
+  }) => Promise<void>;
+  setSessionConfigOption: (request: {
+    agentId: string;
+    sessionId: string;
+    configId: string;
+    value: string;
+  }) => Promise<{ configOptions?: SessionConfigOption[] | null }>;
+  setSessionMode: (request: {
+    agentId: string;
+    sessionId: string;
+    modeId: string;
+  }) => Promise<void>;
   prompt: (request: SendACPPromptRequest) => Promise<PreloadPromptResult>;
   cancel: (agentId: string, sessionId: string) => Promise<void>;
   authenticate: (
@@ -191,6 +211,10 @@ export async function createACPSession(
     agentId: preloadSession.agentId,
     workingDirectory: preloadSession.workingDirectory || workingDirectory,
     createdAt: preloadSession.createdAt,
+    availableModes: preloadSession.availableModes,
+    currentMode: preloadSession.currentMode,
+    configOptions: preloadSession.configOptions ?? null,
+    models: preloadSession.models ?? null,
   };
 }
 
@@ -220,6 +244,46 @@ export async function cancelACPPrompt(
   const api = getACPApi();
   if (!api) throw new Error("ACP API not available");
   return api.cancel(agentId, sessionId);
+}
+
+/**
+ * Set ACP session model (experimental)
+ */
+export async function setACPSessionModel(
+  agentId: string,
+  sessionId: string,
+  modelId: string
+): Promise<void> {
+  const api = getACPApi();
+  if (!api) throw new Error("ACP API not available");
+  return api.setSessionModel({ agentId, sessionId, modelId });
+}
+
+/**
+ * Set ACP session config option (experimental)
+ */
+export async function setACPSessionConfigOption(
+  agentId: string,
+  sessionId: string,
+  configId: string,
+  value: string
+): Promise<{ configOptions?: SessionConfigOption[] | null }> {
+  const api = getACPApi();
+  if (!api) throw new Error("ACP API not available");
+  return api.setSessionConfigOption({ agentId, sessionId, configId, value });
+}
+
+/**
+ * Set ACP session mode
+ */
+export async function setACPSessionMode(
+  agentId: string,
+  sessionId: string,
+  modeId: string
+): Promise<void> {
+  const api = getACPApi();
+  if (!api) throw new Error("ACP API not available");
+  return api.setSessionMode({ agentId, sessionId, modeId });
 }
 
 /**
@@ -330,6 +394,10 @@ export function onACPSessionCreated(
       agentId: data.session.agentId,
       workingDirectory: data.session.workingDirectory || "",
       createdAt: data.session.createdAt,
+      availableModes: data.session.availableModes,
+      currentMode: data.session.currentMode,
+      configOptions: data.session.configOptions ?? null,
+      models: data.session.models ?? null,
     };
     callback(session);
   });
