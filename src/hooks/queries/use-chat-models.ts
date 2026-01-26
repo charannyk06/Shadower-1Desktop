@@ -38,8 +38,9 @@ interface ProviderModels {
 
 export const useChatModels = (options?: SWRConfiguration) => {
   return useSWR<ProviderModels[]>("/api/chat/models", modelsFetcher, {
-    dedupingInterval: 60_000 * 5,
-    revalidateOnFocus: false,
+    // Reduced from 5 minutes to 10 seconds to allow faster updates when models change
+    dedupingInterval: 10_000,
+    revalidateOnFocus: true,
     fallbackData: [],
     onSuccess: (data) => {
       if (data && data.length > 0) {

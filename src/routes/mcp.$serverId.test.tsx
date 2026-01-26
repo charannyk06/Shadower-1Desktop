@@ -16,7 +16,6 @@ import {
   Search,
   WandSparkles,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Link, useParams } from "@tanstack/react-router";
 import {
   PropsWithChildren,
@@ -261,7 +260,6 @@ const GenerateExampleInputJsonDialog = ({
   onGenerated,
 }: PropsWithChildren<GenerateExampleInputJsonDialogProps>) => {
   const currentModelName = appStore((state) => state.chatModel);
-  const { t } = useTranslation();
 
   const { data: providers } = useChatModels();
 
@@ -307,10 +305,10 @@ ${option.prompt ? `Additional instructions: ${option.prompt}` : ""}`,
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            <p>{t("MCP.generateExampleInputJSON")}</p>
+            <p>Generate Example Input JSON</p>
           </DialogTitle>
           <DialogDescription className="text-xs">
-            {t("MCP.enterPromptToGenerateExampleInputJSON")}
+            Enter a prompt to generate example input JSON
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2 py-4 text-foreground">
@@ -357,19 +355,19 @@ ${option.prompt ? `Additional instructions: ${option.prompt}` : ""}`,
             className="resize-none h-28 placeholder:text-xs"
             value={option.prompt}
             onChange={(e) => setOption({ prompt: e.target.value })}
-            placeholder={t("MCP.enterPromptToGenerateExampleInputJSON")}
+            placeholder="Enter a prompt to generate example input JSON"
           />
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="ghost">{t("Common.cancel")}</Button>
+            <Button variant="ghost">Cancel</Button>
           </DialogClose>
 
           <Button variant="default" onClick={generateExampleSchema}>
             {option.loading ? (
               <Loader className="size-4 animate-spin" />
             ) : (
-              t("Common.generate")
+              "Generate"
             )}
           </Button>
         </DialogFooter>
@@ -381,8 +379,6 @@ ${option.prompt ? `Additional instructions: ${option.prompt}` : ""}`,
 export default function McpTestPage() {
   const params = useParams({ strict: false });
   const id = params.serverId ?? "";
-
-  const { t } = useTranslation();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedToolIndex, setSelectedToolIndex] = useState<number>(0);
@@ -515,7 +511,7 @@ export default function McpTestPage() {
           className="flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground transition-colors pb-4"
         >
           <ArrowLeft className="size-3" />
-          {t("Common.back")}
+          Back
         </Link>
         <header>
           <h2 className="text-3xl font-semibold my-2">
@@ -533,7 +529,7 @@ export default function McpTestPage() {
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   type="search"
-                  placeholder={t("MCP.searchTools")}
+                  placeholder="Search tools..."
                   className="pl-8 bg-background"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -598,7 +594,7 @@ export default function McpTestPage() {
                                   size="sm"
                                   className="h-6 px-2 text-xs"
                                 >
-                                  {t("MCP.detail")}
+                                  Detail
                                   <ChevronDown className="ml-1 size-3" />
                                 </Button>
                               </DialogTrigger>
@@ -640,7 +636,7 @@ export default function McpTestPage() {
                               </div>
                             ) : (
                               <p className="text-xs text-muted-foreground italic">
-                                {t("MCP.noSchemaPropertiesAvailable")}
+                                No schema properties available
                               </p>
                             )}
                           </div>
@@ -661,7 +657,7 @@ export default function McpTestPage() {
                                 size="sm"
                                 className="h-6 px-2 text-xs"
                               >
-                                {t("MCP.createInputWithAI")}
+                                Create Input with AI
                                 <WandSparkles className="ml-1 size-3" />
                               </Button>
                             </GenerateExampleInputJsonDialog>
@@ -696,7 +692,7 @@ export default function McpTestPage() {
                           {isCallLoading && (
                             <Loader className="size-4 animate-spin mr-2" />
                           )}
-                          {t("MCP.callTool")}
+                          Call Tool
                         </Button>
                       </div>
 

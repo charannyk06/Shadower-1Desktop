@@ -62,7 +62,6 @@ export const IS_DOCKER_ENV =
     Boolean(process.env.DOCKER_CONTAINER));
 
 export const COOKIE_KEY_SIDEBAR_STATE = "sidebar:state";
-export const COOKIE_KEY_LOCALE = "i18n:locale";
 
 // Electron-only: BASE_URL for local development
 export const BASE_URL = (() => {
@@ -96,38 +95,6 @@ export const BASE_THEMES = [
 ];
 
 export const OAUTH_REQUIRED_CODE = "OAUTH_REQUIRED";
-
-export const SUPPORTED_LOCALES = [
-  {
-    code: "en",
-    name: "English 🇺🇸",
-  },
-  {
-    code: "ko",
-    name: "Korean 🇰🇷",
-  },
-
-  {
-    code: "es",
-    name: "Spanish 🇪🇸",
-  },
-  {
-    code: "fr",
-    name: "French 🇫🇷",
-  },
-  {
-    code: "ja",
-    name: "Japanese 🇯🇵",
-  },
-  {
-    code: "zh",
-    name: "Chinese 🇨🇳",
-  },
-  {
-    code: "no",
-    name: "Norwegian 🇳🇴",
-  },
-];
 
 export const BACKGROUND_COLORS = [
   "oklch(87% 0 0)",

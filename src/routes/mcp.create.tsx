@@ -1,12 +1,9 @@
 import MCPEditor from "@/components/mcp-editor";
 import { ArrowLeft } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Link, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 export default function McpCreatePage() {
-  const { t } = useTranslation();
-
   // Get search params from URL
   const searchParams = useSearch({ strict: false }) as {
     name?: string;
@@ -38,15 +35,13 @@ export default function McpCreatePage() {
           className="flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground transition-colors mb-8"
         >
           <ArrowLeft className="size-3" />
-          {t("Common.back")}
+          Back
         </Link>
         <header className="flex items-start justify-between gap-4">
           <div className="flex-1">
-            <h2 className="text-3xl font-semibold my-2">
-              {t("MCP.mcpConfiguration")}
-            </h2>
+            <h2 className="text-3xl font-semibold my-2">MCP Configuration</h2>
             <p className="text text-muted-foreground">
-              {t("MCP.configureYourMcpServerConnectionSettings")}
+              Configure your MCP server connection settings
             </p>
           </div>
         </header>

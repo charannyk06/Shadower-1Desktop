@@ -4,7 +4,6 @@ import MCPEditor from "@/components/mcp-editor";
 import { mcpApi } from "@/lib/electron/mcp-api";
 import { authClient } from "@/lib/auth/client";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Alert } from "ui/alert";
 
 /**
@@ -15,7 +14,6 @@ import { Alert } from "ui/alert";
 export default function McpModifyPage() {
   const params = useParams({ strict: false });
   const navigate = useNavigate();
-  const { t } = useTranslation();
   const id = params.serverId;
   const { data: session } = authClient.useSession();
 
@@ -71,14 +69,12 @@ export default function McpModifyPage() {
           className="flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground transition-colors mb-8"
         >
           <ArrowLeft className="size-3" />
-          {t("Common.back")}
+          Back
         </Link>
         <header>
-          <h2 className="text-3xl font-semibold my-2">
-            {t("MCP.mcpConfiguration")}
-          </h2>
+          <h2 className="text-3xl font-semibold my-2">MCP Configuration</h2>
           <p className="text text-muted-foreground">
-            {t("MCP.configureYourMcpServerConnectionSettings")}
+            Configure your MCP server connection settings
           </p>
         </header>
 
