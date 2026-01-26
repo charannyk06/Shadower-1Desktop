@@ -7,6 +7,9 @@ import type {
   StartACPSessionRequest,
   SendACPPromptRequest,
   RespondToPermissionRequest,
+  SetACPSessionModelRequest,
+  SetACPSessionConfigOptionRequest,
+  SetACPSessionModeRequest,
 } from "../../src/types/acp";
 
 /**
@@ -147,6 +150,67 @@ export function registerACPHandlers(): void {
         return session;
       } catch (error) {
         console.error(`[IPC] acp:create-session error:`, error);
+        throw serializeError(error);
+      }
+    }
+  );
+
+  /**
+   * Set ACP session model (experimental)
+   */
+  ipcMain.handle(
+    "acp:set-session-model",
+    async (_event, request: SetACPSessionModelRequest): Promise<void> => {
+      try {
+        await manager.setSessionModel(
+          request.agentId,
+          request.sessionId,
+          request.modelId
+        );
+      } catch (error) {
+        console.error(`[IPC] acp:set-session-model error:`, error);
+        throw serializeError(error);
+      }
+    }
+  );
+
+  /**
+   * Set ACP session config option (experimental)
+   */
+  ipcMain.handle(
+    "acp:set-session-config",
+    async (
+      _event,
+      request: SetACPSessionConfigOptionRequest
+    ): Promise<{ configOptions: ACPSession["configOptions"] }> => {
+      try {
+        return await manager.setSessionConfigOption(
+          request.agentId,
+          request.sessionId,
+          request.configId,
+          request.value
+        );
+      } catch (error) {
+        console.error(`[IPC] acp:set-session-config error:`, error);
+        throw serializeError(error);
+      }
+    }
+  );
+
+  /**
+   * Set ACP session mode
+   */
+  ipcMain.handle(
+    "acp:set-session-mode",
+    async (_event, request: SetACPSessionModeRequest): Promise<void> => {
+      try {
+        await manager.setSessionMode(
+          request.agentId,
+          request.sessionId,
+          request.modeId
+        );
+      } catch (error) {
+        console.error(`[IPC] acp:set-session-mode error:`, error);
         throw serializeError(error);
       }
     }
