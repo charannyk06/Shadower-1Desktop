@@ -8,7 +8,10 @@ import * as lmStudioService from "../services/lm-studio-service";
 import { CURATED_LOCAL_MODELS } from "../../src/lib/ai/curated-local-models";
 import { localModelSupportsTools } from "../../src/lib/ai/providers/capabilities";
 import { getACPAgentManager } from "../services/acp-agent-service";
-import { AGENT_DISPLAY_NAMES, AGENT_ICON_PROVIDERS } from "../services/acp-agents";
+import {
+  AGENT_DISPLAY_NAMES,
+  AGENT_ICON_PROVIDERS,
+} from "../services/acp-agents";
 
 // =============================================================================
 // LOCAL MODEL PERFORMANCE CACHE
@@ -26,7 +29,10 @@ const localModelCache = new Map<string, LocalModelCache>();
 
 // Tool support cache (5 minute TTL - less volatile)
 const TOOL_SUPPORT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const toolSupportCache = new Map<string, { supported: boolean; timestamp: number }>();
+const toolSupportCache = new Map<
+  string,
+  { supported: boolean; timestamp: number }
+>();
 
 function getCachedLocalModels(key: string): any | null {
   const cached = localModelCache.get(key);
@@ -40,6 +46,11 @@ function getCachedLocalModels(key: string): any | null {
 function setCachedLocalModels(key: string, data: any): void {
   localModelCache.set(key, { data, timestamp: Date.now() });
   log.info(`[Models Cache] SET for ${key}`);
+}
+
+function clearLocalModelCache(): void {
+  localModelCache.clear();
+  log.info(`[Models Cache] CLEARED all local model cache entries`);
 }
 
 function getCachedToolSupport(modelName: string): boolean | null {
@@ -351,7 +362,7 @@ async function fetchLocalModels(
  */
 async function checkOllamaModelToolSupport(
   modelName: string,
-  baseUrl: string = "http://localhost:11434"
+  baseUrl: string = "http://localhost:11434",
 ): Promise<boolean> {
   // Check cache first
   const cached = getCachedToolSupport(modelName);
@@ -370,21 +381,23 @@ async function checkOllamaModelToolSupport(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Connection": "keep-alive", // Reuse connections
+        Connection: "keep-alive", // Reuse connections
       },
       body: JSON.stringify({ name: modelName }),
       signal: AbortSignal.timeout(3000), // REDUCED: 3s timeout (was 10s)
     });
 
     if (!response.ok) {
-      log.warn(`[Models] Failed to get model info for ${modelName}: ${response.status}`);
+      log.warn(
+        `[Models] Failed to get model info for ${modelName}: ${response.status}`,
+      );
       // Fall back to pattern-based detection
       const patternBased = localModelSupportsTools(modelName);
       setCachedToolSupport(modelName, patternBased);
       return patternBased;
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       template?: string;
       modelfile?: string;
     };
@@ -402,7 +415,7 @@ async function checkOllamaModelToolSupport(
       localModelSupportsTools(modelName); // Also check pattern
 
     log.info(
-      `[Models] Tool support check for ${modelName}: ${supportsTools ? "YES" : "NO"}`
+      `[Models] Tool support check for ${modelName}: ${supportsTools ? "YES" : "NO"}`,
     );
 
     setCachedToolSupport(modelName, supportsTools);
@@ -410,7 +423,7 @@ async function checkOllamaModelToolSupport(
   } catch (error) {
     log.warn(
       `[Models] Error checking tool support for ${modelName}:`,
-      error instanceof Error ? error.message : "Unknown error"
+      error instanceof Error ? error.message : "Unknown error",
     );
     // Fall back to pattern-based detection
     const patternBased = localModelSupportsTools(modelName);
@@ -430,7 +443,7 @@ async function checkOllamaModelToolSupport(
  */
 async function checkOllamaModelsToolSupport(
   modelNames: string[],
-  baseUrl: string = "http://localhost:11434"
+  baseUrl: string = "http://localhost:11434",
 ): Promise<Map<string, boolean>> {
   const results = new Map<string, boolean>();
 
@@ -461,7 +474,7 @@ async function checkOllamaModelsToolSupport(
       batch.map(async (name) => ({
         name,
         supportsTools: await checkOllamaModelToolSupport(name, baseUrl),
-      }))
+      })),
     );
 
     for (const result of batchResults) {
@@ -1428,6 +1441,9 @@ export function registerModelsHandlers() {
       try {
         const user = await requireAuth(authService);
 
+        // Clear cache to force fresh fetch
+        clearLocalModelCache();
+
         const baseUrl =
           data.baseUrl ||
           (data.providerId === "ollama"
@@ -1445,13 +1461,16 @@ export function registerModelsHandlers() {
         if (data.providerId === "ollama") {
           const modelNames = result.models.map((m: { name: string }) => m.name);
           log.info(
-            `[IPC] Checking tool support for ${modelNames.length} Ollama models...`
+            `[IPC] Checking tool support for ${modelNames.length} Ollama models...`,
           );
-          toolSupportMap = await checkOllamaModelsToolSupport(modelNames, baseUrl);
+          toolSupportMap = await checkOllamaModelsToolSupport(
+            modelNames,
+            baseUrl,
+          );
           log.info(
             `[IPC] Tool support results: ${Array.from(toolSupportMap.entries())
               .map(([name, supports]) => `${name}=${supports}`)
-              .join(", ")}`
+              .join(", ")}`,
           );
         }
 
@@ -1482,14 +1501,15 @@ export function registerModelsHandlers() {
                 size: model.size,
                 family: model.family,
                 status: "available",
-                isToolCallSupported: toolSupport ?? existing.isToolCallSupported,
+                isToolCallSupported:
+                  toolSupport ?? existing.isToolCallSupported,
                 updatedAt: new Date(),
               })
               .where(eq(schema.LocalModelTable.id, existing.id));
           } else {
             // Create new
             const isVision =
-              model.name.includes("vision") || 
+              model.name.includes("vision") ||
               model.name.includes("llava") ||
               /-vl[:\-]/i.test(model.name) || // qwen3-vl, qwen2-vl, etc.
               model.name.endsWith("-vl");
@@ -1497,7 +1517,7 @@ export function registerModelsHandlers() {
             // Get dynamic tool support for Ollama, use heuristic fallback for others
             const isToolCallSupported =
               data.providerId === "ollama"
-                ? toolSupportMap.get(model.name) ?? false
+                ? (toolSupportMap.get(model.name) ?? false)
                 : localModelSupportsTools(model.name);
 
             await db.insert(schema.LocalModelTable).values({
@@ -1688,8 +1708,14 @@ export function registerModelsHandlers() {
                   }
                 } catch (parseError) {
                   // Only log if it looks like a real error, not just malformed JSON
-                  if (parseError instanceof Error && parseError.message !== "Unexpected end of JSON input") {
-                    log.warn(`[IPC] Download parse error for ${data.modelName}:`, parseError.message);
+                  if (
+                    parseError instanceof Error &&
+                    parseError.message !== "Unexpected end of JSON input"
+                  ) {
+                    log.warn(
+                      `[IPC] Download parse error for ${data.modelName}:`,
+                      parseError.message,
+                    );
                     // Re-throw actual errors from Ollama
                     if (line.includes('"error"')) {
                       throw parseError;
@@ -1702,7 +1728,10 @@ export function registerModelsHandlers() {
             // Process any remaining buffer
             if (buffer.trim()) {
               try {
-                const progress = JSON.parse(buffer) as { status: string; error?: string };
+                const progress = JSON.parse(buffer) as {
+                  status: string;
+                  error?: string;
+                };
                 if (progress.error) {
                   throw new Error(progress.error);
                 }
@@ -1717,36 +1746,55 @@ export function registerModelsHandlers() {
             // Verify download completed successfully
             // Check if the model is now available in Ollama
             if (!downloadComplete) {
-              log.info(`[IPC] Stream ended for ${data.modelName}, verifying download...`);
+              log.info(
+                `[IPC] Stream ended for ${data.modelName}, verifying download...`,
+              );
               try {
-                const verifyResponse = await fetch(`${baseUrl.replace(/\/api$/, "")}/api/tags`, {
-                  signal: AbortSignal.timeout(5000),
-                });
+                const verifyResponse = await fetch(
+                  `${baseUrl.replace(/\/api$/, "")}/api/tags`,
+                  {
+                    signal: AbortSignal.timeout(5000),
+                  },
+                );
                 if (verifyResponse.ok) {
-                  const tagsData = await verifyResponse.json() as { models?: Array<{ name: string }> };
-                  const modelNames = (tagsData.models || []).map(m => m.name.split(":")[0]);
+                  const tagsData = (await verifyResponse.json()) as {
+                    models?: Array<{ name: string }>;
+                  };
+                  const modelNames = (tagsData.models || []).map(
+                    (m) => m.name.split(":")[0],
+                  );
                   const requestedName = data.modelName.split(":")[0];
-                  if (modelNames.includes(requestedName) || modelNames.some(n => n.includes(requestedName))) {
+                  if (
+                    modelNames.includes(requestedName) ||
+                    modelNames.some((n) => n.includes(requestedName))
+                  ) {
                     downloadComplete = true;
-                    log.info(`[IPC] Verified ${data.modelName} is available in Ollama`);
+                    log.info(
+                      `[IPC] Verified ${data.modelName} is available in Ollama`,
+                    );
                   }
                 }
               } catch (verifyError) {
-                log.warn(`[IPC] Could not verify download for ${data.modelName}:`, verifyError);
+                log.warn(
+                  `[IPC] Could not verify download for ${data.modelName}:`,
+                  verifyError,
+                );
               }
             }
 
             if (!downloadComplete) {
-              throw new Error(`Download stream ended unexpectedly for ${data.modelName}. Last status: ${lastStatusMessage}`);
+              throw new Error(
+                `Download stream ended unexpectedly for ${data.modelName}. Last status: ${lastStatusMessage}`,
+              );
             }
 
             // Download complete - check tool support dynamically
             const supportsTools = await checkOllamaModelToolSupport(
               data.modelName,
-              baseUrl
+              baseUrl,
             );
             log.info(
-              `[IPC] Tool support for ${data.modelName}: ${supportsTools ? "YES" : "NO"}`
+              `[IPC] Tool support for ${data.modelName}: ${supportsTools ? "YES" : "NO"}`,
             );
 
             await db
@@ -1762,6 +1810,9 @@ export function registerModelsHandlers() {
 
             log.info(`[IPC] Download complete for ${data.modelName}`);
 
+            // Clear cache so the new model appears immediately in the UI
+            clearLocalModelCache();
+
             // Send completion event
             event.sender.send("models:download:complete", {
               modelId: model.id,
@@ -1769,10 +1820,7 @@ export function registerModelsHandlers() {
             });
           } catch (error) {
             // Handle cancellation
-            if (
-              error instanceof Error &&
-              error.name === "AbortError"
-            ) {
+            if (error instanceof Error && error.name === "AbortError") {
               await db
                 .update(schema.LocalModelTable)
                 .set({
@@ -1912,6 +1960,9 @@ export function registerModelsHandlers() {
             );
         }
 
+        // Clear cache so the model disappears immediately from the UI
+        clearLocalModelCache();
+
         return { success: true };
       } catch (error) {
         console.error("[IPC] Error deleting local model:", error);
@@ -1924,8 +1975,125 @@ export function registerModelsHandlers() {
   // Combined Model Status
   // ========================================================================
 
+  // Helper: Auto-register Ollama provider and sync models to database
+  // This enables "zero-config" Ollama support - models appear automatically
+  async function autoRegisterOllamaModels(
+    userId: string,
+    models: Array<{
+      name: string;
+      size: number;
+      modified_at: string;
+      details?: {
+        parameter_size?: string;
+        family?: string;
+        quantization_level?: string;
+      };
+    }>,
+    baseUrl: string = "http://localhost:11434",
+  ): Promise<void> {
+    if (models.length === 0) return;
+
+    try {
+      // Auto-create Ollama provider config if it doesn't exist
+      const [existingProvider] = await db
+        .select()
+        .from(schema.ProviderConfigTable)
+        .where(
+          and(
+            eq(schema.ProviderConfigTable.userId, userId),
+            eq(schema.ProviderConfigTable.providerId, "ollama"),
+          ),
+        )
+        .limit(1);
+
+      if (!existingProvider) {
+        log.info(
+          "[IPC] Auto-registering Ollama provider (first-time detection)",
+        );
+        await db.insert(schema.ProviderConfigTable).values({
+          name: "Ollama",
+          providerId: "ollama",
+          type: "local",
+          baseUrl,
+          authType: "none",
+          enabled: true,
+          status: "connected",
+          lastTestedAt: new Date(),
+          userId,
+        });
+      } else if (
+        !existingProvider.enabled ||
+        existingProvider.status !== "connected"
+      ) {
+        // Re-enable if it was disabled or mark as connected
+        await db
+          .update(schema.ProviderConfigTable)
+          .set({
+            enabled: true,
+            status: "connected",
+            baseUrl,
+            lastTestedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.ProviderConfigTable.id, existingProvider.id));
+      }
+
+      // Sync models to LocalModelTable
+      for (const model of models) {
+        const [existing] = await db
+          .select()
+          .from(schema.LocalModelTable)
+          .where(
+            and(
+              eq(schema.LocalModelTable.userId, userId),
+              eq(schema.LocalModelTable.providerId, "ollama"),
+              eq(schema.LocalModelTable.name, model.name),
+            ),
+          )
+          .limit(1);
+
+        const isVision =
+          model.name.includes("vision") ||
+          model.name.includes("llava") ||
+          /-vl[:\-]/i.test(model.name) ||
+          model.name.endsWith("-vl");
+
+        if (!existing) {
+          await db.insert(schema.LocalModelTable).values({
+            name: model.name,
+            displayName: model.name,
+            providerId: "ollama",
+            size: model.size,
+            family: model.details?.family,
+            status: "available",
+            isVision,
+            isToolCallSupported: localModelSupportsTools(model.name),
+            userId,
+          });
+        } else {
+          // Update existing model
+          await db
+            .update(schema.LocalModelTable)
+            .set({
+              size: model.size,
+              family: model.details?.family,
+              status: "available",
+              isToolCallSupported: localModelSupportsTools(model.name),
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.LocalModelTable.id, existing.id));
+        }
+      }
+
+      log.info(`[IPC] Auto-registered ${models.length} Ollama models`);
+    } catch (error) {
+      log.warn("[IPC] Failed to auto-register Ollama models:", error);
+    }
+  }
+
   // Get all available models (combines cloud providers with API keys + local models)
   // PERFORMANCE OPTIMIZED: Uses caching to avoid repeated API calls
+  // AUTO-DETECTION: Automatically detects and registers Ollama models
   ipcMain.handle("models:getAvailableModels", async () => {
     try {
       const user = await requireAuth(authService);
@@ -1970,15 +2138,29 @@ export function registerModelsHandlers() {
         isToolCallSupported?: boolean;
       }> = [];
 
-      // Fetch from Ollama (use cache if available)
+      // AUTO-DETECT Ollama models (use cache if available)
+      // This works for both local and remote Ollama instances
       if (cachedOllama) {
         localModels.push(...cachedOllama);
       } else {
         try {
-          const ollamaResult = await ollamaService.getOllamaModels();
-          if (ollamaResult.success && ollamaResult.models) {
+          // Use auto-detection which supports OLLAMA_BASE_URL for remote instances
+          const autoDetectResult = await ollamaService.autoDetectOllamaModels();
+
+          if (autoDetectResult.detected && autoDetectResult.models.length > 0) {
+            log.info(
+              `[IPC] Auto-detected ${autoDetectResult.models.length} Ollama models (remote: ${autoDetectResult.isRemote})`,
+            );
+
+            // Auto-register provider and models (zero-config support)
+            await autoRegisterOllamaModels(
+              user.id,
+              autoDetectResult.models,
+              autoDetectResult.baseUrl,
+            );
+
             const ollamaModels: typeof localModels = [];
-            for (const model of ollamaResult.models) {
+            for (const model of autoDetectResult.models) {
               ollamaModels.push({
                 id: `ollama-${model.name}`,
                 name: model.name,
@@ -1988,15 +2170,50 @@ export function registerModelsHandlers() {
                 quantization: model.details?.quantization_level,
                 family: model.details?.family,
                 status: "available",
-                isVision: model.name.includes("vision") || model.name.includes("llava") || /-vl[:\-]/i.test(model.name) || model.name.endsWith("-vl"),
-                isToolCallSupported: localModelSupportsTools(model.name), // Use fast pattern matching
+                isVision:
+                  model.name.includes("vision") ||
+                  model.name.includes("llava") ||
+                  /-vl[:\-]/i.test(model.name) ||
+                  model.name.endsWith("-vl"),
+                isToolCallSupported: localModelSupportsTools(model.name),
               });
             }
             setCachedLocalModels("ollama-models", ollamaModels);
             localModels.push(...ollamaModels);
+          } else if (!autoDetectResult.detected) {
+            // Ollama not running - check if we have previously registered models in DB
+            // This handles the case where Ollama was previously detected but is now stopped
+            const dbModels = await db
+              .select()
+              .from(schema.LocalModelTable)
+              .where(
+                and(
+                  eq(schema.LocalModelTable.userId, user.id),
+                  eq(schema.LocalModelTable.providerId, "ollama"),
+                ),
+              );
+
+            if (dbModels.length > 0) {
+              log.info(
+                `[IPC] Ollama not running, showing ${dbModels.length} previously detected models as offline`,
+              );
+              for (const model of dbModels) {
+                localModels.push({
+                  id: model.id,
+                  name: model.name,
+                  displayName: model.displayName || model.name,
+                  providerId: "ollama",
+                  size: model.size || undefined,
+                  family: model.family || undefined,
+                  status: "offline", // Mark as offline since Ollama isn't running
+                  isVision: model.isVision || false,
+                  isToolCallSupported: model.isToolCallSupported || false,
+                });
+              }
+            }
           }
         } catch (e) {
-          log.warn("[IPC] Failed to fetch Ollama models:", e);
+          log.warn("[IPC] Failed to auto-detect Ollama models:", e);
         }
       }
 
@@ -2059,7 +2276,9 @@ export function registerModelsHandlers() {
       }
 
       const duration = Date.now() - startTime;
-      log.info(`[IPC] models:getAvailableModels completed in ${duration}ms (${localModels.length} local models, ${acpAgents.length} ACP agents)`);
+      log.info(
+        `[IPC] models:getAvailableModels completed in ${duration}ms (${localModels.length} local models, ${acpAgents.length} ACP agents)`,
+      );
 
       return {
         cloudProviders: apiKeys.map((k) => k.providerId),
@@ -2126,7 +2345,10 @@ export function registerModelsHandlers() {
       return await ollamaService.isOllamaInstalled();
     } catch (error) {
       console.error("[IPC] Error checking Ollama installation:", error);
-      return { installed: false, error: error instanceof Error ? error.message : "Unknown error" };
+      return {
+        installed: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
     }
   });
 
@@ -2283,7 +2505,7 @@ export function registerModelsHandlers() {
   // ========================================================================
   // Model Warmup / Preload
   // ========================================================================
-  
+
   /**
    * Warmup / preload a model into Ollama's memory
    * This sends a minimal request to load the model so subsequent requests are fast.
@@ -2293,14 +2515,14 @@ export function registerModelsHandlers() {
     "models:ollama:warmup",
     async (_event, data: { modelName: string; baseUrl?: string }) => {
       const baseUrl = data.baseUrl || "http://localhost:11434";
-      
+
       log.info(`[Models] Warming up Ollama model: ${data.modelName}`);
-      
+
       try {
         // Send a minimal generate request with keep_alive to load model into memory
         // The empty prompt + num_predict: 1 makes this very fast
         const startTime = Date.now();
-        
+
         const response = await fetch(`${baseUrl}/api/generate`, {
           method: "POST",
           headers: {
@@ -2312,19 +2534,21 @@ export function registerModelsHandlers() {
             stream: false,
             keep_alive: "10m", // Keep loaded for 10 minutes (safer than indefinite)
             options: {
-              num_predict: 1,  // Minimal output
-              num_ctx: 512,    // Minimal context for warmup
-              num_batch: 64,   // Small batch for safety
+              num_predict: 1, // Minimal output
+              num_ctx: 512, // Minimal context for warmup
+              num_batch: 64, // Small batch for safety
             },
           }),
           signal: AbortSignal.timeout(120000), // 2 minute timeout for model loading
         });
 
         const elapsed = Date.now() - startTime;
-        
+
         if (response.ok) {
           const result = await response.json();
-          log.info(`[Models] Model ${data.modelName} warmed up in ${elapsed}ms. Load duration: ${result.load_duration ? Math.round(result.load_duration / 1000000) + 'ms' : 'N/A'}`);
+          log.info(
+            `[Models] Model ${data.modelName} warmed up in ${elapsed}ms. Load duration: ${result.load_duration ? Math.round(result.load_duration / 1000000) + "ms" : "N/A"}`,
+          );
           return {
             success: true,
             message: `Model loaded in ${elapsed}ms`,
@@ -2332,7 +2556,9 @@ export function registerModelsHandlers() {
           };
         } else {
           const errorText = await response.text();
-          log.error(`[Models] Warmup failed for ${data.modelName}: ${response.status} - ${errorText}`);
+          log.error(
+            `[Models] Warmup failed for ${data.modelName}: ${response.status} - ${errorText}`,
+          );
           return {
             success: false,
             error: `HTTP ${response.status}: ${errorText}`,
@@ -2355,9 +2581,9 @@ export function registerModelsHandlers() {
     "models:ollama:unload",
     async (_event, data: { modelName: string; baseUrl?: string }) => {
       const baseUrl = data.baseUrl || "http://localhost:11434";
-      
+
       log.info(`[Models] Unloading Ollama model: ${data.modelName}`);
-      
+
       try {
         const response = await fetch(`${baseUrl}/api/generate`, {
           method: "POST",
@@ -2378,7 +2604,10 @@ export function registerModelsHandlers() {
           return { success: true, message: "Model unloaded" };
         } else {
           const errorText = await response.text();
-          return { success: false, error: `HTTP ${response.status}: ${errorText}` };
+          return {
+            success: false,
+            error: `HTTP ${response.status}: ${errorText}`,
+          };
         }
       } catch (error) {
         log.error(`[Models] Error unloading model ${data.modelName}:`, error);
@@ -2389,6 +2618,105 @@ export function registerModelsHandlers() {
       }
     },
   );
+
+  // ========================================================================
+  // Ollama Auto-Detection Handler
+  // Zero-config Ollama support - automatically detect and register models
+  // Works with both local (localhost:11434) and remote (OLLAMA_BASE_URL) instances
+  // ========================================================================
+
+  /**
+   * Auto-detect Ollama models and register them
+   * This is the main entry point for zero-config Ollama support
+   * Called automatically at startup and can be triggered manually
+   */
+  ipcMain.handle("models:ollama:autoDetect", async () => {
+    try {
+      const user = await requireAuth(authService);
+      log.info("[IPC] Running Ollama auto-detection...");
+
+      const result = await ollamaService.autoDetectOllamaModels();
+
+      if (result.detected && result.models.length > 0) {
+        // Auto-register the provider and models
+        await autoRegisterOllamaModels(user.id, result.models, result.baseUrl);
+
+        // Clear cache to ensure fresh data
+        localModelCache.delete("ollama-models");
+
+        log.info(
+          `[IPC] Auto-detected and registered ${result.models.length} Ollama models`,
+        );
+      }
+
+      return {
+        success: true,
+        detected: result.detected,
+        running: result.running,
+        modelCount: result.models.length,
+        models: result.models.map((m) => ({
+          name: m.name,
+          size: m.size,
+          family: m.details?.family,
+        })),
+        baseUrl: result.baseUrl,
+        isRemote: result.isRemote,
+        version: result.version,
+        error: result.error,
+      };
+    } catch (error) {
+      log.error("[IPC] Ollama auto-detection failed:", error);
+      return {
+        success: false,
+        detected: false,
+        running: false,
+        modelCount: 0,
+        models: [],
+        baseUrl: ollamaService.getOllamaBaseUrl(),
+        isRemote: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  });
+
+  /**
+   * Start background polling for Ollama auto-detection
+   * This enables automatic detection when Ollama starts/stops
+   */
+  ipcMain.handle(
+    "models:ollama:startAutoDetectPolling",
+    async (_event, intervalMs?: number) => {
+      try {
+        const user = await requireAuth(authService);
+
+        ollamaService.startAutoDetectionPolling(async (result) => {
+          if (result.detected && result.models.length > 0) {
+            await autoRegisterOllamaModels(
+              user.id,
+              result.models,
+              result.baseUrl,
+            );
+            localModelCache.delete("ollama-models");
+          }
+        }, intervalMs || 30000);
+
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
+
+  /**
+   * Stop background polling for Ollama auto-detection
+   */
+  ipcMain.handle("models:ollama:stopAutoDetectPolling", async () => {
+    ollamaService.stopAutoDetectionPolling();
+    return { success: true };
+  });
 
   console.log("[IPC] Models handlers registered");
 }

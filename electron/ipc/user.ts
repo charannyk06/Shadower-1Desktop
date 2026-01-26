@@ -116,7 +116,7 @@ export function registerUserHandlers() {
     }
   });
 
-  // Get user stats (thread count, message count, etc.)
+  // Get user stats (thread count, message count, model usage, tokens, etc.)
   ipcMain.handle("db:user:getStats", async (_event, userId: string) => {
     try {
       // Get thread count
@@ -127,9 +127,12 @@ export function registerUserHandlers() {
 
       const threadCount = threadCountResult[0]?.count || 0;
 
-      // Get message count - join with threads to filter by user
-      const messageCountResult = await db
-        .select({ count: count() })
+      // Get all messages for this user's threads with metadata
+      const messages = await db
+        .select({
+          metadata: schema.ChatMessageTable.metadata,
+          role: schema.ChatMessageTable.role,
+        })
         .from(schema.ChatMessageTable)
         .innerJoin(
           schema.ChatThreadTable,
@@ -137,15 +140,72 @@ export function registerUserHandlers() {
         )
         .where(eq(schema.ChatThreadTable.userId, userId));
 
-      const messageCount = messageCountResult[0]?.count || 0;
+      const messageCount = messages.length;
 
-      // For desktop app, we don't track model stats or tokens in the same way
-      // Return simplified stats
+      // Aggregate model stats from message metadata
+      const modelStatsMap = new Map<
+        string,
+        {
+          model: string;
+          provider: string;
+          messageCount: number;
+          totalTokens: number;
+        }
+      >();
+
+      let totalTokens = 0;
+
+      for (const msg of messages) {
+        const metadata = msg.metadata as {
+          usage?: {
+            promptTokens?: number;
+            completionTokens?: number;
+            totalTokens?: number;
+          };
+          chatModel?: { provider: string; model: string };
+        } | null;
+
+        if (!metadata) continue;
+
+        // Get token counts from usage
+        const usage = metadata.usage;
+        if (usage) {
+          const msgTokens =
+            usage.totalTokens ||
+            (usage.promptTokens || 0) + (usage.completionTokens || 0);
+          totalTokens += msgTokens;
+
+          // Get model info
+          const chatModel = metadata.chatModel;
+          if (chatModel?.model) {
+            const key = `${chatModel.provider || "unknown"}:${chatModel.model}`;
+            const existing = modelStatsMap.get(key);
+
+            if (existing) {
+              existing.messageCount += 1;
+              existing.totalTokens += msgTokens;
+            } else {
+              modelStatsMap.set(key, {
+                model: chatModel.model,
+                provider: chatModel.provider || "unknown",
+                messageCount: 1,
+                totalTokens: msgTokens,
+              });
+            }
+          }
+        }
+      }
+
+      // Convert map to sorted array (by totalTokens descending)
+      const modelStats = Array.from(modelStatsMap.values()).sort(
+        (a, b) => b.totalTokens - a.totalTokens,
+      );
+
       return {
         threadCount,
         messageCount,
-        modelStats: [],
-        totalTokens: 0,
+        modelStats,
+        totalTokens,
         period: "All Time",
       };
     } catch (error) {

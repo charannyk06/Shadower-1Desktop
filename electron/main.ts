@@ -169,7 +169,7 @@ app.whenReady().then(async () => {
     const { dialog } = require("electron");
     dialog.showErrorBox(
       "Database Error",
-      `Failed to initialize database. The app cannot continue.\n\nError: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to initialize database. The app cannot continue.\n\nError: ${error instanceof Error ? error.message : String(error)}`,
     );
     app.quit();
     return;
@@ -313,12 +313,18 @@ app.whenReady().then(async () => {
         const embeddingAvailable = embeddingService.isAvailable();
 
         console.log(`[DIAG] ========== RAG SYSTEM STATUS ==========`);
-        console.log(`[DIAG] Vector Store Available: ${vectorStore.isAvailable()}`);
-        console.log(`[DIAG] Embedding Service Available: ${embeddingAvailable}`);
+        console.log(
+          `[DIAG] Vector Store Available: ${vectorStore.isAvailable()}`,
+        );
+        console.log(
+          `[DIAG] Embedding Service Available: ${embeddingAvailable}`,
+        );
         console.log(`[DIAG] Indexed Messages: ${stats.messages}`);
         console.log(`[DIAG] Indexed Documents: ${stats.documents}`);
         if (stats.documents === 0) {
-          console.log(`[DIAG] ⚠️ NO DOCUMENTS INDEXED - RAG will not find any knowledge base content!`);
+          console.log(
+            `[DIAG] ⚠️ NO DOCUMENTS INDEXED - RAG will not find any knowledge base content!`,
+          );
         }
         console.log(`[DIAG] ==========================================`);
       } catch (diagError) {
@@ -382,6 +388,29 @@ app.whenReady().then(async () => {
   }
 
   // ============================================
+  // AUTOMATIC OLLAMA DETECTION (ZERO-CONFIG)
+  // Auto-detect Ollama and register models without
+  // requiring manual user configuration.
+  // Supports both local and remote (OLLAMA_BASE_URL) instances.
+  // ============================================
+  try {
+    autoDetectAndRegisterOllama();
+  } catch (error) {
+    log.warn("[Main] Ollama auto-detection skipped:", error);
+  }
+
+  // ============================================
+  // AUTOMATIC ACP AGENT DETECTION (ZERO-CONFIG)
+  // Auto-detect installed ACP agents (Claude Code, Codex, Gemini CLI)
+  // so they appear in the model selector without manual configuration.
+  // ============================================
+  try {
+    autoDetectACPAgents();
+  } catch (error) {
+    log.warn("[Main] ACP agent auto-detection skipped:", error);
+  }
+
+  // ============================================
   // AUTOMATIC OLLAMA MODEL WARMUP (PERFORMANCE)
   // Pre-load the last-used Ollama model into memory
   // so first chat is instant (no model loading delay)
@@ -401,11 +430,220 @@ app.whenReady().then(async () => {
 });
 
 /**
+ * Auto-detect Ollama at startup and register models automatically.
+ * This enables "zero-config" Ollama support - users don't need to manually
+ * configure anything. If Ollama is running, models appear automatically.
+ *
+ * Supports both local (localhost:11434) and remote (OLLAMA_BASE_URL) instances.
+ */
+async function autoDetectAndRegisterOllama() {
+  // Delay detection to not block app startup
+  setTimeout(async () => {
+    try {
+      const ollamaService = await import("./services/ollama-service");
+      const { getDatabase, schema } = await import("./services/database");
+      const { ElectronAuthService } = await import("./services/auth");
+      const { eq, and } = await import("drizzle-orm");
+      const { localModelSupportsTools } = await import(
+        "../src/lib/ai/providers/capabilities"
+      );
+
+      log.info("[Main] Running Ollama auto-detection...");
+
+      // Get current user
+      const authService = ElectronAuthService.getInstance();
+      const user = await authService.getCurrentUser();
+
+      if (!user) {
+        log.info("[Main] No user logged in - skipping Ollama auto-detection");
+        return;
+      }
+
+      // Run auto-detection
+      const result = await ollamaService.autoDetectOllamaModels();
+
+      if (!result.detected || result.models.length === 0) {
+        log.info(
+          `[Main] Ollama not detected or no models available (running: ${result.running})`,
+        );
+        return;
+      }
+
+      log.info(
+        `[Main] Auto-detected ${result.models.length} Ollama models (remote: ${result.isRemote})`,
+      );
+
+      const db = getDatabase();
+
+      // Auto-create Ollama provider config if it doesn't exist
+      const [existingProvider] = await db
+        .select()
+        .from(schema.ProviderConfigTable)
+        .where(
+          and(
+            eq(schema.ProviderConfigTable.userId, user.id),
+            eq(schema.ProviderConfigTable.providerId, "ollama"),
+          ),
+        )
+        .limit(1);
+
+      if (!existingProvider) {
+        log.info(
+          "[Main] Auto-registering Ollama provider (first-time detection)",
+        );
+        await db.insert(schema.ProviderConfigTable).values({
+          name: "Ollama",
+          providerId: "ollama",
+          type: "local",
+          baseUrl: result.baseUrl,
+          authType: "none",
+          enabled: true,
+          status: "connected",
+          lastTestedAt: new Date(),
+          userId: user.id,
+        });
+      } else if (
+        !existingProvider.enabled ||
+        existingProvider.status !== "connected"
+      ) {
+        // Re-enable if it was disabled or mark as connected
+        await db
+          .update(schema.ProviderConfigTable)
+          .set({
+            enabled: true,
+            status: "connected",
+            baseUrl: result.baseUrl,
+            lastTestedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.ProviderConfigTable.id, existingProvider.id));
+      }
+
+      // Sync models to LocalModelTable
+      for (const model of result.models) {
+        const [existing] = await db
+          .select()
+          .from(schema.LocalModelTable)
+          .where(
+            and(
+              eq(schema.LocalModelTable.userId, user.id),
+              eq(schema.LocalModelTable.providerId, "ollama"),
+              eq(schema.LocalModelTable.name, model.name),
+            ),
+          )
+          .limit(1);
+
+        const isVision =
+          model.name.includes("vision") ||
+          model.name.includes("llava") ||
+          /-vl[:\-]/i.test(model.name) ||
+          model.name.endsWith("-vl");
+
+        if (!existing) {
+          await db.insert(schema.LocalModelTable).values({
+            name: model.name,
+            displayName: model.name,
+            providerId: "ollama",
+            size: model.size,
+            family: model.details?.family,
+            status: "available",
+            isVision,
+            isToolCallSupported: localModelSupportsTools(model.name),
+            userId: user.id,
+          });
+        } else {
+          // Update existing model
+          await db
+            .update(schema.LocalModelTable)
+            .set({
+              size: model.size,
+              family: model.details?.family,
+              status: "available",
+              isToolCallSupported: localModelSupportsTools(model.name),
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.LocalModelTable.id, existing.id));
+        }
+      }
+
+      log.info(
+        `[Main] Ollama auto-detection complete: ${result.models.length} models registered`,
+      );
+
+      // Mark auto-detection as complete
+      ollamaService.markAutoDetectionRan();
+    } catch (error) {
+      // Non-critical - don't fail app startup
+      log.warn(
+        "[Main] Ollama auto-detection failed (non-critical):",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }, 2000); // Wait 2 seconds after app start to not block UI
+}
+
+/**
+ * Auto-detect ACP agents (Claude Code, Codex, Gemini CLI) at startup.
+ * This enables "zero-config" ACP support - if agents are installed,
+ * they automatically appear in the model selector.
+ */
+async function autoDetectACPAgents() {
+  // Delay detection to not block app startup
+  setTimeout(async () => {
+    try {
+      const { getACPAgentManager } = await import("./services/acp-agent-service");
+      const { BrowserWindow } = await import("electron");
+
+      log.info("[Main] Running ACP agent auto-detection...");
+
+      const acpManager = getACPAgentManager();
+
+      // Force refresh to detect newly installed agents
+      const agents = await acpManager.detectInstalledAgents(true);
+
+      // Count installed agents
+      const installedAgents = agents.filter((a) => a.installed);
+
+      if (installedAgents.length > 0) {
+        log.info(
+          `[Main] Auto-detected ${installedAgents.length} ACP agent(s): ${installedAgents.map((a) => a.id).join(", ")}`,
+        );
+
+        // Notify renderer windows of available agents
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send("acp:agents-detected", {
+              agents: installedAgents,
+              timestamp: Date.now(),
+            });
+          }
+        }
+      } else {
+        log.info("[Main] No ACP agents detected");
+      }
+
+      // Log detailed status for debugging
+      for (const agent of agents) {
+        log.debug(
+          `[Main] ACP Agent ${agent.id}: installed=${agent.installed}, authenticated=${agent.authenticated}, version=${agent.version || "N/A"}`,
+        );
+      }
+    } catch (error) {
+      // Non-critical - don't fail app startup
+      log.warn(
+        "[Main] ACP agent auto-detection failed (non-critical):",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }, 2000); // Wait 2 seconds after app start to not block UI (same as Ollama)
+}
+
+/**
  * Warmup an Ollama model on app startup if Ollama provider is configured
  * This pre-loads a model into memory so first chat is instant
  */
 async function warmupLastUsedOllamaModel() {
-  // Delay warmup to not block app startup
+  // Delay warmup to not block app startup (run after auto-detection)
   setTimeout(async () => {
     try {
       const { getDatabase, schema } = await import("./services/database");
@@ -420,7 +658,9 @@ async function warmupLastUsedOllamaModel() {
         .limit(1);
 
       if (!providerConfig || !providerConfig.enabled) {
-        log.info("[Main] Ollama provider not configured or disabled - skipping warmup");
+        log.info(
+          "[Main] Ollama provider not configured or disabled - skipping warmup",
+        );
         return;
       }
 
@@ -452,7 +692,7 @@ async function warmupLastUsedOllamaModel() {
           keep_alive: "10m", // Keep loaded for 10 minutes (safer than indefinite)
           options: {
             num_predict: 1,
-            num_ctx: 512,  // Minimal context for warmup
+            num_ctx: 512, // Minimal context for warmup
             num_batch: 64, // Small batch for safety
           },
         }),
@@ -461,15 +701,20 @@ async function warmupLastUsedOllamaModel() {
 
       if (response.ok) {
         const elapsed = Date.now() - startTime;
-        log.info(`[Main] Ollama model ${localModel.name} warmed up in ${elapsed}ms - ready for instant responses!`);
+        log.info(
+          `[Main] Ollama model ${localModel.name} warmed up in ${elapsed}ms - ready for instant responses!`,
+        );
       } else {
         log.warn(`[Main] Ollama warmup returned status ${response.status}`);
       }
     } catch (error) {
       // Non-critical - don't fail app startup
-      log.warn("[Main] Ollama warmup failed (non-critical):", error instanceof Error ? error.message : error);
+      log.warn(
+        "[Main] Ollama warmup failed (non-critical):",
+        error instanceof Error ? error.message : error,
+      );
     }
-  }, 3000); // Wait 3 seconds after app start to not block UI
+  }, 5000); // Wait 5 seconds after app start (after auto-detection)
 }
 
 /**

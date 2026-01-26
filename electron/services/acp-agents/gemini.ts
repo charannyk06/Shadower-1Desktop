@@ -7,10 +7,17 @@ import type { ACPAgentConfig } from "../../../src/types/acp";
  * It has native ACP support using the --experimental-acp flag.
  * Gemini was the first reference implementation for ACP.
  *
- * Installation: npm install -g @anthropic-ai/gemini
- * Or: npx @anthropic-ai/gemini
+ * Installation:
+ * - npm install -g @anthropic-ai/gemini (the CLI itself)
+ * - Or: npx @anthropic-ai/gemini (runs via npx)
  *
  * See: https://zed.dev/acp/agent/gemini-cli
+ *
+ * Detection Strategy:
+ * 1. Try `gemini --version` directly
+ * 2. Check PATH with `which gemini`
+ * 3. Check common global install paths
+ * 4. Fall back to npm registry check for npx availability
  */
 export const geminiConfig: ACPAgentConfig = {
   id: "gemini",
@@ -21,10 +28,16 @@ export const geminiConfig: ACPAgentConfig = {
   authMethods: ["LOGIN", "API_KEY"],
   capabilities: ["filesystem", "terminal", "mcp"],
   iconProvider: "google",
+  // Primary detection: check if gemini CLI is installed
   detectCommand: "gemini",
   detectArgs: ["--version"],
-  // Auth detection: Gemini CLI stores OAuth credentials in ~/.gemini/oauth_creds.json
-  authPaths: [".gemini/oauth_creds.json", ".gemini/google_accounts.json"],
+  // Auth detection: Gemini CLI stores OAuth credentials in multiple possible locations
+  authPaths: [
+    ".gemini/oauth_creds.json",
+    ".gemini/google_accounts.json",
+    ".gemini/credentials.json",
+    ".config/gemini/oauth_creds.json",
+  ],
 };
 
 /**
@@ -33,7 +46,5 @@ export const geminiConfig: ACPAgentConfig = {
 export const geminiNpxConfig: ACPAgentConfig = {
   ...geminiConfig,
   command: "npx",
-  args: ["-y", "@anthropic-ai/gemini", "--experimental-acp"],
-  detectCommand: "which",
-  detectArgs: ["gemini"],
+  args: ["-y", "@google/gemini-cli", "--experimental-acp"],
 };
