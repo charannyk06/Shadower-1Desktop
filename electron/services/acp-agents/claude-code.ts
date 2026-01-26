@@ -24,6 +24,8 @@ export const claudeCodeConfig: ACPAgentConfig = {
   // Detect if claude is installed (the adapter will use it)
   detectCommand: "claude",
   detectArgs: ["--version"],
+  // Auth detection: Claude Code stores credentials in ~/.claude/.anthropic/
+  authPaths: [".claude/.anthropic", ".claude/settings.json"],
 };
 
 /**

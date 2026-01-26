@@ -7,7 +7,7 @@ import {
   OPENAI_VOICE,
   useOpenAIVoiceChat,
 } from "lib/ai/speech/open-ai/use-voice-chat.openai";
-import { useLocalVoiceChat } from "lib/ai/speech/local/use-voice-chat.local";
+import { useLocalVoiceChat } from "lib/ai/speech/local/use-local-voice-chat";
 import { cn, groupBy, isNull } from "lib/utils";
 import {
   CheckIcon,

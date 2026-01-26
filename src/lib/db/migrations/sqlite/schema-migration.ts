@@ -27,7 +27,7 @@ import type Database from "better-sqlite3";
 // ============================================================================
 // SCHEMA VERSION - INCREMENT THIS WHEN ADDING NEW MIGRATIONS
 // ============================================================================
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 // App version for tracking (updated on release)
 export const APP_VERSION = "1.0.0";
@@ -301,6 +301,15 @@ const migrations: Migration[] = [
     description: "Add provider column to chat_thread for identifying coding agent chats",
     up: (db) => {
       addColumnIfNotExists(db, "chat_thread", "provider", "TEXT");
+    },
+  },
+
+  {
+    version: 5,
+    name: "add_thread_model",
+    description: "Add model column to chat_thread for restoring model when loading thread",
+    up: (db) => {
+      addColumnIfNotExists(db, "chat_thread", "model", "TEXT");
     },
   },
 

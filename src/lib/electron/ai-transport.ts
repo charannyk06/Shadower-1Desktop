@@ -21,7 +21,7 @@ import type {
   ChatRequestOptions,
 } from "ai";
 import type { ChatApiSchemaRequestBody } from "app-types/chat";
-import { appStore } from "@/app/store";
+import { getActiveWorkingDirectory } from "@/app/store";
 
 // Type for prepare request function
 type PrepareSendMessagesRequestFn = (params: {
@@ -247,7 +247,10 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
     ) => {
       try {
         // Priority: requestBody > constructor options > store (fallback)
-        const workingDirectory = (requestBody as any).workingDirectory ?? this.options.workingDirectory ?? appStore.getState().workingDirectory;
+        const workingDirectory =
+          (requestBody as any).workingDirectory ??
+          this.options.workingDirectory ??
+          getActiveWorkingDirectory(id);
 
         // Prepare the stream
         const prepareResult = await api.ai.stream({

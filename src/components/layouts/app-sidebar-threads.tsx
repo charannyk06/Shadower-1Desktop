@@ -4,7 +4,7 @@ import { threadApi, threadFetcher } from "@/lib/electron/thread-api";
 import { appStore } from "@/app/store";
 import { useMounted } from "@/hooks/use-mounted";
 import { ChevronDown, ChevronUp, Code2, MoreHorizontal, Trash } from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import useSWR, { mutate } from "swr";
@@ -269,26 +269,25 @@ export function AppSidebarThreads() {
                       <SidebarMenuSubItem>
                         <div className="flex items-center group-hover/thread:bg-input! rounded-lg">
                           <SidebarMenuButton
+                            asChild
                             className="group-hover/thread:bg-transparent!"
                             isActive={currentThreadId === thread.id}
-                            onClick={() => {
-                              console.log("[Sidebar] Thread clicked:", thread.id, "navigating to:", `/chat/${thread.id}`);
-                              navigate({ to: `/chat/${thread.id}` });
-                            }}
                           >
-                            {/* Show coding agent icon for ACP chats */}
-                            {thread.provider === "coding-agents" && (
-                              <Code2 className="h-3.5 w-3.5 flex-shrink-0 text-purple-500" />
-                            )}
-                            {generatingTitleThreadIds.includes(thread.id) ? (
-                              <TextShimmer className="truncate min-w-0">
-                                {thread.title || "New Chat"}
-                              </TextShimmer>
-                            ) : (
-                              <span className="truncate min-w-0" title={thread.title || "New Chat"}>
-                                {thread.title || "New Chat"}
-                              </span>
-                            )}
+                            <Link to={`/chat/${thread.id}`}>
+                              {/* Show coding agent icon for ACP chats */}
+                              {thread.provider === "coding-agents" && (
+                                <Code2 className="h-3.5 w-3.5 flex-shrink-0 text-purple-500" />
+                              )}
+                              {generatingTitleThreadIds.includes(thread.id) ? (
+                                <TextShimmer className="truncate min-w-0">
+                                  {thread.title || "New Chat"}
+                                </TextShimmer>
+                              ) : (
+                                <span className="truncate min-w-0" title={thread.title || "New Chat"}>
+                                  {thread.title || "New Chat"}
+                                </span>
+                              )}
+                            </Link>
                           </SidebarMenuButton>
 
                           <ThreadDropdown

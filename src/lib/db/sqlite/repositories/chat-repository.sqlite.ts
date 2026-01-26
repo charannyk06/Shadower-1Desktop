@@ -20,6 +20,7 @@ export const sqliteChatRepository: ChatRepository = {
       ...result,
       createdAt: result.createdAt ?? new Date(),
       provider: result.provider ?? undefined,
+      model: result.model ?? undefined,
     };
   },
 
@@ -37,6 +38,7 @@ export const sqliteChatRepository: ChatRepository = {
       ...result,
       createdAt: result.createdAt ?? new Date(),
       provider: result.provider ?? undefined,
+      model: result.model ?? undefined,
     };
   },
 
@@ -60,6 +62,8 @@ export const sqliteChatRepository: ChatRepository = {
       title: thread.chat_thread.title,
       userId: thread.chat_thread.userId,
       createdAt: thread.chat_thread.createdAt ?? new Date(),
+      provider: thread.chat_thread.provider ?? undefined,
+      model: thread.chat_thread.model ?? undefined,
       userPreferences: thread.user?.preferences ?? undefined,
       messages,
     };
@@ -126,6 +130,7 @@ export const sqliteChatRepository: ChatRepository = {
       ...result,
       createdAt: result.createdAt ?? new Date(),
       provider: result.provider ?? undefined,
+      model: result.model ?? undefined,
     };
   },
 
@@ -150,6 +155,7 @@ export const sqliteChatRepository: ChatRepository = {
       ...result,
       createdAt: result.createdAt ?? new Date(),
       provider: result.provider ?? undefined,
+      model: result.model ?? undefined,
     };
   },
 

@@ -11,6 +11,11 @@ export type {
   InitializeResponse,
   NewSessionRequest,
   NewSessionResponse,
+  SessionConfigOption,
+  SessionConfigSelectGroup,
+  SessionConfigSelectOption,
+  SessionModelState,
+  ModelInfo,
   PromptRequest,
   PromptResponse,
   SessionNotification,
@@ -49,6 +54,8 @@ export interface ACPAgentConfig {
   detectCommand: string;
   /** Arguments for detection command */
   detectArgs: string[];
+  /** Paths to check for authentication (relative to home dir, e.g., ".claude/.anthropic") */
+  authPaths?: string[];
 }
 
 /**
@@ -85,6 +92,10 @@ export interface ACPSession {
   availableModes?: string[];
   /** Current mode */
   currentMode?: string;
+  /** Session config options (model/thought level/etc) */
+  configOptions?: SessionConfigOption[] | null;
+  /** Session model state */
+  models?: SessionModelState | null;
 }
 
 /**
@@ -151,6 +162,8 @@ export interface ACPMessageChunk {
   sessionId: string;
   /** Agent ID */
   agentId: string;
+  /** Role of the sender (if available) */
+  role?: "user" | "assistant";
   /** Message ID */
   messageId: string;
   /** Content type */
@@ -247,4 +260,32 @@ export interface RespondToPermissionRequest {
   requestId: string;
   optionId: string;
   rememberGlobally?: boolean;
+}
+
+/**
+ * IPC request to set ACP session model
+ */
+export interface SetACPSessionModelRequest {
+  agentId: string;
+  sessionId: string;
+  modelId: string;
+}
+
+/**
+ * IPC request to set ACP session config option
+ */
+export interface SetACPSessionConfigOptionRequest {
+  agentId: string;
+  sessionId: string;
+  configId: string;
+  value: string;
+}
+
+/**
+ * IPC request to set ACP session mode
+ */
+export interface SetACPSessionModeRequest {
+  agentId: string;
+  sessionId: string;
+  modeId: string;
 }

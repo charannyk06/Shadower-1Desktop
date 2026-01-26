@@ -448,7 +448,7 @@ export const AssistMessagePart = memo(function AssistMessagePart({
           "opacity-50 border border-destructive bg-card rounded-lg": isError,
         })}
       >
-        {documentInfo.isDocument && showDocPreview ? (
+        {documentInfo.isDocument && showDocPreview && metadata?.chatModel?.provider !== "coding-agents" ? (
           <InlineDocumentPreview
             content={documentContent}
             type={documentInfo.type}
@@ -494,7 +494,8 @@ export const AssistMessagePart = memo(function AssistMessagePart({
         ) : (
           <>
             <Markdown streaming={isStreaming}>{documentContent}</Markdown>
-            {documentInfo.isDocument && (
+            {/* Hide "Open as document" for coding agents - not applicable for code-focused agents */}
+            {documentInfo.isDocument && metadata?.chatModel?.provider !== "coding-agents" && (
               <Button
                 variant="ghost"
                 size="sm"
