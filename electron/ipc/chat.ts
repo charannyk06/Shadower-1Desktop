@@ -153,12 +153,15 @@ export function registerChatHandlers() {
         title: data.title,
         userId: data.userId,
         provider: data.provider, // Store provider to identify ACP chats
+        model: data.model, // Store model name for restoring on thread load
       };
 
       // If an explicit id is provided, use it (important for ACP threads)
       if (data.id) {
         values.id = data.id;
       }
+
+      console.log("[IPC Chat] Creating thread with model:", data.model, "provider:", data.provider);
 
       const [thread] = await db
         .insert(schema.ChatThreadTable)
@@ -201,6 +204,9 @@ export function registerChatHandlers() {
         const updateData: Record<string, any> = {};
         if (data.title !== undefined) updateData.title = data.title;
         if (data.provider !== undefined) updateData.provider = data.provider;
+        if (data.model !== undefined) updateData.model = data.model;
+
+        console.log("[IPC Chat] Updating thread", id, "with:", updateData);
 
         await db
           .update(schema.ChatThreadTable)

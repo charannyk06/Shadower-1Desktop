@@ -1,6 +1,6 @@
 "use client";
 
-import { appStore } from "@/app/store";
+import { appStore, getActiveWorkingDirectory, resolveWorkingDirectory } from "@/app/store";
 import type { PlanTask } from "@/app/store";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -225,7 +225,10 @@ function isDocumentReadyEvent(event: { type: string }): event is DocumentReadyEv
  * Handle document-ready event for desktop mode
  * Saves the document to the working directory and auto-opens it
  */
-async function handleDocumentReadyEvent(event: DocumentReadyEvent): Promise<void> {
+async function handleDocumentReadyEvent(
+  event: DocumentReadyEvent,
+  threadId?: string | null,
+): Promise<void> {
   // Parse the data if it's a string (JSON.stringify was used when writing to stream)
   const eventData = typeof event.data === "string"
     ? JSON.parse(event.data)
@@ -239,7 +242,7 @@ async function handleDocumentReadyEvent(event: DocumentReadyEvent): Promise<void
   }
 
   // Get the working directory from the store
-  const workingDirectory = appStore.getState().workingDirectory;
+  const workingDirectory = getActiveWorkingDirectory(threadId);
 
   if (!workingDirectory?.path) {
     console.log("[DocumentReady] No working directory set, skipping save");
@@ -838,7 +841,9 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     threadMentions,
     pendingThreadMention,
     threadImageToolModel,
-    workingDirectory,
+    globalWorkingDirectory,
+    workingDirectoryMode,
+    threadWorkingDirectories,
   ] = appStore(
     useShallow((state) => [
       state.mutate,
@@ -852,7 +857,22 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       state.pendingThreadMention,
       state.threadImageToolModel,
       state.workingDirectory,
+      state.workingDirectoryMode,
+      state.threadWorkingDirectories,
     ]),
+  );
+
+  const workingDirectory = useMemo(
+    () =>
+      resolveWorkingDirectory(
+        {
+          workingDirectory: globalWorkingDirectory,
+          workingDirectoryMode,
+          threadWorkingDirectories,
+        },
+        threadId,
+      ),
+    [globalWorkingDirectory, workingDirectoryMode, threadWorkingDirectories, threadId],
   );
 
   const generateTitle = useGenerateThreadTitle({
@@ -907,13 +927,14 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
     const createThread = async () => {
       try {
-        // Create thread with coding-agents provider
+        // Create thread with coding-agents provider and the specific agent model
         await threadApi.create({
           id: threadId,
           title: "New Chat",
           provider: "coding-agents",
+          model: acpAgentId || undefined, // Store the specific agent (claude-code, codex, etc.)
         });
-        console.log("[ChatBot] Created ACP thread with provider:", threadId);
+        console.log("[ChatBot] Created ACP thread with provider: coding-agents, model:", acpAgentId);
         // Only mark as created on successful creation
         acpThreadCreatedRef.current = threadId;
       } catch (err: any) {
@@ -1292,7 +1313,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
         }));
       } else if (isDocumentReadyEvent(dataPart as { type: string })) {
         // Handle document ready for desktop mode (save to working directory + auto-open)
-        handleDocumentReadyEvent(dataPart as DocumentReadyEvent);
+        handleDocumentReadyEvent(dataPart as DocumentReadyEvent, threadId);
       }
     },
   });
@@ -1332,6 +1353,9 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     appStoreMutate((state) => {
       const prevThreadId = state.currentThreadId;
       const threadChanged = prevThreadId && prevThreadId !== threadId;
+      const nextState: Partial<typeof state> = {
+        currentThreadId: threadId,
+      };
 
       // When switching threads, reset non-thread-scoped theater mode state
       // This prevents showing content from a different thread
@@ -1343,22 +1367,31 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             newThreadId: threadId,
           },
         );
-        return {
-          currentThreadId: threadId,
-          theaterMode: {
-            ...state.theaterMode,
-            // Reset non-thread-scoped content when switching threads
-            content: undefined,
-            type: undefined,
-            title: undefined,
-            executionArtifacts: undefined,
-            // Keep isOpen but reset to changes tab if it was showing content
-            defaultTab: state.theaterMode.isOpen ? "changes" : undefined,
-          },
+        nextState.theaterMode = {
+          ...state.theaterMode,
+          // Reset non-thread-scoped content when switching threads
+          content: undefined,
+          type: undefined,
+          title: undefined,
+          executionArtifacts: undefined,
+          // Keep isOpen but reset to changes tab if it was showing content
+          defaultTab: state.theaterMode.isOpen ? "changes" : undefined,
         };
       }
 
-      return { currentThreadId: threadId };
+      // Initialize per-thread working directory when using worktree mode
+      if (
+        state.workingDirectoryMode === "worktree" &&
+        state.workingDirectory &&
+        !state.threadWorkingDirectories[threadId]
+      ) {
+        nextState.threadWorkingDirectories = {
+          ...state.threadWorkingDirectories,
+          [threadId]: state.workingDirectory,
+        };
+      }
+
+      return nextState;
     });
   }, [threadId]);
 
@@ -2070,6 +2103,10 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
               isLoading={isLoading || isPendingToolCall}
               onStop={unifiedStop}
               onFocus={isFirstTime ? undefined : handleFocus}
+              acpSession={isACPAgent ? acpChat.session : null}
+              onSetAcpModel={isACPAgent ? acpChat.setSessionModel : undefined}
+              onSetAcpConfigOption={isACPAgent ? acpChat.setSessionConfigOption : undefined}
+              onSetAcpMode={isACPAgent ? acpChat.setSessionMode : undefined}
             />
           </div>
           <DeleteThreadPopup

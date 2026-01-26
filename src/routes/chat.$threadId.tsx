@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "@tanstack/react-router";
 import ChatBot from "@/components/chat-bot";
 import { authClient } from "@/lib/auth/client";
 import { threadApi } from "@/lib/electron/thread-api";
+import { appStore } from "@/app/store";
 import { Loader2 } from "lucide-react";
 import type { ChatMessage } from "app-types/chat";
 
@@ -59,8 +60,45 @@ export default function ChatThreadPage() {
         console.log(
           "[ChatThreadPage] Thread loaded with",
           thread.messages?.length || 0,
-          "messages"
+          "messages, provider:",
+          thread.provider,
+          "model:",
+          thread.model
         );
+
+        // Restore the thread's model in the store when loading
+        if (thread.provider && thread.model) {
+          console.log("[ChatThreadPage] Restoring thread model:", thread.provider, thread.model);
+
+          // Store the thread-specific model
+          appStore.setState((state) => ({
+            threadChatModels: {
+              ...state.threadChatModels,
+              [threadId]: {
+                provider: thread.provider!,
+                model: thread.model!,
+              },
+            },
+          }));
+
+          // Also set as the global chat model so the UI shows correctly
+          appStore.setState({
+            chatModel: {
+              provider: thread.provider,
+              model: thread.model,
+            },
+          });
+
+          // If it's a coding agent, also sync the settings
+          if (thread.provider === "coding-agents") {
+            console.log("[ChatThreadPage] Syncing ACP agent settings");
+            appStore.setState({
+              toolChoice: "auto",
+              chatMode: "agent",
+            });
+          }
+        }
+
         setMessages(thread.messages || []);
         setLoadedThreadId(threadId);
       } catch (error) {

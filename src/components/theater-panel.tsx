@@ -1,6 +1,6 @@
 "use client";
 
-import { useAppStore } from "@/app/store";
+import { resolveWorkingDirectory, useAppStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
@@ -163,7 +163,9 @@ export function TheaterPanel() {
     theaterMode,
     threadFiles,
     currentThreadId,
-    workingDirectory,
+    globalWorkingDirectory,
+    workingDirectoryMode,
+    threadWorkingDirectories,
     mutate: appStoreMutate,
     filesVersion,
   } = useAppStore(
@@ -171,10 +173,25 @@ export function TheaterPanel() {
       theaterMode: state.theaterMode,
       threadFiles: state.threadFiles,
       currentThreadId: state.currentThreadId,
-      workingDirectory: state.workingDirectory,
+      globalWorkingDirectory: state.workingDirectory,
+      workingDirectoryMode: state.workingDirectoryMode,
+      threadWorkingDirectories: state.threadWorkingDirectories,
       mutate: state.mutate,
       filesVersion: state.theaterMode.filesVersion || 0,
     })),
+  );
+
+  const workingDirectory = useMemo(
+    () =>
+      resolveWorkingDirectory(
+        {
+          workingDirectory: globalWorkingDirectory,
+          workingDirectoryMode,
+          threadWorkingDirectories,
+        },
+        currentThreadId,
+      ),
+    [globalWorkingDirectory, workingDirectoryMode, threadWorkingDirectories, currentThreadId],
   );
 
   const [activeTab, setActiveTab] = useState<"all-files" | "changes">(

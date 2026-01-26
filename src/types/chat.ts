@@ -32,6 +32,7 @@ export type ChatThread = {
   userId: string;
   createdAt: Date;
   provider?: string; // Provider identifier (e.g., "coding-agents" for ACP chats)
+  model?: string; // Model name (e.g., "claude-code", "gpt-4o") for restoring on thread load
 };
 
 export type ChatMessage = {
