@@ -38,7 +38,11 @@ import * as fs from "fs";
 import * as os from "os";
 import { z } from "zod";
 import type { MCPServerConfig, AllowedMCPServer } from "../../src/types/mcp";
-import { ensureClientConnected } from "../services/mcp-client-service";
+import {
+  ensureClientConnected,
+  checkClientHealth,
+  type MCPHealthCheckResult,
+} from "../services/mcp-client-service";
 import {
   getModelCapabilities,
   localModelSupportsTools,
@@ -1084,13 +1088,57 @@ async function saveMessageToDb(
 }
 
 /**
+ * MCP tool loading result with warnings
+ */
+interface MCPToolLoadResult {
+  tools: Record<string, any>;
+  warnings: Array<{
+    serverId: string;
+    serverName: string;
+    message: string;
+    type: "connection" | "auth" | "no-tools" | "error";
+  }>;
+  healthChecks: MCPHealthCheckResult[];
+}
+
+/**
  * Load MCP tools from allowed servers
+ * @param allowedMcpServers - Map of server IDs to allowed tools
+ * @param sendWarning - Optional callback to send warnings to the renderer
  */
 async function loadMcpTools(
   allowedMcpServers: Record<string, AllowedMCPServer> | undefined,
-): Promise<Record<string, any>> {
+  sendWarning?: (warning: {
+    message: string;
+    type: string;
+    serverId?: string;
+    serverName?: string;
+  }) => void,
+): Promise<MCPToolLoadResult> {
+  const warnings: MCPToolLoadResult["warnings"] = [];
+  const healthChecks: MCPHealthCheckResult[] = [];
+
+  console.log(`[AI MCP] loadMcpTools called with allowedMcpServers:`, {
+    hasAllowedMcpServers: !!allowedMcpServers,
+    serverCount: allowedMcpServers ? Object.keys(allowedMcpServers).length : 0,
+    serverIds: allowedMcpServers ? Object.keys(allowedMcpServers) : [],
+    serversWithTools: allowedMcpServers
+      ? Object.entries(allowedMcpServers).map(([id, server]) => ({
+          id,
+          toolCount: server.tools?.length || 0,
+          tools: server.tools?.slice(0, 5) || [],
+        }))
+      : [],
+  });
+
   if (!allowedMcpServers || Object.keys(allowedMcpServers).length === 0) {
-    return {};
+    console.log(
+      `[AI MCP] ⚠️ No MCP servers configured - allowedMcpServers is empty or undefined`,
+    );
+    console.log(
+      `[AI MCP] To enable MCP tools: 1) Add MCP servers via Settings > MCP, 2) Enable tools in the tool selector dropdown`,
+    );
+    return { tools: {}, warnings, healthChecks };
   }
 
   const db = getDatabase();
@@ -1104,17 +1152,38 @@ async function loadMcpTools(
 
   const tools: Record<string, any> = {};
 
+  console.log(
+    `[AI MCP] Found ${servers.length} MCP servers in database for IDs: ${serverIds.join(", ")}`,
+  );
+
   for (const server of servers) {
     const allowedTools = allowedMcpServers[server.id]?.tools || [];
-    if (allowedTools.length === 0) continue;
+    console.log(
+      `[AI MCP] Processing server "${server.name}" (${server.id}): ${allowedTools.length} tools requested`,
+    );
+
+    if (allowedTools.length === 0) {
+      console.log(
+        `[AI MCP] ⚠️ Skipping server "${server.name}" - no tools selected`,
+      );
+      continue;
+    }
 
     try {
       // Use shared MCP client service to ensure client is connected
+      console.log(`[AI MCP] Connecting to MCP server "${server.name}"...`);
       const client = await ensureClientConnected(
         server.id,
         server.name,
         server.config as MCPServerConfig,
       );
+
+      console.log(`[AI MCP] Server "${server.name}" connection result:`, {
+        status: client.status,
+        hasToolInfo: !!client.toolInfo,
+        toolInfoCount: client.toolInfo?.length || 0,
+        availableTools: client.toolInfo?.map((t) => t.name).slice(0, 10) || [],
+      });
 
       // Check if client is connected and has tool info
       if (client.status === "connected" && client.toolInfo) {
@@ -1242,11 +1311,19 @@ async function loadMcpTools(
                   console.log(
                     `[AI MCP] Calling tool ${toolInfo.name} on ${server.name}`,
                   );
+                  console.log(
+                    `[AI MCP] Tool params:`,
+                    JSON.stringify(params).slice(0, 500),
+                  );
 
                   // Coerce string→boolean/number before calling MCP tool
                   const coercedParams = coerceJsonSchemaArgs(
                     params,
                     originalSchema,
+                  );
+                  console.log(
+                    `[AI MCP] Coerced params:`,
+                    JSON.stringify(coercedParams).slice(0, 500),
                   );
 
                   try {
@@ -1267,6 +1344,12 @@ async function loadMcpTools(
                       client.callTool(toolInfo.name, coercedParams),
                       timeoutPromise,
                     ]);
+                    console.log(
+                      `[AI MCP] Tool ${toolInfo.name} result:`,
+                      typeof result === "object"
+                        ? JSON.stringify(result).slice(0, 500)
+                        : result,
+                    );
                     return result;
                   } catch (error: any) {
                     console.error(`[AI MCP] Tool call failed:`, error);
@@ -1274,26 +1357,116 @@ async function loadMcpTools(
                   }
                 },
               });
-              // console.log(`[AI MCP] Loaded tool: ${toolId}`);
+              console.log(`[AI MCP] ✓ Loaded tool: ${toolId}`);
             } catch (toolError: any) {
               console.error(
-                `[AI MCP] Failed to create tool ${toolId}:`,
+                `[AI MCP] ✗ Failed to create tool ${toolId}:`,
                 toolError.message,
               );
               // Skip this tool but continue with others
             }
           }
         }
+      } else {
+        // Client not connected or no tool info - log why and add warning
+        const warningType: MCPToolLoadResult["warnings"][0]["type"] =
+          client.status === "authorizing"
+            ? "auth"
+            : client.status === "disconnected"
+              ? "connection"
+              : "no-tools";
+
+        const warningMessage =
+          client.status === "authorizing"
+            ? `MCP server "${server.name}" requires OAuth authorization. Click Authorize in MCP settings.`
+            : client.status === "loading"
+              ? `MCP server "${server.name}" is still connecting. Try again in a moment.`
+              : client.status === "disconnected"
+                ? `MCP server "${server.name}" is disconnected. Try refreshing in MCP settings.`
+                : `MCP server "${server.name}" has no tools available.`;
+
+        console.warn(
+          `[AI MCP] ⚠️ Server "${server.name}" not ready for tool loading:`,
+          {
+            status: client.status,
+            hasToolInfo: !!client.toolInfo,
+            toolInfoCount: client.toolInfo?.length || 0,
+            warningMessage,
+          },
+        );
+
+        warnings.push({
+          serverId: server.id,
+          serverName: server.name,
+          message: warningMessage,
+          type: warningType,
+        });
+
+        // Send warning to renderer if callback provided
+        if (sendWarning) {
+          sendWarning({
+            message: warningMessage,
+            type: `mcp-${warningType}`,
+            serverId: server.id,
+            serverName: server.name,
+          });
+        }
+
+        // Run health check for diagnostics
+        const healthCheck = await checkClientHealth(
+          server.id,
+          server.name,
+          server.config as MCPServerConfig,
+        );
+        healthChecks.push(healthCheck);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(
-        `[AI MCP] Failed to load tools from ${server.name}:`,
+        `[AI MCP] ✗ Failed to load tools from ${server.name}:`,
         error,
       );
+
+      const errorMessage = `MCP server "${server.name}" failed to load: ${error?.message || "Unknown error"}`;
+      warnings.push({
+        serverId: server.id,
+        serverName: server.name,
+        message: errorMessage,
+        type: "error",
+      });
+
+      // Send error warning to renderer
+      if (sendWarning) {
+        sendWarning({
+          message: errorMessage,
+          type: "mcp-error",
+          serverId: server.id,
+          serverName: server.name,
+        });
+      }
     }
   }
 
-  return tools;
+  // Summary logging
+  const toolNames = Object.keys(tools);
+  console.log(`[AI MCP] ========== MCP TOOL LOADING SUMMARY ==========`);
+  console.log(`[AI MCP] Total MCP tools loaded: ${toolNames.length}`);
+  console.log(`[AI MCP] Warnings: ${warnings.length}`);
+  if (toolNames.length > 0) {
+    console.log(`[AI MCP] Tool names: ${toolNames.join(", ")}`);
+  } else {
+    console.log(
+      `[AI MCP] ⚠️ No MCP tools were loaded! Check server connections and tool selections.`,
+    );
+  }
+  if (warnings.length > 0) {
+    console.log(`[AI MCP] Warning details:`);
+    warnings.forEach((w) =>
+      console.log(`[AI MCP]   - ${w.serverName}: ${w.message}`),
+    );
+  }
+  console.log(`[AI MCP] ================================================`);
+
+  return { tools, warnings, healthChecks };
 }
 
 // Type for stream request
@@ -3651,8 +3824,27 @@ export function registerAIHandlers() {
       }
 
       // Load MCP tools if allowed - THESE TAKE PRIORITY
-      const mcpTools = await loadMcpTools(allowedMcpServers);
+      // Pass a warning callback to send MCP issues to the renderer
+      const mcpLoadResult = await loadMcpTools(allowedMcpServers, (warning) => {
+        // Send MCP warnings to renderer for user visibility
+        event.sender.send("ai:stream:warning", {
+          threadId,
+          message: warning.message,
+          type: warning.type,
+          serverId: warning.serverId,
+          serverName: warning.serverName,
+        });
+      });
+      const mcpTools = mcpLoadResult.tools;
       const mcpToolNames = Object.keys(mcpTools);
+
+      // Log MCP warnings summary
+      if (mcpLoadResult.warnings.length > 0) {
+        console.log(
+          `[AI IPC] MCP warnings (${mcpLoadResult.warnings.length}):`,
+          mcpLoadResult.warnings.map((w) => `${w.serverName}: ${w.type}`),
+        );
+      }
 
       // Check what categories of MCP tools are available (for renaming conflicts, not filtering)
       const hasMcpFileSystem = mcpToolNames.some(
@@ -3901,13 +4093,12 @@ export function registerAIHandlers() {
         toolsToUse = undefined;
         console.log(`[AI IPC] No tools available to pass`);
       } else if (isLocal) {
-        // LOCAL MODEL TOOLS - Minimal set for speed and reliability
-        // Only terminal + headless search (like Claude Code)
-        // Browser automation and MCP tools disabled for local models
+        // LOCAL MODEL TOOLS - Core set for speed and reliability + MCP tools
+        // Includes terminal, file operations, web search + any enabled MCP tools
         // NOTE: Include BOTH prefixed and non-prefixed names because:
         // - Without MCP: tools are named file_read, web_search, etc.
         // - With MCP: tools get renamed to local_file_read, local_web_search, etc.
-        const localModelTools = [
+        const localModelCoreTools = [
           // Terminal (like Claude Code)
           "terminal_execute",
           // Headless web search (both with and without local_ prefix)
@@ -3929,14 +4120,33 @@ export function registerAIHandlers() {
         ];
 
         const filteredTools: typeof tools = {};
-        for (const name of localModelTools) {
+
+        // Add core local model tools
+        for (const name of localModelCoreTools) {
           if (tools[name]) filteredTools[name] = tools[name];
+        }
+
+        // IMPORTANT: Include MCP tools that were explicitly enabled by the user
+        // MCP tools are prefixed with "mcp_" - include all of them for local models
+        // Users explicitly chose these tools, so we should respect that choice
+        const mcpToolsToInclude: string[] = [];
+        for (const toolName of Object.keys(tools)) {
+          if (toolName.startsWith("mcp_")) {
+            filteredTools[toolName] = tools[toolName];
+            mcpToolsToInclude.push(toolName);
+          }
+        }
+
+        if (mcpToolsToInclude.length > 0) {
+          console.log(
+            `[AI IPC] ✓ Including ${mcpToolsToInclude.length} MCP tools for local model: ${mcpToolsToInclude.join(", ")}`,
+          );
         }
 
         toolsToUse =
           Object.keys(filteredTools).length > 0 ? filteredTools : undefined;
         console.log(
-          `[AI IPC] Local model: ${Object.keys(filteredTools).length} tools`,
+          `[AI IPC] Local model: ${Object.keys(filteredTools).length} tools (${localModelCoreTools.filter((t) => tools[t]).length} core + ${mcpToolsToInclude.length} MCP)`,
         );
         console.log(
           `[AI IPC] Local model tools available: ${Object.keys(filteredTools).join(", ")}`,
