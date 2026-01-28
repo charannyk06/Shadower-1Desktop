@@ -265,6 +265,7 @@ export function registerDialogHandlers() {
         filePath: string;
         content: string; // base64 encoded content
         trackChange?: boolean; // Whether to track this change in the session
+        threadId?: string; // Thread that triggered this file change
       },
     ) => {
       try {
@@ -308,6 +309,7 @@ export function registerDialogHandlers() {
           originalContent: originalContent,
           newContent: newContent,
           timestamp: Date.now(),
+          threadId: options.threadId,
         };
 
         // Send to all renderer windows

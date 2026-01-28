@@ -34,23 +34,26 @@ export const SelectModel = (props: PropsWithChildren<SelectModelProps>) => {
   useEffect(() => {
     const modelToUse = props.currentModel ?? appStore.getState().chatModel;
 
-    // If providers haven't loaded yet, don't set model (wait for validation)
+    // If providers haven't loaded yet, keep current model — don't clear it
     if (!providers || providers.length === 0) {
-      // If there's a model but no providers yet, clear it to prevent showing invalid model
-      if (modelToUse) {
-        setModel(undefined);
-      }
       return;
     }
 
     // Validate that the model exists in available providers
+    // Trust coding-agents models — they load async and may not be in the list yet
     if (modelToUse) {
-      const isValid = providers.some(
+      const foundInProviders = providers.some(
         (p) =>
           p.provider === modelToUse.provider &&
           p.hasAPIKey &&
           p.models.some((m) => m.name === modelToUse.model),
       );
+      const isValid = foundInProviders || modelToUse.provider === "coding-agents";
+      if (modelToUse.provider === "coding-agents" && !foundInProviders) {
+        console.debug(
+          `[SelectModel] coding-agents model "${modelToUse.model}" not in provider list (may still be loading)`,
+        );
+      }
 
       if (isValid) {
         setModel(modelToUse);
