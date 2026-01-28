@@ -757,6 +757,7 @@ export interface ElectronAPI {
         originalContent: string | null;
         newContent: string;
         timestamp: number;
+        threadId?: string;
       }) => void,
     ) => () => void;
   };
@@ -768,7 +769,7 @@ export interface ElectronAPI {
       messages: any[];
       chatModel: { provider: string; model: string };
       toolChoice?: string;
-      chatMode?: "regular" | "agent" | "rag";
+      chatMode?: "regular" | "agent";
       allowedAppDefaultToolkit?: string[];
       allowedMcpServers?: Record<string, any>;
       mentions?: any[];
@@ -2043,6 +2044,7 @@ const electronAPI: ElectronAPI = {
         originalContent: string | null;
         newContent: string;
         timestamp: number;
+        threadId?: string;
       }) => void,
     ) => {
       const handler = (_event: any, data: any) => callback(data);

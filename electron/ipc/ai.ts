@@ -782,10 +782,11 @@ interface StreamContext {
   event: Electron.IpcMainInvokeEvent;
   userMessage?: UIMessage; // Store user message for persistence
   chatModel?: { provider: string; model: string };
-  chatMode?: "regular" | "agent" | "rag";
+  chatMode?: "regular" | "agent";
   originalUIMessages?: UIMessage[]; // Store original UIMessages for follow-up calls
   workingDirectory?: { path: string; name: string }; // Working directory for file operations
   toolNameMapping?: Record<string, string>; // Map of renamed tool names to original names (for UI display)
+  allowedAppDefaultToolkit?: string[]; // Toolkit selection for memory-enabled detection
 }
 const preparedStreams = new Map<string, StreamContext>();
 
@@ -1478,7 +1479,7 @@ interface StreamRequest {
     model: string;
   };
   toolChoice?: string;
-  chatMode?: "regular" | "agent" | "rag";
+  chatMode?: "regular" | "agent";
   allowedAppDefaultToolkit?: string[];
   allowedMcpServers?: Record<string, any>;
   mentions?: any[];
@@ -2166,6 +2167,7 @@ function createElectronTools(
             newContent:
               append && originalContent ? originalContent + content : content,
             timestamp: Date.now(),
+            threadId,
           };
 
           console.log(
@@ -4067,29 +4069,7 @@ export function registerAIHandlers() {
       // ============================================
       let toolsToUse: typeof tools | undefined;
 
-      // RAG MODE - Different behavior based on model size (see workaround docs above)
-      const isSmallLocalModelForRag =
-        isLocal && isSmallLocalModel(chatModel.model);
-
-      if (chatMode === "rag") {
-        if (isSmallLocalModelForRag) {
-          // SMALL LOCAL MODELS: No tools - they get automatic RAG context injection instead
-          toolsToUse = undefined;
-          console.log(
-            `[AI IPC] RAG mode (small model ${chatModel.model}): No tools, using automatic context injection`,
-          );
-        } else {
-          // LARGER MODELS: Enable memory_search tool for agentic RAG
-          const ragTools: typeof tools = {};
-          if (tools["memory_search"]) {
-            ragTools["memory_search"] = tools["memory_search"];
-          }
-          toolsToUse = Object.keys(ragTools).length > 0 ? ragTools : undefined;
-          console.log(
-            `[AI IPC] RAG mode (larger model): Agentic search with memory_search tool`,
-          );
-        }
-      } else if (Object.keys(tools).length === 0) {
+      if (Object.keys(tools).length === 0) {
         toolsToUse = undefined;
         console.log(`[AI IPC] No tools available to pass`);
       } else if (isLocal) {
@@ -4218,6 +4198,7 @@ export function registerAIHandlers() {
         originalUIMessages: allMessages, // Store original UIMessages for follow-up tool calls
         workingDirectory, // Store working directory for later use
         toolNameMapping, // Store tool name mapping for UI display
+        allowedAppDefaultToolkit, // Store for memory-enabled detection in start handler
       });
 
       // CRITICAL: Set orphan cleanup timeout to prevent memory leaks
@@ -4312,6 +4293,7 @@ export function registerAIHandlers() {
         chatModel,
         chatMode,
         workingDirectory,
+        allowedAppDefaultToolkit,
       } = context;
 
       console.log(
@@ -4453,36 +4435,37 @@ export function registerAIHandlers() {
         ).length;
 
         // RAG INJECTION LOGIC:
-        // - RAG MODE: Inject on EVERY turn for ALL models (cloud + local)
-        // - REGULAR/AGENT MODE: Inject on first 3 messages for better context
-        // This ensures cloud models like Groq/X.AI get knowledge context in RAG mode
+        // - MEMORY ENABLED: Inject on EVERY turn for ALL models (cloud + local)
+        // - MEMORY DISABLED: Inject on first 3 messages for better context
         const isSmallModelForRag =
           isLocalModel && isSmallLocalModel(chatModel!.model);
 
+        // Determine if memory toolkit is enabled
+        const memoryEnabled = allowedAppDefaultToolkit?.includes("memory") ?? false;
+
         // Decision matrix logging for debugging
         console.log(`[RAG] Decision matrix:`);
-        console.log(`  - chatMode: ${chatMode || "regular"}`);
+        console.log(`  - memoryEnabled: ${memoryEnabled}`);
         console.log(`  - isLocalModel: ${isLocalModel}`);
         console.log(`  - isSmallModel: ${isSmallModelForRag}`);
         console.log(`  - userMessageCount: ${userMessageCount}`);
 
-        // RAG mode = every turn for ALL models, regular mode = first 3 messages
+        // Memory enabled = every turn for ALL models, otherwise = first 3 messages
         const shouldInjectRag =
-          chatMode === "rag" || // RAG mode = always inject (cloud + local)
+          memoryEnabled || // Memory toolkit on = always inject (cloud + local)
           userMessageCount <= 3; // First 3 messages in any mode
 
         console.log(`  - shouldInjectRag: ${shouldInjectRag}`);
 
         // Log RAG decision
         if (shouldInjectRag) {
-          const reason =
-            chatMode === "rag"
-              ? "RAG mode (every turn)"
-              : `regular mode (turn ${userMessageCount}/3)`;
+          const reason = memoryEnabled
+            ? "memory enabled (every turn)"
+            : `regular mode (turn ${userMessageCount}/3)`;
           console.log(`[RAG] ✓ Will inject context for: ${reason}`);
         } else {
           console.log(
-            `[RAG] Skipping injection (turn ${userMessageCount} > 3, mode: ${chatMode || "regular"})`,
+            `[RAG] Skipping injection (turn ${userMessageCount} > 3, memory disabled)`,
           );
         }
 
@@ -4625,48 +4608,45 @@ export function registerAIHandlers() {
         }
 
         // ============================================
-        // RAG MODE INSTRUCTIONS (different for small vs large models)
+        // MEMORY-ENHANCED SEARCH INSTRUCTIONS (when memory toolkit is enabled)
         // ============================================
-        if (chatMode === "rag") {
+        if (memoryEnabled) {
           // Small local models: Context was auto-injected, just answer from it
           // Larger models: Use memory_search tool agentically
-          const ragModeContent = isSmallModel
-            ? `[RAG] Answer using the context provided above. Be concise and direct.`
-            : `[RAG MODE - AGENTIC SEARCH]
+          const memoryInstructions = isSmallModel
+            ? `[MEMORY] Answer using the context provided above. Be concise and direct.`
+            : `[MEMORY - AGENTIC SEARCH]
 You have access to the memory_search tool to search the user's knowledge bases and conversation history.
 This tool uses LOCAL embeddings (works offline without any API key).
 
-IMPORTANT: This is AGENTIC RAG - you should:
-1. ALWAYS use memory_search first to find relevant information
+IMPORTANT: You should:
+1. Use memory_search to find relevant information from knowledge bases when the user's question may relate to indexed content
 2. Search with multiple different queries if initial results are insufficient
 3. Refine your search based on what you find
 4. Synthesize comprehensive answers from multiple search results
 5. If the search returns no results, try alternative phrasings
-6. For document results, note the knowledgeBaseName field to cite sources
+6. For document results, note the knowledgeBaseName field to cite sources`;
 
-In RAG mode, you have access to: memory_search
-For file operations, terminal, or browser automation, ask the user to switch to Agent mode.`;
-
-          const ragModeSystemMessage = {
+          const memorySystemMessage = {
             role: "system" as const,
-            content: ragModeContent,
+            content: memoryInstructions,
           };
 
-          // Inject RAG mode awareness
+          // Inject memory search awareness
           const systemMsgIndex = messagesToUse.findIndex(
             (m: any) => m.role === "system",
           );
           if (systemMsgIndex >= 0) {
             messagesToUse = [
               ...messagesToUse.slice(0, systemMsgIndex + 1),
-              ragModeSystemMessage,
+              memorySystemMessage,
               ...messagesToUse.slice(systemMsgIndex + 1),
             ];
           } else {
-            messagesToUse = [ragModeSystemMessage, ...messagesToUse];
+            messagesToUse = [memorySystemMessage, ...messagesToUse];
           }
           console.log(
-            `[AI IPC] RAG mode instructions injected (${isSmallModel ? "small model - auto context" : "larger model - agentic"})`,
+            `[AI IPC] Memory search instructions injected (${isSmallModel ? "small model - auto context" : "larger model - agentic"})`,
           );
         }
 
