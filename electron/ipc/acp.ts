@@ -224,6 +224,7 @@ export function registerACPHandlers(): void {
           request.agentId,
           request.workingDirectory,
           request.mcpServers,
+          request.threadId,
         );
         console.log(
           `[IPC] acp:create-session success, sessionId: ${session.sessionId}`,

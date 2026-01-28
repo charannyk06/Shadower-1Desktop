@@ -368,6 +368,7 @@ export async function createACPSession(
   agentId: string,
   workingDirectory: string,
   mcpServers?: StartACPSessionRequest["mcpServers"],
+  threadId?: string,
 ): Promise<ACPSession> {
   const api = getACPApi();
   if (!api) throw new Error("ACP API not available");
@@ -375,6 +376,7 @@ export async function createACPSession(
     agentId,
     workingDirectory,
     mcpServers,
+    threadId,
   });
   // The IPC returns ACPSession directly with sessionId (not id)
   return {
