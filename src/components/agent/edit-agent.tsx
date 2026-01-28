@@ -152,6 +152,18 @@ export default function EditAgent({
     [mcpList, setAgent],
   );
 
+  // Compute available tool names for agent generation prompt
+  const availableToolNames = useMemo(() => {
+    const names: string[] = [];
+    // Add default tools
+    Object.values(DefaultToolName).forEach((name) => names.push(name));
+    // Add MCP tools
+    (mcpList as (MCPServerInfo & { id: string })[])?.forEach((mcp) => {
+      mcp.toolInfo.forEach((tool) => names.push(tool.name));
+    });
+    return names;
+  }, [mcpList]);
+
   const saveAgent = useCallback(() => {
     if (initialAgent) {
       safe(() => setIsSaving(true))
@@ -211,14 +223,16 @@ export default function EditAgent({
           update.description = data as string;
         }
         if (key === "instructions") {
+          // Use update.instructions if already set (e.g., by role), otherwise use prev
           update.instructions = {
-            ...prev.instructions,
+            ...(update.instructions || prev.instructions),
             systemPrompt: data as string,
           };
         }
         if (key === "role") {
+          // Use update.instructions if already set (e.g., by instructions), otherwise use prev
           update.instructions = {
-            ...prev.instructions,
+            ...(update.instructions || prev.instructions),
             role: data as string,
           };
         }
@@ -589,6 +603,7 @@ export default function EditAgent({
         onOpenChange={setOpenGenerateAgentDialog}
         onAgentChange={handleAgentChange}
         onToolsGenerated={assignToolsByNames}
+        availableToolNames={availableToolNames}
       />
     </ScrollArea>
   );

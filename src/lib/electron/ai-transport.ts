@@ -335,12 +335,16 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
                   if (!parsed.usage.inputTokens) {
                     parsed.usage.inputTokens = { total: 0 };
                   } else if (typeof parsed.usage.inputTokens === "number") {
-                    parsed.usage.inputTokens = { total: parsed.usage.inputTokens };
+                    parsed.usage.inputTokens = {
+                      total: parsed.usage.inputTokens,
+                    };
                   }
                   if (!parsed.usage.outputTokens) {
                     parsed.usage.outputTokens = { total: 0 };
                   } else if (typeof parsed.usage.outputTokens === "number") {
-                    parsed.usage.outputTokens = { total: parsed.usage.outputTokens };
+                    parsed.usage.outputTokens = {
+                      total: parsed.usage.outputTokens,
+                    };
                   }
                 }
               }
@@ -352,7 +356,10 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
                 if (!activeReasoningIds.has(chunkId)) {
                   if (streamController && !streamClosed) {
                     try {
-                      streamController.enqueue({ type: "reasoning-start", id: chunkId } as UIMessageChunk);
+                      streamController.enqueue({
+                        type: "reasoning-start",
+                        id: chunkId,
+                      } as UIMessageChunk);
                     } catch {}
                   }
                   activeReasoningIds.add(chunkId);
@@ -368,7 +375,10 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
                 if (!activeTextIds.has(chunkId)) {
                   if (streamController && !streamClosed) {
                     try {
-                      streamController.enqueue({ type: "text-start", id: chunkId } as UIMessageChunk);
+                      streamController.enqueue({
+                        type: "text-start",
+                        id: chunkId,
+                      } as UIMessageChunk);
                     } catch {}
                   }
                   activeTextIds.add(chunkId);
@@ -411,12 +421,16 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
                       if (!chunk.usage.inputTokens) {
                         chunk.usage.inputTokens = { total: 0 };
                       } else if (typeof chunk.usage.inputTokens === "number") {
-                        chunk.usage.inputTokens = { total: chunk.usage.inputTokens };
+                        chunk.usage.inputTokens = {
+                          total: chunk.usage.inputTokens,
+                        };
                       }
                       if (!chunk.usage.outputTokens) {
                         chunk.usage.outputTokens = { total: 0 };
                       } else if (typeof chunk.usage.outputTokens === "number") {
-                        chunk.usage.outputTokens = { total: chunk.usage.outputTokens };
+                        chunk.usage.outputTokens = {
+                          total: chunk.usage.outputTokens,
+                        };
                       }
                     }
                   }
@@ -428,7 +442,10 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
                     if (!activeReasoningIds.has(chunkId)) {
                       if (streamController && !streamClosed) {
                         try {
-                          streamController.enqueue({ type: "reasoning-start", id: chunkId } as any);
+                          streamController.enqueue({
+                            type: "reasoning-start",
+                            id: chunkId,
+                          } as any);
                         } catch {}
                       }
                       activeReasoningIds.add(chunkId);
@@ -444,7 +461,10 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
                     if (!activeTextIds.has(chunkId)) {
                       if (streamController && !streamClosed) {
                         try {
-                          streamController.enqueue({ type: "text-start", id: chunkId } as any);
+                          streamController.enqueue({
+                            type: "text-start",
+                            id: chunkId,
+                          } as any);
                         } catch {}
                       }
                       activeTextIds.add(chunkId);
@@ -507,16 +527,39 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
           );
         }
 
-        // Listen for warnings (e.g., tool format not supported)
+        // Listen for warnings (e.g., tool format not supported, MCP issues)
         if (api.ai.onStreamWarning) {
           cleanupWarning = api.ai.onStreamWarning(
-            (data: { threadId: string; message: string; type?: string }) => {
+            (data: {
+              threadId: string;
+              message: string;
+              type?: string;
+              serverId?: string;
+              serverName?: string;
+            }) => {
               if (data.threadId !== id) return;
               // Import toast dynamically to avoid circular deps
               import("sonner").then(({ toast }) => {
-                toast.warning("Model Limitation", {
+                // Determine title based on warning type
+                let title = "Warning";
+                if (data.type?.startsWith("mcp-")) {
+                  title =
+                    data.type === "mcp-auth"
+                      ? "MCP Authorization Required"
+                      : data.type === "mcp-connection"
+                        ? "MCP Connection Issue"
+                        : data.type === "mcp-error"
+                          ? "MCP Error"
+                          : "MCP Tool Issue";
+                } else if (data.type === "tool-unsupported") {
+                  title = "Model Limitation";
+                } else if (data.type === "large-model-warning") {
+                  title = "Performance Warning";
+                }
+
+                toast.warning(title, {
                   description: data.message,
-                  duration: 8000,
+                  duration: data.type?.startsWith("mcp-") ? 10000 : 8000,
                 });
               });
             },

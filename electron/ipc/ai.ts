@@ -38,7 +38,11 @@ import * as fs from "fs";
 import * as os from "os";
 import { z } from "zod";
 import type { MCPServerConfig, AllowedMCPServer } from "../../src/types/mcp";
-import { ensureClientConnected } from "../services/mcp-client-service";
+import {
+  ensureClientConnected,
+  checkClientHealth,
+  type MCPHealthCheckResult,
+} from "../services/mcp-client-service";
 import {
   getModelCapabilities,
   localModelSupportsTools,
@@ -778,10 +782,11 @@ interface StreamContext {
   event: Electron.IpcMainInvokeEvent;
   userMessage?: UIMessage; // Store user message for persistence
   chatModel?: { provider: string; model: string };
-  chatMode?: "regular" | "agent" | "rag";
+  chatMode?: "regular" | "agent";
   originalUIMessages?: UIMessage[]; // Store original UIMessages for follow-up calls
   workingDirectory?: { path: string; name: string }; // Working directory for file operations
   toolNameMapping?: Record<string, string>; // Map of renamed tool names to original names (for UI display)
+  allowedAppDefaultToolkit?: string[]; // Toolkit selection for memory-enabled detection
 }
 const preparedStreams = new Map<string, StreamContext>();
 
@@ -1084,13 +1089,57 @@ async function saveMessageToDb(
 }
 
 /**
+ * MCP tool loading result with warnings
+ */
+interface MCPToolLoadResult {
+  tools: Record<string, any>;
+  warnings: Array<{
+    serverId: string;
+    serverName: string;
+    message: string;
+    type: "connection" | "auth" | "no-tools" | "error";
+  }>;
+  healthChecks: MCPHealthCheckResult[];
+}
+
+/**
  * Load MCP tools from allowed servers
+ * @param allowedMcpServers - Map of server IDs to allowed tools
+ * @param sendWarning - Optional callback to send warnings to the renderer
  */
 async function loadMcpTools(
   allowedMcpServers: Record<string, AllowedMCPServer> | undefined,
-): Promise<Record<string, any>> {
+  sendWarning?: (warning: {
+    message: string;
+    type: string;
+    serverId?: string;
+    serverName?: string;
+  }) => void,
+): Promise<MCPToolLoadResult> {
+  const warnings: MCPToolLoadResult["warnings"] = [];
+  const healthChecks: MCPHealthCheckResult[] = [];
+
+  console.log(`[AI MCP] loadMcpTools called with allowedMcpServers:`, {
+    hasAllowedMcpServers: !!allowedMcpServers,
+    serverCount: allowedMcpServers ? Object.keys(allowedMcpServers).length : 0,
+    serverIds: allowedMcpServers ? Object.keys(allowedMcpServers) : [],
+    serversWithTools: allowedMcpServers
+      ? Object.entries(allowedMcpServers).map(([id, server]) => ({
+          id,
+          toolCount: server.tools?.length || 0,
+          tools: server.tools?.slice(0, 5) || [],
+        }))
+      : [],
+  });
+
   if (!allowedMcpServers || Object.keys(allowedMcpServers).length === 0) {
-    return {};
+    console.log(
+      `[AI MCP] ⚠️ No MCP servers configured - allowedMcpServers is empty or undefined`,
+    );
+    console.log(
+      `[AI MCP] To enable MCP tools: 1) Add MCP servers via Settings > MCP, 2) Enable tools in the tool selector dropdown`,
+    );
+    return { tools: {}, warnings, healthChecks };
   }
 
   const db = getDatabase();
@@ -1104,17 +1153,38 @@ async function loadMcpTools(
 
   const tools: Record<string, any> = {};
 
+  console.log(
+    `[AI MCP] Found ${servers.length} MCP servers in database for IDs: ${serverIds.join(", ")}`,
+  );
+
   for (const server of servers) {
     const allowedTools = allowedMcpServers[server.id]?.tools || [];
-    if (allowedTools.length === 0) continue;
+    console.log(
+      `[AI MCP] Processing server "${server.name}" (${server.id}): ${allowedTools.length} tools requested`,
+    );
+
+    if (allowedTools.length === 0) {
+      console.log(
+        `[AI MCP] ⚠️ Skipping server "${server.name}" - no tools selected`,
+      );
+      continue;
+    }
 
     try {
       // Use shared MCP client service to ensure client is connected
+      console.log(`[AI MCP] Connecting to MCP server "${server.name}"...`);
       const client = await ensureClientConnected(
         server.id,
         server.name,
         server.config as MCPServerConfig,
       );
+
+      console.log(`[AI MCP] Server "${server.name}" connection result:`, {
+        status: client.status,
+        hasToolInfo: !!client.toolInfo,
+        toolInfoCount: client.toolInfo?.length || 0,
+        availableTools: client.toolInfo?.map((t) => t.name).slice(0, 10) || [],
+      });
 
       // Check if client is connected and has tool info
       if (client.status === "connected" && client.toolInfo) {
@@ -1242,11 +1312,19 @@ async function loadMcpTools(
                   console.log(
                     `[AI MCP] Calling tool ${toolInfo.name} on ${server.name}`,
                   );
+                  console.log(
+                    `[AI MCP] Tool params:`,
+                    JSON.stringify(params).slice(0, 500),
+                  );
 
                   // Coerce string→boolean/number before calling MCP tool
                   const coercedParams = coerceJsonSchemaArgs(
                     params,
                     originalSchema,
+                  );
+                  console.log(
+                    `[AI MCP] Coerced params:`,
+                    JSON.stringify(coercedParams).slice(0, 500),
                   );
 
                   try {
@@ -1267,6 +1345,12 @@ async function loadMcpTools(
                       client.callTool(toolInfo.name, coercedParams),
                       timeoutPromise,
                     ]);
+                    console.log(
+                      `[AI MCP] Tool ${toolInfo.name} result:`,
+                      typeof result === "object"
+                        ? JSON.stringify(result).slice(0, 500)
+                        : result,
+                    );
                     return result;
                   } catch (error: any) {
                     console.error(`[AI MCP] Tool call failed:`, error);
@@ -1274,26 +1358,116 @@ async function loadMcpTools(
                   }
                 },
               });
-              // console.log(`[AI MCP] Loaded tool: ${toolId}`);
+              console.log(`[AI MCP] ✓ Loaded tool: ${toolId}`);
             } catch (toolError: any) {
               console.error(
-                `[AI MCP] Failed to create tool ${toolId}:`,
+                `[AI MCP] ✗ Failed to create tool ${toolId}:`,
                 toolError.message,
               );
               // Skip this tool but continue with others
             }
           }
         }
+      } else {
+        // Client not connected or no tool info - log why and add warning
+        const warningType: MCPToolLoadResult["warnings"][0]["type"] =
+          client.status === "authorizing"
+            ? "auth"
+            : client.status === "disconnected"
+              ? "connection"
+              : "no-tools";
+
+        const warningMessage =
+          client.status === "authorizing"
+            ? `MCP server "${server.name}" requires OAuth authorization. Click Authorize in MCP settings.`
+            : client.status === "loading"
+              ? `MCP server "${server.name}" is still connecting. Try again in a moment.`
+              : client.status === "disconnected"
+                ? `MCP server "${server.name}" is disconnected. Try refreshing in MCP settings.`
+                : `MCP server "${server.name}" has no tools available.`;
+
+        console.warn(
+          `[AI MCP] ⚠️ Server "${server.name}" not ready for tool loading:`,
+          {
+            status: client.status,
+            hasToolInfo: !!client.toolInfo,
+            toolInfoCount: client.toolInfo?.length || 0,
+            warningMessage,
+          },
+        );
+
+        warnings.push({
+          serverId: server.id,
+          serverName: server.name,
+          message: warningMessage,
+          type: warningType,
+        });
+
+        // Send warning to renderer if callback provided
+        if (sendWarning) {
+          sendWarning({
+            message: warningMessage,
+            type: `mcp-${warningType}`,
+            serverId: server.id,
+            serverName: server.name,
+          });
+        }
+
+        // Run health check for diagnostics
+        const healthCheck = await checkClientHealth(
+          server.id,
+          server.name,
+          server.config as MCPServerConfig,
+        );
+        healthChecks.push(healthCheck);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(
-        `[AI MCP] Failed to load tools from ${server.name}:`,
+        `[AI MCP] ✗ Failed to load tools from ${server.name}:`,
         error,
       );
+
+      const errorMessage = `MCP server "${server.name}" failed to load: ${error?.message || "Unknown error"}`;
+      warnings.push({
+        serverId: server.id,
+        serverName: server.name,
+        message: errorMessage,
+        type: "error",
+      });
+
+      // Send error warning to renderer
+      if (sendWarning) {
+        sendWarning({
+          message: errorMessage,
+          type: "mcp-error",
+          serverId: server.id,
+          serverName: server.name,
+        });
+      }
     }
   }
 
-  return tools;
+  // Summary logging
+  const toolNames = Object.keys(tools);
+  console.log(`[AI MCP] ========== MCP TOOL LOADING SUMMARY ==========`);
+  console.log(`[AI MCP] Total MCP tools loaded: ${toolNames.length}`);
+  console.log(`[AI MCP] Warnings: ${warnings.length}`);
+  if (toolNames.length > 0) {
+    console.log(`[AI MCP] Tool names: ${toolNames.join(", ")}`);
+  } else {
+    console.log(
+      `[AI MCP] ⚠️ No MCP tools were loaded! Check server connections and tool selections.`,
+    );
+  }
+  if (warnings.length > 0) {
+    console.log(`[AI MCP] Warning details:`);
+    warnings.forEach((w) =>
+      console.log(`[AI MCP]   - ${w.serverName}: ${w.message}`),
+    );
+  }
+  console.log(`[AI MCP] ================================================`);
+
+  return { tools, warnings, healthChecks };
 }
 
 // Type for stream request
@@ -1305,7 +1479,7 @@ interface StreamRequest {
     model: string;
   };
   toolChoice?: string;
-  chatMode?: "regular" | "agent" | "rag";
+  chatMode?: "regular" | "agent";
   allowedAppDefaultToolkit?: string[];
   allowedMcpServers?: Record<string, any>;
   mentions?: any[];
@@ -1993,6 +2167,7 @@ function createElectronTools(
             newContent:
               append && originalContent ? originalContent + content : content,
             timestamp: Date.now(),
+            threadId,
           };
 
           console.log(
@@ -3651,8 +3826,27 @@ export function registerAIHandlers() {
       }
 
       // Load MCP tools if allowed - THESE TAKE PRIORITY
-      const mcpTools = await loadMcpTools(allowedMcpServers);
+      // Pass a warning callback to send MCP issues to the renderer
+      const mcpLoadResult = await loadMcpTools(allowedMcpServers, (warning) => {
+        // Send MCP warnings to renderer for user visibility
+        event.sender.send("ai:stream:warning", {
+          threadId,
+          message: warning.message,
+          type: warning.type,
+          serverId: warning.serverId,
+          serverName: warning.serverName,
+        });
+      });
+      const mcpTools = mcpLoadResult.tools;
       const mcpToolNames = Object.keys(mcpTools);
+
+      // Log MCP warnings summary
+      if (mcpLoadResult.warnings.length > 0) {
+        console.log(
+          `[AI IPC] MCP warnings (${mcpLoadResult.warnings.length}):`,
+          mcpLoadResult.warnings.map((w) => `${w.serverName}: ${w.type}`),
+        );
+      }
 
       // Check what categories of MCP tools are available (for renaming conflicts, not filtering)
       const hasMcpFileSystem = mcpToolNames.some(
@@ -3875,39 +4069,16 @@ export function registerAIHandlers() {
       // ============================================
       let toolsToUse: typeof tools | undefined;
 
-      // RAG MODE - Different behavior based on model size (see workaround docs above)
-      const isSmallLocalModelForRag =
-        isLocal && isSmallLocalModel(chatModel.model);
-
-      if (chatMode === "rag") {
-        if (isSmallLocalModelForRag) {
-          // SMALL LOCAL MODELS: No tools - they get automatic RAG context injection instead
-          toolsToUse = undefined;
-          console.log(
-            `[AI IPC] RAG mode (small model ${chatModel.model}): No tools, using automatic context injection`,
-          );
-        } else {
-          // LARGER MODELS: Enable memory_search tool for agentic RAG
-          const ragTools: typeof tools = {};
-          if (tools["memory_search"]) {
-            ragTools["memory_search"] = tools["memory_search"];
-          }
-          toolsToUse = Object.keys(ragTools).length > 0 ? ragTools : undefined;
-          console.log(
-            `[AI IPC] RAG mode (larger model): Agentic search with memory_search tool`,
-          );
-        }
-      } else if (Object.keys(tools).length === 0) {
+      if (Object.keys(tools).length === 0) {
         toolsToUse = undefined;
         console.log(`[AI IPC] No tools available to pass`);
       } else if (isLocal) {
-        // LOCAL MODEL TOOLS - Minimal set for speed and reliability
-        // Only terminal + headless search (like Claude Code)
-        // Browser automation and MCP tools disabled for local models
+        // LOCAL MODEL TOOLS - Core set for speed and reliability + MCP tools
+        // Includes terminal, file operations, web search + any enabled MCP tools
         // NOTE: Include BOTH prefixed and non-prefixed names because:
         // - Without MCP: tools are named file_read, web_search, etc.
         // - With MCP: tools get renamed to local_file_read, local_web_search, etc.
-        const localModelTools = [
+        const localModelCoreTools = [
           // Terminal (like Claude Code)
           "terminal_execute",
           // Headless web search (both with and without local_ prefix)
@@ -3929,14 +4100,33 @@ export function registerAIHandlers() {
         ];
 
         const filteredTools: typeof tools = {};
-        for (const name of localModelTools) {
+
+        // Add core local model tools
+        for (const name of localModelCoreTools) {
           if (tools[name]) filteredTools[name] = tools[name];
+        }
+
+        // IMPORTANT: Include MCP tools that were explicitly enabled by the user
+        // MCP tools are prefixed with "mcp_" - include all of them for local models
+        // Users explicitly chose these tools, so we should respect that choice
+        const mcpToolsToInclude: string[] = [];
+        for (const toolName of Object.keys(tools)) {
+          if (toolName.startsWith("mcp_")) {
+            filteredTools[toolName] = tools[toolName];
+            mcpToolsToInclude.push(toolName);
+          }
+        }
+
+        if (mcpToolsToInclude.length > 0) {
+          console.log(
+            `[AI IPC] ✓ Including ${mcpToolsToInclude.length} MCP tools for local model: ${mcpToolsToInclude.join(", ")}`,
+          );
         }
 
         toolsToUse =
           Object.keys(filteredTools).length > 0 ? filteredTools : undefined;
         console.log(
-          `[AI IPC] Local model: ${Object.keys(filteredTools).length} tools`,
+          `[AI IPC] Local model: ${Object.keys(filteredTools).length} tools (${localModelCoreTools.filter((t) => tools[t]).length} core + ${mcpToolsToInclude.length} MCP)`,
         );
         console.log(
           `[AI IPC] Local model tools available: ${Object.keys(filteredTools).join(", ")}`,
@@ -4008,6 +4198,7 @@ export function registerAIHandlers() {
         originalUIMessages: allMessages, // Store original UIMessages for follow-up tool calls
         workingDirectory, // Store working directory for later use
         toolNameMapping, // Store tool name mapping for UI display
+        allowedAppDefaultToolkit, // Store for memory-enabled detection in start handler
       });
 
       // CRITICAL: Set orphan cleanup timeout to prevent memory leaks
@@ -4102,6 +4293,7 @@ export function registerAIHandlers() {
         chatModel,
         chatMode,
         workingDirectory,
+        allowedAppDefaultToolkit,
       } = context;
 
       console.log(
@@ -4243,36 +4435,37 @@ export function registerAIHandlers() {
         ).length;
 
         // RAG INJECTION LOGIC:
-        // - RAG MODE: Inject on EVERY turn for ALL models (cloud + local)
-        // - REGULAR/AGENT MODE: Inject on first 3 messages for better context
-        // This ensures cloud models like Groq/X.AI get knowledge context in RAG mode
+        // - MEMORY ENABLED: Inject on EVERY turn for ALL models (cloud + local)
+        // - MEMORY DISABLED: Inject on first 3 messages for better context
         const isSmallModelForRag =
           isLocalModel && isSmallLocalModel(chatModel!.model);
 
+        // Determine if memory toolkit is enabled
+        const memoryEnabled = allowedAppDefaultToolkit?.includes("memory") ?? false;
+
         // Decision matrix logging for debugging
         console.log(`[RAG] Decision matrix:`);
-        console.log(`  - chatMode: ${chatMode || "regular"}`);
+        console.log(`  - memoryEnabled: ${memoryEnabled}`);
         console.log(`  - isLocalModel: ${isLocalModel}`);
         console.log(`  - isSmallModel: ${isSmallModelForRag}`);
         console.log(`  - userMessageCount: ${userMessageCount}`);
 
-        // RAG mode = every turn for ALL models, regular mode = first 3 messages
+        // Memory enabled = every turn for ALL models, otherwise = first 3 messages
         const shouldInjectRag =
-          chatMode === "rag" || // RAG mode = always inject (cloud + local)
+          memoryEnabled || // Memory toolkit on = always inject (cloud + local)
           userMessageCount <= 3; // First 3 messages in any mode
 
         console.log(`  - shouldInjectRag: ${shouldInjectRag}`);
 
         // Log RAG decision
         if (shouldInjectRag) {
-          const reason =
-            chatMode === "rag"
-              ? "RAG mode (every turn)"
-              : `regular mode (turn ${userMessageCount}/3)`;
+          const reason = memoryEnabled
+            ? "memory enabled (every turn)"
+            : `regular mode (turn ${userMessageCount}/3)`;
           console.log(`[RAG] ✓ Will inject context for: ${reason}`);
         } else {
           console.log(
-            `[RAG] Skipping injection (turn ${userMessageCount} > 3, mode: ${chatMode || "regular"})`,
+            `[RAG] Skipping injection (turn ${userMessageCount} > 3, memory disabled)`,
           );
         }
 
@@ -4415,48 +4608,45 @@ export function registerAIHandlers() {
         }
 
         // ============================================
-        // RAG MODE INSTRUCTIONS (different for small vs large models)
+        // MEMORY-ENHANCED SEARCH INSTRUCTIONS (when memory toolkit is enabled)
         // ============================================
-        if (chatMode === "rag") {
+        if (memoryEnabled) {
           // Small local models: Context was auto-injected, just answer from it
           // Larger models: Use memory_search tool agentically
-          const ragModeContent = isSmallModel
-            ? `[RAG] Answer using the context provided above. Be concise and direct.`
-            : `[RAG MODE - AGENTIC SEARCH]
+          const memoryInstructions = isSmallModel
+            ? `[MEMORY] Answer using the context provided above. Be concise and direct.`
+            : `[MEMORY - AGENTIC SEARCH]
 You have access to the memory_search tool to search the user's knowledge bases and conversation history.
 This tool uses LOCAL embeddings (works offline without any API key).
 
-IMPORTANT: This is AGENTIC RAG - you should:
-1. ALWAYS use memory_search first to find relevant information
+IMPORTANT: You should:
+1. Use memory_search to find relevant information from knowledge bases when the user's question may relate to indexed content
 2. Search with multiple different queries if initial results are insufficient
 3. Refine your search based on what you find
 4. Synthesize comprehensive answers from multiple search results
 5. If the search returns no results, try alternative phrasings
-6. For document results, note the knowledgeBaseName field to cite sources
+6. For document results, note the knowledgeBaseName field to cite sources`;
 
-In RAG mode, you have access to: memory_search
-For file operations, terminal, or browser automation, ask the user to switch to Agent mode.`;
-
-          const ragModeSystemMessage = {
+          const memorySystemMessage = {
             role: "system" as const,
-            content: ragModeContent,
+            content: memoryInstructions,
           };
 
-          // Inject RAG mode awareness
+          // Inject memory search awareness
           const systemMsgIndex = messagesToUse.findIndex(
             (m: any) => m.role === "system",
           );
           if (systemMsgIndex >= 0) {
             messagesToUse = [
               ...messagesToUse.slice(0, systemMsgIndex + 1),
-              ragModeSystemMessage,
+              memorySystemMessage,
               ...messagesToUse.slice(systemMsgIndex + 1),
             ];
           } else {
-            messagesToUse = [ragModeSystemMessage, ...messagesToUse];
+            messagesToUse = [memorySystemMessage, ...messagesToUse];
           }
           console.log(
-            `[AI IPC] RAG mode instructions injected (${isSmallModel ? "small model - auto context" : "larger model - agentic"})`,
+            `[AI IPC] Memory search instructions injected (${isSmallModel ? "small model - auto context" : "larger model - agentic"})`,
           );
         }
 

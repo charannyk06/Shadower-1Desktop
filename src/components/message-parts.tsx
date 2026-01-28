@@ -1097,7 +1097,7 @@ export const ToolMessagePart = memo(
         );
       }
 
-      if (toolName === DefaultToolName.RememberContext) {
+      if (toolName === DefaultToolName.RememberContext || toolName === "memory_search") {
         return (
           <Suspense fallback={<LoadingFallback />}>
             <RememberContextToolInvocation part={part} />

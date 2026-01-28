@@ -330,6 +330,7 @@ export interface ACPAgentModel {
 export interface StartACPSessionRequest {
   agentId: string;
   workingDirectory: string;
+  threadId?: string;
   mcpServers?: Array<{
     name: string;
     command: string;

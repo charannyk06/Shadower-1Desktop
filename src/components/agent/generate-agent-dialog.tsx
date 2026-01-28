@@ -2,11 +2,11 @@
 
 import { appStore } from "@/app/store";
 import { SelectModel } from "@/components/select-model";
-import { experimental_useObject } from "@ai-sdk/react";
-import { AgentGenerateSchema } from "app-types/agent";
+import { aiApi } from "@/lib/electron/ai-api";
 import { ChatModel } from "app-types/chat";
+import { buildAgentGenerationPrompt } from "lib/ai/prompts";
 import { CommandIcon, CornerRightUpIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Button } from "ui/button";
 import {
   Dialog,
@@ -19,11 +19,43 @@ import { MessageLoading } from "ui/message-loading";
 import { handleErrorWithToast } from "ui/shared-toast";
 import { Textarea } from "ui/textarea";
 
+// JSON Schema matching AgentGenerateSchema from app-types/agent
+// Manually defined to avoid Zod 4 compatibility issues with zod-to-json-schema
+const agentGenerateJsonSchema = {
+  type: "object",
+  properties: {
+    name: {
+      type: "string",
+      description: "Agent name",
+    },
+    description: {
+      type: "string",
+      description: "Agent description",
+    },
+    instructions: {
+      type: "string",
+      description: "Agent instructions",
+    },
+    role: {
+      type: "string",
+      description: "Agent role",
+    },
+    tools: {
+      type: "array",
+      items: { type: "string" },
+      description: "Agent allowed tools name",
+      default: [],
+    },
+  },
+  required: ["name", "description", "instructions", "role"],
+};
+
 interface GenerateAgentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAgentChange: (data: any) => void;
   onToolsGenerated?: (tools: string[]) => void;
+  availableToolNames: string[];
 }
 
 export function GenerateAgentDialog({
@@ -31,50 +63,68 @@ export function GenerateAgentDialog({
   onOpenChange,
   onAgentChange,
   onToolsGenerated,
+  availableToolNames,
 }: GenerateAgentDialogProps) {
   const [generateModel, setGenerateModel] = useState<ChatModel | undefined>(
     appStore.getState().chatModel,
   );
   const [generateAgentPrompt, setGenerateAgentPrompt] = useState("");
   const [submittedPrompt, setSubmittedPrompt] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const { submit, isLoading, object } = experimental_useObject({
-    api: "/api/agent/ai",
-    schema: AgentGenerateSchema,
-    onFinish(event) {
-      if (event.error) {
-        handleErrorWithToast(event.error);
+  const submitGenerateAgent = useCallback(async () => {
+    if (!generateModel) {
+      handleErrorWithToast(new Error("Please select a model"));
+      return;
+    }
+
+    const prompt = generateAgentPrompt.trim();
+    if (!prompt) return;
+
+    setSubmittedPrompt(prompt);
+    setGenerateAgentPrompt(""); // Clear textarea immediately after submit
+    setIsLoading(true);
+
+    try {
+      // Build system prompt with available tool names
+      const systemPrompt = buildAgentGenerationPrompt(availableToolNames);
+
+      // Call AI API via Electron IPC
+      const result = await aiApi.generateObject({
+        model: generateModel,
+        prompt: {
+          system: systemPrompt,
+          user: prompt,
+        },
+        schema: agentGenerateJsonSchema,
+      });
+
+      // Pass generated data to parent
+      onAgentChange(result);
+
+      // Handle tools if generated
+      if (result.tools && onToolsGenerated) {
+        onToolsGenerated(result.tools);
       }
-      if (event.object) {
-        onAgentChange(event.object);
-        if (event.object.tools && onToolsGenerated) {
-          onToolsGenerated(event.object.tools);
-        }
-      }
+
       // Close dialog after generation completes
       onOpenChange(false);
-      setGenerateAgentPrompt("");
       setSubmittedPrompt("");
       // Reset to current global default model
       setGenerateModel(appStore.getState().chatModel);
-    },
-  });
-
-  const submitGenerateAgent = () => {
-    setSubmittedPrompt(generateAgentPrompt);
-    submit({
-      message: generateAgentPrompt,
-      chatModel: generateModel,
-    });
-    setGenerateAgentPrompt(""); // Clear textarea immediately after submit
-    // Don't close dialog immediately - will close in onFinish
-  };
-
-  useEffect(() => {
-    if (object && isLoading) {
-      onAgentChange(object);
+    } catch (error) {
+      handleErrorWithToast(error as Error);
+    } finally {
+      setIsLoading(false);
     }
-  }, [object, isLoading, onAgentChange]);
+  }, [
+    generateModel,
+    generateAgentPrompt,
+    availableToolNames,
+    onAgentChange,
+    onToolsGenerated,
+    onOpenChange,
+  ]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

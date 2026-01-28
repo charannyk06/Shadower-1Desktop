@@ -1031,7 +1031,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
     acpThreadCreationPromiseRef.current = createThread();
     return acpThreadCreationPromiseRef.current;
-  }, [threadId]);
+  }, [threadId, acpAgentId]);
 
   // Use ACP chat hook when an ACP agent is selected
   const acpChat = useACPChat({
@@ -1378,6 +1378,45 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
               : [{ type: "text" as const, text: "" }],
         } as typeof lastMessage;
 
+        // Build allowedMcpServers from mentions if they contain MCP tools,
+        // otherwise use the global allowedMcpServers selection
+        const mentions = latestRef.current.mentions || [];
+        let resolvedAllowedMcpServers =
+          latestRef.current.allowedMcpServers || {};
+
+        // Check if mentions contain MCP tool mentions
+        const mcpToolMentions = mentions.filter(
+          (m) => m.type === "mcpTool" && m.serverId,
+        );
+
+        if (mcpToolMentions.length > 0) {
+          // Build allowedMcpServers from MCP tool mentions
+          // This allows @mentioning specific MCP tools in the chat
+          const mentionedServers: Record<string, { tools: string[] }> = {};
+          for (const mention of mcpToolMentions) {
+            if (mention.type === "mcpTool" && mention.serverId) {
+              if (!mentionedServers[mention.serverId]) {
+                mentionedServers[mention.serverId] = { tools: [] };
+              }
+              if (
+                !mentionedServers[mention.serverId].tools.includes(mention.name)
+              ) {
+                mentionedServers[mention.serverId].tools.push(mention.name);
+              }
+            }
+          }
+          // Merge mentioned MCP servers with global selection
+          // Mentioned tools are ADDED to the global selection, not replacing it
+          resolvedAllowedMcpServers = {
+            ...resolvedAllowedMcpServers,
+            ...mentionedServers,
+          };
+          console.log(
+            "[ChatBot] MCP tools from mentions merged with global selection:",
+            resolvedAllowedMcpServers,
+          );
+        }
+
         const requestBody: ChatApiSchemaRequestBody = {
           ...body,
           id,
@@ -1387,10 +1426,8 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           chatMode: latestRef.current.chatMode,
           allowedAppDefaultToolkit:
             latestRef.current.allowedAppDefaultToolkit || [],
-          allowedMcpServers: latestRef.current.mentions?.length
-            ? {}
-            : latestRef.current.allowedMcpServers || {},
-          mentions: latestRef.current.mentions || [],
+          allowedMcpServers: resolvedAllowedMcpServers,
+          mentions,
           message: sanitizedLastMessage,
           imageTool: {
             model: latestRef.current.threadImageToolModel[threadId],
@@ -2149,7 +2186,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
                     message={message}
                     status={unifiedStatus}
                     addToolResult={addToolResult}
-                    isLoading={isLoading || isPendingToolCall}
+                    isLoading={isLoading || (!isACPAgent && isPendingToolCall)}
                     isLastMessage={isLastMessage}
                     setMessages={isACPAgent ? acpChat.setMessages : setMessages}
                     sendMessage={unifiedSendMessage}
@@ -2198,7 +2235,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
               threadId={threadId}
               sendMessage={unifiedSendMessage}
               setInput={setInput}
-              isLoading={isLoading || isPendingToolCall}
+              isLoading={isLoading || (!isACPAgent && isPendingToolCall)}
               onStop={unifiedStop}
               model={model}
               setModel={setModel}

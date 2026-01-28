@@ -279,11 +279,172 @@ export async function refreshClient(
 }
 
 /**
+ * Health check result for MCP clients
+ */
+export interface MCPHealthCheckResult {
+  serverId: string;
+  serverName: string;
+  status: "healthy" | "degraded" | "unhealthy" | "unknown";
+  connectionStatus: string;
+  hasTools: boolean;
+  toolCount: number;
+  lastError?: string;
+  recommendations: string[];
+}
+
+/**
+ * Check the health of an MCP client
+ * Returns detailed diagnostic information
+ */
+export async function checkClientHealth(
+  serverId: string,
+  serverName: string,
+  config: MCPServerConfig,
+): Promise<MCPHealthCheckResult> {
+  const recommendations: string[] = [];
+  let lastError: string | undefined;
+
+  try {
+    const client = await getMcpClient(serverId, serverName, config);
+    const connectionStatus = client.status;
+    const hasTools =
+      Array.isArray(client.toolInfo) && client.toolInfo.length > 0;
+    const toolCount = client.toolInfo?.length || 0;
+
+    // Determine health status and recommendations
+    let status: MCPHealthCheckResult["status"] = "unknown";
+
+    if (connectionStatus === "connected" && hasTools) {
+      status = "healthy";
+    } else if (connectionStatus === "connected" && !hasTools) {
+      status = "degraded";
+      recommendations.push(
+        "Server connected but no tools available. The MCP server may not expose any tools.",
+      );
+    } else if (connectionStatus === "authorizing") {
+      status = "degraded";
+      recommendations.push(
+        "OAuth authorization required. Click 'Authorize' in MCP settings to complete setup.",
+      );
+    } else if (connectionStatus === "loading") {
+      status = "degraded";
+      recommendations.push(
+        "Server is still connecting. Wait a moment and try again.",
+      );
+    } else if (connectionStatus === "disconnected") {
+      status = "unhealthy";
+      recommendations.push(
+        "Server disconnected. Try refreshing the connection in MCP settings.",
+      );
+
+      // Try to reconnect and get more info
+      try {
+        await client.connect();
+      } catch (error: any) {
+        lastError = error?.message || "Unknown connection error";
+
+        if (lastError.includes("ECONNREFUSED")) {
+          recommendations.push(
+            "Connection refused. Ensure the MCP server is running and accessible.",
+          );
+        } else if (lastError.includes("ENOTFOUND")) {
+          recommendations.push(
+            "Server not found. Check the server URL or command path.",
+          );
+        } else if (lastError.includes("timeout")) {
+          recommendations.push(
+            "Connection timed out. The server may be slow to respond.",
+          );
+        } else if (lastError.includes("OAuth") || lastError.includes("401")) {
+          recommendations.push(
+            "Authentication required. Check your API keys or OAuth settings.",
+          );
+        }
+      }
+    }
+
+    console.log(`[MCP Service] Health check for ${serverName}:`, {
+      status,
+      connectionStatus,
+      hasTools,
+      toolCount,
+      lastError,
+      recommendations,
+    });
+
+    return {
+      serverId,
+      serverName,
+      status,
+      connectionStatus,
+      hasTools,
+      toolCount,
+      lastError,
+      recommendations,
+    };
+  } catch (error: any) {
+    console.error(
+      `[MCP Service] Health check failed for ${serverName}:`,
+      error,
+    );
+    return {
+      serverId,
+      serverName,
+      status: "unhealthy",
+      connectionStatus: "error",
+      hasTools: false,
+      toolCount: 0,
+      lastError: error?.message || "Unknown error",
+      recommendations: [
+        "Failed to check server health. The server configuration may be invalid.",
+        "Verify the server command or URL is correct.",
+      ],
+    };
+  }
+}
+
+/**
+ * Check health of all enabled MCP servers
+ */
+export async function checkAllClientsHealth(
+  servers: Array<{
+    id: string;
+    name: string;
+    config: MCPServerConfig;
+    enabled: boolean;
+  }>,
+): Promise<MCPHealthCheckResult[]> {
+  const results: MCPHealthCheckResult[] = [];
+
+  for (const server of servers) {
+    if (!server.enabled) continue;
+
+    const result = await checkClientHealth(
+      server.id,
+      server.name,
+      server.config,
+    );
+    results.push(result);
+  }
+
+  // Log summary
+  const healthy = results.filter((r) => r.status === "healthy").length;
+  const degraded = results.filter((r) => r.status === "degraded").length;
+  const unhealthy = results.filter((r) => r.status === "unhealthy").length;
+
+  console.log(
+    `[MCP Service] Health check summary: ${healthy} healthy, ${degraded} degraded, ${unhealthy} unhealthy`,
+  );
+
+  return results;
+}
+
+/**
  * Coerce tool arguments based on JSON Schema
  * Local models often output "true"/"false" as strings instead of booleans
  */
 function coerceMcpToolArguments(args: any, inputSchema: any): any {
-  if (!args || typeof args !== 'object' || !inputSchema?.properties) {
+  if (!args || typeof args !== "object" || !inputSchema?.properties) {
     return args;
   }
 
@@ -296,22 +457,27 @@ function coerceMcpToolArguments(args: any, inputSchema: any): any {
     const expectedType = propSchema.type;
 
     // Coerce string booleans to actual booleans
-    if (expectedType === 'boolean' && typeof value === 'string') {
-      coerced[key] = value.toLowerCase() === 'true' || value === '1';
-      console.log(`[MCP Service] Coerced ${key}: "${value}" → ${coerced[key]} (boolean)`);
+    if (expectedType === "boolean" && typeof value === "string") {
+      coerced[key] = value.toLowerCase() === "true" || value === "1";
+      console.log(
+        `[MCP Service] Coerced ${key}: "${value}" → ${coerced[key]} (boolean)`,
+      );
     }
     // Coerce string numbers to actual numbers
-    else if (expectedType === 'number' || expectedType === 'integer') {
-      if (typeof value === 'string') {
-        const parsed = expectedType === 'integer' ? parseInt(value, 10) : parseFloat(value);
+    else if (expectedType === "number" || expectedType === "integer") {
+      if (typeof value === "string") {
+        const parsed =
+          expectedType === "integer" ? parseInt(value, 10) : parseFloat(value);
         if (!isNaN(parsed)) {
           coerced[key] = parsed;
-          console.log(`[MCP Service] Coerced ${key}: "${value}" → ${coerced[key]} (${expectedType})`);
+          console.log(
+            `[MCP Service] Coerced ${key}: "${value}" → ${coerced[key]} (${expectedType})`,
+          );
         }
       }
     }
     // Coerce arrays from strings (some models output "[item1, item2]" as a string)
-    else if (expectedType === 'array' && typeof value === 'string') {
+    else if (expectedType === "array" && typeof value === "string") {
       try {
         const parsed = JSON.parse(value);
         if (Array.isArray(parsed)) {

@@ -283,6 +283,7 @@ interface TrackedFileOperation {
   originalContent: string | null;
   isNewFile: boolean;
   operationType: "write" | "edit" | "create" | "delete";
+  threadId?: string;
 }
 
 /**
@@ -302,6 +303,8 @@ export class ACPAgentManager extends EventEmitter {
   private detectionPromise: Promise<ACPAgentStatus[]> | null = null;
   /** Track file operations from tool calls to emit file:changed events */
   private trackedFileOperations: Map<string, TrackedFileOperation> = new Map();
+  /** Map sessionId → threadId for attributing file changes to correct thread */
+  private sessionThreadMap: Map<string, string> = new Map();
   /** Timestamp of last detection */
   private detectionTimestamp: number = 0;
   /** Polling interval ID for auto-detection */
@@ -449,6 +452,7 @@ export class ACPAgentManager extends EventEmitter {
     toolName?: string,
     locations?: Array<{ path: string; line?: number }>,
     content?: unknown[],
+    sessionId?: string,
   ): Promise<void> {
     // Get file paths from various sources
     const filePaths: string[] = [];
@@ -529,6 +533,7 @@ export class ACPAgentManager extends EventEmitter {
         originalContent,
         isNewFile,
         operationType,
+        threadId: sessionId ? this.sessionThreadMap.get(sessionId) : undefined,
       });
 
       console.log(
@@ -603,10 +608,11 @@ export class ACPAgentManager extends EventEmitter {
         originalContent: tracked.originalContent,
         newContent: newContent,
         timestamp: Date.now(),
+        threadId: tracked.threadId,
       };
 
       console.log(
-        `[ACP] Emitting file:changed event: ${tracked.filePath} (${fileStatus})`,
+        `[ACP] Emitting file:changed event: ${tracked.filePath} (${fileStatus}) thread: ${tracked.threadId}`,
       );
 
       // Send to all renderer windows
@@ -1182,6 +1188,7 @@ export class ACPAgentManager extends EventEmitter {
                 toolName,
                 toolCall.locations,
                 toolCall.content,
+                params.sessionId,
               ).catch((err) =>
                 console.error(`[ACP] Failed to track file operation:`, err),
               );
@@ -1482,6 +1489,19 @@ export class ACPAgentManager extends EventEmitter {
 
           // Emit file change event for diff tracking
           const { BrowserWindow } = require("electron");
+          // Look up threadId from this agent's active sessions.
+          // Note: The tool handler API doesn't expose which session triggered the
+          // call, so we iterate sessions and take the first match. For agents with
+          // multiple concurrent sessions across threads this may be imprecise.
+          const activeAgent = this.agents.get(agentId);
+          let threadId: string | undefined;
+          if (activeAgent) {
+            for (const sessionId of activeAgent.sessions.keys()) {
+              threadId = this.sessionThreadMap.get(sessionId);
+              if (threadId) break;
+            }
+          }
+
           const fileChangeEvent = {
             filePath: params.path,
             filename: require("path").basename(params.path),
@@ -1489,6 +1509,7 @@ export class ACPAgentManager extends EventEmitter {
             originalContent: originalContent,
             newContent: params.content,
             timestamp: Date.now(),
+            threadId,
           };
 
           for (const win of BrowserWindow.getAllWindows()) {
@@ -1716,7 +1737,15 @@ export class ACPAgentManager extends EventEmitter {
           toolCall.kind ||
           "";
         // Get input from rawInput (ACP SDK standard) or input (legacy fallback)
-        const toolInput = toolCall.rawInput ?? toolCall.input;
+        // Gemini models may send arguments as a JSON string - parse it
+        let toolInput = toolCall.rawInput ?? toolCall.input;
+        if (typeof toolInput === "string") {
+          try {
+            toolInput = JSON.parse(toolInput);
+          } catch {
+            // If parsing fails, keep as string
+          }
+        }
         // Detect if this is a subagent tool call (Feature 5)
         const isSubagent = this._isSubagentToolCall(
           toolCall.kind,
@@ -1779,7 +1808,15 @@ export class ACPAgentManager extends EventEmitter {
         const toolState = mapToolCallStatus(toolUpdate.status);
 
         // Get output from rawOutput (ACP SDK standard) or message (legacy fallback)
-        const toolOutput = toolUpdate.rawOutput ?? toolUpdate.message;
+        // Gemini models may send output as a JSON string - parse it
+        let toolOutput = toolUpdate.rawOutput ?? toolUpdate.message;
+        if (typeof toolOutput === "string") {
+          try {
+            toolOutput = JSON.parse(toolOutput);
+          } catch {
+            // If parsing fails, keep as string
+          }
+        }
         // Extract tool name from meta (Feature 5)
         const toolNameFromMeta = this._extractToolName(toolUpdate.meta);
 
@@ -1949,12 +1986,13 @@ export class ACPAgentManager extends EventEmitter {
       args?: string[];
       env?: Record<string, string>;
     }>,
+    threadId?: string,
   ): Promise<ACPSession> {
     const activeAgent = this.agents.get(agentId);
     if (!activeAgent) {
       // Try to start the agent first
       await this.startAgent(agentId);
-      return this.createSession(agentId, workingDirectory, mcpServers);
+      return this.createSession(agentId, workingDirectory, mcpServers, threadId);
     }
 
     try {
@@ -1988,6 +2026,9 @@ export class ACPAgentManager extends EventEmitter {
       };
 
       activeAgent.sessions.set(response.sessionId, session);
+      if (threadId) {
+        this.sessionThreadMap.set(response.sessionId, threadId);
+      }
       this.emit("session-created", session);
 
       return session;
@@ -2344,6 +2385,15 @@ export class ACPAgentManager extends EventEmitter {
     if (state.cancelled) {
       console.log(`[ACP] Session ${sessionId} was cancelled, not resuming`);
       state.active = false;
+      // Emit done so frontend can transition out of streaming state
+      this.emit("message-chunk", {
+        sessionId,
+        agentId,
+        messageId: crypto.randomUUID(),
+        type: "text",
+        content: "",
+        done: true,
+      } as ACPMessageChunk);
       return;
     }
 
@@ -2400,7 +2450,23 @@ export class ACPAgentManager extends EventEmitter {
         } as ACPMessageChunk);
 
         await new Promise((resolve) => setTimeout(resolve, delay));
-        await this._autoResumeSession(agentId, sessionId);
+        try {
+          await this._autoResumeSession(agentId, sessionId);
+        } catch (retryError) {
+          console.error(
+            `[ACP] Retry also failed for session ${sessionId}:`,
+            retryError,
+          );
+          state.active = false;
+          this.emit("message-chunk", {
+            sessionId,
+            agentId,
+            messageId: crypto.randomUUID(),
+            type: "error",
+            content: `Agent retry failed: ${retryError instanceof Error ? retryError.message : String(retryError)}`,
+            done: true,
+          } as ACPMessageChunk);
+        }
       } else {
         console.error(
           `[ACP] Max retry attempts reached for session ${sessionId}`,
@@ -2711,7 +2777,7 @@ export class ACPAgentManager extends EventEmitter {
         );
         loopState.active = false;
         this.emit("message-chunk", {
-          sessionId,
+          sessionId: actualSessionId,
           agentId,
           messageId: crypto.randomUUID(),
           type: "text",
@@ -2744,7 +2810,7 @@ export class ACPAgentManager extends EventEmitter {
               loopState.active = false;
               loopState.pendingTools.clear();
               this.emit("message-chunk", {
-                sessionId,
+                sessionId: actualSessionId,
                 agentId,
                 messageId: crypto.randomUUID(),
                 type: "text",
@@ -2772,7 +2838,7 @@ export class ACPAgentManager extends EventEmitter {
           );
           loopState.active = false;
           this.emit("message-chunk", {
-            sessionId,
+            sessionId: actualSessionId,
             agentId,
             messageId: crypto.randomUUID(),
             type: "text",
@@ -2793,7 +2859,7 @@ export class ACPAgentManager extends EventEmitter {
         } else {
           loopState.active = false;
           this.emit("message-chunk", {
-            sessionId,
+            sessionId: actualSessionId,
             agentId,
             messageId: crypto.randomUUID(),
             type: "text",
@@ -2807,7 +2873,7 @@ export class ACPAgentManager extends EventEmitter {
         console.log(`[ACP] Agent stopped with reason: ${normalizedStopReason}`);
         loopState.active = false;
         this.emit("message-chunk", {
-          sessionId,
+          sessionId: actualSessionId,
           agentId,
           messageId: crypto.randomUUID(),
           type: "text",
@@ -2817,7 +2883,7 @@ export class ACPAgentManager extends EventEmitter {
       }
 
       return {
-        sessionId,
+        sessionId: actualSessionId,
         stopReason: normalizedStopReason,
         error: undefined,
       };
@@ -2854,9 +2920,10 @@ export class ACPAgentManager extends EventEmitter {
       // Mark loop as inactive on error
       loopState.active = false;
 
-      // Emit error chunk
+      // Emit error chunk - use session's actual ID (may differ after recreation)
+      const emitSessionId = session?.sessionId ?? sessionId;
       this.emit("message-chunk", {
-        sessionId,
+        sessionId: emitSessionId,
         agentId,
         messageId: crypto.randomUUID(),
         type: "error",
@@ -2865,7 +2932,7 @@ export class ACPAgentManager extends EventEmitter {
       } as ACPMessageChunk);
 
       return {
-        sessionId,
+        sessionId: emitSessionId,
         stopReason: "error",
         error: errorMessage,
       };
@@ -2951,6 +3018,10 @@ export class ACPAgentManager extends EventEmitter {
   private _cleanupAgent(agentId: string): void {
     const activeAgent = this.agents.get(agentId);
     if (activeAgent) {
+      // Clean up sessionThreadMap entries before clearing sessions
+      for (const sessionId of activeAgent.sessions.keys()) {
+        this.sessionThreadMap.delete(sessionId);
+      }
       // Clear sessions
       activeAgent.sessions.clear();
 

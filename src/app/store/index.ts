@@ -57,7 +57,7 @@ export interface AppState {
   agentList: AgentSummary[];
   currentThreadId: ChatThread["id"] | null;
   toolChoice: "auto" | "none" | "manual";
-  chatMode: "regular" | "agent" | "rag";
+  chatMode: "regular" | "agent";
   allowedMcpServers?: Record<string, AllowedMCPServer>;
   allowedAppDefaultToolkit?: AppDefaultToolkit[];
   generatingTitleThreadIds: string[];
@@ -264,10 +264,14 @@ export const appStore = create<AppState & AppDispatch>()(
         // Preserve chatModel from persisted state - don't force undefined
         // The model will be validated/updated when a thread is loaded
         // This ensures the selected model persists across page refreshes
+        // Migrate persisted "rag" chatMode to "regular" (RAG mode removed, now handled by memory toggle)
+        const chatMode = persisted.chatMode === ("rag" as string) ? "regular" : persisted.chatMode;
+
         return {
           ...currentState,
           ...persisted,
           allowedAppDefaultToolkit,
+          chatMode: chatMode || currentState.chatMode,
           // Preserve the persisted chatModel, fall back to current state
           chatModel: persisted.chatModel || currentState.chatModel,
           // Preserve threadChatModels from persisted state to maintain per-thread model selection
@@ -399,6 +403,12 @@ export function cleanupThreadState(threadId: string): void {
     delete newThreadWorkingDirectories[threadId];
     delete newThreadChatModels[threadId];
 
+    // Clean up theater/changes data for this thread
+    const newThreadFileSnapshots = { ...state.theaterMode.threadFileSnapshots };
+    const newThreadSessionChanges = { ...state.theaterMode.threadSessionChanges };
+    delete newThreadFileSnapshots[threadId];
+    delete newThreadSessionChanges[threadId];
+
     return {
       threadContextUsage: newThreadContextUsage,
       threadPlans: newThreadPlans,
@@ -406,6 +416,11 @@ export function cleanupThreadState(threadId: string): void {
       threadMentions: newThreadMentions,
       threadWorkingDirectories: newThreadWorkingDirectories,
       threadChatModels: newThreadChatModels,
+      theaterMode: {
+        ...state.theaterMode,
+        threadFileSnapshots: newThreadFileSnapshots,
+        threadSessionChanges: newThreadSessionChanges,
+      },
     };
   });
 }

@@ -54,8 +54,11 @@ export const useChatModels = (options?: SWRConfiguration) => {
           const currentModel = status.chatModel;
 
           // Check if current model is still valid
+          // Trust coding-agents models — they load async via IPC and may not be
+          // in the provider list yet when SWR revalidates on focus
           const isValidModel = currentModel
-            ? data.some(
+            ? currentModel.provider === "coding-agents" ||
+              data.some(
                 (p) =>
                   p.provider === currentModel.provider &&
                   p.models.some((m) => m.name === currentModel.model) &&
