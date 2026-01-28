@@ -18,6 +18,7 @@ import {
   onACPMessageChunk,
   onACPPermissionRequest,
   onACPAgentError,
+  onACPSessionRecreated,
   setACPAutoResume,
   getACPAgenticLoopStatus,
   type AgenticLoopStatus,
@@ -133,13 +134,22 @@ function applyChunkToMessages(
       const toolCallId = (toolContent as any).id || generateUUID();
 
       // Extract input properly - handle both object and undefined cases
+      // Gemini models may send arguments as a JSON string - parse it
       let toolInput: Record<string, unknown> = {};
       if (
         toolContent &&
         typeof toolContent === "object" &&
         "input" in toolContent
       ) {
-        const inputValue = (toolContent as any).input;
+        let inputValue = (toolContent as any).input;
+        // Parse JSON strings (Gemini sends args as JSON strings)
+        if (typeof inputValue === "string") {
+          try {
+            inputValue = JSON.parse(inputValue);
+          } catch {
+            // keep as string
+          }
+        }
         if (inputValue !== null && inputValue !== undefined) {
           if (typeof inputValue === "object" && !Array.isArray(inputValue)) {
             toolInput = inputValue as Record<string, unknown>;
@@ -229,9 +239,10 @@ function applyChunkToMessages(
         }),
       };
 
-      if (targetMessage.id === currentMessageIdRef.current) {
-        onMessageUpdate(updatedMessage);
-      }
+      // Always track the updated message for persistence, regardless of whether
+      // it's the "current" message. This ensures tool results are saved even when
+      // they update an earlier message in the conversation.
+      onMessageUpdate(updatedMessage);
 
       return [
         ...messages.slice(0, targetIndex),
@@ -516,6 +527,31 @@ export function useACPChat({
   const currentMessageRef = useRef<UIMessage | null>(null);
   const currentMessageIdRef = useRef<string | null>(null);
 
+  // Track ALL assistant messages updated during streaming for persistence
+  // This ensures tool results for non-current messages are also saved
+  const updatedMessagesMapRef = useRef<Map<string, UIMessage>>(new Map());
+
+  // Stable ref for onFinish so watchdog/belt-and-suspenders can call it
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
+
+  // Watchdog: track last chunk time and streaming start for stuck-state recovery
+  const lastChunkTimeRef = useRef<number>(0);
+  const streamingStartTimeRef = useRef<number>(0);
+
+  // Flush all tracked messages and reset streaming refs.
+  // Shared by done-chunk handler, error handler, belt-and-suspenders, and watchdog.
+  const flushAndReset = useCallback((targetStatus: "ready" | "error") => {
+    const unsaved = Array.from(updatedMessagesMapRef.current.values());
+    for (const msg of unsaved) {
+      if (msg.role === "assistant") onFinishRef.current?.(msg);
+    }
+    updatedMessagesMapRef.current.clear();
+    currentMessageRef.current = null;
+    currentMessageIdRef.current = null;
+    setStatus(targetStatus);
+  }, []);
+
   // Buffer for chunks that arrive before session is ready
   const chunkBufferRef = useRef<ACPMessageChunk[]>([]);
 
@@ -561,9 +597,11 @@ export function useACPChat({
   // Track session for cleanup
   const sessionRef = useRef<ACPSession | null>(null);
 
-  // Callback to update currentMessageRef when messages change
+  // Callback to update currentMessageRef and track all updated messages for persistence
   const handleMessageUpdate = useCallback((message: UIMessage) => {
     currentMessageRef.current = message;
+    // Track every updated assistant message so we can persist ALL of them on finish
+    updatedMessagesMapRef.current.set(message.id, message);
   }, []);
 
   // Process batched chunks in a single setMessages call to prevent race conditions
@@ -619,7 +657,10 @@ export function useACPChat({
       return messages;
     });
 
-    // Handle error chunks and done flags after state update
+    // Handle error chunks - but do NOT skip done handling
+    // Previously, the error handler returned early, which meant accumulated
+    // messages (text + tool calls) were never saved when an error occurred.
+    let hasError = false;
     for (const chunk of chunksToProcess) {
       if (chunk.type === "error") {
         let errorText: string;
@@ -642,35 +683,33 @@ export function useACPChat({
         }
         console.error("[useACPChat] Error chunk received:", errorText);
         setError(new Error(errorText));
-        setStatus("error");
         onError?.(new Error(errorText));
-        return;
+        hasError = true;
+        break; // Process done handling below instead of returning
       }
     }
 
-    // Handle done flag
+    // Always handle done flag, even if there was an error
+    // This ensures accumulated messages (text + tool calls) are persisted
     if (hasDoneChunk) {
       console.log(
-        "[useACPChat] Stream done, currentMessageRef:",
-        currentMessageRef.current?.id,
+        "[useACPChat] Stream done, saving all updated messages. Count:",
+        updatedMessagesMapRef.current.size,
       );
-      setStatus("ready");
-      if (currentMessageRef.current) {
-        console.log(
-          "[useACPChat] Calling onFinish with complete message, parts count:",
-          currentMessageRef.current.parts.length,
-        );
-        onFinish?.(currentMessageRef.current);
-      }
-      currentMessageRef.current = null;
-      currentMessageIdRef.current = null;
+      flushAndReset(hasError ? "error" : "ready");
+    } else if (hasError) {
+      // Error without done flag - still clean up refs to prevent stale state
+      flushAndReset("error");
     }
-  }, [handleMessageUpdate, onFinish, onError]);
+  }, [handleMessageUpdate, onFinish, onError, flushAndReset]);
 
   // Process a single chunk - adds to batch queue for processing
   const processChunk = useCallback(
     (chunk: ACPMessageChunk) => {
       console.log("[useACPChat] Queueing chunk type:", chunk.type);
+
+      // Update watchdog timestamp on every chunk
+      lastChunkTimeRef.current = Date.now();
 
       // Add chunk to batch queue
       chunkBatchQueueRef.current.push(chunk);
@@ -694,6 +733,7 @@ export function useACPChat({
     sessionRef.current = null;
     currentMessageRef.current = null;
     currentMessageIdRef.current = null;
+    updatedMessagesMapRef.current.clear();
     chunkBufferRef.current = [];
     chunkBatchQueueRef.current = [];
     batchProcessingScheduledRef.current = false;
@@ -752,7 +792,7 @@ export function useACPChat({
         // Create a new session
         const workDir = getWorkingDirectory();
         console.log("[useACPChat] Working directory:", workDir);
-        const newSession = await createACPSession(agentId, workDir);
+        const newSession = await createACPSession(agentId, workDir, undefined, threadId);
         console.log("[useACPChat] Session created:", newSession.sessionId);
 
         if (mounted) {
@@ -881,7 +921,7 @@ export function useACPChat({
         }
 
         // Create new session with updated working directory
-        const newSession = await createACPSession(agentId, newWorkDir);
+        const newSession = await createACPSession(agentId, newWorkDir, undefined, threadId);
 
         if (mounted) {
           setSession(newSession);
@@ -997,6 +1037,27 @@ export function useACPChat({
     return unsubscribe;
   }, [agentId, onError]);
 
+  // Subscribe to session-recreated events to update session reference.
+  // This prevents chunk filtering from discarding chunks after backend session recreation.
+  // Deps intentionally omit setSession (stable useState setter) and sessionRef (ref).
+  useEffect(() => {
+    const unsubscribe = onACPSessionRecreated(
+      (data: { agentId: string; oldSessionId: string; newSession: ACPSession }) => {
+        if (data.agentId !== agentId) return;
+        // Check if the old session matches ours
+        if (sessionRef.current?.sessionId === data.oldSessionId) {
+          console.log(
+            `[useACPChat] Session recreated: ${data.oldSessionId} -> ${data.newSession.sessionId}`,
+          );
+          setSession(data.newSession);
+          sessionRef.current = data.newSession;
+        }
+      },
+    );
+
+    return unsubscribe;
+  }, [agentId]);
+
   // Send a message to the ACP agent
   const sendMessage = useCallback(
     async (content: string) => {
@@ -1012,6 +1073,11 @@ export function useACPChat({
       setStatus("streaming");
       setError(null);
 
+      // Reset watchdog timestamps
+      const now = Date.now();
+      streamingStartTimeRef.current = now;
+      lastChunkTimeRef.current = now;
+
       // Add user message
       const userMessage: UIMessage = {
         id: generateUUID(),
@@ -1025,6 +1091,22 @@ export function useACPChat({
 
       try {
         await sendACPPrompt(agentId, session.sessionId, content);
+        // Belt-and-suspenders: sendACPPrompt resolves after backend returns,
+        // which is after done:true should have been emitted. If status is still
+        // streaming (done chunk was lost), force ready and save accumulated messages.
+        // In the happy path the done-chunk handler already ran during the await,
+        // so this is intentionally redundant — it only takes effect when the done
+        // chunk was lost.
+        if (updatedMessagesMapRef.current.size > 0) {
+          console.log(
+            "[useACPChat] Belt-and-suspenders: saving",
+            updatedMessagesMapRef.current.size,
+            "unsaved messages after sendACPPrompt resolved",
+          );
+          flushAndReset("ready");
+        } else {
+          setStatus((prev) => (prev === "streaming" ? "ready" : prev));
+        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         // If session not found, try to recreate it and retry
@@ -1037,7 +1119,7 @@ export function useACPChat({
           );
           try {
             const workDir = getWorkingDirectory();
-            const newSession = await createACPSession(agentId, workDir);
+            const newSession = await createACPSession(agentId, workDir, undefined, threadId);
             console.log(
               "[useACPChat] Recreated session:",
               newSession.sessionId,
@@ -1048,6 +1130,11 @@ export function useACPChat({
             sessionWorkingDirectoryRef.current = workDir;
             // Retry the prompt with the new session
             await sendACPPrompt(agentId, newSession.sessionId, content);
+            if (updatedMessagesMapRef.current.size > 0) {
+              flushAndReset("ready");
+            } else {
+              setStatus((prev) => (prev === "streaming" ? "ready" : prev));
+            }
             return;
           } catch (recreateErr) {
             console.error(
@@ -1074,7 +1161,7 @@ export function useACPChat({
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [session, agentId, status, onError, onUserMessage, getWorkingDirectory],
+    [session, agentId, status, onError, onUserMessage, getWorkingDirectory, flushAndReset],
   );
 
   // Stop the current stream
@@ -1199,6 +1286,39 @@ export function useACPChat({
       clearInterval(interval);
     };
   }, [status, session, agentId]);
+
+  // Watchdog: recover from stuck "streaming" state
+  // If no chunks arrive for 60s or total streaming exceeds 10 min, force ready
+  useEffect(() => {
+    if (status !== "streaming") return;
+
+    const CHUNK_TIMEOUT_MS = 60_000; // 60s without a chunk
+    const MAX_STREAMING_MS = 10 * 60_000; // 10 min total
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const lastChunk = lastChunkTimeRef.current;
+      const streamStart = streamingStartTimeRef.current;
+
+      if (lastChunk && now - lastChunk > CHUNK_TIMEOUT_MS) {
+        console.warn(
+          `[useACPChat] Watchdog: No chunks received for ${Math.round((now - lastChunk) / 1000)}s, forcing ready`,
+        );
+        flushAndReset("ready");
+        return;
+      }
+
+      if (streamStart && now - streamStart > MAX_STREAMING_MS) {
+        console.warn(
+          `[useACPChat] Watchdog: Streaming exceeded ${MAX_STREAMING_MS / 60_000} min, forcing ready`,
+        );
+        flushAndReset("ready");
+        return;
+      }
+    }, 5_000); // Check every 5s
+
+    return () => clearInterval(interval);
+  }, [status, flushAndReset]);
 
   return {
     messages,

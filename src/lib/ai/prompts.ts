@@ -169,7 +169,7 @@ You can assist with:
   🔍 WEB SEARCH (for searching the internet):
   - **browser_search**: ONE-SHOT web search - RECOMMENDED! Just call browser_search({ query: "your search" })
     This automatically searches Google/DuckDuckGo and returns results. No session management needed.
-  - webSearch: Cloud-based Exa AI search (if configured)
+  - webSearch: DuckDuckGo-based web search (no API key needed)
   - For complex browsing: browser_create_session → browser_navigate → browser_get_snapshot
 
   ⚠️ WHEN USER ASKS TO "SEARCH" - DETERMINE WHAT KIND:

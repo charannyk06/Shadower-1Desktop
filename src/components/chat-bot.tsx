@@ -1031,7 +1031,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
     acpThreadCreationPromiseRef.current = createThread();
     return acpThreadCreationPromiseRef.current;
-  }, [threadId]);
+  }, [threadId, acpAgentId]);
 
   // Use ACP chat hook when an ACP agent is selected
   const acpChat = useACPChat({
@@ -2186,7 +2186,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
                     message={message}
                     status={unifiedStatus}
                     addToolResult={addToolResult}
-                    isLoading={isLoading || isPendingToolCall}
+                    isLoading={isLoading || (!isACPAgent && isPendingToolCall)}
                     isLastMessage={isLastMessage}
                     setMessages={isACPAgent ? acpChat.setMessages : setMessages}
                     sendMessage={unifiedSendMessage}
@@ -2235,7 +2235,7 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
               threadId={threadId}
               sendMessage={unifiedSendMessage}
               setInput={setInput}
-              isLoading={isLoading || isPendingToolCall}
+              isLoading={isLoading || (!isACPAgent && isPendingToolCall)}
               onStop={unifiedStop}
               model={model}
               setModel={setModel}

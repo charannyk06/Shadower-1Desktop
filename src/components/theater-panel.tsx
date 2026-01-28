@@ -1,6 +1,6 @@
 "use client";
 
-import { resolveWorkingDirectory, useAppStore } from "@/app/store";
+import { appStore, resolveWorkingDirectory, useAppStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
@@ -400,6 +400,7 @@ export function TheaterPanel() {
   ]);
 
   // Listen for file change events from Electron to track diffs - PER THREAD
+  // Registered ONCE — uses threadId from the event payload, not closure state
   useEffect(() => {
     const api =
       typeof window !== "undefined" ? (window as any).electronAPI : null;
@@ -413,18 +414,19 @@ export function TheaterPanel() {
         originalContent: string | null;
         newContent: string;
         timestamp: number;
+        threadId?: string;
       }) => {
-        // Only track changes if we have a current thread
-        if (!currentThreadId) {
-          console.log("[TheaterPanel] File changed but no thread active, skipping");
+        // Use threadId from event payload, fall back to current store value
+        const threadId = data.threadId || appStore.getState().currentThreadId;
+        if (!threadId) {
+          console.log("[TheaterPanel] File changed but no thread resolved, skipping");
           return;
         }
 
-        console.log("[TheaterPanel] File changed:", data.filePath, data.status, "for thread:", currentThreadId);
+        console.log("[TheaterPanel] File changed:", data.filePath, data.status, "for thread:", threadId);
 
         // Update the store with the file snapshot for diff tracking - PER THREAD
         appStoreMutate((state) => {
-          const threadId = currentThreadId;
           const existingThreadSnapshots = state.theaterMode.threadFileSnapshots || {};
           const existingSnapshots = existingThreadSnapshots[threadId] || {};
           const existingThreadChanges = state.theaterMode.threadSessionChanges || {};
@@ -448,22 +450,29 @@ export function TheaterPanel() {
             },
           };
 
-          // Update session changes for this thread
-          const newChanges = { ...existingChanges };
-          const path = data.filePath;
+          // Update session changes for this thread — proper status transitions
+          const newChanges = {
+            created: existingChanges.created.filter((p: string) => p !== data.filePath),
+            modified: existingChanges.modified.filter((p: string) => p !== data.filePath),
+            deleted: existingChanges.deleted.filter((p: string) => p !== data.filePath),
+          };
+          const filePath = data.filePath;
+          const wasCreated = existingChanges.created.includes(filePath);
 
-          if (data.status === "created" && !newChanges.created.includes(path)) {
-            newChanges.created = [...newChanges.created, path];
-          } else if (
-            data.status === "modified" &&
-            !newChanges.modified.includes(path)
-          ) {
-            newChanges.modified = [...newChanges.modified, path];
-          } else if (
-            data.status === "deleted" &&
-            !newChanges.deleted.includes(path)
-          ) {
-            newChanges.deleted = [...newChanges.deleted, path];
+          if (data.status === "created") {
+            newChanges.created.push(filePath);
+          } else if (data.status === "modified") {
+            // If file was originally created in this session, keep it as "created"
+            if (wasCreated) {
+              newChanges.created.push(filePath);
+            } else {
+              newChanges.modified.push(filePath);
+            }
+          } else if (data.status === "deleted") {
+            // If file was created in this session then deleted, net zero — don't add anywhere
+            if (!wasCreated) {
+              newChanges.deleted.push(filePath);
+            }
           }
 
           return {
@@ -485,7 +494,7 @@ export function TheaterPanel() {
     );
 
     return cleanup;
-  }, [appStoreMutate, currentThreadId]);
+  }, [appStoreMutate]);
 
   // Combine Artifacts + Uploaded Files
   const allItems = useMemo(() => {
@@ -741,6 +750,7 @@ export function TheaterPanel() {
         await api.dialog.writeToPath({
           filePath: selectedFile.path,
           content: editedContent,
+          threadId: currentThreadId,
         });
         toast.success("File saved");
         setSelectedFile((prev) =>
@@ -954,78 +964,59 @@ interface FileTreeNode {
 
 // Build tree structure from flat file list
 function buildFileTree(items: any[]): FileTreeNode[] {
-  const root: { [key: string]: FileTreeNode } = {};
+  // Use a Map<string, node> keyed by full path for O(1) folder lookup
+  const folderChildMaps = new Map<string, Map<string, FileTreeNode>>();
+  const rootMap = new Map<string, FileTreeNode>();
 
-  items.forEach((item) => {
+  for (const item of items) {
     const filename = item.filename || item.name || item.title || "Untitled";
-    // Check if file has a path structure (e.g., "folder/subfolder/file.js")
     const pathParts = filename.split("/").filter(Boolean);
 
     if (pathParts.length === 1) {
-      // Root level file
-      root[filename] = {
-        name: filename,
-        path: filename,
-        type: "file",
-        item,
-      };
-    } else {
-      // File in subdirectory - build folder structure
-      let currentLevel = root;
-      let currentPath = "";
-
-      pathParts.forEach((part, index) => {
-        currentPath = currentPath ? `${currentPath}/${part}` : part;
-        const isLastPart = index === pathParts.length - 1;
-
-        if (isLastPart) {
-          // This is the file
-          if (!currentLevel[part]) {
-            currentLevel[part] = {
-              name: part,
-              path: currentPath,
-              type: "file",
-              item,
-            };
-          }
-        } else {
-          // This is a folder
-          if (!currentLevel[part]) {
-            currentLevel[part] = {
-              name: part,
-              path: currentPath,
-              type: "folder",
-              children: [],
-            };
-          }
-          // Navigate into the folder's children
-          currentLevel[part].children ??= [];
-          // Convert children array to object for easier lookup
-          const childrenObj: { [key: string]: FileTreeNode } = {};
-          currentLevel[part].children.forEach((child) => {
-            childrenObj[child.name] = child;
-          });
-          currentLevel = childrenObj as any;
-          // We'll rebuild the children array at the end
-        }
-      });
+      rootMap.set(filename, { name: filename, path: filename, type: "file", item });
+      continue;
     }
-  });
 
-  // Convert root object to sorted array (folders first, then files)
-  const toSortedArray = (obj: {
-    [key: string]: FileTreeNode;
-  }): FileTreeNode[] => {
-    return Object.values(obj).sort((a, b) => {
-      // Folders first
-      if (a.type === "folder" && b.type === "file") return -1;
-      if (a.type === "file" && b.type === "folder") return 1;
-      // Then alphabetically
-      return a.name.localeCompare(b.name);
-    });
+    let parentMap = rootMap;
+    let currentPath = "";
+
+    for (let i = 0; i < pathParts.length; i++) {
+      const part = pathParts[i];
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+      if (i === pathParts.length - 1) {
+        // Leaf file
+        parentMap.set(part, { name: part, path: currentPath, type: "file", item });
+      } else {
+        // Folder — ensure it exists
+        if (!parentMap.has(part)) {
+          parentMap.set(part, { name: part, path: currentPath, type: "folder", children: [] });
+          folderChildMaps.set(currentPath, new Map());
+        }
+        parentMap = folderChildMaps.get(currentPath)!;
+      }
+    }
+  }
+
+  const sortNodes = (a: FileTreeNode, b: FileTreeNode) => {
+    if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+    return a.name.localeCompare(b.name);
   };
 
-  return toSortedArray(root);
+  // Materialize children arrays from the child maps
+  function materialize(map: Map<string, FileTreeNode>): FileTreeNode[] {
+    return Array.from(map.values())
+      .map((node) => {
+        if (node.type === "folder") {
+          const childMap = folderChildMaps.get(node.path);
+          return { ...node, children: childMap ? materialize(childMap) : [] };
+        }
+        return node;
+      })
+      .sort(sortNodes);
+  }
+
+  return materialize(rootMap);
 }
 
 // Single file/folder row component

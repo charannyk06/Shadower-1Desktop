@@ -67,10 +67,16 @@ function PureRememberContextToolInvocation({
 
   const result = useMemo(() => {
     if (!part.state?.startsWith("output")) return null;
-    return part.output as RememberContextResult & {
-      isError: boolean;
+    const raw = part.output as RememberContextResult & {
+      isError?: boolean;
+      success?: boolean;
       error?: string;
     };
+    // Backend memory_search returns { success: false } while frontend uses { isError: true }
+    if (raw && raw.success === false && !raw.isError) {
+      return { ...raw, isError: true } as any;
+    }
+    return raw as any;
   }, [part.state]);
 
   const options = useMemo(() => {

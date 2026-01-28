@@ -21,6 +21,7 @@ interface DiffViewerProps {
   showLineNumbers?: boolean;
   collapsible?: boolean;
   defaultExpanded?: boolean;
+  status?: "created" | "modified" | "deleted";
 }
 
 /**
@@ -36,6 +37,7 @@ export function DiffViewer({
   showLineNumbers = true,
   collapsible = false,
   defaultExpanded = true,
+  status,
 }: DiffViewerProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
@@ -91,7 +93,7 @@ export function DiffViewer({
   if (!hasChanges) {
     return (
       <div className={cn("text-sm text-white/50 py-4 text-center", className)}>
-        No changes
+        {status === "created" ? "Empty file created" : "No changes"}
       </div>
     );
   }

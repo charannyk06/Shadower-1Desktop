@@ -1,7 +1,7 @@
 "use client";
 
 import { ToolUIPart } from "ai";
-import { ExaSearchResponse } from "lib/ai/tools/web/web-search";
+import { WebSearchResponse } from "lib/ai/tools/web/web-search";
 import equal from "lib/equal";
 import { notify } from "lib/notify";
 import { cn, toAny } from "lib/utils";
@@ -22,7 +22,7 @@ interface WebSearchToolInvocationProps {
 function PureWebSearchToolInvocation({ part }: WebSearchToolInvocationProps) {
   const result = useMemo(() => {
     if (!part.state?.startsWith("output")) return null;
-    return part.output as ExaSearchResponse & {
+    return part.output as WebSearchResponse & {
       isError: boolean;
       error?: string;
     };
@@ -56,7 +56,7 @@ function PureWebSearchToolInvocation({ part }: WebSearchToolInvocationProps) {
   };
 
   const images = useMemo(() => {
-    // Exa doesn't provide separate images array, but individual results may have image property
+    // Individual results may have image property
     return (
       result?.results
         ?.filter((r) => r.image && !errorSrc.includes(r.image))
@@ -142,7 +142,7 @@ function PureWebSearchToolInvocation({ part }: WebSearchToolInvocationProps) {
                 {result.error || "Error"}
               </p>
             ) : (
-              (result as ExaSearchResponse)?.results?.map((result, i) => {
+              (result as WebSearchResponse)?.results?.map((result, i) => {
                 return (
                   <HoverCard key={i} openDelay={200} closeDelay={0}>
                     <HoverCardTrigger asChild>
