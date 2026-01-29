@@ -201,6 +201,9 @@ const createComponents = (streaming?: boolean): Partial<Components> => ({
 // Static components for non-streaming use (memoization-friendly)
 const components = createComponents(false);
 
+// Static components for streaming use (prevents flickering from recreation on every render)
+const streamingComponents = createComponents(true);
+
 // Compact components for inline/tight markdown rendering (e.g., subagent output)
 const createCompactComponents = (streaming?: boolean): Partial<Components> => ({
   ...createComponents(streaming),
@@ -300,6 +303,9 @@ const createCompactComponents = (streaming?: boolean): Partial<Components> => ({
 // Static compact components for non-streaming use (memoization-friendly)
 const compactComponents = createCompactComponents(false);
 
+// Static compact streaming components (prevents flickering)
+const streamingCompactComponents = createCompactComponents(true);
+
 interface MarkdownProps {
   children: string;
   compact?: boolean;
@@ -310,8 +316,9 @@ interface MarkdownProps {
 const NonMemoizedMarkdown = ({ children, compact = false, streaming = false }: MarkdownProps) => {
   // Use streaming-aware components when streaming is active
   // This prevents animations from restarting on every render
+  // CRITICAL: Use static component objects to prevent ReactMarkdown from re-rendering on every state change
   const markdownComponents = streaming
-    ? (compact ? createCompactComponents(true) : createComponents(true))
+    ? (compact ? streamingCompactComponents : streamingComponents)
     : (compact ? compactComponents : components);
 
   return (
