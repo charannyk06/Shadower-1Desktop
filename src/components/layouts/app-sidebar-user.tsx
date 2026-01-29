@@ -4,6 +4,7 @@ import { appStore } from "@/app/store";
 import { useThemeStyle } from "@/hooks/use-theme-style";
 import { BasicUser } from "app-types/user";
 import { authClient } from "auth/client";
+import { navigateTo } from "@/router";
 import { BASE_THEMES } from "lib/const";
 import { getUserAvatar } from "lib/user/utils";
 import { userFetcher } from "@/lib/electron/user-api";
@@ -57,7 +58,7 @@ export function AppSidebarUserInner(
 
   const logout = () => {
     authClient.signOut().finally(() => {
-      globalThis.location.href = "/sign-in";
+      navigateTo("/sign-in");
     });
   };
 

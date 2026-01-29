@@ -3,6 +3,7 @@
 import { Component, type ReactNode, type ErrorInfo } from "react";
 import { AlertCircle, RefreshCw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { navigateTo } from "@/router";
 
 interface Props {
   children: ReactNode;
@@ -37,7 +38,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
   };
 
   handleGoHome = () => {
-    window.location.href = "/";
+    navigateTo("/");
   };
 
   render() {
