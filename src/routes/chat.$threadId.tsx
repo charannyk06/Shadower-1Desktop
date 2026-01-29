@@ -94,7 +94,6 @@ export default function ChatThreadPage() {
             console.log("[ChatThreadPage] Syncing ACP agent settings");
             appStore.setState({
               toolChoice: "auto",
-              chatMode: "agent",
             });
           }
         }
