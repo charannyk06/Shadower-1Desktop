@@ -75,7 +75,7 @@ export function SidebarHeaderShared({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/shadower-logo-final.png"
+                src="./shadower-logo-final.png"
                 alt="Shadower"
                 width={40}
                 height={40}
