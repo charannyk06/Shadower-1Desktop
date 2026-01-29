@@ -7,6 +7,7 @@ import {
   ThemeStyleProvider,
 } from "@/components/layouts/theme-provider";
 import { Toaster } from "ui/sonner";
+import { UpdateNotification } from "@/components/update-notification";
 
 // Import global styles
 import "./app/globals.css";
@@ -32,6 +33,7 @@ ReactDOM.createRoot(rootElement).render(
       <ThemeStyleProvider>
         <RouterProvider router={router} />
         <Toaster richColors />
+        <UpdateNotification />
       </ThemeStyleProvider>
     </ThemeProvider>
   </React.StrictMode>,
