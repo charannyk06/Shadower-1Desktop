@@ -13,6 +13,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { navigateTo } from "@/router";
 import { MCPIcon } from "ui/mcp-icon";
 
 import { AsanaIcon } from "ui/asana-icon";
@@ -464,7 +465,7 @@ export function MCPOverview() {
     params.set("name", mcp.name);
     params.set("config", JSON.stringify(mcp.config));
 
-    window.location.href = `/mcp/create?${params.toString()}`;
+    navigateTo(`/mcp/create?${params.toString()}`);
   };
 
   return (

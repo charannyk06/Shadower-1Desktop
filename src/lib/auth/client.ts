@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { navigateTo } from "@/router";
 
 /**
  * Electron Auth Client
@@ -139,8 +140,9 @@ export const authClient = {
           options?.onSuccess?.();
 
           // Handle callback URL - redirect to the specified path
+          // Use navigateTo for Electron hash-based routing compatibility
           if (params.callbackURL && typeof window !== "undefined") {
-            window.location.href = params.callbackURL;
+            navigateTo(params.callbackURL);
           }
         } else if (result.error) {
           options?.onError?.({

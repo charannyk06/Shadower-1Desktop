@@ -3,9 +3,32 @@ import {
   createRoute,
   createRootRoute,
   Outlet,
+  createHashHistory,
 } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
+
+// Detect if we're running in Electron production (file:// protocol)
+// In production Electron, we need hash-based routing since there's no server
+export const isElectronProduction =
+  typeof window !== "undefined" &&
+  window.location.protocol === "file:";
+
+/**
+ * Navigate to a path safely in both dev (browser history) and production (hash history).
+ * Use this for programmatic navigation outside of React components where useNavigate isn't available.
+ *
+ * @param path - The path to navigate to (e.g., "/sign-in", "/")
+ */
+export function navigateTo(path: string): void {
+  if (isElectronProduction) {
+    // In Electron production, use hash-based navigation
+    window.location.hash = path;
+  } else {
+    // In dev mode, use regular navigation
+    window.location.href = path;
+  }
+}
 import { RouteErrorBoundary } from "./components/route-error-boundary";
 
 // Loading component for lazy-loaded routes
@@ -225,10 +248,14 @@ const routeTree = rootRoute.addChildren([
 ]);
 
 // Create router instance
+// Use hash history in Electron production (file:// protocol) since there's no server
+// to handle browser history navigation. In dev mode, use default browser history.
 export const router = createRouter({
   routeTree,
   defaultPreload: "intent",
   defaultPreloadStaleTime: 0,
+  // Hash history for Electron production, browser history otherwise
+  history: isElectronProduction ? createHashHistory() : undefined,
 });
 
 // Register router for type safety

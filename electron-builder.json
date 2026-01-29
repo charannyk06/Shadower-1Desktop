@@ -13,6 +13,13 @@
     "!**/*.ts",
     "!**/*.map"
   ],
+  "asarUnpack": [
+    "node_modules/better-sqlite3/**/*",
+    "node_modules/duckdb/**/*",
+    "node_modules/sharp/**/*",
+    "node_modules/onnxruntime-node/**/*",
+    "**/*.node"
+  ],
   "extraResources": [
     {
       "from": "resources",
@@ -25,11 +32,11 @@
     "target": [
       {
         "target": "dmg",
-        "arch": ["x64", "arm64"]
+        "arch": ["arm64"]
       },
       {
         "target": "zip",
-        "arch": ["x64", "arm64"]
+        "arch": ["arm64"]
       }
     ],
     "icon": "resources/icon.icns",
@@ -62,11 +69,11 @@
     "target": [
       {
         "target": "nsis",
-        "arch": ["x64", "ia32"]
+        "arch": ["x64"]
       },
       {
         "target": "zip",
-        "arch": ["x64", "ia32"]
+        "arch": ["x64"]
       }
     ],
     "icon": "resources/icon.ico",
@@ -103,6 +110,6 @@
     "repo": "Shadower-1Desktop"
   },
   "buildDependenciesFromSource": false,
-  "npmRebuild": false,
+  "npmRebuild": true,
   "nodeGypRebuild": false
 }
