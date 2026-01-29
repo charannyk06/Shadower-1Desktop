@@ -30,6 +30,10 @@ const spawnedChromeProcesses: Map<number, { pid: number; port: number }> = new M
 // Track cloned profile directories for cleanup
 const clonedProfileDirs: Set<string> = new Set();
 
+// Track ports where Chrome is currently being launched (to prevent race conditions)
+// This prevents multiple Chrome launches on the same port
+const chromeLaunchingOnPort: Set<number> = new Set();
+
 /**
  * Clean up all spawned Chrome processes and cloned profile directories
  * Call this on app shutdown to ensure no orphaned Chrome processes or temp files
@@ -360,6 +364,9 @@ async function launchChromeWithUserProfile(
     "--disable-background-timer-throttling",
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
+    // CRITICAL: Open with a real URL so agent-browser can connect
+    // agent-browser 0.8.5 filters out pages without URLs
+    "https://www.google.com",
   ];
 
   // Add user-data-dir - this should ALWAYS be set now
@@ -466,6 +473,11 @@ async function killProcessOnPort(port: number): Promise<boolean> {
  * Get or launch Chrome with CDP - uses user's REAL browser
  * This is CDP-ONLY mode - no fallbacks!
  *
+ * CRITICAL: This function includes additional safeguards to prevent multiple Chrome instances:
+ * 1. Checks if Chrome is already being launched on this port
+ * 2. Waits for any in-progress launch before proceeding
+ * 3. Only one Chrome process per port is ever spawned
+ *
  * @param port - CDP port for remote debugging
  * @param chromePath - Custom path to Chrome executable
  * @param useSeparateProfile - Use a separate profile to allow launching when main Chrome is running
@@ -485,23 +497,66 @@ async function getOrLaunchChromeWithCdp(
     return existingWsUrl;
   }
 
-  // PRIORITY 2: Kill any zombie process on the CDP port
-  log.info(`[Browser] No CDP found. Checking for zombie processes on port ${port}...`);
-  await killProcessOnPort(port);
-  await new Promise((resolve) => setTimeout(resolve, 500)); // Wait for port to free up
-
-  // PRIORITY 3: Launch Chrome with cloned profile + CDP
-  log.info(`[Browser] Launching Chrome with cloned profile (sessions preserved)...`);
-  const result = await launchChromeWithUserProfile(port, chromePath, useSeparateProfile);
-
-  if (!result?.wsUrl) {
-    throw new Error(
-      "Failed to launch Chrome with CDP. " +
-      "Please ensure Chrome is installed and try again."
-    );
+  // CRITICAL: Check if Chrome is currently being launched on this port
+  // This prevents multiple Chrome instances from being spawned in race conditions
+  if (chromeLaunchingOnPort.has(port)) {
+    log.info(`[Browser] Chrome is already being launched on port ${port}, waiting...`);
+    // Wait for the launch to complete by polling for CDP availability
+    for (let i = 0; i < 60; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const wsUrl = await checkCdpAvailable(port);
+      if (wsUrl) {
+        log.info(`[Browser] Chrome on port ${port} is now ready!`);
+        return wsUrl;
+      }
+    }
+    throw new Error(`Chrome launch on port ${port} timed out`);
   }
 
-  return result.wsUrl;
+  // CRITICAL: Check if we already have a Chrome process tracked on this port
+  // If so, wait for it to become available instead of killing it
+  const existingProcess = Array.from(spawnedChromeProcesses.values()).find(p => p.port === port);
+  if (existingProcess) {
+    log.info(`[Browser] Found tracked Chrome process (PID ${existingProcess.pid}) on port ${port}, waiting for CDP...`);
+    for (let i = 0; i < 30; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const wsUrl = await checkCdpAvailable(port);
+      if (wsUrl) {
+        log.info(`[Browser] Existing Chrome on port ${port} is now available!`);
+        return wsUrl;
+      }
+    }
+    // If it still doesn't respond, the process might be stuck - proceed to cleanup
+    log.warn(`[Browser] Existing Chrome on port ${port} not responding, proceeding with cleanup...`);
+  }
+
+  // Mark this port as having a Chrome launch in progress
+  chromeLaunchingOnPort.add(port);
+
+  try {
+    // PRIORITY 2: Kill any zombie process on the CDP port (only if no tracked process)
+    if (!existingProcess) {
+      log.info(`[Browser] No CDP found. Checking for zombie processes on port ${port}...`);
+      await killProcessOnPort(port);
+      await new Promise((resolve) => setTimeout(resolve, 500)); // Wait for port to free up
+    }
+
+    // PRIORITY 3: Launch Chrome with cloned profile + CDP
+    log.info(`[Browser] Launching Chrome with cloned profile (sessions preserved)...`);
+    const result = await launchChromeWithUserProfile(port, chromePath, useSeparateProfile);
+
+    if (!result?.wsUrl) {
+      throw new Error(
+        "Failed to launch Chrome with CDP. " +
+        "Please ensure Chrome is installed and try again."
+      );
+    }
+
+    return result.wsUrl;
+  } finally {
+    // Remove the port from the launching set
+    chromeLaunchingOnPort.delete(port);
+  }
 }
 
 // Page type from agent-browser's BrowserManager
@@ -558,10 +613,10 @@ const BLOCK_TITLE_PATTERNS = [
   "before you continue",
 ];
 
-// Session tracking
+// Session tracking - now tracks tabs within a single shared browser
 interface BrowserSession {
   id: string;
-  manager: BrowserManager;
+  tabIndex: number; // Tab index within the shared manager
   createdAt: Date;
   stealth: boolean;
   /** Whether this session is connected to the user's real browser via CDP */
@@ -657,10 +712,24 @@ export type BrowserAction =
 
 /**
  * Enhanced Browser Service Singleton
+ *
+ * IMPORTANT: Uses a SINGLE shared BrowserManager to avoid spawning multiple Chrome instances.
+ * Sessions now represent tabs within the same browser, not separate browsers.
  */
 export class EnhancedBrowserService {
   private static instance: EnhancedBrowserService;
   private static cleanupRegistered = false;
+
+  // CRITICAL: Single shared manager for all sessions - prevents multiple Chrome instances
+  private sharedManager: BrowserManager | null = null;
+  private sharedCdpUrl: string | null = null;
+  private sharedCdpPort: number | null = null;
+
+  // CRITICAL: Mutex to prevent race conditions when creating browser manager
+  // This prevents multiple Chrome instances from being spawned when multiple
+  // createSession calls happen concurrently
+  private managerCreationPromise: Promise<{ manager: BrowserManager; cdpUrl: string; isNew: boolean }> | null = null;
+
   private sessions: Map<string, BrowserSession> = new Map();
   private activeSessionId: string | null = null;
 
@@ -678,13 +747,134 @@ export class EnhancedBrowserService {
   }
 
   /**
+   * Get or create the shared browser manager
+   * This ensures only ONE Chrome instance is ever spawned
+   *
+   * CRITICAL: Uses a mutex pattern to prevent race conditions when multiple
+   * createSession calls happen concurrently. Without this, each concurrent call
+   * would see sharedManager as null and spawn its own Chrome instance!
+   */
+  private async getOrCreateSharedManager(
+    cdpPort: number,
+    executablePath?: string,
+    useSeparateProfile?: boolean,
+    viewport?: { width: number; height: number }
+  ): Promise<{ manager: BrowserManager; cdpUrl: string; isNew: boolean }> {
+    // Check if we already have a manager connected to this port
+    if (this.sharedManager && this.sharedCdpPort === cdpPort) {
+      // Verify the connection is still alive
+      if (this.sharedManager.isLaunched()) {
+        log.info(`[Browser] Reusing existing browser connection on port ${cdpPort}`);
+        return {
+          manager: this.sharedManager,
+          cdpUrl: this.sharedCdpUrl!,
+          isNew: false
+        };
+      } else {
+        log.warn("[Browser] Existing manager lost connection, reconnecting...");
+        this.sharedManager = null;
+        this.sharedCdpUrl = null;
+        this.sharedCdpPort = null;
+      }
+    }
+
+    // CRITICAL: Check if another call is already creating the manager
+    // This prevents multiple Chrome instances from being spawned when
+    // multiple createSession calls happen concurrently
+    if (this.managerCreationPromise) {
+      log.info("[Browser] Another createSession call is in progress, waiting for it...");
+      try {
+        const result = await this.managerCreationPromise;
+        log.info("[Browser] Reusing manager from concurrent call");
+        return { ...result, isNew: false };
+      } catch (err) {
+        // Previous attempt failed, we'll try again below
+        log.warn("[Browser] Previous manager creation failed, retrying...");
+      }
+    }
+
+    // Need to create a new manager - use mutex pattern
+    log.info(`[Browser] Creating new shared browser manager on port ${cdpPort}...`);
+
+    // Create the promise before starting async work (this is the mutex)
+    this.managerCreationPromise = this.doCreateSharedManager(
+      cdpPort,
+      executablePath,
+      useSeparateProfile,
+      viewport
+    );
+
+    try {
+      const result = await this.managerCreationPromise;
+      return result;
+    } finally {
+      // Clear the promise so future calls can create a new manager if needed
+      this.managerCreationPromise = null;
+    }
+  }
+
+  /**
+   * Internal method that actually creates the browser manager
+   * This is separated to support the mutex pattern in getOrCreateSharedManager
+   */
+  private async doCreateSharedManager(
+    cdpPort: number,
+    executablePath?: string,
+    useSeparateProfile?: boolean,
+    viewport?: { width: number; height: number }
+  ): Promise<{ manager: BrowserManager; cdpUrl: string; isNew: boolean }> {
+    const manager = new BrowserManager();
+
+    // Get or launch Chrome with CDP
+    const cdpWsUrl = await getOrLaunchChromeWithCdp(
+      cdpPort,
+      executablePath,
+      useSeparateProfile ?? false
+    );
+
+    log.info(`[Browser] CDP WebSocket URL: ${cdpWsUrl}`);
+
+    // Connect to Chrome via CDP with retry
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await manager.launch({
+          headless: false,
+          cdpPort: cdpPort,
+          viewport: viewport ?? { width: 1280, height: 720 },
+        } as any);
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err as Error;
+        log.warn(`[Browser] CDP connection attempt ${attempt}/3 failed: ${lastError.message}`);
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
+
+    // Store as shared manager
+    this.sharedManager = manager;
+    this.sharedCdpUrl = cdpWsUrl;
+    this.sharedCdpPort = cdpPort;
+
+    log.info("[Browser] Successfully created shared browser connection!");
+
+    return { manager, cdpUrl: cdpWsUrl, isNew: true };
+  }
+
+  /**
    * Create a new browser session using the user's REAL Chrome browser via CDP.
    *
-   * CDP-ONLY MODE - NO FALLBACKS!
+   * CDP-ONLY MODE - Uses SHARED browser manager to prevent multiple Chrome instances.
    *
-   * This connects to or launches Chrome with remote debugging enabled,
-   * preserving the user's cookies, sessions, and browsing history.
-   * This is the ONLY way to avoid bot detection since it's a REAL browser.
+   * If a session already exists, this creates a NEW TAB in the existing browser.
+   * Only the FIRST session actually launches Chrome.
    *
    * @throws Error if Chrome is not available or CDP connection fails
    */
@@ -693,91 +883,70 @@ export class EnhancedBrowserService {
     url?: string;
     title?: string;
     stealth?: boolean;
-    userBrowser: true; // Always true now - CDP only
+    userBrowser: true;
     cdpUrl?: string;
   }> {
-    const manager = new BrowserManager();
     const cdpPort = options.cdpPort ?? DEFAULT_CDP_PORT;
 
+    log.info("[Browser] ============================================");
+    log.info("[Browser] createSession called");
+    log.info(`[Browser] Current state: sessions=${this.sessions.size}, hasSharedManager=${!!this.sharedManager}, hasPendingCreation=${!!this.managerCreationPromise}`);
     log.info("[Browser] CDP-ONLY MODE: Connecting to user's Chrome browser...");
-    log.info("[Browser] This preserves all cookies, sessions, and avoids ALL bot detection!");
+    log.info("[Browser] Using SHARED manager - only ONE Chrome instance will be spawned!");
 
     try {
-      // Get or launch Chrome with CDP - this will THROW if it fails (no fallbacks!)
-      const cdpWsUrl = await getOrLaunchChromeWithCdp(
+      // Get or create the shared manager (reuses existing if available)
+      const { manager, cdpUrl, isNew } = await this.getOrCreateSharedManager(
         cdpPort,
         options.executablePath,
-        options.useSeparateProfile ?? false
+        options.useSeparateProfile,
+        options.viewport
       );
 
-      log.info(`[Browser] CDP WebSocket URL: ${cdpWsUrl}`);
-      log.info(`[Browser] Connecting via agent-browser on port ${cdpPort}...`);
+      // Get current tab index
+      let tabIndex = manager.getActiveIndex?.() ?? 0;
 
-      // Connect to user's Chrome via CDP with retry
-      // Sometimes the first connection attempt fails if Chrome is still initializing
-      let lastError: Error | null = null;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          await manager.launch({
-            headless: false, // User's browser is always visible
-            cdpPort: cdpPort,
-            viewport: options.viewport ?? { width: 1280, height: 720 },
-          } as any);
-          lastError = null;
-          break; // Success!
-        } catch (err) {
-          lastError = err as Error;
-          log.warn(`[Browser] CDP connection attempt ${attempt}/3 failed: ${lastError.message}`);
-          if (attempt < 3) {
-            // Wait before retry with exponential backoff
-            await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-          }
-        }
+      // If this is not the first session, create a new tab
+      if (!isNew && this.sessions.size > 0) {
+        log.info("[Browser] Creating new tab in existing browser...");
+        const tabResult = await manager.newTab();
+        tabIndex = tabResult.index;
+        log.info(`[Browser] Created tab ${tabIndex + 1}/${tabResult.total}`);
       }
-
-      if (lastError) {
-        throw lastError;
-      }
-
-      log.info("[Browser] Successfully connected to user's Chrome via CDP!");
 
       const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       const session: BrowserSession = {
         id: sessionId,
-        manager,
+        tabIndex,
         createdAt: new Date(),
-        stealth: false, // No stealth needed - it's the user's real browser!
+        stealth: false,
         userBrowser: true,
-        cdpUrl: cdpWsUrl,
+        cdpUrl,
       };
 
       this.sessions.set(sessionId, session);
       this.activeSessionId = sessionId;
 
-      // Get current page
+      // Get current page info
       const page = manager.getPage();
       const url = page.url();
       const title = await page.title().catch(() => "");
 
-      log.info(`[Browser] Session created: ${sessionId}`);
+      log.info(`[Browser] Session created: ${sessionId} (tab ${tabIndex + 1})`);
       log.info("[Browser] Using USER'S REAL BROWSER - no bot detection possible!");
-      log.info(`[Browser] Current URL: ${url}`);
 
       return {
         sessionId,
         url,
         title,
-        stealth: false, // Not needed with real browser
+        stealth: false,
         userBrowser: true,
-        cdpUrl: cdpWsUrl,
+        cdpUrl,
       };
     } catch (error) {
-      await manager.close().catch(() => {});
-
       const message = error instanceof Error ? error.message : String(error);
 
-      // Provide helpful error messages
       if (message.includes("Chrome not found")) {
         throw new Error(
           "BROWSER ERROR: Google Chrome is not installed.\n\n" +
@@ -823,6 +992,29 @@ export class EnhancedBrowserService {
   }
 
   /**
+   * Get the shared browser manager - ensures we always use the same browser
+   */
+  private getManager(): BrowserManager {
+    if (!this.sharedManager) {
+      throw new Error("No browser manager active. Call createSession first.");
+    }
+    return this.sharedManager;
+  }
+
+  /**
+   * Switch to a session's tab before performing operations
+   */
+  private async ensureSessionTab(session: BrowserSession): Promise<void> {
+    const manager = this.getManager();
+    const currentIndex = manager.getActiveIndex?.() ?? 0;
+
+    if (currentIndex !== session.tabIndex) {
+      log.debug(`[Browser] Switching from tab ${currentIndex} to ${session.tabIndex}`);
+      await manager.switchTo(session.tabIndex);
+    }
+  }
+
+  /**
    * Navigate to a URL with retry logic and CAPTCHA detection
    */
   async navigate(
@@ -830,14 +1022,14 @@ export class EnhancedBrowserService {
     options?: NavigateOptions
   ): Promise<NavigateResult> {
     const session = this.getSession(options?.sessionId);
-    const page = session.manager.getPage();
+    await this.ensureSessionTab(session);
+
+    const manager = this.getManager();
+    const page = manager.getPage();
 
     const timeout = options?.timeout ?? 30000;
     const maxRetries = options?.retries ?? 2;
-    const waitUntil = options?.waitUntil ?? "domcontentloaded"; // Changed from "load" for better reliability
-
-    // NOTE: No stealth scripts needed - we're using the user's REAL Chrome browser!
-    // The user's browser has no automation fingerprints.
+    const waitUntil = options?.waitUntil ?? "domcontentloaded";
 
     return this.navigateWithRetry(page, url, { waitUntil, timeout }, maxRetries);
   }
@@ -1114,7 +1306,10 @@ export class EnhancedBrowserService {
     stats: { lines: number; chars: number; refs: number; interactive: number };
   }> {
     const session = this.getSession(options?.sessionId);
-    const snapshot = await session.manager.getSnapshot({
+    await this.ensureSessionTab(session);
+
+    const manager = this.getManager();
+    const snapshot = await manager.getSnapshot({
       interactive: options?.interactive,
       maxDepth: options?.maxDepth,
       compact: options?.compact,
@@ -1146,7 +1341,9 @@ export class EnhancedBrowserService {
     options?: { sessionId?: string }
   ): Promise<{ success: boolean; data?: unknown }> {
     const session = this.getSession(options?.sessionId);
-    const manager = session.manager;
+    await this.ensureSessionTab(session);
+
+    const manager = this.getManager();
     const page = manager.getPage();
 
     // Wrap the entire action execution in safe execution
@@ -1273,7 +1470,8 @@ export class EnhancedBrowserService {
     options?: { sessionId?: string }
   ): Promise<unknown> {
     const session = this.getSession(options?.sessionId);
-    const page = session.manager.getPage();
+    await this.ensureSessionTab(session);
+    const page = this.getManager().getPage();
     return page.evaluate(script);
   }
 
@@ -1288,7 +1486,8 @@ export class EnhancedBrowserService {
     sessionId?: string;
   }): Promise<{ success: boolean }> {
     const session = this.getSession(options.sessionId);
-    const page = session.manager.getPage();
+    await this.ensureSessionTab(session);
+    const page = this.getManager().getPage();
 
     if (options.selector) {
       await page.waitForSelector(options.selector, {
@@ -1312,7 +1511,8 @@ export class EnhancedBrowserService {
     sessionId?: string;
   }): Promise<string> {
     const session = this.getSession(options?.sessionId);
-    const page = session.manager.getPage();
+    await this.ensureSessionTab(session);
+    const page = this.getManager().getPage();
 
     if (options?.selector) {
       return page.locator(options.selector).innerHTML();
@@ -1325,7 +1525,8 @@ export class EnhancedBrowserService {
    */
   async getUrl(sessionId?: string): Promise<string> {
     const session = this.getSession(sessionId);
-    return session.manager.getPage().url();
+    await this.ensureSessionTab(session);
+    return this.getManager().getPage().url();
   }
 
   /**
@@ -1333,7 +1534,8 @@ export class EnhancedBrowserService {
    */
   async getTitle(sessionId?: string): Promise<string> {
     const session = this.getSession(sessionId);
-    return session.manager.getPage().title();
+    await this.ensureSessionTab(session);
+    return this.getManager().getPage().title();
   }
 
   /**
@@ -1341,7 +1543,8 @@ export class EnhancedBrowserService {
    */
   async goBack(sessionId?: string): Promise<{ url: string }> {
     const session = this.getSession(sessionId);
-    const page = session.manager.getPage();
+    await this.ensureSessionTab(session);
+    const page = this.getManager().getPage();
     await page.goBack();
     return { url: page.url() };
   }
@@ -1351,7 +1554,8 @@ export class EnhancedBrowserService {
    */
   async goForward(sessionId?: string): Promise<{ url: string }> {
     const session = this.getSession(sessionId);
-    const page = session.manager.getPage();
+    await this.ensureSessionTab(session);
+    const page = this.getManager().getPage();
     await page.goForward();
     return { url: page.url() };
   }
@@ -1361,7 +1565,8 @@ export class EnhancedBrowserService {
    */
   async reload(sessionId?: string): Promise<{ url: string }> {
     const session = this.getSession(sessionId);
-    const page = session.manager.getPage();
+    await this.ensureSessionTab(session);
+    const page = this.getManager().getPage();
     await page.reload();
     return { url: page.url() };
   }
@@ -1379,7 +1584,7 @@ export class EnhancedBrowserService {
 
   // ============================================================================
   // MULTI-TAB SUPPORT
-  // Uses agent-browser's built-in tab management within a single session
+  // Uses agent-browser's built-in tab management with SHARED manager
   // ============================================================================
 
   /**
@@ -1387,12 +1592,13 @@ export class EnhancedBrowserService {
    * @returns Tab info with index and total tabs
    */
   async newTab(sessionId?: string, url?: string): Promise<{ index: number; total: number; url?: string }> {
-    const session = this.getSession(sessionId);
-    const result = await session.manager.newTab();
+    this.getSession(sessionId); // Validate session exists
+    const manager = this.getManager();
+    const result = await manager.newTab();
 
     // Navigate to URL if provided
     if (url) {
-      const page = session.manager.getPage();
+      const page = manager.getPage();
       await page.goto(url, { waitUntil: "domcontentloaded" });
     }
 
@@ -1408,8 +1614,9 @@ export class EnhancedBrowserService {
     sessionId?: string,
     options?: { viewport?: { width: number; height: number } }
   ): Promise<{ index: number; total: number }> {
-    const session = this.getSession(sessionId);
-    const result = await session.manager.newWindow(options?.viewport);
+    this.getSession(sessionId); // Validate session exists
+    const manager = this.getManager();
+    const result = await manager.newWindow(options?.viewport);
     log.info(`[Browser] Created new window ${result.index + 1}/${result.total}`);
     return result;
   }
@@ -1422,8 +1629,9 @@ export class EnhancedBrowserService {
     index: number,
     sessionId?: string
   ): Promise<{ index: number; url: string; title: string }> {
-    const session = this.getSession(sessionId);
-    const result = await session.manager.switchTo(index);
+    this.getSession(sessionId); // Validate session exists
+    const manager = this.getManager();
+    const result = await manager.switchTo(index);
     log.info(`[Browser] Switched to tab ${result.index}: ${result.url}`);
     return result;
   }
@@ -1436,8 +1644,9 @@ export class EnhancedBrowserService {
     index?: number,
     sessionId?: string
   ): Promise<{ closed: number; remaining: number }> {
-    const session = this.getSession(sessionId);
-    const result = await session.manager.closeTab(index);
+    this.getSession(sessionId); // Validate session exists
+    const manager = this.getManager();
+    const result = await manager.closeTab(index);
     log.info(`[Browser] Closed tab, ${result.remaining} tabs remaining`);
     return result;
   }
@@ -1449,8 +1658,9 @@ export class EnhancedBrowserService {
   async listTabs(sessionId?: string): Promise<
     Array<{ index: number; url: string; title: string; active: boolean }>
   > {
-    const session = this.getSession(sessionId);
-    const tabs = await session.manager.listTabs();
+    this.getSession(sessionId); // Validate session exists
+    const manager = this.getManager();
+    const tabs = await manager.listTabs();
     log.debug(`[Browser] Listed ${tabs.length} tabs`);
     return tabs;
   }
@@ -1459,30 +1669,34 @@ export class EnhancedBrowserService {
    * Get the active tab index
    */
   getActiveTabIndex(sessionId?: string): number {
-    const session = this.getSession(sessionId);
-    return session.manager.getActiveIndex();
+    this.getSession(sessionId); // Validate session exists
+    const manager = this.getManager();
+    return manager.getActiveIndex?.() ?? 0;
   }
 
   /**
    * Get all pages (for advanced multi-tab operations)
    */
   getPages(sessionId?: string): Page[] {
-    const session = this.getSession(sessionId);
-    return session.manager.getPages();
+    this.getSession(sessionId); // Validate session exists
+    const manager = this.getManager();
+    return manager.getPages();
   }
 
   /**
-   * Switch to a different session
+   * Switch to a different session (switches to session's tab)
    */
-  switchSession(sessionId: string): void {
-    if (!this.sessions.has(sessionId)) {
+  async switchSession(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
     this.activeSessionId = sessionId;
+    await this.ensureSessionTab(session);
   }
 
   /**
-   * Close a session
+   * Close a session (closes the session's tab, not the whole browser)
    */
   async closeSession(sessionId?: string): Promise<void> {
     const id = sessionId ?? this.activeSessionId;
@@ -1490,9 +1704,16 @@ export class EnhancedBrowserService {
 
     const session = this.sessions.get(id);
     if (session) {
-      await session.manager.close();
+      // Close the tab associated with this session
+      try {
+        const manager = this.getManager();
+        await manager.closeTab(session.tabIndex);
+      } catch {
+        // Tab may already be closed
+      }
+
       this.sessions.delete(id);
-      log.info(`[Browser] Session closed: ${id}`);
+      log.info(`[Browser] Session closed: ${id} (tab ${session.tabIndex})`);
 
       if (this.activeSessionId === id) {
         // Switch to another session if available
@@ -1503,15 +1724,25 @@ export class EnhancedBrowserService {
   }
 
   /**
-   * Close all sessions
+   * Close all sessions and the shared browser manager
    */
   async closeAllSessions(): Promise<void> {
-    for (const [id, session] of this.sessions) {
-      await session.manager.close().catch(() => {});
-      log.info(`[Browser] Session closed: ${id}`);
-    }
+    // Clear all sessions
     this.sessions.clear();
     this.activeSessionId = null;
+
+    // Close the shared manager
+    if (this.sharedManager) {
+      try {
+        await this.sharedManager.close();
+        log.info("[Browser] Shared browser manager closed");
+      } catch {
+        // Ignore errors during cleanup
+      }
+      this.sharedManager = null;
+      this.sharedCdpUrl = null;
+      this.sharedCdpPort = null;
+    }
   }
 }
 

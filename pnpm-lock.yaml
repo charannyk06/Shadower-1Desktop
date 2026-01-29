@@ -129,8 +129,8 @@ importers:
         specifier: ^12.10.0
         version: 12.10.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       agent-browser:
-        specifier: 0.6.0
-        version: 0.6.0
+        specifier: 0.8.5
+        version: 0.8.5
       ai:
         specifier: ^6.0.49
         version: 6.0.49(zod@4.3.5)
@@ -2721,8 +2721,8 @@ packages:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
 
-  agent-browser@0.6.0:
-    resolution: {integrity: sha512-C4Mtxfvyi/m04hyD2XdUNKc878RPZqbhXFIPEUJElZW6RhZJ1QG1/L5PSgIAhRSi4TF/EkB8iq4IAWoecMvGdg==}
+  agent-browser@0.8.5:
+    resolution: {integrity: sha512-A9mHhju6J5bIALVYpq6eO82S0PurLIYMMLte4p4IxP7pj3/D35orp4Ulinv3BJu9iJ//camM4FHoSoXQeENXqw==}
     hasBin: true
 
   agentkeepalive@4.6.0:
@@ -9932,7 +9932,7 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  agent-browser@0.6.0:
+  agent-browser@0.8.5:
     dependencies:
       playwright-core: 1.57.0
       ws: 8.19.0
