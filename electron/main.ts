@@ -35,6 +35,10 @@ import { ElectronFileStorage } from "./services/file-storage";
 import { closeVectorStore } from "./services/vector-store";
 import { closeEmbeddingService } from "./services/embedding";
 import { closeDatabase } from "./services/database";
+import { getTelemetryService } from "./services/telemetry";
+
+// Auto-updater (only imported in production to avoid dev mode issues)
+import { autoUpdater } from "electron-updater";
 
 // Configure electron-log
 log.initialize({ preload: true });
@@ -106,7 +110,8 @@ function createWindow() {
     );
   } else {
     // In production, load from static export
-    mainWindow.loadFile(path.join(__dirname, "../out/index.html"));
+    // __dirname is dist-electron/electron, so go up 2 levels to reach app root
+    mainWindow.loadFile(path.join(__dirname, "../../out/index.html"));
   }
 
   // Handle window closed
@@ -367,6 +372,25 @@ app.whenReady().then(async () => {
     log.info("[Main] Global shortcuts registered successfully");
   } catch (error) {
     log.error("[Main] Failed to register global shortcuts:", error);
+  }
+
+  // ============================================
+  // TELEMETRY - Track anonymous user count
+  // ============================================
+  try {
+    const telemetry = getTelemetryService();
+    telemetry.trackAppOpen();
+    log.info("[Main] Telemetry initialized");
+  } catch (error) {
+    log.warn("[Main] Telemetry initialization failed (non-critical):", error);
+  }
+
+  // ============================================
+  // AUTO-UPDATER (Production only)
+  // Checks GitHub Releases for new versions
+  // ============================================
+  if (!isDev) {
+    initializeAutoUpdater();
   }
 
   // ============================================
@@ -637,6 +661,124 @@ async function autoDetectACPAgents() {
     }
   }, 2000); // Wait 2 seconds after app start to not block UI (same as Ollama)
 }
+
+/**
+ * Initialize auto-updater for production builds.
+ * Checks GitHub Releases for new versions and handles the update lifecycle.
+ */
+function initializeAutoUpdater() {
+  // Configure auto-updater
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // Check for updates after a short delay to not block startup
+  setTimeout(() => {
+    log.info("[Updater] Checking for updates...");
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      // Suppress 404 errors (repo not found / no releases yet)
+      if (err.message?.includes("404") || err.message?.includes("Not Found")) {
+        log.info("[Updater] No releases found yet (this is normal for new apps)");
+        return;
+      }
+      log.warn("[Updater] Update check failed:", err);
+    });
+  }, 5000);
+
+  // Event handlers
+  autoUpdater.on("checking-for-update", () => {
+    log.info("[Updater] Checking for updates...");
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    log.info("[Updater] Update available:", info.version);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update:available", {
+        version: info.version,
+        releaseNotes: info.releaseNotes,
+        releaseDate: info.releaseDate,
+      });
+    }
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
+    log.info("[Updater] No updates available. Current version:", info.version);
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    log.info(
+      `[Updater] Download progress: ${progress.percent.toFixed(1)}% (${(progress.transferred / 1024 / 1024).toFixed(1)}MB / ${(progress.total / 1024 / 1024).toFixed(1)}MB)`,
+    );
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update:progress", {
+        percent: progress.percent,
+        transferred: progress.transferred,
+        total: progress.total,
+        bytesPerSecond: progress.bytesPerSecond,
+      });
+    }
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    log.info("[Updater] Update downloaded:", info.version);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update:downloaded", {
+        version: info.version,
+        releaseNotes: info.releaseNotes,
+        releaseDate: info.releaseDate,
+      });
+    }
+
+    // Track update via telemetry
+    try {
+      const telemetry = getTelemetryService();
+      telemetry.trackUpdateInstalled(info.version);
+    } catch (e) {
+      // Ignore telemetry errors
+    }
+  });
+
+  autoUpdater.on("error", (err) => {
+    // Suppress 404 errors (repo not found / no releases yet)
+    if (err.message?.includes("404") || err.message?.includes("Not Found")) {
+      log.info("[Updater] No releases found yet (this is normal for new apps)");
+      return;
+    }
+    log.error("[Updater] Error:", err);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update:error", {
+        message: err.message,
+      });
+    }
+  });
+
+  log.info("[Updater] Auto-updater initialized");
+}
+
+// IPC handlers for update control
+ipcMain.handle("update:check", async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return {
+      updateAvailable: result?.updateInfo?.version !== app.getVersion(),
+      version: result?.updateInfo?.version,
+    };
+  } catch (error) {
+    log.error("[Updater] Manual check failed:", error);
+    return { updateAvailable: false, error: String(error) };
+  }
+});
+
+ipcMain.handle("update:install", () => {
+  log.info("[Updater] User requested install - quitting and installing...");
+  autoUpdater.quitAndInstall(false, true);
+});
+
+ipcMain.handle("update:getStatus", () => {
+  return {
+    currentVersion: app.getVersion(),
+    isDev,
+  };
+});
 
 /**
  * Warmup an Ollama model on app startup if Ollama provider is configured

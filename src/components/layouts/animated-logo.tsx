@@ -4,7 +4,8 @@ interface AnimatedLogoProps {
   readonly className?: string;
 }
 
-const LOGO_IMAGE_PATH = "/shadower-logo-final.png";
+// Use relative path for Electron file:// protocol compatibility
+const LOGO_IMAGE_PATH = "./shadower-logo-final.png";
 const LOGO_ALT_TEXT = "Shadower";
 
 export function AnimatedLogo({

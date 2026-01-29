@@ -702,6 +702,36 @@ export interface ElectronAPI {
     quit: () => void;
   };
 
+  // Auto-update API
+  update: {
+    check: () => Promise<{ updateAvailable: boolean; version?: string; error?: string }>;
+    install: () => void;
+    getStatus: () => Promise<{ currentVersion: string; isDev: boolean }>;
+    onAvailable: (
+      callback: (data: {
+        version: string;
+        releaseNotes?: string;
+        releaseDate?: string;
+      }) => void,
+    ) => () => void;
+    onProgress: (
+      callback: (data: {
+        percent: number;
+        transferred: number;
+        total: number;
+        bytesPerSecond: number;
+      }) => void,
+    ) => () => void;
+    onDownloaded: (
+      callback: (data: {
+        version: string;
+        releaseNotes?: string;
+        releaseDate?: string;
+      }) => void,
+    ) => () => void;
+    onError: (callback: (data: { message: string }) => void) => () => void;
+  };
+
   // Dialog operations
   dialog: {
     openDirectory: (options?: {
@@ -2012,6 +2042,52 @@ const electronAPI: ElectronAPI = {
     getVersion: () => ipcRenderer.invoke("app:getVersion"),
     getPath: (name: string) => ipcRenderer.invoke("app:getPath", name),
     quit: () => ipcRenderer.send("app:quit"),
+  },
+
+  // Auto-update API
+  update: {
+    check: () => ipcRenderer.invoke("update:check"),
+    install: () => ipcRenderer.invoke("update:install"),
+    getStatus: () => ipcRenderer.invoke("update:getStatus"),
+    onAvailable: (
+      callback: (data: {
+        version: string;
+        releaseNotes?: string;
+        releaseDate?: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("update:available", handler);
+      return () => ipcRenderer.removeListener("update:available", handler);
+    },
+    onProgress: (
+      callback: (data: {
+        percent: number;
+        transferred: number;
+        total: number;
+        bytesPerSecond: number;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("update:progress", handler);
+      return () => ipcRenderer.removeListener("update:progress", handler);
+    },
+    onDownloaded: (
+      callback: (data: {
+        version: string;
+        releaseNotes?: string;
+        releaseDate?: string;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("update:downloaded", handler);
+      return () => ipcRenderer.removeListener("update:downloaded", handler);
+    },
+    onError: (callback: (data: { message: string }) => void) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("update:error", handler);
+      return () => ipcRenderer.removeListener("update:error", handler);
+    },
   },
 
   // Dialog operations

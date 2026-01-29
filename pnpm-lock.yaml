@@ -141,7 +141,7 @@ importers:
         specifier: ^7.1.0
         version: 7.1.0
       better-sqlite3:
-        specifier: ^12.6.2
+        specifier: 12.6.2
         version: 12.6.2
       chokidar:
         specifier: ^4.0.3
@@ -188,9 +188,15 @@ importers:
       electron-log:
         specifier: ^5.2.4
         version: 5.4.3
+      electron-squirrel-startup:
+        specifier: ^1.0.1
+        version: 1.0.1
       electron-store:
         specifier: ^11.0.2
         version: 11.0.2
+      electron-updater:
+        specifier: ^6.7.3
+        version: 6.7.3
       emoji-picker-react:
         specifier: ^4.16.1
         version: 4.16.1(react@18.3.1)
@@ -239,6 +245,9 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      node-machine-id:
+        specifier: ^1.1.12
+        version: 1.1.12
       ogl:
         specifier: ^1.0.11
         version: 1.0.11
@@ -387,12 +396,6 @@ importers:
       electron-rebuild:
         specifier: ^3.2.9
         version: 3.2.9
-      electron-squirrel-startup:
-        specifier: ^1.0.1
-        version: 1.0.1
-      electron-updater:
-        specifier: ^6.7.3
-        version: 6.7.3
       esbuild:
         specifier: ^0.21.5
         version: 0.21.5
@@ -5687,6 +5690,9 @@ packages:
     resolution: {integrity: sha512-OQkWKbjQKbGkMf/xqI1jjy3oCTgMKJac58G2+bjZb3fza6gW2YrCSdMQYaoTb70crvE//Gngr4f0AgVHmqHvBQ==}
     engines: {node: ^12.13 || ^14.13 || >=16}
     hasBin: true
+
+  node-machine-id@1.1.12:
+    resolution: {integrity: sha512-QNABxbrPa3qEIfrE6GOJ7BYIuignnJw7iQ2YPbc3Nla1HzRJjXzZOiikfF8m7eAMfichLt3M4VgLOetqgDmgGQ==}
 
   node-releases@2.0.27:
     resolution: {integrity: sha512-nmh3lCkYZ3grZvqcCH+fjmQ7X+H0OeZgP40OierEaAptX4XofMh5kwNbWh7lBduUzCcV/8kZ+NDLCwm2iorIlA==}
@@ -13492,6 +13498,8 @@ snapshots:
     transitivePeerDependencies:
       - bluebird
       - supports-color
+
+  node-machine-id@1.1.12: {}
 
   node-releases@2.0.27: {}
 
