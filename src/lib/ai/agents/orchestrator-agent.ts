@@ -631,11 +631,93 @@ When creating files (documents, images, code, etc.):
 - NEVER output text while waiting for tool results`;
 
 /**
+ * Pure agentic instructions for when planning is NOT required.
+ * The agent can use tools directly without creating a plan first.
+ * Planning tools are still available but not mandated.
+ */
+export const PURE_AGENTIC_INSTRUCTIONS = `You are an autonomous AI agent for Shadower.
+
+## YOUR CAPABILITIES
+You have access to powerful tools. Use them directly to complete the user's request.
+
+## HOW TO WORK
+1. **Understand the request** - Read what the user needs
+2. **Use tools directly** - Call the appropriate tools to complete the task
+3. **Provide your response** - Give the user what they asked for
+
+## AVAILABLE TOOLS
+
+### Web Search & Browser
+- **browser_search**: Quick one-shot web search (RECOMMENDED for most searches)
+- **browser_create_session**: Connect to user's real Chrome browser (for complex browsing)
+- **browser_navigate**: Navigate to URLs
+- **browser_get_snapshot**: Read page content with clickable refs
+- **browser_click**: Click on elements
+- **browser_close_session**: Close browser when done
+
+### Desktop & Files
+- **desktop_command**: Execute terminal commands and manage files
+- **desktop_screenshot**: Take screenshots
+- **desktop_click**: Click UI elements
+- **desktop_type**: Type text
+
+### Sub-agents (for complex tasks)
+- **spawnSystemAgent**: Delegate to specialized agents
+  - agentType "deep-research": In-depth multi-step web research
+  - agentType "data-analysis": Analyze data and create visualizations
+  - agentType "coding": Build applications
+  - agentType "documents": Create presentations and documents
+  - agentType "web-automation": Browser automation
+  - agentType "computer-use": Desktop automation
+- **spawnAgent**: Use user-created custom agents
+- **spawnParallelAgents**: Run multiple agents in parallel
+
+### Context Sharing
+- **setContext/getContext**: Store and retrieve information between steps
+
+### Optional Planning (not required)
+- **createPlan**: Create a task plan (use for complex multi-step requests if helpful)
+- **updateTaskStatus**: Track task progress
+
+## WEB SEARCH
+This is a LOCAL desktop app with access to the user's real Chrome browser.
+
+**Quick search**: Use browser_search with your query
+\`\`\`
+browser_search({ query: "your search query", engine: "google" })
+\`\`\`
+
+**Complex browsing**: Use manual browser control
+1. browser_create_session
+2. browser_navigate
+3. browser_get_snapshot
+4. browser_click (as needed)
+5. browser_close_session
+
+## CRITICAL RULES
+- **Use tools immediately** - Don't explain what you're going to do, just do it
+- **Wait for results** - Don't output text while tools are running
+- **Be direct** - Complete the request and provide the answer
+
+## WHEN TO USE PLANNING
+Planning is OPTIONAL but helpful for:
+- Very complex multi-step requests
+- Tasks that benefit from progress tracking
+- Research projects with multiple phases
+
+For simple requests, just use tools directly without a plan.`;
+
+/**
  * Creates the agent context tools for task management
+ * @param ctx - The agent context manager
+ * @param dataStream - Optional data stream for UI updates
+ * @param requirePlanning - Whether to include planning tools (createPlan, updateTaskStatus, etc.)
+ *                          When false, only context-sharing tools (setContext, getContext) are included
  */
 function createAgentContextTools(
   ctx: AgentContextManager,
   dataStream?: UIMessageStreamWriter,
+  requirePlanning: boolean = true,
 ): Record<string, Tool> {
   // Direct Zod schema for createPlan - basic type validation only
   // NOTE: We intentionally use loose validation here (no .min(1)) so that malformed
@@ -1170,15 +1252,26 @@ IMPORTANT: Do NOT output a plan as text - you MUST call this function to create 
     },
   });
 
-  return {
-    createPlan: createPlanTool as Tool,
-    updateTaskStatus: updateTaskStatusTool as Tool,
-    getNextTask: getNextTaskTool as Tool,
-    getPlanStatus: getPlanStatusTool as Tool,
+  // Context-sharing tools are always available
+  const contextTools: Record<string, Tool> = {
     setContext: setContextTool as Tool,
     getContext: getContextTool as Tool,
     getAllContext: getAllContextTool as Tool,
   };
+
+  // Planning tools only included when requirePlanning is true
+  if (requirePlanning) {
+    return {
+      ...contextTools,
+      createPlan: createPlanTool as Tool,
+      updateTaskStatus: updateTaskStatusTool as Tool,
+      getNextTask: getNextTaskTool as Tool,
+      getPlanStatus: getPlanStatusTool as Tool,
+    };
+  }
+
+  // Pure agentic mode - no planning tools, just context sharing
+  return contextTools;
 }
 
 /**
@@ -1980,6 +2073,12 @@ export interface AutonomousAgentConfig extends OrchestratorConfig {
   dataStream?: UIMessageStreamWriter;
   /** Continuous mode: don't stop on plan completion, run until maxSteps */
   continuousMode?: boolean;
+  /**
+   * Whether planning is required (forces createPlan on step 0).
+   * When false, the agent works in pure agentic mode without mandatory planning.
+   * Default: false (pure agentic mode)
+   */
+  requirePlanning?: boolean;
   /** Messages for plan reconstruction (handles stateless auto-continue) */
   messages?: Array<{
     role: string;
@@ -2012,6 +2111,7 @@ export function createAutonomousAgent(config: AutonomousAgentConfig): {
     onPersistState,
     dataStream,
     continuousMode = false,
+    requirePlanning = false, // Default: pure agentic mode (no mandatory planning)
     messages,
   } = config;
 
@@ -2036,9 +2136,9 @@ export function createAutonomousAgent(config: AutonomousAgentConfig): {
       planAlreadyComplete = true;
       logger.info("Restored plan is already COMPLETE - will block new plans");
     }
-  } else if (messages && messages.length > 0) {
-    // CRITICAL FIX: Reconstruct plan from message history when no persisted state
-    // This handles the auto-continue case where sendAutomaticallyWhen triggers a new request
+  } else if (requirePlanning && messages && messages.length > 0) {
+    // Only reconstruct plan when planning is required (research toolkit enabled)
+    // Skip entirely in pure agentic mode - no planning at all
     const { plan, isCompleted } = reconstructPlanFromMessages(messages);
     if (plan) {
       ctx.restorePlan(plan);
@@ -2053,13 +2153,19 @@ export function createAutonomousAgent(config: AutonomousAgentConfig): {
     }
   }
 
-  // Build system prompt
-  let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS;
+  // Build system prompt based on whether planning is required
+  // When requirePlanning is false: Use pure agentic instructions (no mandatory planning)
+  // When requirePlanning is true: Use full orchestrator instructions (mandatory planning)
+  const baseInstructions = requirePlanning
+    ? AGENT_ORCHESTRATOR_INSTRUCTIONS
+    : PURE_AGENTIC_INSTRUCTIONS;
+
+  let systemPrompt = baseInstructions;
 
   // Add agent-specific instructions if provided
   if (userAgent?.instructions) {
     const agentPrompt = buildAgentSystemPrompt(userAgent.instructions);
-    systemPrompt = `${agentPrompt}\n\n---\n\n${AGENT_ORCHESTRATOR_INSTRUCTIONS}`;
+    systemPrompt = `${agentPrompt}\n\n---\n\n${baseInstructions}`;
   }
 
   // If plan is already complete, add a strong directive to NOT create new plans
@@ -2072,8 +2178,11 @@ Simply summarize what was accomplished and respond to any follow-up questions di
 ${systemPrompt}`;
   }
 
+  logger.info(`[createAutonomousAgent] Mode: ${requirePlanning ? "PLANNING REQUIRED" : "PURE AGENTIC"}`);
+
   // Create all tools (pass dataStream for plan/task/sub-agent streaming)
-  const contextTools = createAgentContextTools(ctx, dataStream);
+  // When requirePlanning is false, planning tools (createPlan, updateTaskStatus) are NOT included
+  const contextTools = createAgentContextTools(ctx, dataStream, requirePlanning);
   const subAgentTools = createSubAgentTools(config, ctx, dataStream);
 
   // Combine all tools
@@ -2092,15 +2201,21 @@ ${systemPrompt}`;
 
   /**
    * AI SDK 6 prepareStep - Dynamic per-step configuration
-   * KEY FIX: Force createPlan on step 0 if no plan exists
+   *
+   * When requirePlanning is TRUE:
+   *   Force createPlan on step 0 if no plan exists
+   *
+   * When requirePlanning is FALSE (pure agentic mode):
+   *   Let the agent use tools freely without mandatory planning
+   *
    * FIXED: Also force text-only when plan is completed to prevent looping
    */
   const agentPrepareStep: PrepareStepFunction<ToolSet> = ({ steps, stepNumber }) => {
     const plan = ctx.getPlan();
 
-    // Step 0: FORCE createPlan if no plan exists
-    if (stepNumber === 0 && !plan) {
-      logger.info("[Agent prepareStep] Step 0 - Forcing createPlan tool");
+    // Step 0: FORCE createPlan ONLY if requirePlanning is true and no plan exists
+    if (requirePlanning && stepNumber === 0 && !plan) {
+      logger.info("[Agent prepareStep] Step 0 - Forcing createPlan tool (planning required)");
       return {
         toolChoice: { type: "tool", toolName: "createPlan" },
       };
@@ -2112,8 +2227,8 @@ ${systemPrompt}`;
       return { toolChoice: "none" as const };
     }
 
-    // If plan exists but status is "planning", encourage starting tasks
-    if (plan && plan.status === "planning") {
+    // Only enforce task workflow if planning is required and a plan exists
+    if (requirePlanning && plan && plan.status === "planning") {
       const pendingTasks = ctx.getTasksByStatus("pending");
       const inProgressTasks = ctx.getTasksByStatus("in-progress");
 
@@ -2624,6 +2739,7 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     dataStream,
     continuousMode = false,
     workingDirectory,
+    requirePlanning = false, // Default: pure agentic mode (no mandatory planning)
   } = config;
 
   const { agent, contextManager, agentStateId } = createAutonomousAgent(config);
@@ -2631,15 +2747,24 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
   // Build working directory context section
   const workingDirSection = buildWorkingDirectorySection(workingDirectory);
 
-  // Build system prompt - SIMPLIFIED for better model adherence
-  let systemPrompt = AGENT_ORCHESTRATOR_INSTRUCTIONS + workingDirSection;
+  // Build system prompt based on whether planning is required
+  // When requirePlanning is false: Use pure agentic instructions (no mandatory planning)
+  // When requirePlanning is true: Use full orchestrator instructions (mandatory planning)
+  const baseInstructions = requirePlanning
+    ? AGENT_ORCHESTRATOR_INSTRUCTIONS
+    : PURE_AGENTIC_INSTRUCTIONS;
+
+  let systemPrompt = baseInstructions + workingDirSection;
   if (userAgent?.instructions) {
     const agentPrompt = buildAgentSystemPrompt(userAgent.instructions);
-    systemPrompt = `${agentPrompt}\n\n---\n\n${AGENT_ORCHESTRATOR_INSTRUCTIONS}${workingDirSection}`;
+    systemPrompt = `${agentPrompt}\n\n---\n\n${baseInstructions}${workingDirSection}`;
   }
 
+  logger.info(`[createStreamingAutonomousAgent] Mode: ${requirePlanning ? "PLANNING REQUIRED" : "PURE AGENTIC"}`);
+
   // Create tools WITH dataStream for plan/task streaming events
-  const contextTools = createAgentContextTools(contextManager, dataStream);
+  // When requirePlanning is false, planning tools (createPlan, updateTaskStatus) are NOT included
+  const contextTools = createAgentContextTools(contextManager, dataStream, requirePlanning);
   const subAgentTools = createSubAgentTools(config, contextManager, dataStream);
 
   // Combine all tools
@@ -2655,7 +2780,12 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
 
   /**
    * AI SDK 6 prepareStep - Dynamic per-step configuration
-   * This is the KEY FIX for planning: Force createPlan on step 0 if no plan exists
+   *
+   * When requirePlanning is TRUE:
+   *   Force createPlan on step 0 if no plan exists
+   *
+   * When requirePlanning is FALSE (pure agentic mode):
+   *   Let the agent use tools freely without mandatory planning
    *
    * Pattern from docs: "Use toolChoice: { type: 'tool', toolName: 'search' }
    * to mandate particular tool execution at designated steps"
@@ -2663,9 +2793,9 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
   const prepareStep: PrepareStepFunction<ToolSet> = ({ steps, stepNumber }) => {
     const plan = contextManager.getPlan();
 
-    // Step 0: FORCE createPlan if no plan exists
-    if (stepNumber === 0 && !plan) {
-      logger.info("[prepareStep] Step 0 - Forcing createPlan tool (no plan exists)");
+    // Step 0: FORCE createPlan ONLY if requirePlanning is true and no plan exists
+    if (requirePlanning && stepNumber === 0 && !plan) {
+      logger.info("[prepareStep] Step 0 - Forcing createPlan tool (planning required, no plan exists)");
       return {
         toolChoice: { type: "tool", toolName: "createPlan" },
       };
@@ -2680,8 +2810,8 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
       };
     }
 
-    // After plan created, check if we should force updateTaskStatus
-    if (plan && plan.status === "planning") {
+    // Only enforce task workflow if planning is required and a plan exists
+    if (requirePlanning && plan && plan.status === "planning") {
       const pendingTasks = contextManager.getTasksByStatus("pending");
       const inProgressTasks = contextManager.getTasksByStatus("in-progress");
 

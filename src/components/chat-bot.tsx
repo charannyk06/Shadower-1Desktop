@@ -839,7 +839,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
     globalModel,
     threadChatModels,
     toolChoice,
-    chatMode,
     allowedAppDefaultToolkit,
     allowedMcpServers,
     threadList,
@@ -855,7 +854,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
       state.chatModel,
       state.threadChatModels,
       state.toolChoice,
-      state.chatMode,
       state.allowedAppDefaultToolkit,
       state.allowedMcpServers,
       state.threadList,
@@ -1423,7 +1421,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
           chatModel:
             (body as { model: ChatModel })?.model ?? latestRef.current.model,
           toolChoice: latestRef.current.toolChoice,
-          chatMode: latestRef.current.chatMode,
           allowedAppDefaultToolkit:
             latestRef.current.allowedAppDefaultToolkit || [],
           allowedMcpServers: resolvedAllowedMcpServers,
@@ -1935,7 +1932,6 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
 
   const latestRef = useToRef({
     toolChoice,
-    chatMode,
     model,
     allowedAppDefaultToolkit,
     allowedMcpServers,

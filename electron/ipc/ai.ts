@@ -782,7 +782,6 @@ interface StreamContext {
   event: Electron.IpcMainInvokeEvent;
   userMessage?: UIMessage; // Store user message for persistence
   chatModel?: { provider: string; model: string };
-  chatMode?: "regular" | "agent";
   originalUIMessages?: UIMessage[]; // Store original UIMessages for follow-up calls
   workingDirectory?: { path: string; name: string }; // Working directory for file operations
   toolNameMapping?: Record<string, string>; // Map of renamed tool names to original names (for UI display)
@@ -1479,7 +1478,6 @@ interface StreamRequest {
     model: string;
   };
   toolChoice?: string;
-  chatMode?: "regular" | "agent";
   allowedAppDefaultToolkit?: string[];
   allowedMcpServers?: Record<string, any>;
   mentions?: any[];
@@ -3717,12 +3715,11 @@ export function registerAIHandlers() {
       message,
       allowedMcpServers,
       allowedAppDefaultToolkit,
-      chatMode,
       workingDirectory,
     } = request;
 
     console.log(
-      `[AI IPC] Stream PREPARE for thread: ${threadId}, model: ${chatModel?.provider}/${chatModel?.model}, mode: ${chatMode || "regular"}`,
+      `[AI IPC] Stream PREPARE for thread: ${threadId}, model: ${chatModel?.provider}/${chatModel?.model}`,
     );
     if (allowedAppDefaultToolkit && allowedAppDefaultToolkit.length > 0) {
       console.log(
@@ -4194,7 +4191,6 @@ export function registerAIHandlers() {
         event,
         userMessage: message, // Store user message for saving
         chatModel,
-        chatMode,
         originalUIMessages: allMessages, // Store original UIMessages for follow-up tool calls
         workingDirectory, // Store working directory for later use
         toolNameMapping, // Store tool name mapping for UI display
@@ -4291,7 +4287,6 @@ export function registerAIHandlers() {
         systemPrompt,
         userMessage,
         chatModel,
-        chatMode,
         workingDirectory,
         allowedAppDefaultToolkit,
       } = context;
@@ -4422,7 +4417,6 @@ export function registerAIHandlers() {
         console.log(`[RAG] STARTING RAG CHECK`);
         console.log(`[RAG] Model: ${chatModel!.model}`);
         console.log(`[RAG] Provider: ${chatModel!.provider}`);
-        console.log(`[RAG] Chat Mode: ${chatMode || "regular"}`);
         console.log(`[RAG] ========================================`);
 
         let messagesToUse = messages;
@@ -4749,7 +4743,6 @@ IMPORTANT: You should:
           hasMoreTools: tools && Object.keys(tools).length > 10,
           modelSupportsTools,
           isLocalProvider: isLocal,
-          chatMode: chatMode || "regular",
         });
 
         let result;
@@ -4757,10 +4750,6 @@ IMPORTANT: You should:
         // Track sub-agent events for persistence (used in agent mode)
         // These events need to be saved to the database so they persist across conversation switches
         const currentSubAgentEvents: any[] = [];
-
-        // Local models now have full access to agent mode with all tools
-        // No restrictions - local models can handle the orchestrator with proper tool-calling models
-        const effectiveChatMode = chatMode;
 
         // WARNING: Large local models (20B+) are very slow, especially on CPU
         // Check model name for size indicators
@@ -4786,11 +4775,10 @@ IMPORTANT: You should:
           }
         }
 
-        if (effectiveChatMode === "agent") {
-          // AGENT MODE: Use the orchestrator with planning and sub-agent capabilities
-          console.log(
-            `[AI IPC] Starting AGENT mode streaming for thread: ${threadId}`,
-          );
+        // ALWAYS AGENTIC - Use orchestrator for all requests
+        console.log(
+          `[AI IPC] Starting AGENTIC streaming for thread: ${threadId}`,
+        );
 
           // Import orchestrator dynamically to avoid circular dependencies
           const { createStreamingAutonomousAgent } = await import(
@@ -4847,6 +4835,12 @@ IMPORTANT: You should:
           // instead of looping infinitely with new plans
           const continuousMode = false;
 
+          // Determine if planning is required based on research toolkit being enabled
+          // When research toolkit is enabled: requirePlanning = true (mandatory planning)
+          // When research toolkit is disabled: requirePlanning = false (pure agentic mode)
+          const requirePlanning = allowedAppDefaultToolkit?.includes("research") ?? false;
+          console.log(`[AI IPC Agent] Planning mode: ${requirePlanning ? "REQUIRED (research enabled)" : "OPTIONAL (pure agentic)"}`);
+
           const orchestratorConfig = createStreamingAutonomousAgent({
             userId,
             threadId,
@@ -4859,6 +4853,7 @@ IMPORTANT: You should:
             dataStream: ipcDataStream as any, // Cast to any since we're only implementing write()
             workingDirectory, // Pass working directory for file operations
             messages: sanitizedMessages, // CRITICAL: Pass messages for plan reconstruction
+            requirePlanning, // CRITICAL: Only require planning when research toolkit is enabled
           });
 
           // Verify model supports tool calling in agent mode
@@ -4908,144 +4903,6 @@ IMPORTANT: You should:
               });
             },
           } as Parameters<typeof streamText>[0]);
-        } else {
-          // REGULAR MODE: Standard streaming with basic tools
-          console.log(
-            `[AI IPC] Starting REGULAR mode streaming, tools count: ${tools ? Object.keys(tools).length : 0}`,
-          );
-
-          // Log sanitized messages structure for debugging
-          console.log(
-            `[AI IPC] Sanitized messages count: ${sanitizedMessages.length}`,
-          );
-          sanitizedMessages.forEach((msg: any, idx: number) => {
-            const contentType = typeof msg.content;
-            const contentPreview =
-              contentType === "string"
-                ? msg.content.substring(0, 100)
-                : Array.isArray(msg.content)
-                  ? `Array[${msg.content.length}]`
-                  : "unknown";
-            console.log(
-              `[AI IPC] Message ${idx}: role=${msg.role}, contentType=${contentType}, content=${contentPreview}`,
-            );
-          });
-
-          // Log detailed message structure for debugging schema validation errors
-          console.log(
-            `[AI IPC] About to call streamText with ${sanitizedMessages.length} messages`,
-          );
-          sanitizedMessages.forEach((msg: any, idx: number) => {
-            console.log(`[AI IPC] StreamText Message ${idx}: role=${msg.role}`);
-            if (Array.isArray(msg.content)) {
-              msg.content.forEach((part: any, pIdx: number) => {
-                if (part.type === "tool-call" || part.type === "tool-result") {
-                  console.log(
-                    `[AI IPC]   Content[${pIdx}]: type=${part.type}, toolName=${part.toolName}, toolCallId=${part.toolCallId}`,
-                  );
-                  if (part.type === "tool-result" && part.output) {
-                    const outputType = part.output?.type;
-                    console.log(
-                      `[AI IPC]     output.type=${outputType}, hasValue=${part.output?.value !== undefined}`,
-                    );
-                  }
-                } else {
-                  console.log(`[AI IPC]   Content[${pIdx}]: type=${part.type}`);
-                }
-              });
-            } else if (typeof msg.content === "string") {
-              console.log(
-                `[AI IPC]   Content: string (${msg.content.length} chars)`,
-              );
-            }
-          });
-
-          // STEP LIMIT: Same for all models - full agentic capabilities
-          // No restrictions on local models - they get the same max steps as cloud models
-          const regularMaxSteps = tools ? 200 : 1;
-
-          console.log(
-            `[AI IPC] ${isLocal ? "Local" : "Cloud"} model: maxSteps=${regularMaxSteps}, tools=${tools ? Object.keys(tools).length : 0}`,
-          );
-
-          // Tool choice settings:
-          // - Both local and cloud models use "auto" for automatic tool selection
-          // - This enables full agentic capabilities for all models
-          const useToolChoice =
-            tools && Object.keys(tools).length > 0 ? "auto" : undefined;
-
-          // ============================================
-          // CRITICAL DEBUG: Log EXACTLY what we're passing to streamText
-          // This helps diagnose why local models aren't using tools
-          // ============================================
-          const toolKeys = tools ? Object.keys(tools) : [];
-          console.log(`[AI IPC] ===== STREAMTEXT CONFIGURATION =====`);
-          console.log(
-            `[AI IPC] Provider: ${chatModel?.provider}, Model: ${chatModel?.model}`,
-          );
-          console.log(`[AI IPC] Is Local: ${isLocal}`);
-          console.log(`[AI IPC] Tool Count: ${toolKeys.length}`);
-          console.log(
-            `[AI IPC] Tool Names: ${toolKeys.slice(0, 20).join(", ")}${toolKeys.length > 20 ? "..." : ""}`,
-          );
-          console.log(
-            `[AI IPC] Tool Choice: ${useToolChoice || "undefined (provider default)"}`,
-          );
-          console.log(`[AI IPC] Max Steps: ${regularMaxSteps}`);
-
-          // Log first tool's structure to verify schema format
-          if (toolKeys.length > 0) {
-            const firstToolName = toolKeys[0];
-            const firstTool = tools![firstToolName];
-            console.log(`[AI IPC] Sample tool (${firstToolName}):`, {
-              hasDescription: !!(firstTool as any)?.description,
-              hasInputSchema: !!(firstTool as any)?.inputSchema,
-              hasParameters: !!(firstTool as any)?.parameters,
-              hasExecute: typeof (firstTool as any)?.execute === "function",
-            });
-          }
-
-          console.log(`[AI IPC] =====================================`);
-
-          result = streamText({
-            model,
-            system: systemPrompt,
-            messages: sanitizedMessages, // Use sanitized messages (large data stripped)
-            tools,
-            toolChoice: useToolChoice,
-            maxSteps: regularMaxSteps, // Extended: 200 for tools, 1 for text-only
-            abortSignal: abortController.signal,
-            maxRetries: isLocal ? 3 : 2, // More retries for local models
-            onStepFinish: ({
-              toolCalls,
-              toolResults,
-              finishReason,
-              ...stepInfo
-            }: any) => {
-              console.log(
-                `[AI IPC] Step finished: type=${stepInfo.stepType}, toolCalls=${toolCalls?.length || 0}, toolResults=${toolResults?.length || 0}, finishReason=${finishReason}`,
-              );
-              if (toolCalls?.length) {
-                console.log(
-                  `[AI IPC] Tool calls:`,
-                  toolCalls.map((tc: any) => tc.toolName),
-                );
-              }
-              if (toolResults?.length) {
-                console.log(
-                  `[AI IPC] Tool results received:`,
-                  toolResults.length,
-                );
-              }
-              // Send step event to renderer
-              event.sender.send("ai:stream:step", {
-                threadId,
-                stepType: stepInfo.stepType,
-                toolCallCount: toolCalls?.length || 0,
-              });
-            },
-          } as Parameters<typeof streamText>[0]);
-        }
 
         // console.log(`[AI IPC] streamText result created, converting to UI stream...`);
 

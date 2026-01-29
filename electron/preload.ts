@@ -799,7 +799,6 @@ export interface ElectronAPI {
       messages: any[];
       chatModel: { provider: string; model: string };
       toolChoice?: string;
-      chatMode?: "regular" | "agent";
       allowedAppDefaultToolkit?: string[];
       allowedMcpServers?: Record<string, any>;
       mentions?: any[];

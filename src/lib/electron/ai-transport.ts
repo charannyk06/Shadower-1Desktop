@@ -258,7 +258,6 @@ export class ElectronIPCTransport implements ChatTransport<UIMessage> {
           messages,
           chatModel: requestBody.chatModel,
           toolChoice: requestBody.toolChoice,
-          chatMode: requestBody.chatMode,
           allowedAppDefaultToolkit: requestBody.allowedAppDefaultToolkit,
           allowedMcpServers: requestBody.allowedMcpServers,
           mentions: requestBody.mentions,

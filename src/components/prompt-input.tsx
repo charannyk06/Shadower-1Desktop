@@ -37,7 +37,6 @@ import { Button } from "ui/button";
 import { useShallow } from "zustand/shallow";
 import { SelectModel } from "./select-model";
 import { ToolModeDropdown } from "./tool-mode-dropdown";
-import { ChatModeDropdown } from "./chat-mode-dropdown";
 
 import { useThreadFileUploader } from "@/hooks/use-thread-file-uploader";
 import { cn } from "@/lib/utils";
@@ -427,17 +426,7 @@ export default function PromptInput({
         appStoreMutate({
           // ACP agents handle tools internally, so set to "auto" mode
           toolChoice: "auto",
-          // Agent mode works best with coding agents for autonomous execution
-          chatMode: "agent",
         });
-        // Verify the store was updated
-        setTimeout(() => {
-          const state = appStore.getState();
-          console.log("[PromptInput] Store state after auto-sync:", {
-            toolChoice: state.toolChoice,
-            chatMode: state.chatMode,
-          });
-        }, 0);
       }
     },
     [setModel, appStoreMutate],
@@ -868,7 +857,6 @@ export default function PromptInput({
                     </div>
                   ) : (
                     <>
-                      <ChatModeDropdown />
                       <ToolModeDropdown />
                       <ToolSelectDropdown
                         className="mx-1"
