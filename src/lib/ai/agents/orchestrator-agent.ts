@@ -1738,6 +1738,118 @@ function createSubAgentTools(
       // Use Promise.allSettled to ensure partial failures don't crash all tasks
       const settledResults = await Promise.allSettled(
         tasks.map(async ({ agentId, task, contextKeys }) => {
+          // Check if this is a system agent FIRST (system agents are not in the database)
+          if (isSystemAgent(agentId)) {
+            const systemAgent = getSystemAgent(agentId);
+            if (!systemAgent) {
+              if (dataStream) {
+                dataStream.write({
+                  type: "data-sub-agent-error",
+                  data: { agentId, error: "System agent not found" },
+                });
+              }
+              return {
+                agentId,
+                agentName: "unknown",
+                result: "",
+                error: "System agent not found",
+                success: false,
+              };
+            }
+
+            const instructions = getSystemAgentInstructions(agentId);
+            const requirements = getSystemAgentRequirements(agentId);
+            const systemAgentTools: Record<string, Tool> = { ...mcpTools };
+
+            // Add context-sharing tools
+            const contextToolsForSystemAgent = createAgentContextTools(ctx);
+            Object.assign(systemAgentTools, {
+              setContext: contextToolsForSystemAgent.setContext,
+              getContext: contextToolsForSystemAgent.getContext,
+              getAllContext: contextToolsForSystemAgent.getAllContext,
+            });
+
+            // Add tools based on system agent requirements
+            if (availableTools) {
+              if (requirements.browser) {
+                const contextAwareBrowserTools = createBrowserToolsWithContext(
+                  userId,
+                  threadId || null,
+                );
+                Object.assign(systemAgentTools, contextAwareBrowserTools);
+                for (const [name, tool] of Object.entries(availableTools)) {
+                  if (name === "webSearch" || name === "webContent") {
+                    systemAgentTools[name] = tool;
+                  }
+                }
+              }
+              if (requirements.desktop) {
+                for (const [name, tool] of Object.entries(availableTools)) {
+                  if (name.startsWith("desktop")) {
+                    systemAgentTools[name] = tool;
+                  }
+                }
+              }
+              if (requirements.terminal) {
+                for (const [name, tool] of Object.entries(availableTools)) {
+                  if (
+                    name === "desktopCommand" ||
+                    name.includes("terminal") ||
+                    name.includes("command") ||
+                    name.includes("execute") ||
+                    name.includes("file_") ||
+                    name.includes("local_file")
+                  ) {
+                    systemAgentTools[name] = tool;
+                  }
+                }
+              }
+              if (requirements.codeExecution) {
+                for (const [name, tool] of Object.entries(availableTools)) {
+                  if (
+                    name.startsWith("create") ||
+                    name.startsWith("edit") ||
+                    name.startsWith("profile") ||
+                    name.startsWith("analyze") ||
+                    name.startsWith("list")
+                  ) {
+                    systemAgentTools[name] = tool;
+                  }
+                }
+              }
+            }
+
+            const subAgentContext = gatherContextForSubAgent(ctx, contextKeys);
+            const contextPrompt =
+              Object.keys(subAgentContext).length > 0
+                ? `\n\n## CONTEXT FROM PARENT AGENT\n${JSON.stringify(subAgentContext, null, 2)}`
+                : "";
+
+            const systemPrompt = instructions
+              ? buildAgentSystemPrompt(instructions) + contextPrompt
+              : contextPrompt;
+
+            const { result, steps, success, error } =
+              await executeSubAgentWithStreaming(
+                agentId,
+                systemAgent.name,
+                task,
+                systemPrompt,
+                10,
+                systemAgentTools,
+              );
+
+            return {
+              agentId,
+              agentName: systemAgent.name,
+              result,
+              steps,
+              success,
+              ...(error && { error }),
+            };
+          }
+
+          // Handle user-defined agents (lookup from database)
           const agent = await agentRepository.selectAgentById(agentId, userId);
           if (!agent) {
             if (dataStream) {
@@ -1750,7 +1862,7 @@ function createSubAgentTools(
               agentId,
               agentName: "unknown",
               result: "",
-              error: "Agent not found",
+              error: "Agent not found. Check the agent ID and try again.",
               success: false,
             };
           }
@@ -2028,11 +2140,17 @@ function createSubAgentTools(
 
 /**
  * Build system prompt from agent instructions
+ * Handles null/undefined instructions gracefully
  */
 function buildAgentSystemPrompt(instructions: {
   role?: string;
   systemPrompt?: string;
-}): string {
+} | null | undefined): string {
+  // Guard against null/undefined instructions
+  if (!instructions) {
+    return "";
+  }
+
   const parts: string[] = [];
 
   if (instructions.role) {
