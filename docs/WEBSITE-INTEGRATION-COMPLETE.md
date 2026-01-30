@@ -28,12 +28,12 @@ const ShadowerDownloader = {
     return `https://github.com/${this.owner}/${this.repo}/releases/latest/download`;
   },
 
-  // File naming patterns (update these when you know exact names after first release)
+  // Exact file names from v1.0.3 release
   files: {
-    windows: 'Shadower-Setup.exe',           // Or: Shadower Setup {version}.exe
-    macArm: 'Shadower-arm64.dmg',            // Apple Silicon
-    macIntel: 'Shadower-x64.dmg',            // Intel Mac
-    linux: 'Shadower.AppImage'
+    windows: 'Shadower.Setup.1.0.0.exe',     // Windows installer
+    macArm: 'Shadower-1.0.0-arm64.dmg',      // Apple Silicon
+    macIntel: 'Shadower-1.0.0.dmg',          // Intel Mac
+    linux: 'Shadower-1.0.0.AppImage'         // Linux (when available)
   },
 
   // Detect user's OS
@@ -275,25 +275,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
 ---
 
-## IMPORTANT: File Names After First Release
+## Verified File Names (v1.0.3 Release)
 
-After your first GitHub release, check the actual file names and update the `files` object:
+The following file names are confirmed working:
 
 ```javascript
-// Check: https://github.com/charannyk06/Shadower-1Desktop/releases/latest
-// Then update these to match exact file names:
 files: {
-  windows: 'Shadower-Setup-1.0.0.exe',      // Check actual name
-  macArm: 'Shadower-1.0.0-arm64.dmg',       // Check actual name
-  macIntel: 'Shadower-1.0.0-x64.dmg',       // Check actual name
-  linux: 'Shadower-1.0.0.AppImage'          // Check actual name
+  windows: 'Shadower.Setup.1.0.0.exe',      // Windows installer
+  macArm: 'Shadower-1.0.0-arm64.dmg',       // Apple Silicon DMG
+  macIntel: 'Shadower-1.0.0.dmg',           // Intel Mac DMG
+  linux: 'Shadower-1.0.0.AppImage'          // Linux (future)
 }
 ```
 
-**Electron-builder naming patterns:**
-- Windows: `Shadower Setup {version}.exe` or `Shadower-Setup-{version}.exe`
-- Mac ARM: `Shadower-{version}-arm64.dmg`
-- Mac Intel: `Shadower-{version}-x64.dmg` or `Shadower-{version}.dmg`
+**Download URLs:**
+- **Windows**: `https://github.com/charannyk06/Shadower-1Desktop/releases/latest/download/Shadower.Setup.1.0.0.exe`
+- **macOS ARM**: `https://github.com/charannyk06/Shadower-1Desktop/releases/latest/download/Shadower-1.0.0-arm64.dmg`
+- **macOS Intel**: `https://github.com/charannyk06/Shadower-1Desktop/releases/latest/download/Shadower-1.0.0.dmg`
 
 ---
 
@@ -355,11 +353,11 @@ files: {
       owner: 'charannyk06',
       repo: 'Shadower-1Desktop',
 
-      // UPDATE THESE AFTER FIRST RELEASE
+      // Exact file names from v1.0.3 release
       files: {
-        windows: 'Shadower-Setup.exe',
-        macArm: 'Shadower-arm64.dmg',
-        macIntel: 'Shadower-x64.dmg'
+        windows: 'Shadower.Setup.1.0.0.exe',
+        macArm: 'Shadower-1.0.0-arm64.dmg',
+        macIntel: 'Shadower-1.0.0.dmg'
       },
 
       getBaseUrl() {

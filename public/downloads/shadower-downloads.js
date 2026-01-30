@@ -105,19 +105,23 @@
 
     const assets = release.assets;
 
-    // Define patterns for each platform
+    // Define patterns for each platform (based on actual v1.0.3 release file names)
+    // Windows: Shadower.Setup.1.0.0.exe
+    // macOS ARM: Shadower-1.0.0-arm64.dmg
+    // macOS Intel: Shadower-1.0.0.dmg (no arch suffix)
     const patterns = {
       'windows': [
+        /Shadower\.Setup\.[0-9.]+\.exe$/i,
         /Shadower[- ]Setup.*\.exe$/i,
         /Shadower.*\.exe$/i
       ],
       'mac-arm64': [
-        /Shadower.*arm64\.dmg$/i,
-        /Shadower.*arm64.*\.dmg$/i
+        /Shadower-[0-9.]+-arm64\.dmg$/i,
+        /Shadower.*arm64\.dmg$/i
       ],
       'mac-x64': [
-        /Shadower.*x64\.dmg$/i,
-        /Shadower.*\.dmg$/i  // Fallback to any DMG
+        // Intel Mac DMG has no arch suffix, so match DMG without arm64
+        /Shadower-[0-9.]+\.dmg$/i
       ],
       'linux': [
         /Shadower.*\.AppImage$/i,
