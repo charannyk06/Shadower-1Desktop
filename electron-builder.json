@@ -110,6 +110,6 @@
     "repo": "Shadower-1Desktop"
   },
   "buildDependenciesFromSource": false,
-  "npmRebuild": false,
+  "npmRebuild": true,
   "nodeGypRebuild": false
 }

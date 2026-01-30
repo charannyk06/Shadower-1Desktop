@@ -54,9 +54,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Rebuild native modules for Electron
-        run: npx @electron/rebuild -m node_modules/better-sqlite3 -t 40.0.0
-        continue-on-error: true
+      - name: Disable duckdb rebuild
+        run: |
+          # Move duckdb's binding.gyp to prevent rebuild (it fails on CI)
+          if [ -f node_modules/duckdb/binding.gyp ]; then
+            mv node_modules/duckdb/binding.gyp node_modules/duckdb/binding.gyp.bak
+          fi
 
       - name: Build macOS
         run: pnpm build:mac
@@ -113,9 +116,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Rebuild native modules for Electron
-        run: npx @electron/rebuild -m node_modules/better-sqlite3 -t 40.0.0
-        continue-on-error: true
+      - name: Disable duckdb rebuild
+        run: |
+          # Move duckdb's binding.gyp to prevent rebuild (it fails on CI)
+          if (Test-Path "node_modules/duckdb/binding.gyp") {
+            Move-Item "node_modules/duckdb/binding.gyp" "node_modules/duckdb/binding.gyp.bak"
+          }
+        shell: pwsh
 
       - name: Build Windows
         run: pnpm build:win
