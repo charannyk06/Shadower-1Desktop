@@ -43,25 +43,26 @@
     "hardenedRuntime": false,
     "gatekeeperAssess": false,
     "type": "development",
-    "identity": null
+    "identity": null,
+    "signIgnore": [".*"]
   },
   "dmg": {
     "contents": [
       {
         "x": 130,
-        "y": 220
+        "y": 180
       },
       {
         "x": 410,
-        "y": 220,
+        "y": 180,
         "type": "link",
         "path": "/Applications"
       }
     ],
-    "title": "Shadower ${version}",
+    "title": "Shadower ${version} - See README if blocked",
     "window": {
       "width": 540,
-      "height": 380
+      "height": 400
     }
   },
   "win": {

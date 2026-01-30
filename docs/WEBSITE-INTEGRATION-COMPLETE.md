@@ -275,6 +275,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
 ---
 
+## macOS Installation Instructions (IMPORTANT)
+
+Since Shadower is not code-signed (no Apple Developer certificate), macOS will show **"Shadower is damaged and can't be opened"** error.
+
+### Fix: Remove Quarantine Attribute
+
+After downloading and moving Shadower.app to Applications, open Terminal and run:
+
+```bash
+xattr -cr /Applications/Shadower.app
+```
+
+Then open Shadower normally from Applications.
+
+### Alternative: Right-Click Method
+1. Move Shadower.app to Applications
+2. Right-click (or Control-click) on Shadower.app
+3. Select "Open" from the menu
+4. Click "Open" in the dialog that appears
+
+### For Website: Add Installation Instructions
+
+Include this message near the macOS download button:
+
+```html
+<div class="install-note">
+  <strong>macOS Users:</strong> After installing, if you see "damaged" error,
+  open Terminal and run: <code>xattr -cr /Applications/Shadower.app</code>
+</div>
+```
+
+---
+
 ## Verified File Names (v1.0.3 Release)
 
 The following file names are confirmed working:
