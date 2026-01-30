@@ -14,6 +14,11 @@ on:
 permissions:
   contents: write
 
+# Cancel previous runs on same ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-macos:
     runs-on: macos-latest
@@ -32,13 +37,26 @@ jobs:
           node-version: 20
           cache: "pnpm"
 
+      # Cache Electron binaries to avoid rate limits
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-macos-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-macos-
+
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build macOS
         run: pnpm build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Disable auto-update check during build
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
           # Code signing (optional - build works without these)
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -75,13 +93,25 @@ jobs:
           node-version: 20
           cache: "pnpm"
 
+      # Cache Electron binaries to avoid rate limits
+      - name: Cache Electron
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-windows-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-windows-
+
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build Windows
         run: pnpm build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
           # Code signing (optional - build works without these)
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
@@ -123,7 +153,7 @@ jobs:
           ls -la windows-build/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           draft: ${{ github.event_name == 'workflow_dispatch' }}
           generate_release_notes: true
