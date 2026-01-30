@@ -1,0 +1,22 @@
+windows_task:
+  name: Build Windows
+  windows_container:
+    image: cirrusci/windowsservercore:2019
+    cpu: 4
+    memory: 8G
+
+  node_modules_cache:
+    folder: node_modules
+    fingerprint_script: type package.json
+
+  install_script:
+    - choco install -y nodejs-lts
+    - npm install -g pnpm@10.2.1
+    - refreshenv
+    - pnpm install
+
+  build_script:
+    - pnpm build:win
+
+  artifacts:
+    path: dist/*.exe

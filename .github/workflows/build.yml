@@ -48,6 +48,9 @@ jobs:
           restore-keys: |
             electron-macos-
 
+      - name: Create required directories
+        run: mkdir -p docker
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -103,6 +106,9 @@ jobs:
           key: electron-windows-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             electron-windows-
+
+      - name: Create required directories
+        run: mkdir -p docker
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
