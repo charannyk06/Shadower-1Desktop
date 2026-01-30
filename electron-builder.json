@@ -40,11 +40,10 @@
       }
     ],
     "icon": "resources/icon.icns",
-    "hardenedRuntime": true,
+    "hardenedRuntime": false,
     "gatekeeperAssess": false,
-    "entitlements": "resources/entitlements.mac.plist",
-    "entitlementsInherit": "resources/entitlements.mac.plist",
-    "type": "distribution"
+    "type": "development",
+    "identity": null
   },
   "dmg": {
     "contents": [
@@ -110,6 +109,6 @@
     "repo": "Shadower-1Desktop"
   },
   "buildDependenciesFromSource": false,
-  "npmRebuild": true,
+  "npmRebuild": false,
   "nodeGypRebuild": false
 }

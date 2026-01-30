@@ -209,7 +209,8 @@
       "sharp",
       "unrs-resolver",
       "electron",
-      "better-sqlite3"
+      "better-sqlite3",
+      "duckdb"
     ],
     "overrides": {
       "esbuild": "^0.21.5"
