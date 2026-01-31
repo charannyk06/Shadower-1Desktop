@@ -1134,16 +1134,29 @@ export class ACPAgentManager extends EventEmitter {
       ...config.env,
     };
 
-    // On Windows, use shell: true for .cmd files to ensure proper execution
+    // On Windows, .cmd files need special handling
     const isWindows = process.platform === "win32";
     const isCmdFile = resolvedCommand.endsWith(".cmd");
 
-    // Spawn the agent process
-    const agentProcess = spawn(resolvedCommand, config.args, {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: enhancedEnv,
-      shell: isWindows && isCmdFile, // Use shell for .cmd files on Windows
-    });
+    let agentProcess: ChildProcess;
+
+    if (isWindows && isCmdFile) {
+      // For .cmd files on Windows, use cmd.exe /c with proper quoting
+      // This handles paths with spaces correctly
+      const cmdArgs = ["/c", `"${resolvedCommand}"`, ...config.args];
+      console.log(`[ACP] Windows cmd spawn: cmd.exe ${cmdArgs.join(" ")}`);
+      agentProcess = spawn("cmd.exe", cmdArgs, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: enhancedEnv,
+        windowsVerbatimArguments: true,
+      });
+    } else {
+      // For non-.cmd files or non-Windows, spawn directly
+      agentProcess = spawn(resolvedCommand, config.args, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: enhancedEnv,
+      });
+    }
 
     // Collect stderr for error messages
     let stderrBuffer = "";
