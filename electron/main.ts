@@ -667,9 +667,23 @@ async function autoDetectACPAgents() {
  * Checks GitHub Releases for new versions and handles the update lifecycle.
  */
 function initializeAutoUpdater() {
+  // Log current version info
+  const currentVersion = app.getVersion();
+  log.info(`[Updater] App version: ${currentVersion}`);
+  log.info(`[Updater] App packaged: ${app.isPackaged}`);
+  log.info(`[Updater] Platform: ${process.platform}`);
+
   // Configure auto-updater
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+
+  // Log the feed URL for debugging
+  try {
+    const feedURL = autoUpdater.getFeedURL();
+    log.info(`[Updater] Feed URL: ${JSON.stringify(feedURL)}`);
+  } catch (e) {
+    log.info(`[Updater] Could not get feed URL: ${e}`);
+  }
 
   // Check for updates after a short delay to not block startup
   setTimeout(() => {
@@ -702,6 +716,12 @@ function initializeAutoUpdater() {
 
   autoUpdater.on("update-not-available", (info) => {
     log.info("[Updater] No updates available. Current version:", info.version);
+    // Notify renderer that app is up to date
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update:upToDate", {
+        version: info.version,
+      });
+    }
   });
 
   autoUpdater.on("download-progress", (progress) => {

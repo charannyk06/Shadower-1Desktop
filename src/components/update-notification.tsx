@@ -83,12 +83,23 @@ export function UpdateNotification() {
       }
     });
 
+    // Listen for up-to-date status (optional callback)
+    const unsubUpToDate = update.onUpToDate?.((data: { version: string }) => {
+      console.log(`[Update] App is up to date: v${data.version}`);
+    });
+
+    // Log current version for debugging
+    update.getStatus?.().then((status: { currentVersion: string; isDev: boolean }) => {
+      console.log(`[Update] Current version: v${status.currentVersion}, isDev: ${status.isDev}`);
+    }).catch(() => {});
+
     // Cleanup
     return () => {
       unsubAvailable();
       unsubProgress();
       unsubDownloaded();
       unsubError();
+      unsubUpToDate?.();
     };
   }, []);
 

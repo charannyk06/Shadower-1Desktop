@@ -2087,6 +2087,11 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on("update:error", handler);
       return () => ipcRenderer.removeListener("update:error", handler);
     },
+    onUpToDate: (callback: (data: { version: string }) => void) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("update:upToDate", handler);
+      return () => ipcRenderer.removeListener("update:upToDate", handler);
+    },
   },
 
   // Dialog operations
