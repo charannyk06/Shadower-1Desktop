@@ -698,9 +698,21 @@ function initializeAutoUpdater() {
     });
   }, 5000);
 
+  // Send startup info to renderer
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update:startup", {
+      version: currentVersion,
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+    });
+  }
+
   // Event handlers
   autoUpdater.on("checking-for-update", () => {
     log.info("[Updater] Checking for updates...");
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update:checking", {});
+    }
   });
 
   autoUpdater.on("update-available", (info) => {

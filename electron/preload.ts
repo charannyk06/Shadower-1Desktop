@@ -2092,6 +2092,16 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on("update:upToDate", handler);
       return () => ipcRenderer.removeListener("update:upToDate", handler);
     },
+    onStartup: (callback: (data: { version: string; isPackaged: boolean; platform: string }) => void) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("update:startup", handler);
+      return () => ipcRenderer.removeListener("update:startup", handler);
+    },
+    onChecking: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on("update:checking", handler);
+      return () => ipcRenderer.removeListener("update:checking", handler);
+    },
   },
 
   // Dialog operations
