@@ -7,6 +7,7 @@ import useSWR, { mutate } from "swr";
 import { useSidebar } from "ui/sidebar";
 import { UserAccessCard } from "./user-access-card";
 import { UserDetailFormCard } from "./user-detail-form-card";
+import { UserUpdateCard } from "./user-update-card";
 
 interface UserDetailProps {
   user: BasicUserWithLastLogin;
@@ -85,6 +86,9 @@ export function UserDetail({
           view={view}
           onUserDetailsUpdate={handleUserUpdate}
         />
+
+        {/* App Updates Card - only show for current user */}
+        {currentUserId === (user?.id ?? initialUser.id) && <UserUpdateCard />}
 
         <div
           className={cn("col-span-1 md:col-span-2", {

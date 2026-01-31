@@ -698,13 +698,26 @@ function initializeAutoUpdater() {
     });
   }, 5000);
 
-  // Send startup info to renderer
+  // Send startup info to renderer when page is ready
+  const sendStartupInfo = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      log.info("[Updater] Sending startup info to renderer");
+      mainWindow.webContents.send("update:startup", {
+        version: currentVersion,
+        isPackaged: app.isPackaged,
+        platform: process.platform,
+      });
+    }
+  };
+
+  // Wait for page to finish loading before sending
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("update:startup", {
-      version: currentVersion,
-      isPackaged: app.isPackaged,
-      platform: process.platform,
-    });
+    if (mainWindow.webContents.isLoading()) {
+      mainWindow.webContents.once("did-finish-load", sendStartupInfo);
+    } else {
+      // Page already loaded, send immediately
+      sendStartupInfo();
+    }
   }
 
   // Event handlers
