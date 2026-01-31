@@ -43,6 +43,175 @@ import {
 const execAsync = promisify(exec);
 
 // ============================================================================
+// NODE.JS / NPX PATH RESOLUTION (for packaged Electron apps)
+// ============================================================================
+
+/**
+ * Get common Node.js installation paths to add to PATH
+ * Packaged Electron apps don't inherit user's shell PATH, so we need to manually add common paths
+ */
+function getNodePaths(): string[] {
+  const home = homedir();
+  const paths: string[] = [];
+
+  if (process.platform === "win32") {
+    // Windows Node.js installation paths
+    paths.push(
+      // npm global modules
+      join(process.env.APPDATA || "", "npm"),
+      join(home, "AppData", "Roaming", "npm"),
+      // Node.js default installation paths
+      "C:\\Program Files\\nodejs",
+      "C:\\Program Files (x86)\\nodejs",
+      join(home, "AppData", "Local", "Programs", "nodejs"),
+      // nvm-windows
+      join(process.env.NVM_HOME || "", ""),
+      join(process.env.NVM_SYMLINK || "", ""),
+      join(home, ".nvm"),
+      // fnm (Fast Node Manager)
+      join(process.env.FNM_MULTISHELL_PATH || "", ""),
+      join(home, ".fnm", "aliases", "default", "bin"),
+      // Volta
+      join(process.env.VOLTA_HOME || "", "bin"),
+      join(home, ".volta", "bin"),
+      // pnpm
+      join(home, "AppData", "Local", "pnpm"),
+    );
+  } else {
+    // Unix-like systems (macOS, Linux)
+    paths.push(
+      // Standard paths
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+      // npm global
+      join(home, ".npm-global", "bin"),
+      join(home, ".npm", "bin"),
+      "/usr/local/lib/node_modules/.bin",
+      // nvm
+      join(home, ".nvm", "versions", "node"),
+      // fnm
+      join(process.env.FNM_MULTISHELL_PATH || "", "bin"),
+      join(home, ".fnm", "aliases", "default", "bin"),
+      // Volta
+      join(process.env.VOLTA_HOME || "", "bin"),
+      join(home, ".volta", "bin"),
+      // pnpm
+      join(home, ".local", "share", "pnpm"),
+      // yarn
+      join(home, ".yarn", "bin"),
+    );
+
+    // macOS specific
+    if (process.platform === "darwin") {
+      paths.push(
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/opt/local/bin",
+        // macOS default Node.js from pkg installer
+        "/usr/local/lib/node_modules/.bin",
+      );
+    }
+  }
+
+  // Filter out empty paths and non-existent directories
+  return paths.filter(p => p && existsSync(p));
+}
+
+/**
+ * Build enhanced PATH environment with Node.js paths prepended
+ */
+function getEnhancedPath(): string {
+  const nodePaths = getNodePaths();
+  const currentPath = process.env.PATH || process.env.Path || "";
+  const separator = process.platform === "win32" ? ";" : ":";
+
+  // Prepend node paths to ensure they're found first
+  return [...nodePaths, currentPath].join(separator);
+}
+
+/**
+ * Resolve a command (like npx) to its full path
+ * @param command - The command name (e.g., "npx", "claude")
+ * @returns Full path to the command, or the original command if not found
+ */
+async function resolveCommandPath(command: string): Promise<string> {
+  // First, check if it's already an absolute path
+  if (existsSync(command)) {
+    return command;
+  }
+
+  const home = homedir();
+  const cmdSuffix = process.platform === "win32" ? ".cmd" : "";
+  const exeSuffix = process.platform === "win32" ? ".exe" : "";
+
+  // Build list of candidate paths
+  const candidates: string[] = [];
+
+  if (process.platform === "win32") {
+    // Windows-specific paths
+    candidates.push(
+      join(process.env.APPDATA || "", "npm", `${command}${cmdSuffix}`),
+      join(process.env.APPDATA || "", "npm", `${command}${exeSuffix}`),
+      join(home, "AppData", "Roaming", "npm", `${command}${cmdSuffix}`),
+      join(home, "AppData", "Roaming", "npm", `${command}${exeSuffix}`),
+      `C:\\Program Files\\nodejs\\${command}${cmdSuffix}`,
+      `C:\\Program Files\\nodejs\\${command}${exeSuffix}`,
+      join(home, "AppData", "Local", "pnpm", `${command}${cmdSuffix}`),
+      join(home, "AppData", "Local", "pnpm", `${command}${exeSuffix}`),
+      join(home, ".volta", "bin", `${command}${cmdSuffix}`),
+      join(home, ".volta", "bin", `${command}${exeSuffix}`),
+    );
+  } else {
+    // Unix-like systems
+    candidates.push(
+      `/usr/local/bin/${command}`,
+      `/usr/bin/${command}`,
+      join(home, ".npm-global", "bin", command),
+      join(home, ".npm", "bin", command),
+      join(home, ".local", "share", "pnpm", command),
+      join(home, ".volta", "bin", command),
+      join(home, ".yarn", "bin", command),
+    );
+
+    if (process.platform === "darwin") {
+      candidates.push(
+        `/opt/homebrew/bin/${command}`,
+        `/opt/local/bin/${command}`,
+      );
+    }
+  }
+
+  // Check each candidate
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      console.log(`[ACP] Resolved ${command} to: ${candidate}`);
+      return candidate;
+    }
+  }
+
+  // Try using which/where to find the command
+  try {
+    const whichCmd = process.platform === "win32" ? "where" : "which";
+    const { stdout } = await execAsync(`${whichCmd} ${command}`, {
+      timeout: 3000,
+      env: { ...process.env, PATH: getEnhancedPath() },
+    });
+    const resolvedPath = stdout.trim().split("\n")[0];
+    if (resolvedPath && existsSync(resolvedPath)) {
+      console.log(`[ACP] Resolved ${command} via ${whichCmd}: ${resolvedPath}`);
+      return resolvedPath;
+    }
+  } catch {
+    // which/where failed
+  }
+
+  // Return original command as fallback
+  console.log(`[ACP] Could not resolve ${command} to absolute path, using as-is`);
+  return command;
+}
+
+// ============================================================================
 // TOOL CALL STATUS MAPPING (ACP SDK compatibility)
 // ============================================================================
 
@@ -954,11 +1123,40 @@ export class ACPAgentManager extends EventEmitter {
       `[ACP] Starting agent ${config.id}: ${config.command} ${config.args.join(" ")}`,
     );
 
-    // Spawn the agent process
-    const agentProcess = spawn(config.command, config.args, {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, ...config.env },
-    });
+    // Resolve command to absolute path (critical for packaged Electron apps)
+    const resolvedCommand = await resolveCommandPath(config.command);
+    console.log(`[ACP] Resolved command: ${config.command} -> ${resolvedCommand}`);
+
+    // Build enhanced environment with Node.js paths
+    const enhancedEnv = {
+      ...process.env,
+      PATH: getEnhancedPath(),
+      ...config.env,
+    };
+
+    // On Windows, .cmd files need special handling
+    const isWindows = process.platform === "win32";
+    const isCmdFile = resolvedCommand.endsWith(".cmd");
+
+    let agentProcess: ChildProcess;
+
+    if (isWindows && isCmdFile) {
+      // For .cmd files on Windows, use cmd.exe /c with proper quoting
+      // This handles paths with spaces correctly
+      const cmdArgs = ["/c", `"${resolvedCommand}"`, ...config.args];
+      console.log(`[ACP] Windows cmd spawn: cmd.exe ${cmdArgs.join(" ")}`);
+      agentProcess = spawn("cmd.exe", cmdArgs, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: enhancedEnv,
+        windowsVerbatimArguments: true,
+      });
+    } else {
+      // For non-.cmd files or non-Windows, spawn directly
+      agentProcess = spawn(resolvedCommand, config.args, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: enhancedEnv,
+      });
+    }
 
     // Collect stderr for error messages
     let stderrBuffer = "";

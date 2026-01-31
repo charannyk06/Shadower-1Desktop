@@ -667,9 +667,23 @@ async function autoDetectACPAgents() {
  * Checks GitHub Releases for new versions and handles the update lifecycle.
  */
 function initializeAutoUpdater() {
+  // Log current version info
+  const currentVersion = app.getVersion();
+  log.info(`[Updater] App version: ${currentVersion}`);
+  log.info(`[Updater] App packaged: ${app.isPackaged}`);
+  log.info(`[Updater] Platform: ${process.platform}`);
+
   // Configure auto-updater
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+
+  // Log the feed URL for debugging
+  try {
+    const feedURL = autoUpdater.getFeedURL();
+    log.info(`[Updater] Feed URL: ${JSON.stringify(feedURL)}`);
+  } catch (e) {
+    log.info(`[Updater] Could not get feed URL: ${e}`);
+  }
 
   // Check for updates after a short delay to not block startup
   setTimeout(() => {
@@ -684,9 +698,34 @@ function initializeAutoUpdater() {
     });
   }, 5000);
 
+  // Send startup info to renderer when page is ready
+  const sendStartupInfo = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      log.info("[Updater] Sending startup info to renderer");
+      mainWindow.webContents.send("update:startup", {
+        version: currentVersion,
+        isPackaged: app.isPackaged,
+        platform: process.platform,
+      });
+    }
+  };
+
+  // Wait for page to finish loading before sending
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.webContents.isLoading()) {
+      mainWindow.webContents.once("did-finish-load", sendStartupInfo);
+    } else {
+      // Page already loaded, send immediately
+      sendStartupInfo();
+    }
+  }
+
   // Event handlers
   autoUpdater.on("checking-for-update", () => {
     log.info("[Updater] Checking for updates...");
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update:checking", {});
+    }
   });
 
   autoUpdater.on("update-available", (info) => {
@@ -702,6 +741,12 @@ function initializeAutoUpdater() {
 
   autoUpdater.on("update-not-available", (info) => {
     log.info("[Updater] No updates available. Current version:", info.version);
+    // Notify renderer that app is up to date
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update:upToDate", {
+        version: info.version,
+      });
+    }
   });
 
   autoUpdater.on("download-progress", (progress) => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Download, RefreshCw, X } from "lucide-react";
+import { Download, RefreshCw, X, Info } from "lucide-react";
 import { Button } from "ui/button";
 
 interface UpdateInfo {
@@ -83,12 +83,43 @@ export function UpdateNotification() {
       }
     });
 
+    // Listen for up-to-date status
+    const unsubUpToDate = update.onUpToDate?.((data: { version: string }) => {
+      console.log(`[Update] App is up to date: v${data.version}`);
+      toast.success(`You're on the latest version (v${data.version})`, {
+        duration: 3000,
+      });
+    });
+
+    // Listen for startup info
+    const unsubStartup = update.onStartup?.((data: { version: string; isPackaged: boolean; platform: string }) => {
+      console.log(`[Update] Startup - Version: v${data.version}, Packaged: ${data.isPackaged}, Platform: ${data.platform}`);
+      toast.info(`Shadower v${data.version}`, {
+        description: data.isPackaged ? "Checking for updates..." : "Dev mode - updates disabled",
+        duration: 3000,
+        icon: <Info className="h-4 w-4" />,
+      });
+    });
+
+    // Listen for checking status
+    const unsubChecking = update.onChecking?.(() => {
+      console.log("[Update] Checking for updates...");
+    });
+
+    // Log current version for debugging
+    update.getStatus?.().then((status: { currentVersion: string; isDev: boolean }) => {
+      console.log(`[Update] Current version: v${status.currentVersion}, isDev: ${status.isDev}`);
+    }).catch(() => {});
+
     // Cleanup
     return () => {
       unsubAvailable();
       unsubProgress();
       unsubDownloaded();
       unsubError();
+      unsubUpToDate?.();
+      unsubStartup?.();
+      unsubChecking?.();
     };
   }, []);
 
