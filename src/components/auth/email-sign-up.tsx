@@ -15,7 +15,7 @@ import { authClient } from "@/lib/auth/client";
 import { UserZodSchema } from "app-types/user";
 import { cn } from "lib/utils";
 import { Check, ChevronLeft, Loader, X } from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -283,6 +283,12 @@ export default function EmailSignUp({
               <ChevronLeft className="size-4" />
               Back
             </Button>
+          </div>
+          <div className="mt-6 text-center text-sm text-muted-foreground">
+            Already have an account?{" "}
+            <Link to="/sign-in" className="underline-offset-4 text-primary">
+              Sign in
+            </Link>
           </div>
         </div>
       </CardContent>
