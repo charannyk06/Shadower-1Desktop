@@ -83,6 +83,7 @@ import {
 import { useSidebar } from "ui/sidebar";
 import { Think } from "ui/think";
 import { TheaterPanel } from "./theater-panel";
+import { MeetingMinutesDrawer } from "./meeting-minutes/meeting-minutes-drawer";
 
 type Props = {
   threadId: string;
@@ -2255,6 +2256,8 @@ export default function ChatBot({ threadId, initialMessages }: Props) {
             request={acpPermissionRequest}
             onRespond={handleACPPermissionRespond}
           />
+          {/* Meeting Minutes Recording Drawer */}
+          <MeetingMinutesDrawer />
         </ResizablePanel>
 
         {theaterMode.isOpen && (
