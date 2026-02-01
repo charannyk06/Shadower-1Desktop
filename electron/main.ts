@@ -31,6 +31,7 @@ import { registerKnowledgeHandlers } from "./ipc/knowledge";
 import { registerVoiceHandlers } from "./ipc/voice";
 import { registerMeetingHandlers } from "./ipc/meeting";
 import { registerACPHandlers, cleanupACPAgents } from "./ipc/acp";
+import { registerCloudLicenseHandlers } from "./ipc/cloud-license";
 
 // Static imports for services
 import { ElectronAuthService } from "./services/auth";
@@ -365,6 +366,17 @@ app.whenReady().then(async () => {
     log.warn(
       "[Main] ACP handlers not available (non-critical):",
       acpError instanceof Error ? acpError.message : acpError,
+    );
+  }
+
+  // Cloud License handlers (Shadower cloud authentication and license validation)
+  try {
+    registerCloudLicenseHandlers();
+    console.log("[Main] Cloud License handlers registered");
+  } catch (cloudError) {
+    log.warn(
+      "[Main] Cloud License handlers not available (non-critical):",
+      cloudError instanceof Error ? cloudError.message : cloudError,
     );
   }
 

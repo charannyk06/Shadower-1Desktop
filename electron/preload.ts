@@ -1747,6 +1747,44 @@ export interface ElectronAPI {
       }) => void,
     ) => () => void;
   };
+
+  // Cloud License operations (Shadower cloud authentication and license validation)
+  cloudLicense: {
+    initialize: () => Promise<{
+      isAuthenticated: boolean;
+      isLicensed: boolean;
+      user?: { id: string; name: string; email: string };
+      activatedAt?: string;
+      lastValidated?: string;
+      error?: string;
+    }>;
+    getState: () => Promise<{
+      isAuthenticated: boolean;
+      isLicensed: boolean;
+      user?: { id: string; name: string; email: string };
+      activatedAt?: string;
+      lastValidated?: string;
+      error?: string;
+    }>;
+    signIn: (data: {
+      email: string;
+      password: string;
+    }) => Promise<{
+      success: boolean;
+      error?: string;
+      state?: {
+        isAuthenticated: boolean;
+        isLicensed: boolean;
+        user?: { id: string; name: string; email: string };
+        activatedAt?: string;
+        error?: string;
+      };
+    }>;
+    signOut: () => Promise<void>;
+    deactivate: () => Promise<{ success: boolean; error?: string }>;
+    getMachineId: () => Promise<string>;
+    getCloudUrl: () => Promise<string>;
+  };
 }
 
 // Expose protected methods that allow the renderer process to use
@@ -3039,6 +3077,18 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on("acp:agents-updated", handler);
       return () => ipcRenderer.removeListener("acp:agents-updated", handler);
     },
+  },
+
+  // Cloud License operations (Shadower cloud authentication and license validation)
+  cloudLicense: {
+    initialize: () => ipcRenderer.invoke("cloud-license:initialize"),
+    getState: () => ipcRenderer.invoke("cloud-license:get-state"),
+    signIn: (data: { email: string; password: string }) =>
+      ipcRenderer.invoke("cloud-license:sign-in", data),
+    signOut: () => ipcRenderer.invoke("cloud-license:sign-out"),
+    deactivate: () => ipcRenderer.invoke("cloud-license:deactivate"),
+    getMachineId: () => ipcRenderer.invoke("cloud-license:get-machine-id"),
+    getCloudUrl: () => ipcRenderer.invoke("cloud-license:get-cloud-url"),
   },
 };
 
