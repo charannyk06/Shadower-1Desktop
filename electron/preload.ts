@@ -730,6 +730,9 @@ export interface ElectronAPI {
       }) => void,
     ) => () => void;
     onError: (callback: (data: { message: string }) => void) => () => void;
+    onUpToDate: (callback: (data: { version: string }) => void) => () => void;
+    onStartup: (callback: (data: { version: string; isPackaged: boolean; platform: string }) => void) => () => void;
+    onChecking: (callback: () => void) => () => void;
   };
 
   // Dialog operations
@@ -1218,6 +1221,18 @@ export interface ElectronAPI {
 
   // Meeting Minutes (Recording, Transcription, Summarization)
   meeting: {
+    checkPermissions: () => Promise<{
+      microphone: string;
+      screen: string;
+      platform: string;
+    }>;
+    requestMicrophonePermission: () => Promise<{
+      success: boolean;
+      granted?: boolean;
+    }>;
+    openSystemPreferences: (type: "microphone" | "screen") => Promise<{
+      success: boolean;
+    }>;
     getAudioSources: () => Promise<
       Array<{
         id: string;
@@ -1744,6 +1759,44 @@ export interface ElectronAPI {
           type: string;
           value?: string | boolean;
         }>;
+      }) => void,
+    ) => () => void;
+
+    // Auto-detection
+    autoDetect: () => Promise<
+      Array<{
+        id: string;
+        installed: boolean;
+        authenticated: boolean;
+        running: boolean;
+        error?: string;
+        version?: string;
+      }>
+    >;
+    startAutoDetectPolling: (intervalMs?: number) => Promise<void>;
+    stopAutoDetectPolling: () => Promise<void>;
+    onAgentsDetected: (
+      callback: (data: {
+        agents: Array<{
+          id: string;
+          installed: boolean;
+          authenticated: boolean;
+          running: boolean;
+          version?: string;
+        }>;
+        timestamp: number;
+      }) => void,
+    ) => () => void;
+    onAgentsUpdated: (
+      callback: (data: {
+        agents: Array<{
+          id: string;
+          installed: boolean;
+          authenticated: boolean;
+          running: boolean;
+          version?: string;
+        }>;
+        timestamp: number;
       }) => void,
     ) => () => void;
   };

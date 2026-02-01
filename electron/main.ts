@@ -389,7 +389,7 @@ app.whenReady().then(async () => {
   // ============================================
   // Set up permission handler for media access (microphone, screen capture)
   session.defaultSession.setPermissionRequestHandler(
-    (webContents, permission, callback) => {
+    (_webContents, permission, callback) => {
       const allowedPermissions = [
         "media",
         "microphone",
@@ -410,7 +410,7 @@ app.whenReady().then(async () => {
 
   // Check permission handler (for checking existing permissions)
   session.defaultSession.setPermissionCheckHandler(
-    (webContents, permission, requestingOrigin) => {
+    (_webContents, permission, _requestingOrigin) => {
       const allowedPermissions = [
         "media",
         "microphone",
@@ -869,7 +869,7 @@ function initializeAutoUpdater() {
     try {
       const telemetry = getTelemetryService();
       telemetry.trackUpdateInstalled(info.version);
-    } catch (e) {
+    } catch (_e) {
       // Ignore telemetry errors
     }
   });

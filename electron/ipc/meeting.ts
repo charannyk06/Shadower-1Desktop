@@ -395,7 +395,8 @@ export function registerMeetingHandlers() {
       // The renderer will send the transcript to the AI and receive the summary
 
       try {
-        const db = getDatabase();
+        // Database instance available for future use
+        void getDatabase();
 
         // Generate the summary prompt
         const summaryPrompt = generateSummaryPrompt(
@@ -756,8 +757,8 @@ export function registerMeetingHandlers() {
             .where(eq(schema.DocumentTable.id, session.documentId));
 
           // Delete vectors
-          const vectorStore = getVectorStore();
-          // Note: Vector store deletion by metadata would need custom implementation
+          // TODO: Implement vector store deletion by metadata
+          void getVectorStore();
         }
 
         // Delete session

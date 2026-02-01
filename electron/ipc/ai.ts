@@ -4791,7 +4791,7 @@ IMPORTANT: You should:
 
           // Fetch user's custom agents for the system prompt
           // This enables the orchestrator to know what agents can be spawned via spawnAgent
-          const userAgents = await db
+          const userAgentsRaw = await db
             .select({
               id: schema.AgentTable.id,
               name: schema.AgentTable.name,
@@ -4800,6 +4800,12 @@ IMPORTANT: You should:
             .from(schema.AgentTable)
             .where(eq(schema.AgentTable.userId, userId))
             .limit(20);
+
+          // Convert null descriptions to undefined for type compatibility
+          const userAgents = userAgentsRaw.map((agent) => ({
+            ...agent,
+            description: agent.description ?? undefined,
+          }));
 
           if (userAgents.length > 0) {
             console.log(`[AI IPC Agent] Found ${userAgents.length} user agents for spawning`);

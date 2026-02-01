@@ -341,21 +341,22 @@ export async function checkClientHealth(
       try {
         await client.connect();
       } catch (error: any) {
-        lastError = error?.message || "Unknown connection error";
+        const errorMessage = error?.message || "Unknown connection error";
+        lastError = errorMessage;
 
-        if (lastError.includes("ECONNREFUSED")) {
+        if (errorMessage.includes("ECONNREFUSED")) {
           recommendations.push(
             "Connection refused. Ensure the MCP server is running and accessible.",
           );
-        } else if (lastError.includes("ENOTFOUND")) {
+        } else if (errorMessage.includes("ENOTFOUND")) {
           recommendations.push(
             "Server not found. Check the server URL or command path.",
           );
-        } else if (lastError.includes("timeout")) {
+        } else if (errorMessage.includes("timeout")) {
           recommendations.push(
             "Connection timed out. The server may be slow to respond.",
           );
-        } else if (lastError.includes("OAuth") || lastError.includes("401")) {
+        } else if (errorMessage.includes("OAuth") || errorMessage.includes("401")) {
           recommendations.push(
             "Authentication required. Check your API keys or OAuth settings.",
           );

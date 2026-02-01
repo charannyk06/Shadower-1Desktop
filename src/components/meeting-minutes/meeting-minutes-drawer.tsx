@@ -7,7 +7,6 @@ import {
   AlertTriangleIcon,
   CheckIcon,
   ChevronDownIcon,
-  ExternalLinkIcon,
   FileTextIcon,
   Loader2,
   MicIcon,
@@ -63,7 +62,6 @@ export function MeetingMinutesDrawer() {
     stopRecording,
     pauseRecording,
     resumeRecording,
-    generateSummary,
     saveToKnowledge,
   } = useMeetingMinutes();
 
@@ -180,7 +178,8 @@ export function MeetingMinutesDrawer() {
   const hasScreenPermission = permissions?.screen === "granted";
   const needsMicPermission = (audioSource === "mic" || audioSource === "both") && !hasMicPermission;
   const needsScreenPermission = (audioSource === "system" || audioSource === "both") && !hasScreenPermission;
-  const hasRequiredPermissions = !needsMicPermission && !needsScreenPermission;
+  // hasRequiredPermissions computed but reserved for future use
+  void (!needsMicPermission && !needsScreenPermission);
 
   // Auto-scroll transcript
   useEffect(() => {

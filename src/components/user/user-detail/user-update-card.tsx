@@ -92,7 +92,7 @@ export function UserUpdateCard() {
           description: `Current version: v${status?.currentVersion}`,
         });
       }
-    } catch (error) {
+    } catch (_error) {
       toast.error("Failed to check for updates");
     } finally {
       setChecking(false);

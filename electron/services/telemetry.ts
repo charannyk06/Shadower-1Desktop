@@ -26,7 +26,7 @@ export class TelemetryService {
     try {
       // machineIdSync(false) returns hashed ID, true returns original
       this.machineId = machineIdSync(false);
-    } catch (error) {
+    } catch (_error) {
       // Fallback to random ID if machine ID fails
       this.machineId = `fallback-${Math.random().toString(36).substring(2, 15)}`;
       log.warn("[Telemetry] Failed to get machine ID, using fallback");
