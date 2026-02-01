@@ -6633,7 +6633,7 @@ async function getModelInstance(
         // This solves the "tools execute but return incomplete responses" issue!
         // See: https://sdk.vercel.ai/providers/community-providers/ollama
         // ============================================
-        const { ollama: ollamaProvider } = await import("ai-sdk-ollama");
+        const { createOllama } = await import("ai-sdk-ollama");
 
         // Get base URL from provider config or use default
         const [providerConfig] = await db
@@ -6657,6 +6657,12 @@ async function getModelInstance(
         }
 
         console.log(`[AI IPC] Creating Ollama model: ${model} at ${baseUrl}`);
+
+        // CRITICAL FIX: Create Ollama provider with the CONFIGURED baseURL
+        // Without this, it always uses default http://127.0.0.1:11434
+        const ollamaProvider = createOllama({
+          baseURL: baseUrl,
+        });
 
         const modelLower = model.toLowerCase();
 
