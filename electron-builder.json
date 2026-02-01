@@ -45,7 +45,14 @@
     "type": "development",
     "identity": null,
     "signIgnore": [".*"],
-    "artifactName": "Shadower-${arch}.${ext}"
+    "artifactName": "Shadower-${arch}.${ext}",
+    "entitlements": "resources/entitlements.mac.plist",
+    "entitlementsInherit": "resources/entitlements.mac.plist",
+    "extendInfo": {
+      "NSMicrophoneUsageDescription": "Shadower needs access to your microphone to record meeting audio for transcription.",
+      "NSCameraUsageDescription": "Shadower may need camera access for video features.",
+      "NSScreenCaptureUsageDescription": "Shadower needs screen capture permission to record system audio from video calls and other applications."
+    }
   },
   "dmg": {
     "contents": [

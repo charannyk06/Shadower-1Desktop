@@ -914,27 +914,53 @@ export default function PromptInput({
                     <ChevronDown className="size-3" />
                   </Button>
                 </SelectModel>
-                {!isLoading && !input.length && !voiceDisabled ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        size={"sm"}
-                        onClick={() => {
-                          appStoreMutate((state) => ({
-                            voiceChat: {
-                              ...state.voiceChat,
-                              isOpen: true,
-                              agentId: undefined,
-                            },
-                          }));
-                        }}
-                        className="rounded-full p-2!"
-                      >
-                        <MicIcon size={16} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Voice Chat Mode</TooltipContent>
-                  </Tooltip>
+                {!isLoading && !input.length ? (
+                  <div className="flex items-center gap-1">
+                    {/* Meeting Minutes Button */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size={"sm"}
+                          variant="ghost"
+                          onClick={() => {
+                            appStoreMutate((state) => ({
+                              meetingMinutes: {
+                                ...state.meetingMinutes,
+                                isOpen: true,
+                              },
+                            }));
+                          }}
+                          className="rounded-full p-2!"
+                        >
+                          <FileTextIcon size={16} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Meeting Minutes</TooltipContent>
+                    </Tooltip>
+                    {/* Voice Chat Button */}
+                    {!voiceDisabled && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size={"sm"}
+                            onClick={() => {
+                              appStoreMutate((state) => ({
+                                voiceChat: {
+                                  ...state.voiceChat,
+                                  isOpen: true,
+                                  agentId: undefined,
+                                },
+                              }));
+                            }}
+                            className="rounded-full p-2!"
+                          >
+                            <MicIcon size={16} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Voice Chat Mode</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
                 ) : (
                   <div
                     onClick={() => {

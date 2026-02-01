@@ -931,6 +931,92 @@ export const DocumentChunkTable = sqliteTable(
 );
 
 // ============================================================================
+// Meeting Minutes Sessions
+// ============================================================================
+
+export const MeetingSessionTable = sqliteTable(
+  "meeting_session",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => UserTable.id, { onDelete: "cascade" }),
+    threadId: text("thread_id").references(() => ChatThreadTable.id, {
+      onDelete: "set null",
+    }),
+    title: text("title"),
+    status: text("status", {
+      enum: ["recording", "processing", "completed", "failed"],
+    })
+      .notNull()
+      .default("recording"),
+    // Recording metadata
+    startedAt: integer("started_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp
+    ),
+    endedAt: integer("ended_at", { mode: "timestamp" }),
+    durationMs: integer("duration_ms"),
+    // Audio source configuration
+    audioSource: text("audio_source", {
+      enum: ["mic", "system", "both"],
+    }).default("both"),
+    // Transcription data
+    rawTranscript: text("raw_transcript"),
+    transcriptSegments: text("transcript_segments", { mode: "json" }).$type<
+      Array<{
+        timestamp: [number, number];
+        text: string;
+        speaker?: string;
+      }>
+    >(),
+    // AI-generated summary
+    summary: text("summary"),
+    keyPoints: text("key_points", { mode: "json" }).$type<string[]>(),
+    actionItems: text("action_items", { mode: "json" }).$type<
+      Array<{
+        id: string;
+        description: string;
+        assignee?: string;
+        completed?: boolean;
+      }>
+    >(),
+    attendees: text("attendees", { mode: "json" }).$type<string[]>(),
+    decisions: text("decisions", { mode: "json" }).$type<string[]>(),
+    // Knowledge base integration
+    documentId: text("document_id").references(() => DocumentTable.id, {
+      onDelete: "set null",
+    }),
+    knowledgeBaseId: text("knowledge_base_id").references(
+      () => KnowledgeBaseTable.id,
+      { onDelete: "set null" }
+    ),
+    // Error handling
+    errorMessage: text("error_message"),
+    // Additional metadata
+    metadata: text("metadata", { mode: "json" }).$type<{
+      transcriptionModel?: string;
+      summaryModel?: string;
+      audioFormat?: string;
+      sampleRate?: number;
+    }>(),
+    createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
+      currentTimestamp
+    ),
+  },
+  (table) => ({
+    userIdx: index("meeting_session_user_idx").on(table.userId),
+    threadIdx: index("meeting_session_thread_idx").on(table.threadId),
+    statusIdx: index("meeting_session_status_idx").on(table.status),
+    createdIdx: index("meeting_session_created_idx").on(table.createdAt),
+  })
+);
+
+// ============================================================================
 // Models & Provider Configuration Tables
 // ============================================================================
 
