@@ -702,13 +702,9 @@ const createTablesIfNotExist = (sqliteInstance: SqliteDatabase) => {
 
     // Create indexes
     sqliteInstance.exec(`
-      CREATE INDEX IF NOT EXISTS bookmark_user_id_idx ON bookmark(user_id);
-      CREATE INDEX IF NOT EXISTS bookmark_item_idx ON bookmark(item_id, item_type);
       CREATE INDEX IF NOT EXISTS usage_event_user_idx ON usage_event(user_id);
       CREATE INDEX IF NOT EXISTS usage_event_type_idx ON usage_event(event_type);
       CREATE INDEX IF NOT EXISTS usage_event_created_idx ON usage_event(created_at);
-      CREATE INDEX IF NOT EXISTS user_invitation_email_idx ON user_invitation(email);
-      CREATE INDEX IF NOT EXISTS user_invitation_token_idx ON user_invitation(token);
       CREATE INDEX IF NOT EXISTS conversation_summary_thread_idx ON conversation_summary(thread_id);
       CREATE INDEX IF NOT EXISTS conversation_summary_user_idx ON conversation_summary(user_id);
       CREATE INDEX IF NOT EXISTS agent_state_user_id_idx ON agent_state(user_id);
@@ -799,7 +795,22 @@ const createDefaultUserIfNotExists = (sqliteInstance: SqliteDatabase) => {
         )
         .run(randomUUID(), userId, "free", "active", now, now);
 
+      // Create session for auto-login
+      const sessionId = randomUUID();
+      const sessionToken = `desktop-${userId}-${Date.now()}`;
+      const expiresAt = Date.now() + 365 * 24 * 60 * 60 * 1000; // 1 year
+
+      sqliteInstance
+        .prepare(
+          `
+          INSERT INTO session (id, token, user_id, expires_at, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        )
+        .run(sessionId, sessionToken, userId, expiresAt, now, now);
+
       console.log("[SQLite] Default local user created:", userId);
+      // Note: SessionStore will be updated by electron/services/database.ts createDefaultUser
     } else {
       console.log("[SQLite] Default local user already exists");
     }
