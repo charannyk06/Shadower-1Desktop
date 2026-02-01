@@ -4789,6 +4789,22 @@ IMPORTANT: You should:
           const users = await db.select().from(schema.UserTable).limit(1);
           const userId = users[0]?.id || "local-user";
 
+          // Fetch user's custom agents for the system prompt
+          // This enables the orchestrator to know what agents can be spawned via spawnAgent
+          const userAgents = await db
+            .select({
+              id: schema.AgentTable.id,
+              name: schema.AgentTable.name,
+              description: schema.AgentTable.description,
+            })
+            .from(schema.AgentTable)
+            .where(eq(schema.AgentTable.userId, userId))
+            .limit(20);
+
+          if (userAgents.length > 0) {
+            console.log(`[AI IPC Agent] Found ${userAgents.length} user agents for spawning`);
+          }
+
           // Create an IPC-based dataStream that forwards events to renderer
           // This enables real-time plan progress updates in the UI
           const ipcDataStream = {
@@ -4854,6 +4870,7 @@ IMPORTANT: You should:
             workingDirectory, // Pass working directory for file operations
             messages: sanitizedMessages, // CRITICAL: Pass messages for plan reconstruction
             requirePlanning, // CRITICAL: Only require planning when research toolkit is enabled
+            availableUserAgents: userAgents, // Pass user agents so orchestrator knows what can be spawned
           });
 
           // Verify model supports tool calling in agent mode

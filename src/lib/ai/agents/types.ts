@@ -47,6 +47,12 @@ export type OrchestratorConfig = {
     path: string;
     name: string;
   };
+  /** List of user-created agents available for spawning via spawnAgent */
+  availableUserAgents?: Array<{
+    id: string;
+    name: string;
+    description?: string;
+  }>;
 };
 
 /**
