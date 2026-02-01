@@ -931,6 +931,39 @@ const createTablesFromSchema = () => {
       "[Database] ✓ Created provider_config, api_key, and local_model tables",
     );
 
+    // Create meeting_session table for Meeting Minutes feature
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS meeting_session (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+        thread_id TEXT REFERENCES chat_thread(id) ON DELETE SET NULL,
+        title TEXT,
+        status TEXT DEFAULT 'recording' CHECK(status IN ('recording', 'processing', 'completed', 'failed')),
+        started_at INTEGER,
+        ended_at INTEGER,
+        duration_ms INTEGER,
+        audio_source TEXT DEFAULT 'both' CHECK(audio_source IN ('mic', 'system', 'both')),
+        raw_transcript TEXT,
+        transcript_segments TEXT,
+        summary TEXT,
+        key_points TEXT,
+        action_items TEXT,
+        attendees TEXT,
+        decisions TEXT,
+        document_id TEXT REFERENCES document(id) ON DELETE SET NULL,
+        knowledge_base_id TEXT REFERENCES knowledge_base(id) ON DELETE SET NULL,
+        error_message TEXT,
+        metadata TEXT,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch())
+      );
+      CREATE INDEX IF NOT EXISTS meeting_session_user_idx ON meeting_session(user_id);
+      CREATE INDEX IF NOT EXISTS meeting_session_thread_idx ON meeting_session(thread_id);
+      CREATE INDEX IF NOT EXISTS meeting_session_status_idx ON meeting_session(status);
+      CREATE INDEX IF NOT EXISTS meeting_session_created_idx ON meeting_session(created_at);
+    `);
+    console.log("[Database] ✓ Created meeting_session table");
+
     console.log("[Database] ✓ All tables created successfully from schema");
 
     // Verify all tables were created
@@ -973,9 +1006,6 @@ const verifyTablesCreated = () => {
     "workflow",
     "workflow_node",
     "workflow_edge",
-    "bookmark",
-    // User management tables
-    "user_invitation",
     // Subscription and billing tables
     "subscription",
     "usage_event",
@@ -1003,6 +1033,8 @@ const verifyTablesCreated = () => {
     "knowledge_base",
     "document",
     "document_chunk",
+    // Meeting minutes table
+    "meeting_session",
   ];
 
   const missingTables: string[] = [];
@@ -1152,10 +1184,41 @@ export const createDefaultUser = async () => {
     const existingUsers = await db.select().from(schema.UserTable).limit(1);
 
     if (existingUsers.length > 0) {
+      const existingUser = existingUsers[0];
       console.log(
-        "[Database] User already exists, skipping default user creation",
+        "[Database] User already exists:",
+        existingUser.email,
       );
-      return existingUsers[0];
+
+      // Auto-create session if none exists
+      const { sessionStore } = require("./session-store");
+      await sessionStore.initialize();
+      const hasSession = await sessionStore.hasValidSession();
+
+      if (!hasSession) {
+        console.log("[Database] No valid session, creating one...");
+        const { randomUUID } = require("crypto");
+        const sessionId = randomUUID();
+        const sessionToken = `desktop-${existingUser.id}-${Date.now()}`;
+        const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year
+        const now = new Date();
+
+        await db.insert(schema.SessionTable).values({
+          id: sessionId,
+          token: sessionToken,
+          userId: existingUser.id,
+          expiresAt: expiresAt,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        await sessionStore.setToken(sessionToken, existingUser.id);
+        console.log("[Database] ✓ Session created and written to SessionStore");
+      } else {
+        console.log("[Database] ✓ Valid session already exists");
+      }
+
+      return existingUser;
     }
 
     // Create default user for desktop app
@@ -1203,6 +1266,16 @@ export const createDefaultUser = async () => {
       });
 
       console.log(`[Database] ✓ Created default session for user`);
+
+      // Also write to SessionStore for auto-login
+      try {
+        const { sessionStore } = require("./session-store");
+        await sessionStore.initialize();
+        await sessionStore.setToken(sessionToken, user.id);
+        console.log(`[Database] ✓ Session token written to SessionStore`);
+      } catch (storeError) {
+        console.warn(`[Database] Could not write to SessionStore:`, storeError);
+      }
 
       return user;
     }

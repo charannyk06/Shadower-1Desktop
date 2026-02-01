@@ -115,6 +115,22 @@ export interface AppState {
       providerOptions?: Record<string, any>;
     };
   };
+  meetingMinutes: {
+    isOpen: boolean;
+    isRecording: boolean;
+    isPaused: boolean;
+    sessionId: string | null;
+    duration: number; // milliseconds
+    audioSource: "mic" | "system" | "both";
+    transcript: Array<{
+      timestamp: [number, number];
+      text: string;
+      isFinal: boolean;
+    }>;
+    status: "idle" | "recording" | "processing" | "completed" | "error";
+    error: string | null;
+    summary: string | null;
+  };
   pendingThreadMention?: ChatMention;
   theaterMode: {
     isOpen: boolean;
@@ -221,6 +237,18 @@ const initialState: AppState = {
         model: OPENAI_VOICE["Alloy"],
       },
     },
+  },
+  meetingMinutes: {
+    isOpen: false,
+    isRecording: false,
+    isPaused: false,
+    sessionId: null,
+    duration: 0,
+    audioSource: "both",
+    transcript: [],
+    status: "idle",
+    error: null,
+    summary: null,
   },
   pendingThreadMention: undefined,
   theaterMode: {

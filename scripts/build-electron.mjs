@@ -41,6 +41,8 @@ const externalPackages = [
   // properly when bundled in Electron's Node.js context
   "ollama",
   "ai-sdk-ollama",
+  // Machine ID for telemetry
+  "node-machine-id",
 ];
 
 // Helper to resolve a path, trying .ts extension if needed

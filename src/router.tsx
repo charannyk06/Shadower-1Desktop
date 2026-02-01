@@ -71,6 +71,7 @@ const SignInPage = lazy(() => import("./routes/auth.sign-in"));
 const SignUpPage = lazy(() => import("./routes/auth.sign-up"));
 const SignUpEmailPage = lazy(() => import("./routes/auth.sign-up.email"));
 const SetupPage = lazy(() => import("./routes/setup"));
+const LicensePage = lazy(() => import("./routes/license"));
 
 // Root route
 const rootRoute = createRootRoute({
@@ -222,6 +223,12 @@ const setupRoute = createRoute({
   component: withErrorBoundary(SetupPage),
 });
 
+const licenseRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/license",
+  component: withErrorBoundary(LicensePage),
+});
+
 // ==================== BUILD ROUTE TREE ====================
 
 const routeTree = rootRoute.addChildren([
@@ -245,6 +252,7 @@ const routeTree = rootRoute.addChildren([
 
   // Public routes
   setupRoute,
+  licenseRoute,
 ]);
 
 // Create router instance

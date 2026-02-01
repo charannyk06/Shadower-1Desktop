@@ -730,6 +730,9 @@ export interface ElectronAPI {
       }) => void,
     ) => () => void;
     onError: (callback: (data: { message: string }) => void) => () => void;
+    onUpToDate: (callback: (data: { version: string }) => void) => () => void;
+    onStartup: (callback: (data: { version: string; isPackaged: boolean; platform: string }) => void) => () => void;
+    onChecking: (callback: () => void) => () => void;
   };
 
   // Dialog operations
@@ -1216,6 +1219,114 @@ export interface ElectronAPI {
     }>;
   };
 
+  // Meeting Minutes (Recording, Transcription, Summarization)
+  meeting: {
+    checkPermissions: () => Promise<{
+      microphone: string;
+      screen: string;
+      platform: string;
+    }>;
+    requestMicrophonePermission: () => Promise<{
+      success: boolean;
+      granted?: boolean;
+    }>;
+    openSystemPreferences: (type: "microphone" | "screen") => Promise<{
+      success: boolean;
+    }>;
+    getAudioSources: () => Promise<
+      Array<{
+        id: string;
+        name: string;
+        thumbnail: string | null;
+      }>
+    >;
+    start: (data: {
+      userId: string;
+      threadId?: string;
+      title?: string;
+      audioSource?: "mic" | "system" | "both";
+    }) => Promise<{
+      success: boolean;
+      sessionId: string;
+      session: any;
+    }>;
+    transcribeChunk: (data: {
+      sessionId: string;
+      audioData: number[];
+      sampleRate?: number;
+      chunkStartTime?: number;
+    }) => Promise<{
+      success: boolean;
+      text: string;
+      chunks?: Array<{ timestamp: [number, number]; text: string }>;
+      error?: string;
+    }>;
+    stop: (data: { sessionId: string }) => Promise<{
+      success: boolean;
+      session: any;
+      durationMs: number;
+      rawTranscript: string;
+      transcriptSegments: Array<{
+        timestamp: [number, number];
+        text: string;
+      }>;
+    }>;
+    generateSummary: (data: {
+      sessionId: string;
+      transcript: string;
+      duration: number;
+      date: string;
+    }) => Promise<{
+      success: boolean;
+      prompt: string;
+      sessionId: string;
+    }>;
+    saveSummary: (data: {
+      sessionId: string;
+      summary: string;
+      title?: string;
+      keyPoints?: string[];
+      actionItems?: Array<{
+        id: string;
+        description: string;
+        assignee?: string;
+      }>;
+      attendees?: string[];
+      decisions?: string[];
+    }) => Promise<{
+      success: boolean;
+      session: any;
+    }>;
+    saveToKnowledge: (data: {
+      sessionId: string;
+      userId: string;
+      knowledgeBaseId?: string;
+    }) => Promise<{
+      success: boolean;
+      documentId: string;
+      knowledgeBaseId: string;
+      filePath: string;
+    }>;
+    getSessions: (data: { userId: string; limit?: number }) => Promise<{
+      success: boolean;
+      sessions: any[];
+    }>;
+    getSession: (data: { sessionId: string }) => Promise<{
+      success: boolean;
+      session: any;
+    }>;
+    deleteSession: (data: { sessionId: string }) => Promise<{
+      success: boolean;
+    }>;
+    updateStatus: (data: {
+      sessionId: string;
+      status: "recording" | "processing" | "completed" | "failed";
+      errorMessage?: string;
+    }) => Promise<{
+      success: boolean;
+    }>;
+  };
+
   // ACP (Agent Client Protocol) - External coding agents
   acp: {
     // Agent management
@@ -1650,6 +1761,82 @@ export interface ElectronAPI {
         }>;
       }) => void,
     ) => () => void;
+
+    // Auto-detection
+    autoDetect: () => Promise<
+      Array<{
+        id: string;
+        installed: boolean;
+        authenticated: boolean;
+        running: boolean;
+        error?: string;
+        version?: string;
+      }>
+    >;
+    startAutoDetectPolling: (intervalMs?: number) => Promise<void>;
+    stopAutoDetectPolling: () => Promise<void>;
+    onAgentsDetected: (
+      callback: (data: {
+        agents: Array<{
+          id: string;
+          installed: boolean;
+          authenticated: boolean;
+          running: boolean;
+          version?: string;
+        }>;
+        timestamp: number;
+      }) => void,
+    ) => () => void;
+    onAgentsUpdated: (
+      callback: (data: {
+        agents: Array<{
+          id: string;
+          installed: boolean;
+          authenticated: boolean;
+          running: boolean;
+          version?: string;
+        }>;
+        timestamp: number;
+      }) => void,
+    ) => () => void;
+  };
+
+  // Cloud License operations (Shadower cloud authentication and license validation)
+  cloudLicense: {
+    initialize: () => Promise<{
+      isAuthenticated: boolean;
+      isLicensed: boolean;
+      user?: { id: string; name: string; email: string };
+      activatedAt?: string;
+      lastValidated?: string;
+      error?: string;
+    }>;
+    getState: () => Promise<{
+      isAuthenticated: boolean;
+      isLicensed: boolean;
+      user?: { id: string; name: string; email: string };
+      activatedAt?: string;
+      lastValidated?: string;
+      error?: string;
+    }>;
+    signIn: (data: {
+      email: string;
+      password: string;
+    }) => Promise<{
+      success: boolean;
+      error?: string;
+      state?: {
+        isAuthenticated: boolean;
+        isLicensed: boolean;
+        user?: { id: string; name: string; email: string };
+        activatedAt?: string;
+        error?: string;
+      };
+    }>;
+    signOut: () => Promise<void>;
+    deactivate: () => Promise<{ success: boolean; error?: string }>;
+    getMachineId: () => Promise<string>;
+    getCloudUrl: () => Promise<string>;
   };
 }
 
@@ -2400,6 +2587,92 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("voice:transcribe", data),
   },
 
+  // Meeting Minutes (Recording, Transcription, Summarization)
+  meeting: {
+    // Check permission status (macOS)
+    checkPermissions: () => ipcRenderer.invoke("meeting:checkPermissions"),
+
+    // Request microphone permission (macOS)
+    requestMicrophonePermission: () =>
+      ipcRenderer.invoke("meeting:requestMicrophonePermission"),
+
+    // Open System Preferences (macOS) for manual permission granting
+    openSystemPreferences: (type: "microphone" | "screen") =>
+      ipcRenderer.invoke("meeting:openSystemPreferences", type),
+
+    // Get available audio sources for system audio capture
+    getAudioSources: () => ipcRenderer.invoke("meeting:getAudioSources"),
+
+    // Start a new meeting recording session
+    start: (data: {
+      userId: string;
+      threadId?: string;
+      title?: string;
+      audioSource?: "mic" | "system" | "both";
+    }) => ipcRenderer.invoke("meeting:start", data),
+
+    // Transcribe an audio chunk (local Whisper)
+    transcribeChunk: (data: {
+      sessionId: string;
+      audioData: number[];
+      sampleRate?: number;
+      chunkStartTime?: number;
+    }) => ipcRenderer.invoke("meeting:transcribeChunk", data),
+
+    // Stop recording and finalize session
+    stop: (data: { sessionId: string }) =>
+      ipcRenderer.invoke("meeting:stop", data),
+
+    // Generate summary prompt for AI
+    generateSummary: (data: {
+      sessionId: string;
+      transcript: string;
+      duration: number;
+      date: string;
+    }) => ipcRenderer.invoke("meeting:generateSummary", data),
+
+    // Save AI-generated summary to session
+    saveSummary: (data: {
+      sessionId: string;
+      summary: string;
+      title?: string;
+      keyPoints?: string[];
+      actionItems?: Array<{
+        id: string;
+        description: string;
+        assignee?: string;
+      }>;
+      attendees?: string[];
+      decisions?: string[];
+    }) => ipcRenderer.invoke("meeting:saveSummary", data),
+
+    // Save meeting to knowledge base
+    saveToKnowledge: (data: {
+      sessionId: string;
+      userId: string;
+      knowledgeBaseId?: string;
+    }) => ipcRenderer.invoke("meeting:saveToKnowledge", data),
+
+    // Get all meeting sessions for a user
+    getSessions: (data: { userId: string; limit?: number }) =>
+      ipcRenderer.invoke("meeting:getSessions", data),
+
+    // Get single session details
+    getSession: (data: { sessionId: string }) =>
+      ipcRenderer.invoke("meeting:getSession", data),
+
+    // Delete a meeting session
+    deleteSession: (data: { sessionId: string }) =>
+      ipcRenderer.invoke("meeting:deleteSession", data),
+
+    // Update session status
+    updateStatus: (data: {
+      sessionId: string;
+      status: "recording" | "processing" | "completed" | "failed";
+      errorMessage?: string;
+    }) => ipcRenderer.invoke("meeting:updateStatus", data),
+  },
+
   // ACP (Agent Client Protocol) - External coding agents
   acp: {
     // Agent management
@@ -2857,6 +3130,18 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on("acp:agents-updated", handler);
       return () => ipcRenderer.removeListener("acp:agents-updated", handler);
     },
+  },
+
+  // Cloud License operations (Shadower cloud authentication and license validation)
+  cloudLicense: {
+    initialize: () => ipcRenderer.invoke("cloud-license:initialize"),
+    getState: () => ipcRenderer.invoke("cloud-license:get-state"),
+    signIn: (data: { email: string; password: string }) =>
+      ipcRenderer.invoke("cloud-license:sign-in", data),
+    signOut: () => ipcRenderer.invoke("cloud-license:sign-out"),
+    deactivate: () => ipcRenderer.invoke("cloud-license:deactivate"),
+    getMachineId: () => ipcRenderer.invoke("cloud-license:get-machine-id"),
+    getCloudUrl: () => ipcRenderer.invoke("cloud-license:get-cloud-url"),
   },
 };
 

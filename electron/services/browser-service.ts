@@ -787,7 +787,7 @@ export class EnhancedBrowserService {
         const result = await this.managerCreationPromise;
         log.info("[Browser] Reusing manager from concurrent call");
         return { ...result, isNew: false };
-      } catch (err) {
+      } catch (_err) {
         // Previous attempt failed, we'll try again below
         log.warn("[Browser] Previous manager creation failed, retrying...");
       }

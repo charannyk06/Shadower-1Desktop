@@ -2165,6 +2165,30 @@ function buildAgentSystemPrompt(instructions: {
 }
 
 /**
+ * Build a system prompt section listing available user-created agents
+ * This enables the LLM to know what custom agents can be spawned via spawnAgent
+ */
+function buildUserAgentsSection(
+  agents?: Array<{ id: string; name: string; description?: string }>
+): string {
+  if (!agents || agents.length === 0) {
+    return "";
+  }
+
+  const agentList = agents
+    .slice(0, 20) // Limit to prevent prompt overflow
+    .map(
+      (a) =>
+        `- **${a.name}** (id: "${a.id}"): ${a.description || "Custom agent"}`
+    )
+    .join("\n");
+
+  return `\n\n## YOUR CUSTOM AGENTS
+Use \`spawnAgent\` with agentId to delegate to your custom agents:
+${agentList}`;
+}
+
+/**
  * Checks if the agent plan is complete
  * Returns false if no plan exists - agent should continue until it creates one
  * Only returns true when a plan exists AND is explicitly marked complete/failed
@@ -2231,6 +2255,7 @@ export function createAutonomousAgent(config: AutonomousAgentConfig): {
     continuousMode = false,
     requirePlanning = false, // Default: pure agentic mode (no mandatory planning)
     messages,
+    availableUserAgents,
   } = config;
 
   // Create or restore context manager
@@ -2296,7 +2321,16 @@ Simply summarize what was accomplished and respond to any follow-up questions di
 ${systemPrompt}`;
   }
 
+  // Append user-created agents section so the LLM knows what custom agents can be spawned
+  const userAgentsSection = buildUserAgentsSection(availableUserAgents);
+  if (userAgentsSection) {
+    systemPrompt += userAgentsSection;
+  }
+
   logger.info(`[createAutonomousAgent] Mode: ${requirePlanning ? "PLANNING REQUIRED" : "PURE AGENTIC"}`);
+  if (availableUserAgents?.length) {
+    logger.info(`[createAutonomousAgent] Available user agents: ${availableUserAgents.length}`);
+  }
 
   // Create all tools (pass dataStream for plan/task/sub-agent streaming)
   // When requirePlanning is false, planning tools (createPlan, updateTaskStatus) are NOT included
@@ -2858,6 +2892,7 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     continuousMode = false,
     workingDirectory,
     requirePlanning = false, // Default: pure agentic mode (no mandatory planning)
+    availableUserAgents,
   } = config;
 
   const { agent, contextManager, agentStateId } = createAutonomousAgent(config);
@@ -2878,7 +2913,16 @@ export function createStreamingAutonomousAgent(config: AutonomousAgentConfig) {
     systemPrompt = `${agentPrompt}\n\n---\n\n${baseInstructions}${workingDirSection}`;
   }
 
+  // Append user-created agents section so the LLM knows what custom agents can be spawned
+  const userAgentsSection = buildUserAgentsSection(availableUserAgents);
+  if (userAgentsSection) {
+    systemPrompt += userAgentsSection;
+  }
+
   logger.info(`[createStreamingAutonomousAgent] Mode: ${requirePlanning ? "PLANNING REQUIRED" : "PURE AGENTIC"}`);
+  if (availableUserAgents?.length) {
+    logger.info(`[createStreamingAutonomousAgent] Available user agents: ${availableUserAgents.length}`);
+  }
 
   // Create tools WITH dataStream for plan/task streaming events
   // When requirePlanning is false, planning tools (createPlan, updateTaskStatus) are NOT included
