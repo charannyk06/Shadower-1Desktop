@@ -1216,6 +1216,102 @@ export interface ElectronAPI {
     }>;
   };
 
+  // Meeting Minutes (Recording, Transcription, Summarization)
+  meeting: {
+    getAudioSources: () => Promise<
+      Array<{
+        id: string;
+        name: string;
+        thumbnail: string | null;
+      }>
+    >;
+    start: (data: {
+      userId: string;
+      threadId?: string;
+      title?: string;
+      audioSource?: "mic" | "system" | "both";
+    }) => Promise<{
+      success: boolean;
+      sessionId: string;
+      session: any;
+    }>;
+    transcribeChunk: (data: {
+      sessionId: string;
+      audioData: number[];
+      sampleRate?: number;
+      chunkStartTime?: number;
+    }) => Promise<{
+      success: boolean;
+      text: string;
+      chunks?: Array<{ timestamp: [number, number]; text: string }>;
+      error?: string;
+    }>;
+    stop: (data: { sessionId: string }) => Promise<{
+      success: boolean;
+      session: any;
+      durationMs: number;
+      rawTranscript: string;
+      transcriptSegments: Array<{
+        timestamp: [number, number];
+        text: string;
+      }>;
+    }>;
+    generateSummary: (data: {
+      sessionId: string;
+      transcript: string;
+      duration: number;
+      date: string;
+    }) => Promise<{
+      success: boolean;
+      prompt: string;
+      sessionId: string;
+    }>;
+    saveSummary: (data: {
+      sessionId: string;
+      summary: string;
+      title?: string;
+      keyPoints?: string[];
+      actionItems?: Array<{
+        id: string;
+        description: string;
+        assignee?: string;
+      }>;
+      attendees?: string[];
+      decisions?: string[];
+    }) => Promise<{
+      success: boolean;
+      session: any;
+    }>;
+    saveToKnowledge: (data: {
+      sessionId: string;
+      userId: string;
+      knowledgeBaseId?: string;
+    }) => Promise<{
+      success: boolean;
+      documentId: string;
+      knowledgeBaseId: string;
+      filePath: string;
+    }>;
+    getSessions: (data: { userId: string; limit?: number }) => Promise<{
+      success: boolean;
+      sessions: any[];
+    }>;
+    getSession: (data: { sessionId: string }) => Promise<{
+      success: boolean;
+      session: any;
+    }>;
+    deleteSession: (data: { sessionId: string }) => Promise<{
+      success: boolean;
+    }>;
+    updateStatus: (data: {
+      sessionId: string;
+      status: "recording" | "processing" | "completed" | "failed";
+      errorMessage?: string;
+    }) => Promise<{
+      success: boolean;
+    }>;
+  };
+
   // ACP (Agent Client Protocol) - External coding agents
   acp: {
     // Agent management
@@ -2398,6 +2494,92 @@ const electronAPI: ElectronAPI = {
     // Local STT (Speech-to-Text)
     transcribe: (data: { audio: string; language?: string }) =>
       ipcRenderer.invoke("voice:transcribe", data),
+  },
+
+  // Meeting Minutes (Recording, Transcription, Summarization)
+  meeting: {
+    // Check permission status (macOS)
+    checkPermissions: () => ipcRenderer.invoke("meeting:checkPermissions"),
+
+    // Request microphone permission (macOS)
+    requestMicrophonePermission: () =>
+      ipcRenderer.invoke("meeting:requestMicrophonePermission"),
+
+    // Open System Preferences (macOS) for manual permission granting
+    openSystemPreferences: (type: "microphone" | "screen") =>
+      ipcRenderer.invoke("meeting:openSystemPreferences", type),
+
+    // Get available audio sources for system audio capture
+    getAudioSources: () => ipcRenderer.invoke("meeting:getAudioSources"),
+
+    // Start a new meeting recording session
+    start: (data: {
+      userId: string;
+      threadId?: string;
+      title?: string;
+      audioSource?: "mic" | "system" | "both";
+    }) => ipcRenderer.invoke("meeting:start", data),
+
+    // Transcribe an audio chunk (local Whisper)
+    transcribeChunk: (data: {
+      sessionId: string;
+      audioData: number[];
+      sampleRate?: number;
+      chunkStartTime?: number;
+    }) => ipcRenderer.invoke("meeting:transcribeChunk", data),
+
+    // Stop recording and finalize session
+    stop: (data: { sessionId: string }) =>
+      ipcRenderer.invoke("meeting:stop", data),
+
+    // Generate summary prompt for AI
+    generateSummary: (data: {
+      sessionId: string;
+      transcript: string;
+      duration: number;
+      date: string;
+    }) => ipcRenderer.invoke("meeting:generateSummary", data),
+
+    // Save AI-generated summary to session
+    saveSummary: (data: {
+      sessionId: string;
+      summary: string;
+      title?: string;
+      keyPoints?: string[];
+      actionItems?: Array<{
+        id: string;
+        description: string;
+        assignee?: string;
+      }>;
+      attendees?: string[];
+      decisions?: string[];
+    }) => ipcRenderer.invoke("meeting:saveSummary", data),
+
+    // Save meeting to knowledge base
+    saveToKnowledge: (data: {
+      sessionId: string;
+      userId: string;
+      knowledgeBaseId?: string;
+    }) => ipcRenderer.invoke("meeting:saveToKnowledge", data),
+
+    // Get all meeting sessions for a user
+    getSessions: (data: { userId: string; limit?: number }) =>
+      ipcRenderer.invoke("meeting:getSessions", data),
+
+    // Get single session details
+    getSession: (data: { sessionId: string }) =>
+      ipcRenderer.invoke("meeting:getSession", data),
+
+    // Delete a meeting session
+    deleteSession: (data: { sessionId: string }) =>
+      ipcRenderer.invoke("meeting:deleteSession", data),
+
+    // Update session status
+    updateStatus: (data: {
+      sessionId: string;
+      status: "recording" | "processing" | "completed" | "failed";
+      errorMessage?: string;
+    }) => ipcRenderer.invoke("meeting:updateStatus", data),
   },
 
   // ACP (Agent Client Protocol) - External coding agents

@@ -7,6 +7,8 @@ import {
   Menu,
   nativeImage,
   ipcMain,
+  session,
+  systemPreferences,
 } from "electron";
 import path from "path";
 import log from "electron-log/main";
@@ -27,6 +29,7 @@ import { registerBrowserHandlers } from "./ipc/browser";
 import { registerDialogHandlers } from "./ipc/dialog";
 import { registerKnowledgeHandlers } from "./ipc/knowledge";
 import { registerVoiceHandlers } from "./ipc/voice";
+import { registerMeetingHandlers } from "./ipc/meeting";
 import { registerACPHandlers, cleanupACPAgents } from "./ipc/acp";
 
 // Static imports for services
@@ -77,7 +80,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false, // Security best practice
       contextIsolation: true, // Security best practice
-      sandbox: true, // Additional security
+      sandbox: false, // Disabled to allow getUserMedia/getDisplayMedia for Meeting Minutes
       webSecurity: true,
     },
   });
@@ -297,6 +300,17 @@ app.whenReady().then(async () => {
     );
   }
 
+  // Meeting handlers (recording, transcription, and summarization)
+  try {
+    registerMeetingHandlers();
+    console.log("[Main] Meeting handlers registered");
+  } catch (meetingError) {
+    log.warn(
+      "[Main] Meeting handlers not available (non-critical):",
+      meetingError instanceof Error ? meetingError.message : meetingError,
+    );
+  }
+
   // Knowledge handlers (full RAG system with document management)
   try {
     registerKnowledgeHandlers();
@@ -357,6 +371,72 @@ app.whenReady().then(async () => {
   log.info("[Main] IPC handler registration completed");
 
   createWindow();
+
+  // ============================================
+  // MEDIA PERMISSIONS - Required for Meeting Minutes
+  // ============================================
+  // Set up permission handler for media access (microphone, screen capture)
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback) => {
+      const allowedPermissions = [
+        "media",
+        "microphone",
+        "camera",
+        "display-capture",
+        "mediaKeySystem",
+      ];
+
+      if (allowedPermissions.includes(permission)) {
+        log.info(`[Main] Granting permission: ${permission}`);
+        callback(true);
+      } else {
+        log.warn(`[Main] Denying permission: ${permission}`);
+        callback(false);
+      }
+    }
+  );
+
+  // Check permission handler (for checking existing permissions)
+  session.defaultSession.setPermissionCheckHandler(
+    (webContents, permission, requestingOrigin) => {
+      const allowedPermissions = [
+        "media",
+        "microphone",
+        "camera",
+        "display-capture",
+        "mediaKeySystem",
+      ];
+      return allowedPermissions.includes(permission);
+    }
+  );
+
+  // macOS: Request microphone permission at startup if not already granted
+  if (process.platform === "darwin") {
+    const micStatus = systemPreferences.getMediaAccessStatus("microphone");
+    log.info(`[Main] Microphone access status: ${micStatus}`);
+
+    // ALWAYS try to request if not granted (even if "denied" - TCC reset might have occurred)
+    if (micStatus !== "granted") {
+      log.info("[Main] Requesting microphone access...");
+      systemPreferences
+        .askForMediaAccess("microphone")
+        .then((granted) => {
+          log.info(`[Main] Microphone access ${granted ? "granted" : "denied"}`);
+        })
+        .catch((err) => {
+          log.error("[Main] Failed to request microphone access:", err);
+        });
+    }
+
+    const screenStatus = systemPreferences.getMediaAccessStatus("screen");
+    log.info(`[Main] Screen recording access status: ${screenStatus}`);
+
+    // Note: Screen recording cannot be requested programmatically on macOS
+    // It requires user to manually enable in System Preferences
+    // We'll guide users to do this when they try to use Meeting Minutes
+  }
+
+  log.info("[Main] Media permissions configured");
 
   // Initialize system tray
   try {
