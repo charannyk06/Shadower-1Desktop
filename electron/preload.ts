@@ -1672,6 +1672,29 @@ export interface ElectronAPI {
       }) => void,
     ) => () => void;
 
+    // Auto-reconnect events
+    onAgentReconnecting: (
+      callback: (data: {
+        agentId: string;
+        attempt: number;
+        maxAttempts: number;
+      }) => void,
+    ) => () => void;
+    onAgentReconnected: (
+      callback: (data: {
+        agentId: string;
+        restoredSessions: string[];
+        totalSessions: number;
+      }) => void,
+    ) => () => void;
+    onAgentReconnectFailed: (
+      callback: (data: {
+        agentId: string;
+        reason: string;
+        retryCount: number;
+      }) => void,
+    ) => () => void;
+
     // Feature 3: Terminal events
     onTerminalCreated: (
       callback: (data: {
@@ -2955,6 +2978,44 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.removeListener("acp:session-context-updated", handler);
     },
 
+    // Auto-reconnect events
+    onAgentReconnecting: (
+      callback: (data: {
+        agentId: string;
+        attempt: number;
+        maxAttempts: number;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:agent-reconnecting", handler);
+      return () =>
+        ipcRenderer.removeListener("acp:agent-reconnecting", handler);
+    },
+    onAgentReconnected: (
+      callback: (data: {
+        agentId: string;
+        restoredSessions: string[];
+        totalSessions: number;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:agent-reconnected", handler);
+      return () =>
+        ipcRenderer.removeListener("acp:agent-reconnected", handler);
+    },
+    onAgentReconnectFailed: (
+      callback: (data: {
+        agentId: string;
+        reason: string;
+        retryCount: number;
+      }) => void,
+    ) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on("acp:agent-reconnect-failed", handler);
+      return () =>
+        ipcRenderer.removeListener("acp:agent-reconnect-failed", handler);
+    },
+
     // Feature 3: Terminal events
     onTerminalCreated: (
       callback: (data: {
@@ -3130,6 +3191,25 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on("acp:agents-updated", handler);
       return () => ipcRenderer.removeListener("acp:agents-updated", handler);
     },
+
+    // Session persistence methods
+    getPersistedSessions: (options: {
+      agentId?: string;
+      threadId?: string;
+      state?: string;
+      workingDirectory?: string;
+      limit?: number;
+    }) => ipcRenderer.invoke("acp:get-persisted-sessions", options),
+    getPersistedSession: (sessionId: string) =>
+      ipcRenderer.invoke("acp:get-persisted-session", sessionId),
+    getSessionMessages: (sessionId: string, limit?: number) =>
+      ipcRenderer.invoke("acp:get-session-messages", sessionId, limit),
+    deletePersistedSession: (sessionId: string) =>
+      ipcRenderer.invoke("acp:delete-persisted-session", sessionId),
+    updateSessionState: (sessionId: string, state: string) =>
+      ipcRenderer.invoke("acp:update-session-state", sessionId, state),
+    updateSessionTitle: (sessionId: string, title: string) =>
+      ipcRenderer.invoke("acp:update-session-title", sessionId, title),
   },
 
   // Cloud License operations (Shadower cloud authentication and license validation)
