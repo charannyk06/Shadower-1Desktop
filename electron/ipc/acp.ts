@@ -1,5 +1,29 @@
 import { ipcMain, BrowserWindow } from "electron";
 import { getACPAgentManager } from "../services/acp-agent-service";
+import {
+  getRecentSessions,
+  getSession,
+  getSessionMessages,
+  deleteSession,
+  saveSession,
+  updateSessionState,
+  updateSessionTitle,
+  updateSessionTokenCount,
+  setAutoResume,
+  getAutoResumeSession,
+  clearAutoResume,
+  deleteOldSessions,
+  getSessionStats,
+  saveMessage,
+  type PersistedSession,
+  type SessionState,
+} from "../services/session-persistence";
+import {
+  getFileWatcherService,
+  cleanupFileWatcher,
+  type FileChangeEvent,
+  type WatcherConfig,
+} from "../services/file-watcher";
 import type {
   ACPAgentStatus,
   ACPAgentCapabilities,
@@ -163,6 +187,17 @@ export function registerACPHandlers(): void {
   // Session context update event (working directory changes)
   manager.on("session-context-updated", (data) =>
     forwardToRenderer("acp:session-context-updated", data),
+  );
+
+  // Auto-reconnect events
+  manager.on("agent-reconnecting", (data) =>
+    forwardToRenderer("acp:agent-reconnecting", data),
+  );
+  manager.on("agent-reconnected", (data) =>
+    forwardToRenderer("acp:agent-reconnected", data),
+  );
+  manager.on("agent-reconnect-failed", (data) =>
+    forwardToRenderer("acp:agent-reconnect-failed", data),
   );
 
   /**
@@ -592,12 +627,317 @@ export function registerACPHandlers(): void {
       return { success: true };
     },
   );
+
+  // ============================================================================
+  // SESSION PERSISTENCE HANDLERS
+  // ============================================================================
+
+  /**
+   * Get recent/persisted sessions with optional filters
+   */
+  ipcMain.handle(
+    "acp:get-persisted-sessions",
+    async (
+      _event,
+      options: {
+        agentId?: string;
+        threadId?: string;
+        state?: SessionState;
+        workingDirectory?: string;
+        limit?: number;
+      },
+    ): Promise<PersistedSession[]> => {
+      console.log("[IPC] acp:get-persisted-sessions called", options);
+      return getRecentSessions(options);
+    },
+  );
+
+  /**
+   * Get a specific session by ID
+   */
+  ipcMain.handle(
+    "acp:get-persisted-session",
+    async (_event, sessionId: string): Promise<PersistedSession | null> => {
+      console.log("[IPC] acp:get-persisted-session called", sessionId);
+      return getSession(sessionId);
+    },
+  );
+
+  /**
+   * Get messages for a session
+   */
+  ipcMain.handle(
+    "acp:get-session-messages",
+    async (
+      _event,
+      sessionId: string,
+      limit?: number,
+    ): Promise<unknown[]> => {
+      console.log("[IPC] acp:get-session-messages called", sessionId);
+      return getSessionMessages(sessionId, limit);
+    },
+  );
+
+  /**
+   * Delete a persisted session
+   */
+  ipcMain.handle(
+    "acp:delete-persisted-session",
+    async (_event, sessionId: string): Promise<void> => {
+      console.log("[IPC] acp:delete-persisted-session called", sessionId);
+      deleteSession(sessionId);
+    },
+  );
+
+  /**
+   * Update session state
+   */
+  ipcMain.handle(
+    "acp:update-session-state",
+    async (_event, sessionId: string, state: SessionState): Promise<void> => {
+      console.log("[IPC] acp:update-session-state called", sessionId, state);
+      updateSessionState(sessionId, state);
+    },
+  );
+
+  /**
+   * Update session title
+   */
+  ipcMain.handle(
+    "acp:update-session-title",
+    async (_event, sessionId: string, title: string): Promise<void> => {
+      console.log("[IPC] acp:update-session-title called", sessionId, title);
+      updateSessionTitle(sessionId, title);
+    },
+  );
+
+  /**
+   * Save a session to persistence
+   */
+  ipcMain.handle(
+    "acp:save-session",
+    async (
+      _event,
+      data: {
+        session: { sessionId: string; agentId: string; workingDirectory: string };
+        threadId?: string;
+        title?: string;
+      },
+    ): Promise<void> => {
+      console.log("[IPC] acp:save-session called", data.session.sessionId);
+      saveSession(
+        {
+          sessionId: data.session.sessionId,
+          agentId: data.session.agentId,
+          workingDirectory: data.session.workingDirectory,
+          createdAt: new Date(),
+        } as any,
+        data.threadId,
+        data.title,
+      );
+    },
+  );
+
+  /**
+   * Save a message to a session
+   */
+  ipcMain.handle(
+    "acp:save-message",
+    async (
+      _event,
+      data: {
+        sessionId: string;
+        messageId: string;
+        role: "user" | "assistant" | "system";
+        content: unknown;
+        tokenCount?: number;
+      },
+    ): Promise<void> => {
+      saveMessage(
+        data.sessionId,
+        data.messageId,
+        data.role,
+        data.content,
+        data.tokenCount,
+      );
+    },
+  );
+
+  /**
+   * Update session token count
+   */
+  ipcMain.handle(
+    "acp:update-session-token-count",
+    async (_event, sessionId: string, tokenCount: number): Promise<void> => {
+      updateSessionTokenCount(sessionId, tokenCount);
+    },
+  );
+
+  /**
+   * Set auto-resume preference for a thread
+   */
+  ipcMain.handle(
+    "acp:set-session-auto-resume",
+    async (
+      _event,
+      data: {
+        threadId: string;
+        sessionId: string;
+        agentId: string;
+        shouldResume: boolean;
+      },
+    ): Promise<void> => {
+      setAutoResume(data.threadId, data.sessionId, data.agentId, data.shouldResume);
+    },
+  );
+
+  /**
+   * Get auto-resume session for a thread
+   */
+  ipcMain.handle(
+    "acp:get-auto-resume-session",
+    async (
+      _event,
+      threadId: string,
+    ): Promise<{ sessionId: string; agentId: string; shouldResume: boolean } | null> => {
+      return getAutoResumeSession(threadId);
+    },
+  );
+
+  /**
+   * Clear auto-resume for a thread
+   */
+  ipcMain.handle(
+    "acp:clear-auto-resume",
+    async (_event, threadId: string): Promise<void> => {
+      clearAutoResume(threadId);
+    },
+  );
+
+  /**
+   * Cleanup old sessions
+   */
+  ipcMain.handle(
+    "acp:cleanup-old-sessions",
+    async (_event, olderThanDays?: number): Promise<number> => {
+      return deleteOldSessions(olderThanDays);
+    },
+  );
+
+  /**
+   * Get session statistics
+   */
+  ipcMain.handle(
+    "acp:get-session-stats",
+    async (): Promise<{
+      total: number;
+      active: number;
+      completed: number;
+      error: number;
+    }> => {
+      return getSessionStats();
+    },
+  );
+
+  // ============================================================================
+  // FILE WATCHER HANDLERS
+  // ============================================================================
+
+  const fileWatcher = getFileWatcherService();
+
+  // Forward file watcher events to renderer
+  fileWatcher.on("change", (event: FileChangeEvent) => {
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+      try {
+        if (!win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.send("file-watcher:change", event);
+        }
+      } catch (err) {
+        console.log("[FileWatcher] Could not forward change to renderer:", err);
+      }
+    }
+  });
+
+  /**
+   * Start watching a directory
+   */
+  ipcMain.handle(
+    "file-watcher:start",
+    async (_event, config: WatcherConfig): Promise<{ success: boolean }> => {
+      console.log("[IPC] file-watcher:start called", config.directory);
+      try {
+        await fileWatcher.startWatching(config);
+        return { success: true };
+      } catch (error) {
+        console.error("[IPC] file-watcher:start error:", error);
+        throw error;
+      }
+    },
+  );
+
+  /**
+   * Stop watching a directory
+   */
+  ipcMain.handle(
+    "file-watcher:stop",
+    async (_event, directory: string): Promise<{ success: boolean }> => {
+      console.log("[IPC] file-watcher:stop called", directory);
+      await fileWatcher.stopWatching(directory);
+      return { success: true };
+    },
+  );
+
+  /**
+   * Mark a file as modified by the agent
+   */
+  ipcMain.handle(
+    "file-watcher:mark-agent-modification",
+    async (_event, filePath: string): Promise<void> => {
+      fileWatcher.markAgentModification(filePath);
+    },
+  );
+
+  /**
+   * Get watched directories
+   */
+  ipcMain.handle(
+    "file-watcher:get-watched",
+    async (): Promise<string[]> => {
+      return fileWatcher.getWatchedDirectories();
+    },
+  );
+
+  /**
+   * Check if a directory is being watched
+   */
+  ipcMain.handle(
+    "file-watcher:is-watching",
+    async (_event, directory: string): Promise<boolean> => {
+      return fileWatcher.isWatching(directory);
+    },
+  );
+
+  /**
+   * Get file watcher stats
+   */
+  ipcMain.handle(
+    "file-watcher:stats",
+    async (): Promise<{
+      watchedDirectories: number;
+      trackedFiles: number;
+      pendingChanges: number;
+    }> => {
+      return fileWatcher.getStats();
+    },
+  );
 }
 
 /**
- * Cleanup function to stop all agents on app quit
+ * Cleanup function to stop all agents and services on app quit
  */
 export async function cleanupACPAgents(): Promise<void> {
   const manager = getACPAgentManager();
   await manager.stopAllAgents();
+  await cleanupFileWatcher();
 }
