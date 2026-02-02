@@ -5,7 +5,7 @@
  */
 
 // Permission dialog
-export { PermissionDialog } from "./permission-dialog";
+export { ACPPermissionDialog } from "./permission-dialog";
 
 // Terminal panel with xterm.js integration (P0 Gap #2)
 export {
