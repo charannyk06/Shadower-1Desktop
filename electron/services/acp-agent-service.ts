@@ -76,6 +76,18 @@ function getNodePaths(): string[] {
       join(home, ".volta", "bin"),
       // pnpm
       join(home, "AppData", "Local", "pnpm"),
+      // Scoop package manager
+      join(home, "scoop", "shims"),
+      join(home, "scoop", "apps", "nodejs", "current"),
+      join(home, "scoop", "apps", "nodejs-lts", "current"),
+      // Chocolatey package manager
+      "C:\\ProgramData\\chocolatey\\bin",
+      join(process.env.ChocolateyInstall || "C:\\ProgramData\\chocolatey", "bin"),
+      // winget installed apps
+      join(home, "AppData", "Local", "Microsoft", "WinGet", "Packages"),
+      // Git for Windows (often includes node tools)
+      "C:\\Program Files\\Git\\cmd",
+      "C:\\Program Files\\Git\\bin",
     );
   } else {
     // Unix-like systems (macOS, Linux)
@@ -110,6 +122,31 @@ function getNodePaths(): string[] {
         "/opt/local/bin",
         // macOS default Node.js from pkg installer
         "/usr/local/lib/node_modules/.bin",
+        // asdf version manager
+        join(home, ".asdf", "shims"),
+        // mise (formerly rtx) version manager
+        join(home, ".local", "share", "mise", "shims"),
+      );
+    }
+
+    // Linux specific
+    if (process.platform === "linux") {
+      paths.push(
+        // Snap packages
+        "/snap/bin",
+        "/var/lib/snapd/snap/bin",
+        // Flatpak
+        join(home, ".local", "share", "flatpak", "exports", "bin"),
+        "/var/lib/flatpak/exports/bin",
+        // asdf version manager
+        join(home, ".asdf", "shims"),
+        // mise (formerly rtx) version manager
+        join(home, ".local", "share", "mise", "shims"),
+        // n (node version manager)
+        join(home, "n", "bin"),
+        // Linuxbrew
+        join(home, ".linuxbrew", "bin"),
+        "/home/linuxbrew/.linuxbrew/bin",
       );
     }
   }
@@ -481,8 +518,151 @@ export class ACPAgentManager extends EventEmitter {
   /** Callback for polling updates */
   private pollingCallback: ((agents: ACPAgentStatus[]) => void) | null = null;
 
+  // ============================================================================
+  // AUTO-RECONNECT / ERROR RECOVERY
+  // ============================================================================
+  
+  /** Track crashed sessions for auto-restart: agentId → { sessionIds, workingDirectory, retryCount } */
+  private crashedSessions: Map<string, {
+    sessions: Map<string, { workingDirectory: string; threadId?: string }>;
+    retryCount: number;
+    lastCrash: number;
+  }> = new Map();
+  
+  /** Maximum retry attempts for auto-reconnect */
+  private readonly MAX_RECONNECT_RETRIES = 3;
+  
+  /** Minimum delay between reconnect attempts (ms) */
+  private readonly RECONNECT_DELAY_MS = 2000;
+  
+  /** Auto-reconnect enabled flag */
+  private autoReconnectEnabled = true;
+
   constructor() {
     super();
+  }
+
+  /**
+   * Enable or disable auto-reconnect for crashed agents
+   */
+  setAutoReconnect(enabled: boolean): void {
+    this.autoReconnectEnabled = enabled;
+    console.log(`[ACP] Auto-reconnect ${enabled ? "enabled" : "disabled"}`);
+  }
+
+  /**
+   * Attempt to reconnect a crashed agent and restore sessions
+   */
+  private async _attemptReconnect(agentId: string): Promise<boolean> {
+    if (!this.autoReconnectEnabled) {
+      console.log(`[ACP] Auto-reconnect disabled, not reconnecting ${agentId}`);
+      return false;
+    }
+
+    const crashInfo = this.crashedSessions.get(agentId);
+    if (!crashInfo) {
+      console.log(`[ACP] No crash info for ${agentId}, cannot reconnect`);
+      return false;
+    }
+
+    if (crashInfo.retryCount >= this.MAX_RECONNECT_RETRIES) {
+      console.error(`[ACP] Max reconnect retries (${this.MAX_RECONNECT_RETRIES}) reached for ${agentId}`);
+      this.emit("agent-reconnect-failed", {
+        agentId,
+        reason: "max_retries_exceeded",
+        retryCount: crashInfo.retryCount,
+      });
+      return false;
+    }
+
+    // Check if enough time has passed since last crash (exponential backoff)
+    const backoffDelay = this.RECONNECT_DELAY_MS * Math.pow(2, crashInfo.retryCount);
+    const timeSinceCrash = Date.now() - crashInfo.lastCrash;
+    if (timeSinceCrash < backoffDelay) {
+      console.log(`[ACP] Waiting for backoff (${backoffDelay - timeSinceCrash}ms remaining)`);
+      setTimeout(() => this._attemptReconnect(agentId), backoffDelay - timeSinceCrash);
+      return false;
+    }
+
+    crashInfo.retryCount++;
+    console.log(`[ACP] Attempting reconnect for ${agentId} (attempt ${crashInfo.retryCount}/${this.MAX_RECONNECT_RETRIES})`);
+
+    this.emit("agent-reconnecting", {
+      agentId,
+      attempt: crashInfo.retryCount,
+      maxAttempts: this.MAX_RECONNECT_RETRIES,
+    });
+
+    try {
+      // Restart the agent
+      await this.startAgent(agentId);
+
+      // Try to resume sessions
+      const restoredSessions: string[] = [];
+      for (const [sessionId, sessionInfo] of crashInfo.sessions) {
+        try {
+          // Try to resume the session
+          const activeAgent = this.agents.get(agentId);
+          if (activeAgent?.capabilities.sessionResume) {
+            await this.resumeSession(agentId, sessionId, sessionInfo.workingDirectory);
+            restoredSessions.push(sessionId);
+          } else if (activeAgent?.capabilities.loadSession) {
+            await this.loadSession(agentId, sessionId, sessionInfo.workingDirectory);
+            restoredSessions.push(sessionId);
+          }
+        } catch (sessionError) {
+          console.warn(`[ACP] Failed to restore session ${sessionId}:`, sessionError);
+        }
+      }
+
+      console.log(`[ACP] Successfully reconnected ${agentId}, restored ${restoredSessions.length}/${crashInfo.sessions.size} sessions`);
+      
+      this.emit("agent-reconnected", {
+        agentId,
+        restoredSessions,
+        totalSessions: crashInfo.sessions.size,
+      });
+
+      // Clear crash info on success
+      this.crashedSessions.delete(agentId);
+      return true;
+
+    } catch (error) {
+      console.error(`[ACP] Reconnect attempt ${crashInfo.retryCount} failed for ${agentId}:`, error);
+      crashInfo.lastCrash = Date.now();
+      
+      // Schedule another attempt with backoff
+      if (crashInfo.retryCount < this.MAX_RECONNECT_RETRIES) {
+        const nextDelay = this.RECONNECT_DELAY_MS * Math.pow(2, crashInfo.retryCount);
+        console.log(`[ACP] Scheduling retry in ${nextDelay}ms`);
+        setTimeout(() => this._attemptReconnect(agentId), nextDelay);
+      }
+      
+      return false;
+    }
+  }
+
+  /**
+   * Track a crashed agent for potential auto-reconnect
+   */
+  private _trackCrashedAgent(agentId: string, sessions: Map<string, ACPSession>): void {
+    const sessionInfo = new Map<string, { workingDirectory: string; threadId?: string }>();
+    
+    for (const [sessionId, session] of sessions) {
+      sessionInfo.set(sessionId, {
+        workingDirectory: session.workingDirectory,
+        threadId: this.sessionThreadMap.get(sessionId),
+      });
+    }
+
+    const existing = this.crashedSessions.get(agentId);
+    this.crashedSessions.set(agentId, {
+      sessions: sessionInfo,
+      retryCount: existing?.retryCount ?? 0,
+      lastCrash: Date.now(),
+    });
+
+    console.log(`[ACP] Tracked crashed agent ${agentId} with ${sessionInfo.size} sessions for auto-reconnect`);
   }
 
   /**
@@ -1137,21 +1317,64 @@ export class ACPAgentManager extends EventEmitter {
     // On Windows, .cmd files need special handling
     const isWindows = process.platform === "win32";
     const isCmdFile = resolvedCommand.endsWith(".cmd");
+    const isPs1File = resolvedCommand.endsWith(".ps1");
 
     let agentProcess: ChildProcess;
 
-    if (isWindows && isCmdFile) {
-      // For .cmd files on Windows, use cmd.exe /c with proper quoting
-      // This handles paths with spaces correctly
-      const cmdArgs = ["/c", `"${resolvedCommand}"`, ...config.args];
-      console.log(`[ACP] Windows cmd spawn: cmd.exe ${cmdArgs.join(" ")}`);
-      agentProcess = spawn("cmd.exe", cmdArgs, {
+    if (isWindows && isPs1File) {
+      // For PowerShell scripts, use pwsh (PowerShell Core) or powershell
+      const psArgs = [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy", "Bypass",
+        "-File", resolvedCommand,
+        ...config.args
+      ];
+      // Prefer PowerShell Core (pwsh) if available, fall back to Windows PowerShell
+      const psCommand = existsSync("C:\\Program Files\\PowerShell\\7\\pwsh.exe") 
+        ? "C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+        : "powershell.exe";
+      console.log(`[ACP] Windows PowerShell spawn: ${psCommand} ${psArgs.join(" ")}`);
+      agentProcess = spawn(psCommand, psArgs, {
         stdio: ["pipe", "pipe", "pipe"],
         env: enhancedEnv,
-        windowsVerbatimArguments: true,
+        windowsHide: true,
+      });
+    } else if (isWindows && isCmdFile) {
+      // For .cmd files on Windows, try cmd.exe first, fall back to PowerShell
+      const cmdArgs = ["/c", `"${resolvedCommand}"`, ...config.args];
+      console.log(`[ACP] Windows cmd spawn: cmd.exe ${cmdArgs.join(" ")}`);
+      try {
+        agentProcess = spawn("cmd.exe", cmdArgs, {
+          stdio: ["pipe", "pipe", "pipe"],
+          env: enhancedEnv,
+          windowsVerbatimArguments: true,
+          windowsHide: true,
+        });
+      } catch (cmdError) {
+        // Fall back to PowerShell if cmd.exe fails
+        console.warn(`[ACP] cmd.exe failed, falling back to PowerShell:`, cmdError);
+        const psArgs = [
+          "-NoProfile",
+          "-NonInteractive", 
+          "-Command",
+          `& "${resolvedCommand}" ${config.args.map(a => `"${a}"`).join(" ")}`
+        ];
+        agentProcess = spawn("powershell.exe", psArgs, {
+          stdio: ["pipe", "pipe", "pipe"],
+          env: enhancedEnv,
+          windowsHide: true,
+        });
+      }
+    } else if (isWindows) {
+      // For .exe or other executables on Windows
+      agentProcess = spawn(resolvedCommand, config.args, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: enhancedEnv,
+        windowsHide: true,
       });
     } else {
-      // For non-.cmd files or non-Windows, spawn directly
+      // For non-Windows (macOS, Linux), spawn directly
       agentProcess = spawn(resolvedCommand, config.args, {
         stdio: ["pipe", "pipe", "pipe"],
         env: enhancedEnv,
@@ -1185,12 +1408,26 @@ export class ACPAgentManager extends EventEmitter {
       if (stderrBuffer) {
         console.error(`[ACP] Stderr output:\n${stderrBuffer}`);
       }
+      
+      // Check if this was an unexpected crash (non-zero exit, signal, or has active sessions)
+      const activeAgent = this.agents.get(config.id);
+      const wasUnexpectedCrash = (code !== 0 || signal !== null) && 
+        activeAgent && activeAgent.sessions.size > 0;
+      
+      if (wasUnexpectedCrash) {
+        // Track for auto-reconnect before cleanup
+        this._trackCrashedAgent(config.id, activeAgent.sessions);
+      }
+      
       this.emit("agent-exit", {
         agentId: config.id,
         code,
         signal,
         stderr: stderrBuffer,
+        wasUnexpectedCrash,
+        willAttemptReconnect: wasUnexpectedCrash && this.autoReconnectEnabled,
       });
+      
       this._cleanupAgent(config.id);
 
       // Create a more informative error message
@@ -1199,6 +1436,12 @@ export class ACPAgentManager extends EventEmitter {
         errorMsg = `${exitMsg}\n\nError details:\n${stderrBuffer.trim()}`;
       }
       earlyExitReject(new Error(errorMsg));
+      
+      // Attempt auto-reconnect if this was an unexpected crash
+      if (wasUnexpectedCrash && this.autoReconnectEnabled) {
+        console.log(`[ACP] Scheduling auto-reconnect for crashed agent ${config.id}`);
+        setTimeout(() => this._attemptReconnect(config.id), this.RECONNECT_DELAY_MS);
+      }
     });
 
     // Collect stderr for error reporting
