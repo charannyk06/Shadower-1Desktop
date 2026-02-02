@@ -1822,6 +1822,50 @@ export interface ElectronAPI {
         timestamp: number;
       }) => void,
     ) => () => void;
+
+    // Session persistence methods
+    getPersistedSessions: (options: {
+      agentId?: string;
+      threadId?: string;
+      state?: string;
+      workingDirectory?: string;
+      limit?: number;
+    }) => Promise<Array<{
+      id: number;
+      sessionId: string;
+      agentId: string;
+      workingDirectory: string;
+      threadId: string | null;
+      title: string | null;
+      state: string;
+      currentMode: string | null;
+      createdAt: number;
+      updatedAt: number;
+      lastMessageAt: number | null;
+      messageCount: number;
+      tokenCount: number | null;
+      metadata: string | null;
+    }>>;
+    getPersistedSession: (sessionId: string) => Promise<{
+      id: number;
+      sessionId: string;
+      agentId: string;
+      workingDirectory: string;
+      threadId: string | null;
+      title: string | null;
+      state: string;
+      currentMode: string | null;
+      createdAt: number;
+      updatedAt: number;
+      lastMessageAt: number | null;
+      messageCount: number;
+      tokenCount: number | null;
+      metadata: string | null;
+    } | null>;
+    getSessionMessages: (sessionId: string, limit?: number) => Promise<unknown[]>;
+    deletePersistedSession: (sessionId: string) => Promise<void>;
+    updateSessionState: (sessionId: string, state: string) => Promise<void>;
+    updateSessionTitle: (sessionId: string, title: string) => Promise<void>;
   };
 
   // Cloud License operations (Shadower cloud authentication and license validation)
