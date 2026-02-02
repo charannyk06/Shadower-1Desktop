@@ -26,8 +26,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
-import { Progress } from "@/components/ui/progress";
-import { AlertTriangle, Info, Zap, MessageSquare, Settings, Wrench } from "lucide-react";
+import { AlertTriangle, Zap, MessageSquare, Settings, Wrench } from "lucide-react";
 
 // Default context window sizes for different agents/models
 const MODEL_CONTEXT_SIZES: Record<string, number> = {
@@ -159,14 +158,10 @@ export function ContextIndicator({
   // Calculate remaining tokens
   const remaining = Math.max(0, contextSize - tokenCount);
   
-  // Breakdown totals
-  const breakdownTotal = breakdown
-    ? (breakdown.system || 0) +
-      (breakdown.messages || 0) +
-      (breakdown.tools || 0) +
-      (breakdown.files || 0) +
-      (breakdown.other || 0)
-    : tokenCount;
+  // Breakdown totals (unused, but computed for potential future use)
+  // const _breakdownTotal = breakdown
+  //   ? (breakdown.system || 0) + (breakdown.messages || 0) + (breakdown.tools || 0) + (breakdown.files || 0) + (breakdown.other || 0)
+  //   : tokenCount;
   
   // Compact mode - just progress bar
   if (compact) {

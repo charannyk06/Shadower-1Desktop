@@ -159,7 +159,8 @@ export class FileWatcherService extends EventEmitter {
    * Start watching a directory
    */
   async startWatching(config: WatcherConfig): Promise<void> {
-    const { directory, _sessionId, _threadId, ignorePatterns = [], recursive = true, debounceMs = 300, trackHashes = true } = config;
+    const { directory, ignorePatterns = [], recursive = true, debounceMs = 300, trackHashes = true } = config;
+    // sessionId and threadId from config are available but not used in this implementation yet
     
     // Check if already watching
     if (this.watchers.has(directory)) {
@@ -283,7 +284,7 @@ export class FileWatcherService extends EventEmitter {
     type: FileChangeEvent["type"],
     activeWatcher: ActiveWatcher
   ): Promise<void> {
-    const { config, fileHashes, pendingChanges, debounceTimer } = activeWatcher;
+    const { config, fileHashes, pendingChanges, debounceTimer: _debounceTimer } = activeWatcher;
     
     // Check if this is an agent modification
     const isExternal = !this.isAgentModification(filePath);

@@ -15,7 +15,7 @@
 "use client";
 
 import  { useState, useEffect, useCallback } from "react";
-import { formatDistanceToNow, format } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogFooter,
+  
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -128,7 +128,7 @@ function SessionCard({
   onDelete?: () => void;
 }) {
   const updatedAt = new Date(session.updatedAt);
-  const createdAt = new Date(session.createdAt);
+  // const _createdAt = new Date(session.createdAt);
   
   return (
     <div className="p-4 border rounded-lg hover:bg-accent/50 transition-colors">
