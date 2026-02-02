@@ -16,7 +16,7 @@ import { watch, FSWatcher } from "chokidar";
 import { createHash } from "crypto";
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
-import { join, relative, basename, extname } from "path";
+import { relative, basename, extname } from "path";
 import { EventEmitter } from "events";
 import { BrowserWindow } from "electron";
 
@@ -159,7 +159,7 @@ export class FileWatcherService extends EventEmitter {
    * Start watching a directory
    */
   async startWatching(config: WatcherConfig): Promise<void> {
-    const { directory, sessionId, threadId, ignorePatterns = [], recursive = true, debounceMs = 300, trackHashes = true } = config;
+    const { directory, _sessionId, _threadId, ignorePatterns = [], recursive = true, debounceMs = 300, trackHashes = true } = config;
     
     // Check if already watching
     if (this.watchers.has(directory)) {
