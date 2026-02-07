@@ -39,6 +39,7 @@ import {
   getAgentConfig,
   getAgentNpxConfig,
 } from "./acp-agents";
+import { getStoredPermission } from "./session-persistence";
 
 const execAsync = promisify(exec);
 
@@ -423,6 +424,101 @@ const DETECTION_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
 const DETECTION_POLLING_INTERVAL_MS = 30 * 1000; // 30 seconds default polling interval
 
 // ============================================================================
+// MCP SERVER VALIDATION
+// ============================================================================
+
+interface MCPServerConfig {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+interface MCPValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Validate MCP server configurations before passing to agent
+ */
+function validateMCPServers(
+  mcpServers: MCPServerConfig[] | undefined
+): MCPValidationResult {
+  const result: MCPValidationResult = {
+    valid: true,
+    errors: [],
+    warnings: [],
+  };
+
+  if (!mcpServers || mcpServers.length === 0) {
+    return result;
+  }
+
+  for (const server of mcpServers) {
+    // Validate name
+    if (!server.name || server.name.trim() === "") {
+      result.errors.push("MCP server missing name");
+      result.valid = false;
+      continue;
+    }
+
+    // Validate command
+    if (!server.command || server.command.trim() === "") {
+      result.errors.push(`MCP server "${server.name}" missing command`);
+      result.valid = false;
+      continue;
+    }
+
+    // Validate args are strings
+    if (server.args) {
+      if (!Array.isArray(server.args)) {
+        result.errors.push(`MCP server "${server.name}": args must be an array`);
+        result.valid = false;
+      } else if (server.args.some((a) => typeof a !== "string")) {
+        result.errors.push(
+          `MCP server "${server.name}": all args must be strings`
+        );
+        result.valid = false;
+      }
+    }
+
+    // Validate env is object with string values
+    if (server.env) {
+      if (typeof server.env !== "object" || Array.isArray(server.env)) {
+        result.errors.push(
+          `MCP server "${server.name}": env must be an object`
+        );
+        result.valid = false;
+      } else {
+        for (const [key, value] of Object.entries(server.env)) {
+          if (typeof value !== "string") {
+            result.errors.push(
+              `MCP server "${server.name}": env.${key} must be a string`
+            );
+            result.valid = false;
+          }
+        }
+      }
+    }
+
+    // Warning for common command issues
+    if (
+      server.command.includes(" ") &&
+      !server.command.startsWith('"') &&
+      !server.command.startsWith("'")
+    ) {
+      result.warnings.push(
+        `MCP server "${server.name}": command contains spaces but isn't quoted`
+      );
+    }
+  }
+
+  return result;
+}
+
+// ============================================================================
 // AGENTIC LOOP CONFIGURATION (Following Zed's patterns)
 // ============================================================================
 const MAX_RETRY_ATTEMPTS = 4;
@@ -451,6 +547,10 @@ interface AgenticLoopState {
   cancelled: boolean;
   /** Timeout ID for tool completion - prevents stuck state */
   toolTimeoutId?: ReturnType<typeof setTimeout>;
+  /** Flag indicating prompt returned with tool_use and is waiting for tools to complete */
+  waitingForToolCompletion: boolean;
+  /** Debounce timer for auto-resume to handle rapid tool completions */
+  resumeDebounceId?: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -477,6 +577,14 @@ interface PendingPermission {
   request: ACPPermissionRequest;
   resolve: (response: RequestPermissionResponse) => void;
   reject: (error: Error) => void;
+  /** Extra metadata for permission persistence */
+  metadata: {
+    agentId: string;
+    permissionType: string;
+    toolName?: string;
+    filePath?: string;
+    options: Array<{ id: string; grants?: boolean }>;
+  };
 }
 
 /**
@@ -537,6 +645,15 @@ export class ACPAgentManager extends EventEmitter {
   
   /** Auto-reconnect enabled flag */
   private autoReconnectEnabled = true;
+
+  /** Active terminal sessions for agents */
+  private _terminals: Map<string, {
+    id: string;
+    process: ChildProcess;
+    cwd: string;
+    sessionId?: string;
+    agentId: string;
+  }> = new Map();
 
   constructor() {
     super();
@@ -1837,6 +1954,34 @@ export class ACPAgentManager extends EventEmitter {
       requestPermission: async (
         params: RequestPermissionRequest,
       ): Promise<RequestPermissionResponse> => {
+        const permissionType = this._mapToolKindToPermissionType(
+          params.toolCall?.kind
+        );
+        const toolName = params.toolCall?.title;
+        // Extract file path from toolCall if available (type assertion needed as location is optional)
+        const toolCallWithLocation = params.toolCall as { location?: { path?: string } } | undefined;
+        const filePath = toolCallWithLocation?.location?.path;
+
+        // Check for stored permission (auto-approval)
+        const storedPermission = getStoredPermission(
+          agentId,
+          permissionType,
+          toolName,
+          filePath
+        );
+
+        if (storedPermission && storedPermission.granted) {
+          console.log(
+            `[ACP] Auto-approving stored permission for ${agentId}: ${permissionType}`
+          );
+          return {
+            outcome: {
+              outcome: "selected",
+              optionId: storedPermission.optionId,
+            },
+          };
+        }
+
         const requestId = crypto.randomUUID();
 
         // Convert SDK PermissionOption to our format
@@ -1845,9 +1990,7 @@ export class ACPAgentManager extends EventEmitter {
           requestId,
           agentId,
           sessionId: params.sessionId,
-          permissionType: this._mapToolKindToPermissionType(
-            params.toolCall?.kind,
-          ),
+          permissionType,
           toolCallId: params.toolCall?.toolCallId,
           description: params.toolCall?.title || "Permission requested",
           options: params.options.map((opt) => ({
@@ -1866,6 +2009,17 @@ export class ACPAgentManager extends EventEmitter {
             request: permissionRequest,
             resolve,
             reject,
+            // Store metadata for permission persistence
+            metadata: {
+              agentId,
+              permissionType,
+              toolName,
+              filePath,
+              options: permissionRequest.options.map((o) => ({
+                id: o.id,
+                grants: o.grants,
+              })),
+            },
           });
 
           // Timeout after 3 minutes (reduced from 5 for better UX)
@@ -1966,9 +2120,104 @@ export class ACPAgentManager extends EventEmitter {
         }
       },
 
-      // Terminal operations (optional - agent handles its own)
-      createTerminal: async (_params) => {
-        throw new Error("Terminal operations handled by agent");
+      // Terminal operations - spawn shell process and stream output
+      createTerminal: async (params: {
+        terminalId?: string;
+        cwd?: string;
+        label?: string;
+        sessionId?: string;
+      }) => {
+        console.log(`[ACP] createTerminal request:`, params);
+
+        // Generate terminal ID if not provided
+        const terminalId = params.terminalId || crypto.randomUUID();
+        const cwd = params.cwd || session?.workingDirectory || process.cwd();
+
+        try {
+          // Use platform-specific shell
+          const shell =
+            process.platform === "win32"
+              ? process.env.COMSPEC || "cmd.exe"
+              : process.env.SHELL || "/bin/sh";
+
+          const shellArgs =
+            process.platform === "win32" ? [] : ["-i"]; // Interactive mode on Unix
+
+          const terminalProcess = spawn(shell, shellArgs, {
+            cwd,
+            env: { ...process.env, TERM: "xterm-256color" },
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+
+          // Store terminal in tracking map
+          const terminalInfo = {
+            id: terminalId,
+            process: terminalProcess,
+            cwd,
+            sessionId: params.sessionId,
+            agentId: config.id,
+          };
+          this._terminals.set(terminalId, terminalInfo);
+
+          // Stream stdout
+          terminalProcess.stdout?.on("data", (data: Buffer) => {
+            this.emit("terminal-output", {
+              agentId: config.id,
+              sessionId: params.sessionId,
+              terminalId,
+              data: data.toString(),
+            });
+          });
+
+          // Stream stderr
+          terminalProcess.stderr?.on("data", (data: Buffer) => {
+            this.emit("terminal-output", {
+              agentId: config.id,
+              sessionId: params.sessionId,
+              terminalId,
+              data: data.toString(),
+            });
+          });
+
+          // Handle exit
+          terminalProcess.on("exit", (code, signal) => {
+            this.emit("terminal-exit", {
+              agentId: config.id,
+              sessionId: params.sessionId,
+              terminalId,
+              exitCode: code ?? undefined,
+              signal: signal ?? undefined,
+            });
+            this._terminals.delete(terminalId);
+          });
+
+          // Handle errors
+          terminalProcess.on("error", (err) => {
+            console.error(`[ACP] Terminal ${terminalId} error:`, err);
+            this.emit("terminal-exit", {
+              agentId: config.id,
+              sessionId: params.sessionId,
+              terminalId,
+              exitCode: 1,
+            });
+            this._terminals.delete(terminalId);
+          });
+
+          // Emit terminal created event
+          this.emit("terminal-created", {
+            agentId: config.id,
+            sessionId: params.sessionId,
+            terminalId,
+            cwd,
+            label: params.label,
+          });
+
+          console.log(`[ACP] Terminal ${terminalId} created successfully`);
+          return { terminalId };
+        } catch (error) {
+          console.error(`[ACP] Failed to create terminal:`, error);
+          throw error;
+        }
       },
     };
   }
@@ -2389,6 +2638,24 @@ export class ACPAgentManager extends EventEmitter {
   }
 
   /**
+   * Get permission request details for persistence
+   * Returns metadata about the permission request before it's resolved
+   */
+  getPermissionRequestDetails(requestId: string): {
+    agentId: string;
+    permissionType: string;
+    toolName?: string;
+    filePath?: string;
+    options: Array<{ id: string; grants?: boolean }>;
+  } | null {
+    const pending = this.pendingPermissions.get(requestId);
+    if (!pending) {
+      return null;
+    }
+    return pending.metadata;
+  }
+
+  /**
    * Respond to a permission request
    */
   respondToPermission(requestId: string, optionId: string): void {
@@ -2434,6 +2701,19 @@ export class ACPAgentManager extends EventEmitter {
       // Try to start the agent first
       await this.startAgent(agentId);
       return this.createSession(agentId, workingDirectory, mcpServers, threadId);
+    }
+
+    // Validate MCP servers before creating session
+    const validation = validateMCPServers(mcpServers);
+    if (!validation.valid) {
+      const errorMsg = `Invalid MCP server configuration:\n${validation.errors.join("\n")}`;
+      console.error(`[ACP] ${errorMsg}`);
+      throw new Error(errorMsg);
+    }
+    if (validation.warnings.length > 0) {
+      console.warn(
+        `[ACP] MCP server warnings:\n${validation.warnings.join("\n")}`
+      );
     }
 
     try {
@@ -2739,6 +3019,7 @@ export class ACPAgentManager extends EventEmitter {
         lastStopReason: null,
         retryCount: 0,
         cancelled: false,
+        waitingForToolCompletion: false, // Used to fix race condition between tool completion and stop reason
       };
       activeAgent.agenticLoopStates.set(sessionId, state);
     }
@@ -2765,6 +3046,8 @@ export class ACPAgentManager extends EventEmitter {
 
   /**
    * Mark a tool call as completed
+   * Uses waitingForToolCompletion flag to fix race condition where tools complete
+   * before the stop_reason is set from the prompt response
    */
   private completeToolCall(
     agentId: string,
@@ -2780,14 +3063,20 @@ export class ACPAgentManager extends EventEmitter {
       `[ACP] Completed tool ${toolCallId} for session ${sessionId}, pending: ${state.pendingTools.size}`,
     );
 
+    // Clear any existing debounce timer
+    if (state.resumeDebounceId) {
+      clearTimeout(state.resumeDebounceId);
+      state.resumeDebounceId = undefined;
+    }
+
     // Check if we should auto-resume
-    // Use the helper function to check for tool_use stop reason (handles case variations)
+    // Uses waitingForToolCompletion flag instead of checking lastStopReason
+    // This fixes the race condition where tools complete before stop_reason is set
     if (
       state.active &&
       state.autoResume &&
       state.pendingTools.size === 0 &&
-      (state.lastStopReason === "tool_use" ||
-        isToolUseStopReason(state.lastStopReason)) &&
+      state.waitingForToolCompletion &&
       !state.cancelled
     ) {
       // Clear the tool completion timeout since all tools finished
@@ -2796,10 +3085,23 @@ export class ACPAgentManager extends EventEmitter {
         state.toolTimeoutId = undefined;
       }
 
-      console.log(
-        `[ACP] All tools complete, auto-resuming session ${sessionId}`,
-      );
-      this._autoResumeSession(agentId, sessionId);
+      // Debounce to handle rapid tool completions (50ms)
+      state.resumeDebounceId = setTimeout(() => {
+        // Double-check state hasn't changed during debounce
+        if (
+          state.active &&
+          state.autoResume &&
+          state.pendingTools.size === 0 &&
+          state.waitingForToolCompletion &&
+          !state.cancelled
+        ) {
+          console.log(
+            `[ACP] All tools complete, auto-resuming session ${sessionId}`,
+          );
+          state.waitingForToolCompletion = false; // Reset flag before resuming
+          this._autoResumeSession(agentId, sessionId);
+        }
+      }, 50);
     }
   }
 
@@ -3111,6 +3413,11 @@ export class ACPAgentManager extends EventEmitter {
       loopState.retryCount = 0;
       loopState.cancelled = false;
       loopState.pendingTools.clear();
+      loopState.waitingForToolCompletion = false;
+      if (loopState.resumeDebounceId) {
+        clearTimeout(loopState.resumeDebounceId);
+        loopState.resumeDebounceId = undefined;
+      }
     }
 
     // Start the agentic loop
@@ -3232,6 +3539,10 @@ export class ACPAgentManager extends EventEmitter {
           `[ACP] Received tool_use stop reason for session ${actualSessionId}, pending tools: ${loopState.pendingTools.size}`,
         );
 
+        // Set the waitingForToolCompletion flag - this fixes race condition where
+        // tools may complete before this code runs
+        loopState.waitingForToolCompletion = true;
+
         if (loopState.pendingTools.size > 0 && loopState.autoResume) {
           // We have pending tools and auto-resume is enabled - wait for tools to complete
           console.log(
@@ -3249,6 +3560,7 @@ export class ACPAgentManager extends EventEmitter {
                 `[ACP] Tool completion timeout for session ${actualSessionId}, pending tools: ${Array.from(loopState.pendingTools).join(", ")}`,
               );
               loopState.active = false;
+              loopState.waitingForToolCompletion = false;
               loopState.pendingTools.clear();
               this.emit("message-chunk", {
                 sessionId: actualSessionId,
@@ -3264,10 +3576,12 @@ export class ACPAgentManager extends EventEmitter {
 
           // Don't emit done - completeToolCall will trigger auto-resume when all tools finish
         } else if (loopState.autoResume && loopState.pendingTools.size === 0) {
-          // No pending tools but auto-resume is on - try to auto-resume
+          // No pending tools but auto-resume is on - tools already completed before stop_reason
+          // Auto-resume immediately
           console.log(
-            `[ACP] No pending tools detected, auto-resuming immediately`,
+            `[ACP] No pending tools detected (already completed), auto-resuming immediately`,
           );
+          loopState.waitingForToolCompletion = false; // Reset since we're resuming now
           setTimeout(
             () => this._autoResumeSession(agentId, actualSessionId),
             AGENTIC_LOOP_DELAY_MS,
@@ -3278,6 +3592,7 @@ export class ACPAgentManager extends EventEmitter {
             `[ACP] Auto-resume disabled or unexpected state - emitting done to prevent stuck chat`,
           );
           loopState.active = false;
+          loopState.waitingForToolCompletion = false; // Reset flag
           this.emit("message-chunk", {
             sessionId: actualSessionId,
             agentId,
@@ -3459,6 +3774,18 @@ export class ACPAgentManager extends EventEmitter {
   private _cleanupAgent(agentId: string): void {
     const activeAgent = this.agents.get(agentId);
     if (activeAgent) {
+      // Clean up terminals associated with this agent
+      for (const [termId, terminal] of this._terminals.entries()) {
+        if (terminal.agentId === agentId) {
+          try {
+            terminal.process.kill();
+          } catch (err) {
+            console.warn(`[ACP] Failed to kill terminal ${termId}:`, err);
+          }
+          this._terminals.delete(termId);
+        }
+      }
+
       // Clean up sessionThreadMap entries before clearing sessions
       for (const sessionId of activeAgent.sessions.keys()) {
         this.sessionThreadMap.delete(sessionId);
