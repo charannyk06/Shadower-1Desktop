@@ -16,7 +16,6 @@ import {
   getSessionStats,
   saveMessage,
   storePermission,
-  getStoredPermission,
   type PersistedSession,
   type SessionState,
 } from "../services/session-persistence";
@@ -565,7 +564,7 @@ export function registerACPHandlers(): void {
   function safeParseMessageContent(content: string): unknown {
     try {
       return JSON.parse(content);
-    } catch (error) {
+    } catch (_error) {
       console.warn(`[IPC] Failed to parse message content as JSON, using raw string`);
       return content;
     }
