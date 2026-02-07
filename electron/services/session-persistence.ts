@@ -140,13 +140,32 @@ function initializeDatabase(): Database.Database {
       session_id TEXT NOT NULL,
       agent_id TEXT NOT NULL,
       should_resume INTEGER DEFAULT 1,
-      
+
       FOREIGN KEY (session_id) REFERENCES acp_sessions(session_id) ON DELETE CASCADE
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_auto_resume_thread ON acp_auto_resume(thread_id);
   `);
-  
+
+  // Create stored permissions table for global permission persistence
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS acp_stored_permissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      permission_type TEXT NOT NULL,
+      tool_name TEXT,
+      file_pattern TEXT,
+      option_id TEXT NOT NULL,
+      granted INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+
+      UNIQUE(agent_id, permission_type, tool_name, file_pattern)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_permissions_agent ON acp_stored_permissions(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_permissions_type ON acp_stored_permissions(permission_type);
+  `);
+
   console.log("[SessionPersistence] Database initialized successfully");
   return db;
 }
@@ -547,6 +566,166 @@ export function getSessionStats(): {
   };
   
   return result;
+}
+
+// ============================================================================
+// PERMISSION PERSISTENCE
+// ============================================================================
+
+/**
+ * Stored permission data
+ */
+export interface StoredPermission {
+  id: number;
+  agentId: string;
+  permissionType: string;
+  toolName: string | null;
+  filePattern: string | null;
+  optionId: string;
+  granted: boolean;
+  createdAt: number;
+}
+
+/**
+ * Store a permission decision for future auto-approval
+ */
+export function storePermission(
+  agentId: string,
+  permissionType: string,
+  optionId: string,
+  granted: boolean,
+  toolName?: string,
+  filePattern?: string
+): void {
+  const database = getDatabase();
+
+  const stmt = database.prepare(`
+    INSERT INTO acp_stored_permissions (
+      agent_id, permission_type, tool_name, file_pattern,
+      option_id, granted, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(agent_id, permission_type, tool_name, file_pattern)
+    DO UPDATE SET
+      option_id = excluded.option_id,
+      granted = excluded.granted,
+      created_at = excluded.created_at
+  `);
+
+  stmt.run(
+    agentId,
+    permissionType,
+    toolName || null,
+    filePattern || null,
+    optionId,
+    granted ? 1 : 0,
+    Date.now()
+  );
+
+  console.log(
+    `[SessionPersistence] Stored permission for ${agentId}: ${permissionType} -> ${granted ? "granted" : "denied"}`
+  );
+}
+
+/**
+ * Get a stored permission for auto-approval
+ */
+export function getStoredPermission(
+  agentId: string,
+  permissionType: string,
+  toolName?: string,
+  filePattern?: string
+): StoredPermission | null {
+  const database = getDatabase();
+
+  const stmt = database.prepare(`
+    SELECT
+      id, agent_id as agentId, permission_type as permissionType,
+      tool_name as toolName, file_pattern as filePattern,
+      option_id as optionId, granted, created_at as createdAt
+    FROM acp_stored_permissions
+    WHERE agent_id = ?
+      AND permission_type = ?
+      AND (tool_name = ? OR (tool_name IS NULL AND ? IS NULL))
+      AND (file_pattern = ? OR (file_pattern IS NULL AND ? IS NULL))
+  `);
+
+  const result = stmt.get(
+    agentId,
+    permissionType,
+    toolName || null,
+    toolName || null,
+    filePattern || null,
+    filePattern || null
+  ) as {
+    id: number;
+    agentId: string;
+    permissionType: string;
+    toolName: string | null;
+    filePattern: string | null;
+    optionId: string;
+    granted: number;
+    createdAt: number;
+  } | undefined;
+
+  if (!result) return null;
+
+  return {
+    ...result,
+    granted: result.granted === 1,
+  };
+}
+
+/**
+ * Get all stored permissions for an agent
+ * TODO: Wire up to IPC handler for settings UI to view/manage stored permissions
+ */
+export function getStoredPermissionsByAgent(agentId: string): StoredPermission[] {
+  const database = getDatabase();
+
+  const stmt = database.prepare(`
+    SELECT
+      id, agent_id as agentId, permission_type as permissionType,
+      tool_name as toolName, file_pattern as filePattern,
+      option_id as optionId, granted, created_at as createdAt
+    FROM acp_stored_permissions
+    WHERE agent_id = ?
+    ORDER BY created_at DESC
+  `);
+
+  const results = stmt.all(agentId) as Array<{
+    id: number;
+    agentId: string;
+    permissionType: string;
+    toolName: string | null;
+    filePattern: string | null;
+    optionId: string;
+    granted: number;
+    createdAt: number;
+  }>;
+
+  return results.map((r) => ({
+    ...r,
+    granted: r.granted === 1,
+  }));
+}
+
+/**
+ * Clear stored permissions for an agent (or all if no agentId)
+ * TODO: Wire up to IPC handler for settings UI to clear stored permissions
+ */
+export function clearStoredPermissions(agentId?: string): void {
+  const database = getDatabase();
+
+  if (agentId) {
+    const stmt = database.prepare(
+      "DELETE FROM acp_stored_permissions WHERE agent_id = ?"
+    );
+    stmt.run(agentId);
+    console.log(`[SessionPersistence] Cleared permissions for agent: ${agentId}`);
+  } else {
+    database.exec("DELETE FROM acp_stored_permissions");
+    console.log("[SessionPersistence] Cleared all stored permissions");
+  }
 }
 
 /**

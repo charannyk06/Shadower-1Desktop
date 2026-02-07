@@ -15,6 +15,8 @@ import {
   deleteOldSessions,
   getSessionStats,
   saveMessage,
+  storePermission,
+  getStoredPermission,
   type PersistedSession,
   type SessionState,
 } from "../services/session-persistence";
@@ -388,8 +390,33 @@ export function registerACPHandlers(): void {
   ipcMain.handle(
     "acp:respond-permission",
     async (_event, request: RespondToPermissionRequest): Promise<void> => {
+      // Get permission details before responding (so we can store if needed)
+      const permissionDetails = manager.getPermissionRequestDetails(
+        request.requestId
+      );
+
+      // Send the response to the agent
       manager.respondToPermission(request.requestId, request.optionId);
-      // TODO: If rememberGlobally is true, store in database
+
+      // Store permission if rememberGlobally is true
+      if (request.rememberGlobally && permissionDetails) {
+        const selectedOption = permissionDetails.options.find(
+          (o) => o.id === request.optionId
+        );
+        const granted = selectedOption?.grants !== false;
+
+        storePermission(
+          permissionDetails.agentId,
+          permissionDetails.permissionType || "unknown",
+          request.optionId,
+          granted,
+          permissionDetails.toolName,
+          permissionDetails.filePath
+        );
+        console.log(
+          `[IPC] Stored global permission for ${permissionDetails.agentId}: ${permissionDetails.permissionType} -> ${granted ? "granted" : "denied"}`
+        );
+      }
     },
   );
 
@@ -526,6 +553,114 @@ export function registerACPHandlers(): void {
         throw serializeError(error);
       }
     },
+  );
+
+  // ============================================================================
+  // SESSION AUTO-RESUME HANDLER
+  // ============================================================================
+
+  /**
+   * Safely parse JSON content, returning the raw string if parsing fails
+   */
+  function safeParseMessageContent(content: string): unknown {
+    try {
+      return JSON.parse(content);
+    } catch (error) {
+      console.warn(`[IPC] Failed to parse message content as JSON, using raw string`);
+      return content;
+    }
+  }
+
+  /**
+   * Attempt to auto-resume a previous session for a thread
+   * Returns session info and messages if resumable
+   */
+  ipcMain.handle(
+    "acp:attempt-auto-resume",
+    async (
+      _event,
+      threadId: string
+    ): Promise<{
+      resumed: boolean;
+      sessionId?: string;
+      agentId?: string;
+      messages?: Array<{
+        id: string;
+        role: string;
+        content: unknown;
+        createdAt: number;
+      }>;
+    }> => {
+      console.log(`[IPC] acp:attempt-auto-resume called for thread: ${threadId}`);
+
+      // Check if there's a session to resume
+      const autoResumeInfo = getAutoResumeSession(threadId);
+      if (!autoResumeInfo || !autoResumeInfo.shouldResume) {
+        return { resumed: false };
+      }
+
+      // Get the persisted session
+      const persistedSession = getSession(autoResumeInfo.sessionId);
+      if (!persistedSession) {
+        console.log(
+          `[IPC] Persisted session not found: ${autoResumeInfo.sessionId}`
+        );
+        return { resumed: false };
+      }
+
+      // Get persisted messages
+      const messages = getSessionMessages(autoResumeInfo.sessionId);
+
+      // Try to start the agent if needed
+      try {
+        await manager.startAgent(autoResumeInfo.agentId);
+      } catch (error) {
+        console.error(
+          `[IPC] Failed to start agent for auto-resume:`,
+          error
+        );
+        return { resumed: false };
+      }
+
+      // Check if agent supports session resume
+      const capabilities = manager.getAgentCapabilities(autoResumeInfo.agentId);
+      if (capabilities?.sessionResume) {
+        // Use native session resume
+        try {
+          const session = await manager.resumeSession(
+            autoResumeInfo.agentId,
+            autoResumeInfo.sessionId,
+            persistedSession.workingDirectory
+          );
+          return {
+            resumed: true,
+            sessionId: session.sessionId,
+            agentId: autoResumeInfo.agentId,
+            messages: messages.map((m) => ({
+              id: m.messageId,
+              role: m.role,
+              content: safeParseMessageContent(m.content),
+              createdAt: m.createdAt,
+            })),
+          };
+        } catch (error) {
+          console.error(`[IPC] Native session resume failed:`, error);
+        }
+      }
+
+      // Fallback: return messages for UI to display (no real session resume)
+      return {
+        resumed: true,
+        sessionId: autoResumeInfo.sessionId,
+        agentId: autoResumeInfo.agentId,
+        messages: messages.map((m) => ({
+          id: m.messageId,
+          role: m.role,
+          content: safeParseMessageContent(m.content),
+          createdAt: m.createdAt,
+        })),
+      };
+    }
   );
 
   // ============================================================================
