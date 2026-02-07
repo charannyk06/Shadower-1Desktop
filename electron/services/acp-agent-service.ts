@@ -399,8 +399,10 @@ function mapStopReason(stopReason?: string | null): NormalizedStopReason {
 
 /**
  * Check if stop reason indicates the agent wants to use tools
+ * @internal Utility function for potential future use
  */
-function isToolUseStopReason(stopReason?: string | null): boolean {
+// @ts-ignore - Utility function kept for future use
+function _isToolUseStopReason(stopReason?: string | null): boolean {
   if (!stopReason) return false;
   const normalized = stopReason.toLowerCase().replace(/_/g, "");
   return normalized === "tooluse" || normalized === "tool";
@@ -1957,10 +1959,10 @@ export class ACPAgentManager extends EventEmitter {
         const permissionType = this._mapToolKindToPermissionType(
           params.toolCall?.kind
         );
-        const toolName = params.toolCall?.title;
+        const toolName = params.toolCall?.title ?? undefined;
         // Extract file path from toolCall if available (type assertion needed as location is optional)
         const toolCallWithLocation = params.toolCall as { location?: { path?: string } } | undefined;
-        const filePath = toolCallWithLocation?.location?.path;
+        const filePath = toolCallWithLocation?.location?.path ?? undefined;
 
         // Check for stored permission (auto-approval)
         const storedPermission = getStoredPermission(
@@ -2121,31 +2123,28 @@ export class ACPAgentManager extends EventEmitter {
       },
 
       // Terminal operations - spawn shell process and stream output
-      createTerminal: async (params: {
-        terminalId?: string;
-        cwd?: string;
-        label?: string;
-        sessionId?: string;
-      }) => {
+      createTerminal: async (params) => {
         console.log(`[ACP] createTerminal request:`, params);
 
-        // Generate terminal ID if not provided
-        const terminalId = params.terminalId || crypto.randomUUID();
-        const cwd = params.cwd || session?.workingDirectory || process.cwd();
+        // Generate terminal ID
+        const terminalId = crypto.randomUUID();
+        // Look up session working directory from the agent's active sessions
+        const activeAgentForTerminal = this.agents.get(agentId);
+        const activeSession = activeAgentForTerminal?.sessions.values().next().value;
+        const cwd = params.cwd || (activeSession as { workingDirectory?: string })?.workingDirectory || process.cwd();
+
+        // Build environment from params.env array if provided
+        const envOverrides: Record<string, string> = {};
+        if (params.env) {
+          for (const e of params.env) {
+            envOverrides[e.name] = e.value;
+          }
+        }
 
         try {
-          // Use platform-specific shell
-          const shell =
-            process.platform === "win32"
-              ? process.env.COMSPEC || "cmd.exe"
-              : process.env.SHELL || "/bin/sh";
-
-          const shellArgs =
-            process.platform === "win32" ? [] : ["-i"]; // Interactive mode on Unix
-
-          const terminalProcess = spawn(shell, shellArgs, {
+          const terminalProcess = spawn(params.command, params.args || [], {
             cwd,
-            env: { ...process.env, TERM: "xterm-256color" },
+            env: { ...process.env, TERM: "xterm-256color", ...envOverrides },
             stdio: ["pipe", "pipe", "pipe"],
           });
 
@@ -2155,14 +2154,14 @@ export class ACPAgentManager extends EventEmitter {
             process: terminalProcess,
             cwd,
             sessionId: params.sessionId,
-            agentId: config.id,
+            agentId,
           };
           this._terminals.set(terminalId, terminalInfo);
 
           // Stream stdout
           terminalProcess.stdout?.on("data", (data: Buffer) => {
             this.emit("terminal-output", {
-              agentId: config.id,
+              agentId,
               sessionId: params.sessionId,
               terminalId,
               data: data.toString(),
@@ -2172,7 +2171,7 @@ export class ACPAgentManager extends EventEmitter {
           // Stream stderr
           terminalProcess.stderr?.on("data", (data: Buffer) => {
             this.emit("terminal-output", {
-              agentId: config.id,
+              agentId,
               sessionId: params.sessionId,
               terminalId,
               data: data.toString(),
@@ -2182,7 +2181,7 @@ export class ACPAgentManager extends EventEmitter {
           // Handle exit
           terminalProcess.on("exit", (code, signal) => {
             this.emit("terminal-exit", {
-              agentId: config.id,
+              agentId,
               sessionId: params.sessionId,
               terminalId,
               exitCode: code ?? undefined,
@@ -2195,7 +2194,7 @@ export class ACPAgentManager extends EventEmitter {
           terminalProcess.on("error", (err) => {
             console.error(`[ACP] Terminal ${terminalId} error:`, err);
             this.emit("terminal-exit", {
-              agentId: config.id,
+              agentId,
               sessionId: params.sessionId,
               terminalId,
               exitCode: 1,
@@ -2205,11 +2204,10 @@ export class ACPAgentManager extends EventEmitter {
 
           // Emit terminal created event
           this.emit("terminal-created", {
-            agentId: config.id,
+            agentId,
             sessionId: params.sessionId,
             terminalId,
             cwd,
-            label: params.label,
           });
 
           console.log(`[ACP] Terminal ${terminalId} created successfully`);

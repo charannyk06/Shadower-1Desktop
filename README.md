@@ -12,7 +12,7 @@
 
 **Shadower** is a comprehensive **Agentic Orchestration Platform** built for the modern enterprise. It abandons legacy script-based automation in favor of intelligent, state-aware agents that live within your infrastructure.
 
-Built on **Next.js 16** and the **Vercel AI SDK**, Shadower provides a complete, self-hosted environments for building, testing, and deploying complex AI agents that can browse the web, execute code, and control your SaaS applications.
+Built on **Electron**, **React**, and the **Vercel AI SDK**, Shadower provides a complete, local-first desktop environment for building, testing, and deploying complex AI agents that can browse the web, execute code, and control your SaaS applications.
 
 <br/>
 
@@ -32,11 +32,11 @@ Built on **Next.js 16** and the **Vercel AI SDK**, Shadower provides a complete,
 
 Shadower is engineered with a modern, high-performance architecture designed for scalability and ease of deployment.
 
-*   **Framework**: [Next.js 16](https://nextjs.org) (App Router, Server Actions)
+*   **Framework**: [Electron 40](https://www.electronjs.org/) + [React 18](https://react.dev/) + [Vite 5](https://vite.dev/)
 *   **AI Engine**: [Vercel AI SDK](https://sdk.vercel.ai) (StreamText, Generative UI)
-*   **Database**: PostgreSQL 17 (via Docker)
+*   **Database**: SQLite (local, via better-sqlite3) with optional PostgreSQL
 *   **ORM**: Drizzle ORM
-*   **Caching/Queue**: Redis (via Docker)
+*   **Router**: TanStack Router (hash-based for Electron file:// protocol)
 *   **Styling**: Tailwind CSS v4, Framer Motion, Shadcn UI
 *   **Testing**: Playwright (E2E), Vitest (Unit)
 
@@ -91,19 +91,15 @@ pnpm docker-compose:up
 
 ### **Local Development** 🚀
 
-Run the Next.js app locally for rapid development, while keeping services in Docker.
+Run the Electron desktop app locally for rapid development.
 
 ```bash
-# 1. Start Services (Postgres, Redis)
-pnpm docker:pg
-pnpm docker:redis
+# 1. Install dependencies
+pnpm install
 
-# 2. Run Migrations
-pnpm db:migrate
-
-# 3. Start Development Server
+# 2. Start Development (Electron + Vite dev server)
 pnpm dev
-# App is running at http://localhost:3000
+# Electron app launches with hot-reloading via Vite on localhost:5173
 ```
 
 ---
@@ -140,7 +136,7 @@ MICROSOFT_CLIENT_ID=...
 
 ## **Roadmap**
 
-*   [x] **Next.js 16 Migration**
+*   [x] **Electron Desktop Migration**
 *   [x] **Theater Mode V3** (High-Fidelity Artifacts)
 *   [x] **MCP Native Integration**
 *   [ ] **RAG Knowledge Base** (Vector Store Integration)
@@ -158,4 +154,4 @@ For custom integrations, on-premise deployment, or SLAs:
 
 ---
 
-*Powered by Next.js 16 & Vercel AI SDK.*
+*Powered by Electron, React & Vercel AI SDK.*
