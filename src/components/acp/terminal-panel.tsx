@@ -117,8 +117,8 @@ const LIGHT_THEME = {
  * Terminal Panel with xterm.js
  */
 export const TerminalPanel = memo(function TerminalPanel({
-  terminalId,
-  sessionId,
+  terminalId: _terminalId,
+  sessionId: _sessionId,
   cwd,
   label,
   initialContent,

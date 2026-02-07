@@ -1,22 +1,22 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- App code lives in `src`.
-  - `src/app` (Next.js routes, API, middleware)
+- App code lives in `src` (renderer) and `electron` (main process).
+  - `electron/` (Electron main process: IPC handlers, services, preload)
   - `src/components` (UI; reusable components in PascalCase)
   - `src/lib` (helpers: auth, db, ai, validations, etc.)
   - `src/hooks` (React hooks: `useX`)
-- Assets in `public/`. End‑to‑end tests in `tests/`. Scripts in `scripts/`. Docker files in `docker/`.
+  - `src/routes` (TanStack Router page components)
+- Assets in `public/`. End‑to‑end tests in `tests/`. Scripts in `scripts/`. Resources in `resources/`.
 
 ## Build, Test, and Development Commands
-- `pnpm dev` — Run the app locally (Next.js dev server).
-- `pnpm build` / `pnpm start` — Production build and run.
-- `pnpm lint` / `pnpm lint:fix` — ESLint + Biome checks and autofix.
+- `pnpm dev` — Run the app locally (Electron + Vite dev server).
+- `pnpm build` — Production build (Electron compile + Vite build + electron-builder).
+- `pnpm lint` / `pnpm lint:fix` — Biome checks and autofix.
 - `pnpm format` — Format with Biome.
 - `pnpm test` / `pnpm test:watch` — Unit tests (Vitest).
 - `pnpm test:e2e` — Playwright tests; uses `playwright.config.ts` webServer.
-- DB: `pnpm db:push`, `pnpm db:studio`, `pnpm db:migrate` (Drizzle Kit).
-- Docker: `pnpm docker-compose:up` / `:down` to run local stack.
+- DB: `pnpm db:push`, `pnpm db:studio`, `pnpm db:migrate` (Drizzle Kit, SQLite local).
 
 ## Coding Style & Naming Conventions
 - TypeScript everywhere. Prefer `zod` for validation.
