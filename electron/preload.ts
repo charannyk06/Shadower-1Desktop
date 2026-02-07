@@ -1866,6 +1866,25 @@ export interface ElectronAPI {
     deletePersistedSession: (sessionId: string) => Promise<void>;
     updateSessionState: (sessionId: string, state: string) => Promise<void>;
     updateSessionTitle: (sessionId: string, title: string) => Promise<void>;
+    getSessionStats: () => Promise<{
+      total: number;
+      active: number;
+      completed: number;
+      error: number;
+    }>;
+    setSessionAutoResume: (data: {
+      threadId: string;
+      sessionId: string;
+      agentId: string;
+      shouldResume: boolean;
+    }) => Promise<void>;
+    getAutoResumeSession: (threadId: string) => Promise<{
+      sessionId: string;
+      agentId: string;
+      shouldResume: boolean;
+    } | null>;
+    clearAutoResume: (threadId: string) => Promise<void>;
+    cleanupOldSessions: (olderThanDays?: number) => Promise<number>;
   };
 
   // Cloud License operations (Shadower cloud authentication and license validation)
@@ -3254,6 +3273,20 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke("acp:update-session-state", sessionId, state),
     updateSessionTitle: (sessionId: string, title: string) =>
       ipcRenderer.invoke("acp:update-session-title", sessionId, title),
+    getSessionStats: () =>
+      ipcRenderer.invoke("acp:get-session-stats"),
+    setSessionAutoResume: (data: {
+      threadId: string;
+      sessionId: string;
+      agentId: string;
+      shouldResume: boolean;
+    }) => ipcRenderer.invoke("acp:set-session-auto-resume", data),
+    getAutoResumeSession: (threadId: string) =>
+      ipcRenderer.invoke("acp:get-auto-resume-session", threadId),
+    clearAutoResume: (threadId: string) =>
+      ipcRenderer.invoke("acp:clear-auto-resume", threadId),
+    cleanupOldSessions: (olderThanDays?: number) =>
+      ipcRenderer.invoke("acp:cleanup-old-sessions", olderThanDays),
   },
 
   // Cloud License operations (Shadower cloud authentication and license validation)

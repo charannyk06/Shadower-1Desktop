@@ -14,7 +14,7 @@
 
 "use client";
 
-import  { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -416,9 +415,15 @@ export function useSessionPersistence() {
   } | null>(null);
   
   const fetchStats = useCallback(async () => {
-    // TODO: Implement get-session-stats IPC handler
-    // For now, stats are not fetched
-    setStats(null);
+    try {
+      const api = getElectronAPI()?.acp as { getSessionStats?: () => Promise<{ total: number; active: number; completed: number; error: number }> } | undefined;
+      if (api?.getSessionStats) {
+        const result = await api.getSessionStats();
+        setStats(result);
+      }
+    } catch (error) {
+      console.error("[useSessionPersistence] Failed to fetch stats:", error);
+    }
   }, []);
   
   const saveSession = useCallback(async (
@@ -446,23 +451,45 @@ export function useSessionPersistence() {
   }, []);
   
   const setAutoResume = useCallback(async (
-    _threadId: string,
-    _sessionId: string,
-    _agentId: string,
-    _shouldResume: boolean
+    threadId: string,
+    sessionId: string,
+    agentId: string,
+    shouldResume: boolean
   ) => {
-    // TODO: Implement auto-resume IPC handler
-    // For now, auto-resume is not set
+    try {
+      const api = getElectronAPI()?.acp as { setSessionAutoResume?: (data: { threadId: string; sessionId: string; agentId: string; shouldResume: boolean }) => Promise<void> } | undefined;
+      if (api?.setSessionAutoResume) {
+        await api.setSessionAutoResume({ threadId, sessionId, agentId, shouldResume });
+      }
+    } catch (error) {
+      console.error("[useSessionPersistence] Failed to set auto-resume:", error);
+    }
   }, []);
   
-  const getAutoResumeSession = useCallback(async (_threadId: string) => {
-    // TODO: Implement auto-resume session lookup
-    return null;
+  const getAutoResumeSession = useCallback(async (threadId: string) => {
+    try {
+      const api = getElectronAPI()?.acp as { getAutoResumeSession?: (threadId: string) => Promise<{ sessionId: string; agentId: string; shouldResume: boolean } | null> } | undefined;
+      if (api?.getAutoResumeSession) {
+        return await api.getAutoResumeSession(threadId);
+      }
+      return null;
+    } catch (error) {
+      console.error("[useSessionPersistence] Failed to get auto-resume session:", error);
+      return null;
+    }
   }, []);
   
-  const cleanupOldSessions = useCallback(async (_olderThanDays: number = 30) => {
-    // TODO: Implement cleanup-old-sessions IPC handler
-    return 0;
+  const cleanupOldSessions = useCallback(async (olderThanDays: number = 30) => {
+    try {
+      const api = getElectronAPI()?.acp as { cleanupOldSessions?: (days?: number) => Promise<number> } | undefined;
+      if (api?.cleanupOldSessions) {
+        return await api.cleanupOldSessions(olderThanDays);
+      }
+      return 0;
+    } catch (error) {
+      console.error("[useSessionPersistence] Failed to cleanup old sessions:", error);
+      return 0;
+    }
   }, []);
   
   useEffect(() => {
