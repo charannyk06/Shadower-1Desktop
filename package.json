@@ -14,6 +14,7 @@
     "build:mac": "pnpm build -- --mac",
     "build:win": "pnpm build -- --win",
     "build:linux": "pnpm build -- --linux",
+    "build:local": "pnpm electron:compile && vite build --config vite.config.ts",
     "preview": "vite preview --config vite.config.ts",
     "electron:compile": "node scripts/build-electron.mjs",
     "electron:start": "ELECTRON_RUN_AS_NODE= electron .",
