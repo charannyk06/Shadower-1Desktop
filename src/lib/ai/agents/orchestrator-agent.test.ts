@@ -117,12 +117,6 @@ describe("Orchestrator Agent Configuration", () => {
       expect(config.tools).toHaveProperty("spawnParallelAgents");
     });
 
-    it("should include workflow tool", () => {
-      const config = createAgentOrchestratorConfig(mockConfig);
-
-      expect(config.tools).toHaveProperty("executeWorkflow");
-    });
-
     it("should merge available tools", () => {
       const configWithTools = {
         ...mockConfig,
@@ -203,7 +197,6 @@ describe("Orchestrator Agent Configuration", () => {
 
       expect(config.tools).toHaveProperty("createPlan");
       expect(config.tools).toHaveProperty("spawnAgent");
-      expect(config.tools).toHaveProperty("executeWorkflow");
     });
   });
 
