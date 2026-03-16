@@ -1,4 +1,4 @@
-# Contributing to Islamabad
+# Contributing to Shadower
 
 ## Commit Message Format
 

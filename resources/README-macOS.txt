@@ -35,5 +35,5 @@ If you still can't open the app, try:
 
 SUPPORT
 -------
-GitHub: https://github.com/charannyk06/Shadower-1Desktop
+GitHub: https://github.com/shadower-app/Shadower-Desktop
 Website: https://shadower.io
