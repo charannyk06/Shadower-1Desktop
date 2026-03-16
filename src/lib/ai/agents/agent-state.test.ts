@@ -388,7 +388,7 @@ describe("Tool Call Tracking", () => {
 
       expect(result.allowed).toBeTruthy();
       expect(result.count).toBe(1);
-      expect(result.limit).toBe(10); // MAX_TOOL_CALLS_PER_TOOL default
+      expect(result.limit).toBe(20); // webSearch has specific limit of 20
     });
 
     it("should track multiple calls to same tool", () => {
@@ -412,19 +412,19 @@ describe("Tool Call Tracking", () => {
       expect(resultB.count).toBe(2);
     });
 
-    it("should block tool after exceeding default limit (10)", () => {
-      // Call tool 10 times (default limit)
-      for (let i = 0; i < 10; i++) {
-        const result = ctx.trackToolCall("webSearch");
+    it("should block tool after exceeding default limit (15)", () => {
+      // Call tool 15 times (default limit for unknown tools)
+      for (let i = 0; i < 15; i++) {
+        const result = ctx.trackToolCall("someUnknownTool");
         expect(result.allowed).toBeTruthy();
         expect(result.count).toBe(i + 1);
       }
 
-      // 11th call should be blocked
-      const result = ctx.trackToolCall("webSearch");
+      // 16th call should be blocked
+      const result = ctx.trackToolCall("someUnknownTool");
       expect(result.allowed).toBeFalsy();
-      expect(result.count).toBe(11);
-      expect(result.limit).toBe(10);
+      expect(result.count).toBe(16);
+      expect(result.limit).toBe(15);
     });
 
     it("should have higher limit (25) for updateTaskStatus", () => {
