@@ -478,14 +478,14 @@ describe("Tool Call Tracking", () => {
       expect(result.limit).toBe(15);
     });
 
-    it("should have higher limit (10) for getAllContext", () => {
+    it("should have higher limit (15) for getAllContext", () => {
       const result = ctx.trackToolCall("getAllContext");
-      expect(result.limit).toBe(10);
+      expect(result.limit).toBe(15);
     });
 
     it("should use default limit for unknown tools", () => {
       const result = ctx.trackToolCall("unknownTool");
-      expect(result.limit).toBe(10); // MAX_TOOL_CALLS_PER_TOOL
+      expect(result.limit).toBe(15); // MAX_TOOL_CALLS_PER_TOOL
     });
   });
 
@@ -531,8 +531,8 @@ describe("Tool Call Tracking", () => {
     });
 
     it("should allow previously blocked tools after reset", () => {
-      // Exhaust limit for a tool
-      for (let i = 0; i < 11; i++) {
+      // Exhaust limit for a tool (webSearch limit is 20)
+      for (let i = 0; i < 21; i++) {
         ctx.trackToolCall("webSearch");
       }
 
@@ -564,7 +564,7 @@ describe("Tool Call Tracking", () => {
     it("should handle empty string tool name", () => {
       const result = ctx.trackToolCall("");
       expect(result.count).toBe(1);
-      expect(result.limit).toBe(10);
+      expect(result.limit).toBe(15);
     });
 
     it("should handle tool names with special characters", () => {
