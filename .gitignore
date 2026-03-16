@@ -81,3 +81,12 @@ index.js
 .swarm/
 .mcp.json
 CLAUDE.md
+
+# Electron compiled output (rebuild from TypeScript source)
+electron/main.js
+electron/main.js.map
+electron/preload.js
+electron/preload.js.map
+
+# Gemini
+.gemini/

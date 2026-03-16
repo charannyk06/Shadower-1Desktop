@@ -6,7 +6,7 @@
  * one-click downloads for Windows and macOS.
  *
  * Usage:
- *   <script src="https://cdn.jsdelivr.net/gh/charannyk06/Shadower-1Desktop@main/public/downloads/shadower-downloads.js"></script>
+ *   <script src="shadower-downloads.js"></script>
  *   <button onclick="ShadowerDownloads.download('windows')">Download for Windows</button>
  *   <button onclick="ShadowerDownloads.download('mac')">Download for macOS</button>
  */
@@ -14,8 +14,8 @@
 (function(global) {
   'use strict';
 
-  const GITHUB_OWNER = 'charannyk06';
-  const GITHUB_REPO = 'Shadower-1Desktop';
+  const GITHUB_OWNER = 'shadower-app';
+  const GITHUB_REPO = 'Shadower-Desktop';
   const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
   const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 

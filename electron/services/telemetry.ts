@@ -19,7 +19,7 @@ interface TelemetryPayload {
 
 export class TelemetryService {
   private machineId: string;
-  private enabled: boolean = true;
+  private enabled: boolean = false;
 
   constructor() {
     // Anonymous machine ID (hashed, not reversible to actual machine info)

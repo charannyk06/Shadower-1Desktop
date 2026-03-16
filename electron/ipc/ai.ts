@@ -2620,7 +2620,7 @@ function createElectronTools(
           const isWindows = os.platform() === "win32";
 
           // Create multiple patterns to handle spaces vs underscores vs hyphens
-          // "Charannyan Kannan" should match "Charannyan_Kannan", "Charannyan-Kannan", etc.
+          // "John Doe" should match "John_Doe", "John-Doe", etc.
           const simplePattern = pattern.trim();
           const underscorePattern = pattern.replace(/\s+/g, "_");
           const hyphenPattern = pattern.replace(/\s+/g, "-");

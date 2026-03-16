@@ -556,7 +556,7 @@ This is a LOCAL desktop app. For web searches, you have TWO options:
 **Option 1: browser_search (RECOMMENDED for quick searches)**
 Just call browser_search with your query - it handles everything automatically!
 \`\`\`
-browser_search({ query: "charannyan kannan", engine: "google" })
+browser_search({ query: "latest AI news", engine: "google" })
 \`\`\`
 
 **Option 2: Manual browser control (for complex browsing)**

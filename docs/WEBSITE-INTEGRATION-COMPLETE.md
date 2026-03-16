@@ -20,8 +20,8 @@ This approach uses GitHub's built-in redirect feature - no API calls, no rate li
  */
 const ShadowerDownloader = {
   // GitHub repository info
-  owner: 'charannyk06',
-  repo: 'Shadower-1Desktop',
+  owner: 'shadower-app',
+  repo: 'Shadower-Desktop',
 
   // Direct download base URL (GitHub auto-redirects to latest)
   getBaseUrl() {
@@ -322,9 +322,9 @@ files: {
 ```
 
 **Download URLs:**
-- **Windows**: `https://github.com/charannyk06/Shadower-1Desktop/releases/latest/download/Shadower.Setup.1.0.0.exe`
-- **macOS ARM**: `https://github.com/charannyk06/Shadower-1Desktop/releases/latest/download/Shadower-1.0.0-arm64.dmg`
-- **macOS Intel**: `https://github.com/charannyk06/Shadower-1Desktop/releases/latest/download/Shadower-1.0.0.dmg`
+- **Windows**: `https://github.com/shadower-app/Shadower-Desktop/releases/latest/download/Shadower.Setup.1.0.0.exe`
+- **macOS ARM**: `https://github.com/shadower-app/Shadower-Desktop/releases/latest/download/Shadower-1.0.0-arm64.dmg`
+- **macOS Intel**: `https://github.com/shadower-app/Shadower-Desktop/releases/latest/download/Shadower-1.0.0.dmg`
 
 ---
 
@@ -383,8 +383,8 @@ files: {
 
   <script>
     const ShadowerDownloader = {
-      owner: 'charannyk06',
-      repo: 'Shadower-1Desktop',
+      owner: 'shadower-app',
+      repo: 'Shadower-Desktop',
 
       // Exact file names from v1.0.3 release
       files: {

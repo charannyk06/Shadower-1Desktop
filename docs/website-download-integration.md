@@ -10,7 +10,7 @@ Include the download script and use data attributes:
 
 ```html
 <!-- Include the download helper script -->
-<script src="https://cdn.jsdelivr.net/gh/charannyk06/Shadower-1Desktop@main/public/downloads/shadower-downloads.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/shadower-app/Shadower-Desktop@main/public/downloads/shadower-downloads.js"></script>
 
 <!-- Download buttons with data attributes -->
 <button data-download="windows">
@@ -32,7 +32,7 @@ Include the download script and use data attributes:
 ### Option 2: Direct Function Calls
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/charannyk06/Shadower-1Desktop@main/public/downloads/shadower-downloads.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/shadower-app/Shadower-Desktop@main/public/downloads/shadower-downloads.js"></script>
 
 <button onclick="ShadowerDownloads.download('windows')">
   Download for Windows
@@ -49,7 +49,7 @@ Use GitHub's release redirect feature for simple static links:
 
 ```html
 <!-- These always point to the latest release -->
-<a href="https://github.com/charannyk06/Shadower-1Desktop/releases/latest">
+<a href="https://github.com/shadower-app/Shadower-Desktop/releases/latest">
   Download Shadower
 </a>
 ```
@@ -172,7 +172,7 @@ ShadowerDownloads.init({
     </button>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/gh/charannyk06/Shadower-1Desktop@main/public/downloads/shadower-downloads.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/shadower-app/Shadower-Desktop@main/public/downloads/shadower-downloads.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
       ShadowerDownloads.init();
@@ -220,7 +220,7 @@ Users don't need to re-download from the website for updates.
 
 ### Downloads not working?
 
-1. Check that releases exist at: https://github.com/charannyk06/Shadower-1Desktop/releases
+1. Check that releases exist at: https://github.com/shadower-app/Shadower-Desktop/releases
 2. Ensure release assets have the expected naming convention
 3. Check browser console for any errors
 

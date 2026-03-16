@@ -115,8 +115,8 @@
   },
   "publish": {
     "provider": "github",
-    "owner": "charannyk06",
-    "repo": "Shadower-1Desktop"
+    "owner": "${GH_OWNER:-shadower-app}",
+    "repo": "${GH_REPO:-Shadower-Desktop}"
   },
   "buildDependenciesFromSource": false,
   "npmRebuild": true,
